@@ -1,6 +1,6 @@
 # Story 0.11: Set Up GitHub Actions CI Pipeline
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 

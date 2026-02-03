@@ -3,7 +3,6 @@ import * as fs from 'fs';
 import * as path from 'path';
 
 declare global {
-  // eslint-disable-next-line no-var
   var __POSTGRES_CONTAINER__: StartedPostgreSqlContainer | undefined;
 }
 
