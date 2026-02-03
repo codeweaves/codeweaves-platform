@@ -1,0 +1,322 @@
+# generated: 2026-02-03
+# project: codeweaves-platform
+# project_key: NOKEY
+# tracking_system: file-system
+# story_location: "{project-root}/_bmad-output/implementation-artifacts"
+
+# STATUS DEFINITIONS:
+# ==================
+# Epic Status:
+#   - backlog: Epic not yet started
+#   - in-progress: Epic actively being worked on
+#   - done: All stories in epic completed
+#
+# Epic Status Transitions:
+#   - backlog → in-progress: Automatically when first story is created (via create-story)
+#   - in-progress → done: Manually when all stories reach 'done' status
+#
+# Story Status:
+#   - backlog: Story only exists in epic file
+#   - ready-for-dev: Story file created in stories folder
+#   - in-progress: Developer actively working on implementation
+#   - review: Ready for code review (via Dev's code-review workflow)
+#   - done: Story completed
+#
+# Retrospective Status:
+#   - optional: Can be completed but not required
+#   - done: Retrospective has been completed
+#
+# WORKFLOW NOTES:
+# ===============
+# - Epic transitions to 'in-progress' automatically when first story is created
+# - Stories can be worked in parallel if team capacity allows
+# - SM typically creates next story after previous one is 'done' to incorporate learnings
+# - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
+
+generated: 2026-02-03
+project: codeweaves-platform
+project_key: NOKEY
+tracking_system: file-system
+story_location: "_bmad-output/implementation-artifacts"
+
+development_status:
+  # ============================================
+  # Epic 0: Project Foundation & Developer Environment
+  # Priority: P0 (FIRST - blocks all other epics)
+  # Stories: 12
+  # ============================================
+  epic-0: in-progress
+  0-1-initialize-turborepo-monorepo-structure: done
+  0-2-remove-default-docs-app: done
+  0-3-scaffold-nestjs-backend-application: done
+  0-4-create-shared-contracts-validation-package: done
+  0-5-configure-prisma-orm-with-postgresql: done
+  0-6-set-up-typescript-strict-configuration: done
+  0-7-configure-eslint-with-shared-rules: done
+  0-8-create-docker-compose-for-local-development: done
+  0-9-set-up-environment-configuration: done
+  0-10-configure-jest-test-infrastructure: done
+  0-11-set-up-github-actions-ci-pipeline: backlog
+  0-12-scaffold-preact-widget-application: done
+  epic-0-retrospective: optional
+
+  # ============================================
+  # Epic 1: User Authentication & Account Management
+  # Priority: P0
+  # Stories: 10
+  # Dependencies: Epic 0
+  # ============================================
+  epic-1: backlog
+  1-1-configure-auth0-application-and-api: backlog
+  1-2-implement-jwt-verification-strategy-in-nestjs: backlog
+  1-3-create-authguard-for-protected-routes: backlog
+  1-4-implement-user-model-and-database-schema: backlog
+  1-5-create-user-sync-on-first-login: backlog
+  1-6-implement-user-invitation-system: backlog
+  1-7-implement-invitation-acceptance-flow: backlog
+  1-8-implement-user-profile-api: backlog
+  1-9-implement-dashboard-auth0-integration: backlog
+  1-10-create-protected-dashboard-routes: backlog
+  epic-1-retrospective: optional
+
+  # ============================================
+  # Epic 2: Multi-Tenant Organization Management
+  # Priority: P0
+  # Stories: 8
+  # Dependencies: Epic 0, Epic 1
+  # Test Priority: P0 (Tenant Isolation suite - CRITICAL)
+  # ============================================
+  epic-2: backlog
+  2-1-implement-organization-model-and-schema: backlog
+  2-2-create-organization-crud-api: backlog
+  2-3-implement-tenant-isolation-filter: backlog
+  2-4-create-rolesguard-for-authorization: backlog
+  2-5-implement-evil-twin-test-infrastructure: backlog
+  2-6-create-organization-membership-validation: backlog
+  2-7-implement-organization-dashboard-view: backlog
+  2-8-create-organization-context-provider: backlog
+  epic-2-retrospective: optional
+
+  # ============================================
+  # Epic 3: Agent Creation & Configuration
+  # Priority: P1
+  # Stories: 9
+  # Dependencies: Epic 0, Epic 1, Epic 2
+  # ============================================
+  epic-3: backlog
+  3-1-implement-agent-model-and-schema: backlog
+  3-2-create-agent-crud-api: backlog
+  3-3-generate-url-safe-public-ids: backlog
+  3-4-implement-domain-allowlist-configuration: backlog
+  3-5-create-agentsecret-model-for-sensitive-data: backlog
+  3-6-implement-webhook-url-configuration: backlog
+  3-7-create-agent-status-management: backlog
+  3-8-implement-agent-list-dashboard-page: backlog
+  3-9-create-agent-detail-edit-page: backlog
+  epic-3-retrospective: optional
+
+  # ============================================
+  # Epic 4: Widget Theme Editor & Customization
+  # Priority: P1
+  # Stories: 13
+  # Dependencies: Epic 0, Epic 3
+  # ============================================
+  epic-4: backlog
+  4-1-create-agenttheme-model-and-schema: backlog
+  4-2-create-theme-api-endpoints: backlog
+  4-3-implement-theme-editor-page-layout: backlog
+  4-4-create-formsection-component: backlog
+  4-5-create-colorpicker-component: backlog
+  4-6-create-tabgroup-component: backlog
+  4-7-implement-general-settings-form: backlog
+  4-8-implement-header-settings-form: backlog
+  4-9-implement-chat-appearance-settings-form: backlog
+  4-10-implement-behavior-settings-form: backlog
+  4-11-implement-live-preview-component: backlog
+  4-12-implement-theme-save-and-reset: backlog
+  4-13-implement-branding-settings-form: backlog
+  epic-4-retrospective: optional
+
+  # ============================================
+  # Epic 5: Embeddable Chat Widget
+  # Priority: P1
+  # Stories: 14
+  # Dependencies: Epic 0, Epic 3
+  # NFRs: NFR4 (<200ms load), NFR10 (<150KB bundle)
+  # ============================================
+  epic-5: backlog
+  5-1-scaffold-preact-vite-widget-application: backlog
+  5-2-shadow-dom-initialization-closed-mode: backlog
+  5-3-widget-script-tag-initialization: backlog
+  5-4-widget-configuration-loading-with-etag-caching: backlog
+  5-5-theme-css-variables-injection: backlog
+  5-6-minimized-widget-icon-state: backlog
+  5-7-bubble-notification-display: backlog
+  5-8-expanded-chat-window-state: backlog
+  5-9-chat-message-display: backlog
+  5-10-conversational-starters-display: backlog
+  5-11-typing-indicator-animation: backlog
+  5-12-cors-domain-validation: backlog
+  5-13-widget-window-minimized-state: backlog
+  5-14-bundle-size-optimization: backlog
+  epic-5-retrospective: optional
+
+  # ============================================
+  # Epic 6: Chat Conversation Experience
+  # Priority: P1
+  # Stories: 14
+  # Dependencies: Epic 0, Epic 5, Epic 7
+  # NFRs: NFR1 (<1.5s P95 response)
+  # ============================================
+  epic-6: backlog
+  6-1-chat-session-creation-api: backlog
+  6-2-device-id-generation-and-persistence: backlog
+  6-3-send-message-api-endpoint: backlog
+  6-4-sse-streaming-response-endpoint: backlog
+  6-5-widget-message-input-and-send: backlog
+  6-6-streaming-response-display: backlog
+  6-7-conversation-history-loading: backlog
+  6-8-session-inactivity-window-management: backlog
+  6-9-welcome-message-display: backlog
+  6-10-html-sanitization-for-messages: backlog
+  6-11-auto-scroll-behavior: backlog
+  6-12-message-timestamp-display: backlog
+  6-13-error-message-handling: backlog
+  6-14-chat-message-storage: backlog
+  epic-6-retrospective: optional
+
+  # ============================================
+  # Epic 7: AI Provider Integration & Abstraction
+  # Priority: P1
+  # Stories: 12
+  # Dependencies: Epic 0, Epic 1, Epic 3
+  # Test Priority: P1 (AI Service abstraction suite)
+  # ============================================
+  epic-7: backlog
+  7-1-ai-service-abstraction-interface: backlog
+  7-2-n8n-webhook-provider-implementation: backlog
+  7-3-multiple-response-format-parsing: backlog
+  7-4-system-prompt-builder: backlog
+  7-5-conversation-context-building: backlog
+  7-6-sse-response-streaming-from-backend: backlog
+  7-7-request-timeout-handling: backlog
+  7-8-ai-error-handling-and-fallback-messages: backlog
+  7-9-per-agent-webhook-configuration: backlog
+  7-10-ai-response-metadata-extraction: backlog
+  7-11-ai-service-health-check: backlog
+  7-12-conversation-memory-limit: backlog
+  epic-7-retrospective: optional
+
+  # ============================================
+  # Epic 8: Analytics Dashboard & KPIs
+  # Priority: P2
+  # Stories: 14
+  # Dependencies: Epic 0, Epic 1, Epic 2, Epic 9
+  # ============================================
+  epic-8: backlog
+  8-1-analytics-dashboard-page-layout: backlog
+  8-2-kpi-summary-cards-component: backlog
+  8-3-date-range-filter-component: backlog
+  8-4-conversations-over-time-chart: backlog
+  8-5-response-time-distribution-chart: backlog
+  8-6-message-volume-by-hour-heatmap: backlog
+  8-7-per-agent-analytics-table: backlog
+  8-8-analytics-api-endpoints: backlog
+  8-9-analytics-aggregation-job-bullmq: backlog
+  8-10-real-time-kpi-updates: backlog
+  8-11-conversation-completion-rate-kpi: backlog
+  8-12-user-satisfaction-score-kpi: backlog
+  8-13-export-analytics-data: backlog
+  8-14-analytics-empty-state: backlog
+  epic-8-retrospective: optional
+
+  # ============================================
+  # Epic 9: Event Tracking & Usage Monitoring
+  # Priority: P2
+  # Stories: 12
+  # Dependencies: Epic 0, Epic 5, Epic 6
+  # ============================================
+  epic-9: backlog
+  9-1-usageevent-database-model: backlog
+  9-2-widget-event-tracking-api: backlog
+  9-3-widget-opened-event: backlog
+  9-4-widget-closed-minimized-events: backlog
+  9-5-message-sent-received-events: backlog
+  9-6-user-satisfaction-rating-event: backlog
+  9-7-bulk-event-ingestion-api: backlog
+  9-8-error-event-tracking: backlog
+  9-9-telemetry-extraction-from-ai-responses: backlog
+  9-10-event-correlation-with-sessions: backlog
+  9-11-event-retention-and-cleanup: backlog
+  9-12-event-debugging-dashboard-admin: backlog
+  epic-9-retrospective: optional
+
+  # ============================================
+  # Epic 10: Voice & Multi-Language Support
+  # Priority: P3 (nice-to-have for MVP)
+  # Stories: 13
+  # Dependencies: Epic 0, Epic 5, Epic 6
+  # ============================================
+  epic-10: backlog
+  10-1-voice-feature-toggle-agent-config: backlog
+  10-2-voice-input-button-ui: backlog
+  10-3-browser-microphone-permission-request: backlog
+  10-4-speech-to-text-stt-integration: backlog
+  10-5-voice-recording-indicator: backlog
+  10-6-text-to-speech-tts-integration: backlog
+  10-7-language-detection-automatic: backlog
+  10-8-language-preference-persistence: backlog
+  10-9-language-selector-ui: backlog
+  10-10-multi-language-tts-voice-selection: backlog
+  10-11-voice-playback-controls: backlog
+  10-12-language-distribution-analytics: backlog
+  10-13-voice-error-handling: backlog
+  epic-10-retrospective: optional
+
+  # ============================================
+  # Epic 11: Security, Audit & Compliance
+  # Priority: P0
+  # Stories: 15
+  # Dependencies: Epic 0, Epic 1, Epic 2
+  # Test Priority: P0 (RBAC suite - 30 test cases)
+  # ============================================
+  epic-11: backlog
+  11-1-rate-limiting-infrastructure-redis: backlog
+  11-2-api-rate-limit-guard: backlog
+  11-3-widget-message-rate-limiting: backlog
+  11-4-hmac-signature-verification-webhook-security: backlog
+  11-5-replay-attack-prevention-nonce-cache: backlog
+  11-6-audit-log-database-model: backlog
+  11-7-audit-logging-interceptor: backlog
+  11-8-audit-log-query-api: backlog
+  11-9-audit-log-dashboard-view: backlog
+  11-10-rbac-permission-matrix: backlog
+  11-11-rolesguard-implementation: backlog
+  11-12-gdpr-data-export: backlog
+  11-13-gdpr-data-deletion: backlog
+  11-14-password-policy-enforcement: backlog
+  11-15-security-headers-middleware: backlog
+  epic-11-retrospective: optional
+
+  # ============================================
+  # Epic 12: Observability & System Reliability
+  # Priority: P2 (can run in parallel with other epics)
+  # Stories: 14
+  # Dependencies: Epic 0
+  # ============================================
+  epic-12: backlog
+  12-1-sentry-sdk-integration: backlog
+  12-2-error-capture-and-context: backlog
+  12-3-health-check-endpoint-liveness: backlog
+  12-4-readiness-check-endpoint: backlog
+  12-5-request-correlation-ids: backlog
+  12-6-structured-logging: backlog
+  12-7-performance-monitoring-apm: backlog
+  12-8-response-time-alerting: backlog
+  12-9-error-rate-alerting: backlog
+  12-10-graceful-degradation-ai-service: backlog
+  12-11-graceful-degradation-database: backlog
+  12-12-uptime-monitoring: backlog
+  12-13-request-response-logging: backlog
+  12-14-dashboard-system-status-indicator: backlog
+  epic-12-retrospective: optional
