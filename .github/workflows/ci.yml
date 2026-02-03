@@ -61,7 +61,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma Client
-        run: pnpm --filter @repo/api prisma generate
+        working-directory: apps/api
+        run: pnpm prisma generate
 
       - name: Run type check
         run: pnpm check-types
@@ -113,7 +114,8 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       - name: Generate Prisma Client
-        run: pnpm --filter @repo/api prisma generate
+        working-directory: apps/api
+        run: pnpm prisma generate
 
       - name: Run tests
         run: pnpm test:cov
