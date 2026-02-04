@@ -18,7 +18,7 @@ export interface TestJwtPayload {
   iat?: number;
   exp?: number;
   nbf?: number;
-  [key: string]: any;
+  [key: string]: unknown;
 }
 
 export function generateTestToken(

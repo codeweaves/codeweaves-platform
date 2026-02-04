@@ -1,12 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { UnauthorizedException } from '@nestjs/common';
 import { JwtStrategy } from '../../src/auth/strategies/jwt.strategy';
 import { JwtPayload } from '../../src/auth/interfaces/jwt-payload.interface';
 
 describe('JwtStrategy', () => {
   let strategy: JwtStrategy;
-  let configService: ConfigService;
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -26,7 +24,6 @@ describe('JwtStrategy', () => {
     }).compile();
 
     strategy = module.get<JwtStrategy>(JwtStrategy);
-    configService = module.get<ConfigService>(ConfigService);
   });
 
   it('should be defined', () => {
@@ -97,7 +94,7 @@ describe('JwtStrategy', () => {
       };
 
       expect(() => {
-        new JwtStrategy(mockConfigService as any);
+        new JwtStrategy(mockConfigService as unknown as ConfigService);
       }).toThrow('AUTH0_DOMAIN and AUTH0_AUDIENCE must be configured');
     });
 
@@ -111,7 +108,7 @@ describe('JwtStrategy', () => {
       };
 
       expect(() => {
-        new JwtStrategy(mockConfigService as any);
+        new JwtStrategy(mockConfigService as unknown as ConfigService);
       }).toThrow('AUTH0_DOMAIN and AUTH0_AUDIENCE must be configured');
     });
   });
