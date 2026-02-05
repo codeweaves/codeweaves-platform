@@ -11,10 +11,10 @@
     "start:prod": "node dist/main",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit",
-    "test": "jest",
-    "test:watch": "jest --watch",
-    "test:cov": "jest --coverage",
-    "test:e2e": "jest --config jest.e2e.config.js"
+    "test": "jest --config jest.config.cjs",
+    "test:watch": "jest --config jest.config.cjs --watch",
+    "test:cov": "jest --config jest.config.cjs --coverage",
+    "test:e2e": "jest --config jest.e2e.config.cjs"
   },
   "dependencies": {
     "@nestjs/common": "^11.0.1",
