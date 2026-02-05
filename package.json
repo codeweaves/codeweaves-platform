@@ -1,6 +1,7 @@
 {
   "name": "codeweaves-platform",
   "private": true,
+  "workspaces": ["apps/*", "packages/*"],
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
@@ -12,11 +13,12 @@
     "test:cov": "turbo run test:cov"
   },
   "devDependencies": {
+    "eslint": "^9.39.2",
     "prettier": "^3.7.4",
-    "turbo": "^2.8.0",
+    "turbo": "^2.6.1",
     "typescript": "5.9.2"
   },
-  "packageManager": "pnpm@9.0.0",
+  "packageManager": "bun@1.2.0",
   "engines": {
     "node": ">=18"
   }

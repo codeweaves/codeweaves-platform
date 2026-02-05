@@ -11,3 +11,61 @@ generator client {
 datasource db {
   provider = "postgresql"
 }
+
+enum Role {
+  SUPER_ADMIN
+  ADMIN
+  CLIENT
+}
+
+enum InvitationStatus {
+  PENDING
+  ACCEPTED
+  EXPIRED
+}
+
+model Organization {
+  id        String   @id @default(uuid())
+  name      String
+  users     User[]
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@map("organizations")
+}
+
+model User {
+  id             String       @id @default(uuid())
+  email          String       @unique
+  name           String?
+  role           Role         @default(CLIENT)
+  auth0Id        String       @unique
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+
+  @@index([organizationId])
+  @@index([auth0Id])
+  @@map("users")
+}
+
+model UserInvitation {
+  id             String           @id @default(uuid())
+  email          String
+  role           Role             @default(CLIENT)
+  organizationId String
+  token          String           @unique @default(uuid())
+  reissueToken   String           @unique @default(uuid())
+  reissueCount   Int              @default(0)
+  status         InvitationStatus @default(PENDING)
+  expiresAt      DateTime
+  createdAt      DateTime         @default(now())
+  invitedBy      String?
+
+  @@index([email])
+  @@index([organizationId])
+  @@index([token])
+  @@index([status])
+  @@map("user_invitations")
+}
