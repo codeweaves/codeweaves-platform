@@ -21,9 +21,9 @@ export function useApiClient() {
     const response = await fetch(`${API_BASE_URL}${endpoint}`, {
       ...options,
       headers: {
+        ...options.headers,
         'Content-Type': 'application/json',
         Authorization: `Bearer ${token}`,
-        ...options.headers,
       },
     });
 
@@ -32,7 +32,17 @@ export function useApiClient() {
       throw new Error(error.message || `Request failed: ${response.status}`);
     }
 
-    return response.json();
+    // Handle empty responses (204 No Content)
+    if (response.status === 204) {
+      return null;
+    }
+
+    const contentType = response.headers.get('content-type');
+    if (contentType && contentType.includes('application/json')) {
+      return response.json();
+    }
+
+    return null;
   }, [getAccessTokenSilently, isAuthenticated]);
 
   return useMemo(() => ({

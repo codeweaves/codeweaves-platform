@@ -9,19 +9,13 @@ export default function Home() {
   const { isAuthenticated, isLoading, user } = useAuth();
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', flexDirection: 'column' }}>
+    <div className="min-h-screen flex flex-col">
       {/* Header with Auth */}
-      <header style={{
-        padding: '20px 40px',
-        borderBottom: '1px solid #eee',
-        display: 'flex',
-        justifyContent: 'space-between',
-        alignItems: 'center'
-      }}>
-        <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 600 }}>CodeWeaves</h2>
+      <header className="px-10 py-5 border-b border-border flex justify-between items-center">
+        <h2 className="m-0 text-2xl font-semibold">CodeWeaves</h2>
         <div>
           {isLoading ? (
-            <p style={{ margin: 0 }}>Loading...</p>
+            <p className="m-0">Loading...</p>
           ) : isAuthenticated ? (
             <UserMenu />
           ) : (
@@ -31,44 +25,31 @@ export default function Home() {
       </header>
 
       {/* Main Content */}
-      <main style={{
-        flex: 1,
-        display: 'flex',
-        flexDirection: 'column',
-        alignItems: 'center',
-        justifyContent: 'center',
-        padding: '40px',
-        textAlign: 'center'
-      }}>
-        <h1 style={{ fontSize: '3rem', marginBottom: '20px', fontWeight: 700 }}>
+      <main className="flex-1 flex flex-col items-center justify-center p-10 text-center">
+        <h1 className="text-5xl mb-5 font-bold">
           Welcome to CodeWeaves
         </h1>
 
         {isAuthenticated && user ? (
-          <div style={{ maxWidth: '600px' }}>
-            <p style={{ fontSize: '1.5rem', marginBottom: '20px', color: '#333' }}>
+          <div className="max-w-150">
+            <p className="text-2xl mb-5 text-foreground">
               Hello, <strong>{user.name || user.email}</strong>! 👋
             </p>
-            <p style={{ fontSize: '1.1rem', color: '#666', marginBottom: '30px' }}>
+            <p className="text-lg text-muted-foreground mb-8">
               You are successfully authenticated with Auth0
             </p>
-            <div style={{ display: 'flex', gap: '10px', justifyContent: 'center' }}>
+            <div className="flex gap-2.5 justify-center">
               <LogoutButton />
             </div>
           </div>
         ) : (
-          <div style={{ maxWidth: '500px' }}>
-            <p style={{ fontSize: '1.2rem', color: '#666', marginBottom: '30px' }}>
+          <div className="max-w-125">
+            <p className="text-xl text-muted-foreground mb-8">
               Click the <strong>Login</strong> button in the header to get started
             </p>
-            <div style={{
-              backgroundColor: '#f5f5f5',
-              padding: '20px',
-              borderRadius: '8px',
-              textAlign: 'left'
-            }}>
-              <p style={{ margin: '0 0 10px 0', fontWeight: 600 }}>What happens next:</p>
-              <ol style={{ margin: 0, paddingLeft: '20px' }}>
+            <div className="bg-muted p-5 rounded-lg text-left">
+              <p className="mb-2.5 font-semibold">What happens next:</p>
+              <ol className="m-0 pl-5">
                 <li>Redirect to Auth0 secure login</li>
                 <li>Authenticate with your credentials</li>
                 <li>Return to dashboard with full access</li>

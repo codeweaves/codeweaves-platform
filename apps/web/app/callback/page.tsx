@@ -9,10 +9,15 @@ export default function CallbackPage() {
   const router = useRouter();
 
   useEffect(() => {
-    if (!isLoading && isAuthenticated) {
-      router.push('/dashboard');
+    if (!isLoading) {
+      if (isAuthenticated) {
+        router.push('/dashboard');
+      } else if (!error) {
+        // Not authenticated after loading and no error - redirect to home
+        router.push('/');
+      }
     }
-  }, [isLoading, isAuthenticated, router]);
+  }, [isLoading, isAuthenticated, error, router]);
 
   if (error) {
     return (

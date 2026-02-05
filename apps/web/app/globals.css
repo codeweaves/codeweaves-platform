@@ -116,15 +116,6 @@
   --radius-4xl: calc(var(--radius) + 16px);
 }
 
-/* Base styles */
-* {
-  border-color: var(--border);
-}
-
-body {
-  background-color: var(--background);
-}
-
 @layer base {
   * {
     @apply border-border outline-ring/50;
