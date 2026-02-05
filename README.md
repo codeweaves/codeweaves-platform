@@ -45,7 +45,7 @@ turbo build
 # Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
 npx turbo build
 yarn dlx turbo build
-pnpm exec turbo build
+bunx turbo build
 ```
 
 You can build a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
@@ -57,7 +57,7 @@ turbo build --filter=docs
 # Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
 npx turbo build --filter=docs
 yarn exec turbo build --filter=docs
-pnpm exec turbo build --filter=docs
+bunx turbo build --filter=docs
 ```
 
 ### Develop
@@ -73,7 +73,7 @@ turbo dev
 # Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
 npx turbo dev
 yarn exec turbo dev
-pnpm exec turbo dev
+bunx turbo dev
 ```
 
 You can develop a specific package by using a [filter](https://turborepo.dev/docs/crafting-your-repository/running-tasks#using-filters):
@@ -85,7 +85,7 @@ turbo dev --filter=web
 # Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
 npx turbo dev --filter=web
 yarn exec turbo dev --filter=web
-pnpm exec turbo dev --filter=web
+bunx turbo dev --filter=web
 ```
 
 ### Remote Caching
@@ -106,7 +106,7 @@ turbo login
 # Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
 npx turbo login
 yarn exec turbo login
-pnpm exec turbo login
+bunx turbo login
 ```
 
 This will authenticate the Turborepo CLI with your [Vercel account](https://vercel.com/docs/concepts/personal-accounts/overview).
@@ -120,7 +120,7 @@ turbo link
 # Without [global `turbo`](https://turborepo.dev/docs/getting-started/installation#global-installation), use your package manager
 npx turbo link
 yarn exec turbo link
-pnpm exec turbo link
+bunx turbo link
 ```
 
 ## Useful Links
