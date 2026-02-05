@@ -1,6 +1,8 @@
 # Story 1.9: Implement Dashboard Auth0 Integration
 
-Status: ready-for-dev
+Status: done
+
+> **Note:** Stories 1.3 (AuthGuard for Protected Routes) and 1.4 (User Model and Database Schema) were also implemented and committed in the same branch (`feature/1-9-dashboard-auth0`) as this story.
 
 ## Story
 

@@ -1,6 +1,6 @@
 # Story 1.3: Create AuthGuard for Protected Routes
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 

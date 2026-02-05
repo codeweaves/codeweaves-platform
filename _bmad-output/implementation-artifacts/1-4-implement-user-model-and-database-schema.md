@@ -1,6 +1,6 @@
 # Story 1.4: Implement User Model and Database Schema
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 

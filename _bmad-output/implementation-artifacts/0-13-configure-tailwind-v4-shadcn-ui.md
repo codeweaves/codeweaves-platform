@@ -1,6 +1,6 @@
 # Story 0.13: Configure Tailwind CSS v4 + Shadcn UI
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
