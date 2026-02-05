@@ -26,40 +26,40 @@ So that users can log in and out from the dashboard.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Install Auth0 React SDK (AC: 1)
-  - [ ] Install `@auth0/auth0-react`
-  - [ ] Add Auth0 types if needed
+- [x] Task 1: Install Auth0 React SDK (AC: 1)
+  - [x] Install `@auth0/auth0-react`
+  - [x] Add Auth0 types if needed
 
-- [ ] Task 2: Create Auth0 Provider wrapper (AC: 1)
-  - [ ] Create `providers/auth0-provider.tsx`
-  - [ ] Configure with environment variables
-  - [ ] Set up redirect URIs
-  - [ ] Configure audience for API access
+- [x] Task 2: Create Auth0 Provider wrapper (AC: 1)
+  - [x] Create `providers/auth0-provider.tsx`
+  - [x] Configure with environment variables
+  - [x] Set up redirect URIs
+  - [x] Configure audience for API access
 
-- [ ] Task 3: Add provider to app layout (AC: 1)
-  - [ ] Wrap app in Auth0Provider
-  - [ ] Ensure client-side only rendering
+- [x] Task 3: Add provider to app layout (AC: 1)
+  - [x] Wrap app in Auth0Provider
+  - [x] Ensure client-side only rendering
 
-- [ ] Task 4: Create authentication hooks/utilities (AC: 2, 3, 4)
-  - [ ] Create `useAuth` custom hook
-  - [ ] Create `useApiClient` hook with token injection
-  - [ ] Create login/logout utility functions
+- [x] Task 4: Create authentication hooks/utilities (AC: 2, 3, 4)
+  - [x] Create `useAuth` custom hook
+  - [x] Create `useApiClient` hook with token injection
+  - [x] Create login/logout utility functions
 
-- [ ] Task 5: Create login/logout components (AC: 2, 3)
-  - [ ] Create LoginButton component
-  - [ ] Create LogoutButton component
-  - [ ] Create UserProfile dropdown component
+- [x] Task 5: Create login/logout components (AC: 2, 3)
+  - [x] Create LoginButton component
+  - [x] Create LogoutButton component
+  - [x] Create UserProfile dropdown component
 
-- [ ] Task 6: Configure token management (AC: 4, 5)
-  - [ ] Set up getAccessTokenSilently
-  - [ ] Configure token caching
-  - [ ] Handle token refresh errors
+- [x] Task 6: Configure token management (AC: 4, 5)
+  - [x] Set up getAccessTokenSilently
+  - [x] Configure token caching
+  - [x] Handle token refresh errors
 
-- [ ] Task 7: Test authentication flow
-  - [ ] Test login redirects to Auth0
-  - [ ] Test successful login returns to app
-  - [ ] Test logout clears session
-  - [ ] Test API calls include token
+- [x] Task 7: Test authentication flow
+  - [x] Test login redirects to Auth0
+  - [x] Test successful login returns to app
+  - [x] Test logout clears session
+  - [x] Test API calls include token
 
 ## Dev Notes
 

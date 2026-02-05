@@ -28,34 +28,34 @@ So that I can build consistent, accessible UI components with proper styling.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Install Tailwind CSS v4 (AC: 1, 7)
-  - [ ] Install `tailwindcss` and `@tailwindcss/postcss`
-  - [ ] Create `postcss.config.mjs`
-  - [ ] Update `globals.css` with Tailwind v4 directives
-  - [ ] Note: No tailwind.config.ts needed (CSS-first config)
+- [x] Task 1: Install Tailwind CSS v4 (AC: 1, 7)
+  - [x] Install `tailwindcss` and `@tailwindcss/postcss`
+  - [x] Create `postcss.config.mjs`
+  - [x] Update `globals.css` with Tailwind v4 directives
+  - [x] Note: No tailwind.config.ts needed (CSS-first config)
 
-- [ ] Task 2: Configure CSS variables with OKLCH colors (AC: 6)
-  - [ ] Define :root CSS variables in OKLCH format
-  - [ ] Define .dark CSS variables in OKLCH format
-  - [ ] Add @theme inline block to map variables
+- [x] Task 2: Configure CSS variables with OKLCH colors (AC: 6)
+  - [x] Define :root CSS variables in OKLCH format
+  - [x] Define .dark CSS variables in OKLCH format
+  - [x] Add @theme inline block to map variables
 
-- [ ] Task 3: Set up Shadcn UI (AC: 3, 4)
-  - [ ] Install dependencies: `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`
-  - [ ] Install `tw-animate-css` for animations
-  - [ ] Create `lib/utils.ts` with `cn()` function
-  - [ ] Create `components.json` configuration
+- [x] Task 3: Set up Shadcn UI (AC: 3, 4)
+  - [x] Install dependencies: `class-variance-authority`, `clsx`, `tailwind-merge`, `lucide-react`
+  - [x] Install `tw-animate-css` for animations
+  - [x] Create `lib/utils.ts` with `cn()` function
+  - [x] Create `components.json` configuration
 
-- [ ] Task 4: Install Shadcn components (AC: 5)
-  - [ ] Run `pnpm dlx shadcn@latest add button`
-  - [ ] Run `pnpm dlx shadcn@latest add dropdown-menu`
-  - [ ] Run `pnpm dlx shadcn@latest add avatar`
-  - [ ] Components auto-generated in `components/ui/`
+- [x] Task 4: Install Shadcn components (AC: 5)
+  - [x] Run `pnpm dlx shadcn@latest add button`
+  - [x] Run `pnpm dlx shadcn@latest add dropdown-menu`
+  - [x] Run `pnpm dlx shadcn@latest add avatar`
+  - [x] Components auto-generated in `components/ui/`
 
-- [ ] Task 5: Test styling (AC: 2)
-  - [ ] Verify Tailwind utilities work
-  - [ ] Test dark mode toggle
-  - [ ] Test responsive design
-  - [ ] Verify component variants work
+- [x] Task 5: Test styling (AC: 2)
+  - [x] Verify Tailwind utilities work
+  - [x] Test dark mode toggle
+  - [x] Test responsive design
+  - [x] Verify component variants work
 
 ## Dev Notes
 
