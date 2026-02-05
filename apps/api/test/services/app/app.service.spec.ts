@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { AppService } from './app.service';
+import { AppService } from '../../../src/services/app.service';
 
 describe('AppService', () => {
   let service: AppService;
@@ -17,24 +17,18 @@ describe('AppService', () => {
   });
 
   describe('getHello', () => {
-    it('should return the welcome message', () => {
+    it('should return hello message', () => {
       expect(service.getHello()).toBe('Hello from CodeWeaves API!');
     });
   });
 
   describe('getHealth', () => {
-    it('should return health status with ok status', () => {
+    it('should return health status with timestamp', () => {
       const result = service.getHealth();
 
-      expect(result.status).toBe('ok');
-      expect(result.timestamp).toBeDefined();
-    });
-
-    it('should return a valid ISO timestamp', () => {
-      const result = service.getHealth();
-      const date = new Date(result.timestamp);
-
-      expect(date.toISOString()).toBe(result.timestamp);
+      expect(result).toHaveProperty('status', 'ok');
+      expect(result).toHaveProperty('timestamp');
+      expect(new Date(result.timestamp).toISOString()).toBe(result.timestamp);
     });
   });
 });

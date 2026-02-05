@@ -1,6 +1,6 @@
 # Story 1.4: Implement User Model and Database Schema
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -24,35 +24,35 @@ So that user information can be persisted and queried.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Update Prisma schema with User model (AC: 1, 2, 3, 4)
-  - [ ] Add Role enum to schema
-  - [ ] Add User model with all fields
-  - [ ] Define relationship to Organization
-  - [ ] Add unique constraints
-  - [ ] Add indexes for common queries
+- [x] Task 1: Update Prisma schema with User model (AC: 1, 2, 3, 4)
+  - [x] Add Role enum to schema
+  - [x] Add User model with all fields
+  - [x] Define relationship to Organization
+  - [x] Add unique constraints
+  - [x] Add indexes for common queries
 
-- [ ] Task 2: Add UserInvitation model (AC: 1)
-  - [ ] Add InvitationStatus enum
-  - [ ] Add UserInvitation model
-  - [ ] Define fields: email, role, token, reissueToken, status, expiresAt
-  - [ ] Add indexes
+- [x] Task 2: Add UserInvitation model (AC: 1)
+  - [x] Add InvitationStatus enum
+  - [x] Add UserInvitation model
+  - [x] Define fields: email, role, token, reissueToken, status, expiresAt
+  - [x] Add indexes
 
-- [ ] Task 3: Run migration (AC: 5)
-  - [ ] Generate migration with `prisma migrate dev`
-  - [ ] Verify migration applies cleanly
-  - [ ] Check tables created in database
+- [x] Task 3: Run migration (AC: 5)
+  - [x] Generate migration with `prisma migrate dev`
+  - [x] Verify migration applies cleanly
+  - [x] Check tables created in database
 
-- [ ] Task 4: Create Users module in NestJS
-  - [ ] Create `src/users/users.module.ts`
-  - [ ] Create `src/users/users.service.ts`
-  - [ ] Create `src/users/users.controller.ts`
-  - [ ] Create DTOs for user operations
+- [x] Task 4: Create Users module in NestJS
+  - [x] Create `src/users/users.module.ts`
+  - [x] Create `src/users/users.service.ts`
+  - [x] Create `src/users/users.controller.ts`
+  - [x] Create DTOs for user operations
 
-- [ ] Task 5: Test database operations
-  - [ ] Test user creation
-  - [ ] Test user retrieval by auth0Id
-  - [ ] Test user retrieval by email
-  - [ ] Test organization relationship
+- [x] Task 5: Test database operations
+  - [x] Test user creation
+  - [x] Test user retrieval by auth0Id
+  - [x] Test user retrieval by email
+  - [x] Test organization relationship
 
 ## Dev Notes
 

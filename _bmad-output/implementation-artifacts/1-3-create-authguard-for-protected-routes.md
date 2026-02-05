@@ -1,6 +1,6 @@
 # Story 1.3: Create AuthGuard for Protected Routes
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -24,31 +24,31 @@ So that unauthenticated requests are blocked.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create JwtAuthGuard (AC: 1, 5)
-  - [ ] Create `src/auth/guards/jwt-auth.guard.ts`
-  - [ ] Extend AuthGuard('jwt') from Passport
-  - [ ] Handle authentication errors gracefully
+- [x] Task 1: Create JwtAuthGuard (AC: 1, 5)
+  - [x] Create `src/auth/guards/jwt-auth.guard.ts`
+  - [x] Extend AuthGuard('jwt') from Passport
+  - [x] Handle authentication errors gracefully
 
-- [ ] Task 2: Create Public decorator (AC: 4)
-  - [ ] Create `src/auth/decorators/public.decorator.ts`
-  - [ ] Use SetMetadata to mark public routes
-  - [ ] Update guard to check for public metadata
+- [x] Task 2: Create Public decorator (AC: 4)
+  - [x] Create `src/auth/decorators/public.decorator.ts`
+  - [x] Use SetMetadata to mark public routes
+  - [x] Update guard to check for public metadata
 
-- [ ] Task 3: Create CurrentUser decorator (AC: 2, 3)
-  - [ ] Create `src/auth/decorators/current-user.decorator.ts`
-  - [ ] Extract user from request object
-  - [ ] Make user info easily accessible in controllers
+- [x] Task 3: Create CurrentUser decorator (AC: 2, 3)
+  - [x] Create `src/auth/decorators/current-user.decorator.ts`
+  - [x] Extract user from request object
+  - [x] Make user info easily accessible in controllers
 
-- [ ] Task 4: Configure global guard (AC: 1)
-  - [ ] Register JwtAuthGuard as global guard in AppModule
-  - [ ] All routes protected by default
-  - [ ] Public routes opt-out with decorator
+- [x] Task 4: Configure global guard (AC: 1)
+  - [x] Register JwtAuthGuard as global guard in AppModule
+  - [x] All routes protected by default
+  - [x] Public routes opt-out with decorator
 
-- [ ] Task 5: Test guard functionality
-  - [ ] Test protected route without token returns 401
-  - [ ] Test protected route with valid token returns 200
-  - [ ] Test @Public() decorated route works without token
-  - [ ] Test @CurrentUser() extracts correct user info
+- [x] Task 5: Test guard functionality
+  - [x] Test protected route without token returns 401
+  - [x] Test protected route with valid token returns 200
+  - [x] Test @Public() decorated route works without token
+  - [x] Test @CurrentUser() extracts correct user info
 
 ## Dev Notes
 
