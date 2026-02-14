@@ -60,6 +60,42 @@ export const paginatedResponseSchema = <T extends z.ZodTypeAny>(itemSchema: T) =
   });
 
 // ============================================
+// Role Enum (mirrors Prisma Role enum)
+// ============================================
+
+export const roleEnum = z.enum(['SUPER_ADMIN', 'ADMIN', 'CLIENT']);
+export type RoleEnum = z.infer<typeof roleEnum>;
+
+// ============================================
+// User Profile Schemas
+// ============================================
+
+export const updateUserProfileSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+});
+
+export type UpdateUserProfileDto = z.infer<typeof updateUserProfileSchema>;
+
+export const organizationSummarySchema = z.object({
+  id: z.string().uuid(),
+  name: z.string(),
+});
+
+export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
+
+export const userProfileResponseSchema = z.object({
+  id: z.string().uuid(),
+  email: z.string().email(),
+  name: z.string().nullable(),
+  role: roleEnum,
+  organization: organizationSummarySchema,
+  createdAt: z.coerce.date(),
+  updatedAt: z.coerce.date(),
+});
+
+export type UserProfileResponse = z.infer<typeof userProfileResponseSchema>;
+
+// ============================================
 // Utility Functions
 // ============================================
 

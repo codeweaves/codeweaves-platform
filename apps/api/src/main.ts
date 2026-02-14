@@ -1,5 +1,6 @@
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe } from '@nestjs/common';
+import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './modules/app.module';
 
 async function bootstrap() {
@@ -16,6 +17,18 @@ async function bootstrap() {
     }),
   );
 
+  // Swagger/OpenAPI documentation (disabled in production)
+  if (process.env.NODE_ENV !== 'production') {
+    const config = new DocumentBuilder()
+      .setTitle('Codeweaves API')
+      .setDescription('Codeweaves platform REST API documentation')
+      .setVersion('1.0')
+      .addBearerAuth()
+      .build();
+    const document = SwaggerModule.createDocument(app, config);
+    SwaggerModule.setup('api/docs', app, document);
+  }
+
   // Enable CORS for frontend
   app.enableCors({
     origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
@@ -25,6 +38,7 @@ async function bootstrap() {
   const port = process.env.PORT || 3001;
   await app.listen(port);
   console.log(`🚀 API running on http://localhost:${port}/api/codeweaves/v1`);
+  console.log(`📄 Swagger docs at http://localhost:${port}/api/docs`);
 }
 
 bootstrap();

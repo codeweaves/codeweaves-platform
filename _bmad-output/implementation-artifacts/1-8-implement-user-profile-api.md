@@ -1,6 +1,6 @@
 # Story 1.8: Implement User Profile API
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -23,34 +23,39 @@ So that I can manage my account information.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Implement GET /api/users/me endpoint (AC: 1)
-  - [ ] Return current user profile
-  - [ ] Include organization details
-  - [ ] Exclude sensitive fields
+- [x] Task 1: Implement GET /api/users/me endpoint (AC: 1)
+  - [x] Return current user profile
+  - [x] Include organization details
+  - [x] Exclude sensitive fields (auth0Id, organizationId)
 
-- [ ] Task 2: Implement PATCH /api/users/me endpoint (AC: 2, 3, 4)
-  - [ ] Accept only name field for update
-  - [ ] Validate input with Zod schema
-  - [ ] Reject attempts to change email/role
-  - [ ] Return updated profile
+- [x] Task 2: Implement PATCH /api/users/me endpoint (AC: 2, 3, 4)
+  - [x] Accept only name field for update
+  - [x] Validate input with Zod schema
+  - [x] Reject attempts to change email/role (Zod strips unknown fields)
+  - [x] Return updated profile
 
-- [ ] Task 3: Create User DTOs
-  - [ ] UserProfileResponse DTO
-  - [ ] UpdateUserProfileDto
-  - [ ] Add Swagger decorators
+- [x] Task 3: Create User DTOs
+  - [x] UserProfileResponse DTO (shared via @repo/validation)
+  - [x] UpdateUserProfileDto (shared via @repo/validation)
+  - [x] Add Swagger decorators (@nestjs/swagger installed and configured)
 
-- [ ] Task 4: Add input validation
-  - [ ] Name must be 2-100 characters
-  - [ ] Strip HTML from name
-  - [ ] Use Zod validation pipe
+- [x] Task 4: Add input validation
+  - [x] Name must be 2-100 characters
+  - [x] Strip HTML from name
+  - [x] Use Zod validation pipe
 
-- [ ] Task 5: Test profile endpoints
-  - [ ] Test GET returns correct user
-  - [ ] Test PATCH updates name
-  - [ ] Test PATCH rejects email change
-  - [ ] Test PATCH rejects role change
+- [x] Task 5: Test profile endpoints
+  - [x] Test GET returns correct user
+  - [x] Test PATCH updates name
+  - [x] Test PATCH rejects email change (ZodValidationPipe strips email field)
+  - [x] Test PATCH rejects role change (ZodValidationPipe strips role field)
+  - [x] Test sensitive fields excluded from response
+  - [x] Test HTML sanitization and whitespace trimming
+  - [x] Test ZodValidationPipe (7 tests including AC3/AC4 specific tests)
 
 ## Dev Notes
+
+> **Note:** Code snippets below are original story reference designs. Actual implementation differs in paths and patterns (Zod types via @repo/validation instead of class-based DTOs, `@Controller('auth/users')` instead of `@Controller('users')`). See File List for actual files.
 
 ### Users Controller
 
@@ -386,17 +391,37 @@ describe('UsersController', () => {
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Completion Notes List
 
+- DTOs moved to shared `@repo/validation` package for frontend reuse (roleEnum, updateUserProfileSchema, userProfileResponseSchema, organizationSummarySchema)
+- Added `@repo/validation` as workspace dependency to `apps/api/package.json`
+- Swagger/OpenAPI fully configured: `@nestjs/swagger` installed, DocumentBuilder in `main.ts`, decorators on all controllers. Docs at `/api/docs`.
+- Response excludes `auth0Id` and `organizationId` (sensitive/redundant since org is nested). Organization accessible via `response.organization.id`.
+- ZodValidationPipe strips all unknown fields (email, role, etc.) ensuring AC3 and AC4 compliance.
+
+### Change Log
+
+- 2026-02-14: Initial implementation of profile endpoints, shared validation schemas, Zod pipe
+- 2026-02-14: Code review fixes - extracted response helper, added AC3/AC4 specific tests, auth0Id exclusion test
+- 2026-02-14: Added Swagger/OpenAPI - installed @nestjs/swagger, configured DocumentBuilder, added decorators to all controllers
+- 2026-02-14: Code review #2 fixes - production Swagger guard, P2025 error handling, improved HTML sanitization regex, updated File List
+
 ### File List
 
-Files to create:
-- `apps/api/src/common/pipes/zod-validation.pipe.ts`
-- `apps/api/test/users/users.controller.spec.ts`
+Files created:
+- `apps/api/src/pipes/zod-validation.pipe.ts` (reusable Zod validation pipe)
+- `apps/api/test/pipes/zod-validation.pipe.spec.ts` (10 tests including AC3/AC4)
 
-Files to modify:
-- `apps/api/src/users/users.controller.ts` (add endpoints)
-- `apps/api/src/users/users.service.ts` (add methods)
-- `apps/api/src/users/dto/user.dto.ts` (add DTOs)
+Files modified:
+- `apps/api/src/main.ts` (Swagger/OpenAPI config with production guard)
+- `apps/api/src/controllers/auth/users.controller.ts` (GET/PATCH profile endpoints with Swagger + ZodValidationPipe)
+- `apps/api/src/controllers/invitations/invitations.controller.ts` (Swagger decorators)
+- `apps/api/src/controllers/public/health.controller.ts` (Swagger decorators)
+- `apps/api/src/services/users.service.ts` (getProfile, updateProfile with P2025 handling, sanitization, toProfileResponse helper)
+- `apps/api/src/models/user.dto.ts` (re-exports from @repo/validation)
+- `apps/api/test/controllers/auth/users.controller.spec.ts` (updated for new getProfile/updateProfile)
+- `apps/api/test/services/users/users.service.spec.ts` (added getProfile, sanitization, auth0Id exclusion tests)
+- `packages/validation/src/index.ts` (added roleEnum, user profile schemas)
+- `apps/api/package.json` (added @repo/validation, @nestjs/swagger dependencies)

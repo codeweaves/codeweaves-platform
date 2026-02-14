@@ -35,12 +35,12 @@ So that I can build the REST API with proper structure.
   - [ ] Ensure `strict: true` is enabled
   - [ ] Verify `strictNullChecks`, `strictPropertyInitialization` are enabled
 
-- [ ] Task 3: Set up Swagger/OpenAPI (AC: 3)
-  - [ ] Install `@nestjs/swagger` package
-  - [ ] Configure Swagger in `main.ts`
-  - [ ] Set up API documentation at `/api/docs`
-  - [ ] Configure bearer auth in Swagger
-  - [ ] Add API tags for organization
+- [x] Task 3: Set up Swagger/OpenAPI (AC: 3)
+  - [x] Install `@nestjs/swagger` package
+  - [x] Configure Swagger in `main.ts`
+  - [x] Set up API documentation at `/api/docs`
+  - [x] Configure bearer auth in Swagger
+  - [x] Add API tags for organization
 
 - [ ] Task 4: Configure ESLint (AC: 4)
   - [ ] Ensure `eslint.config.js` extends `@repo/eslint-config/nest.js`
