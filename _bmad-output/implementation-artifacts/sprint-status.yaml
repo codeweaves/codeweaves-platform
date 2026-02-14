@@ -64,7 +64,7 @@ development_status:
   # ============================================
   # Epic 1: User Authentication & Account Management
   # Priority: P0
-  # Stories: 10
+  # Stories: 11
   # Dependencies: Epic 0
   # ============================================
   epic-1: in-progress
@@ -78,6 +78,7 @@ development_status:
   1-8-implement-user-profile-api: in-progress
   1-9-implement-dashboard-auth0-integration: done
   1-10-create-protected-dashboard-routes: done
+  1-11-auth0-management-api-invitation-flow: ready-for-dev
   epic-1-retrospective: optional
 
   # ============================================
