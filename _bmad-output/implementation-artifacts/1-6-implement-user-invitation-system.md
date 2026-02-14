@@ -1,6 +1,6 @@
 # Story 1.6: Implement User Invitation System
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -24,42 +24,46 @@ So that I can onboard new team members and clients.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create Invitations module (AC: 1)
-  - [ ] Create `src/invitations/invitations.module.ts`
-  - [ ] Create `src/invitations/invitations.service.ts`
-  - [ ] Create `src/invitations/invitations.controller.ts`
+- [x] Task 1: Create Invitations module (AC: 1)
+  - [x] Create `src/modules/invitations.module.ts`
+  - [x] Create `src/services/invitations.service.ts`
+  - [x] Create `src/controllers/invitations/invitations.controller.ts`
+  - [x] Create `src/guards/roles.guard.ts` and `src/decorators/roles.decorator.ts`
 
-- [ ] Task 2: Implement create invitation endpoint (AC: 1, 2, 4)
-  - [ ] POST `/api/invitations` - Create invitation
-  - [ ] Generate unique token (UUID)
-  - [ ] Generate reissue token (UUID)
-  - [ ] Set expiration to 7 days from now
-  - [ ] Validate email not already invited/registered
+- [x] Task 2: Implement create invitation endpoint (AC: 1, 2, 4)
+  - [x] POST `/api/invitations` - Create invitation
+  - [x] Generate unique token (UUID) via Prisma @default(uuid())
+  - [x] Generate reissue token (UUID) via Prisma @default(uuid())
+  - [x] Set expiration to 7 days from now
+  - [x] Validate email not already invited/registered
+  - [x] Email normalization to lowercase
 
-- [ ] Task 3: Implement email sending (AC: 3)
-  - [ ] Create email service (Nodemailer or SendGrid)
-  - [ ] Create invitation email template
-  - [ ] Send email with signup link containing token
-  - [ ] Handle email sending failures gracefully
+- [x] Task 3: Implement email sending (AC: 3)
+  - [x] Create email service using Resend SDK (ADR-011)
+  - [x] Create invitation email template
+  - [x] Send email with signup link containing token
+  - [x] Handle email sending failures gracefully (swallows errors)
 
-- [ ] Task 4: Implement invitation management endpoints
-  - [ ] GET `/api/invitations` - List all invitations (Super Admin)
-  - [ ] GET `/api/invitations/:id` - Get invitation details
-  - [ ] POST `/api/invitations/:id/resend` - Resend invitation email
-  - [ ] DELETE `/api/invitations/:id` - Cancel invitation
+- [x] Task 4: Implement invitation management endpoints
+  - [x] GET `/api/invitations` - List all invitations (Super Admin, platform-wide)
+  - [x] GET `/api/invitations/:id` - Get invitation details
+  - [x] POST `/api/invitations/:id/resend` - Resend invitation email
+  - [x] DELETE `/api/invitations/:id` - Cancel invitation
 
-- [ ] Task 5: Implement reissue functionality (FR5)
-  - [ ] POST `/api/invitations/reissue` - Reissue expired invitation
-  - [ ] Validate reissue token
-  - [ ] Increment reissue count (max 5)
-  - [ ] Generate new token and expiration
+- [x] Task 5: Implement reissue functionality (FR5)
+  - [x] POST `/api/invitations/reissue` - Reissue expired invitation (public endpoint)
+  - [x] Validate reissue token
+  - [x] Increment reissue count (max 5)
+  - [x] Generate new token and expiration
 
-- [ ] Task 6: Test invitation system
-  - [ ] Test invitation creation
-  - [ ] Test duplicate email rejection
-  - [ ] Test expiration calculation
-  - [ ] Test resend functionality
-  - [ ] Test reissue limit
+- [x] Task 6: Test invitation system
+  - [x] Test invitation creation
+  - [x] Test duplicate email rejection
+  - [x] Test expiration calculation
+  - [x] Test resend functionality
+  - [x] Test reissue limit
+  - [x] Test roles guard
+  - [x] Test email service
 
 ## Dev Notes
 
@@ -295,48 +299,43 @@ export const reissueInvitationSchema = z.object({
 export type ReissueInvitationDto = z.infer<typeof reissueInvitationSchema>;
 ```
 
-### Email Service (Basic Implementation)
+### Email Service (Resend - ADR-011)
 
 ```typescript
-// apps/api/src/email/email.service.ts
+// apps/api/src/services/email.service.ts
 import { Injectable, Logger } from '@nestjs/common';
-import * as nodemailer from 'nodemailer';
+import { ConfigService } from '@nestjs/config';
+import { Resend } from 'resend';
 
 @Injectable()
 export class EmailService {
   private readonly logger = new Logger(EmailService.name);
-  private transporter: nodemailer.Transporter;
+  private resend: Resend;
 
-  constructor() {
-    // For development, use ethereal.email or console logging
-    if (process.env.NODE_ENV === 'development') {
-      this.transporter = nodemailer.createTransport({
-        host: 'smtp.ethereal.email',
-        port: 587,
-        auth: {
-          user: process.env.SMTP_USER,
-          pass: process.env.SMTP_PASS,
-        },
-      });
-    } else {
-      // Production: Use SendGrid, AWS SES, etc.
-      this.transporter = nodemailer.createTransport({
-        // Configure production email service
-      });
-    }
+  constructor(private configService: ConfigService) {
+    this.resend = new Resend(this.configService.get<string>('RESEND_API_KEY'));
   }
 
   async send(options: { to: string; subject: string; html: string }) {
     try {
-      const info = await this.transporter.sendMail({
-        from: process.env.EMAIL_FROM || 'noreply@codeweaves.com',
-        ...options,
+      const { data, error } = await this.resend.emails.send({
+        from: this.configService.get<string>('EMAIL_FROM', 'CodeWeaves <noreply@codeweaves.com>'),
+        to: [options.to],
+        subject: options.subject,
+        html: options.html,
       });
-      this.logger.log(`Email sent: ${info.messageId}`);
-      return info;
+
+      if (error) {
+        this.logger.error(`Failed to send email: ${JSON.stringify(error)}`);
+        return null;
+      }
+
+      this.logger.log(`Email sent: ${data?.id}`);
+      return data;
     } catch (error) {
       this.logger.error(`Failed to send email: ${error.message}`);
       // Don't throw - email failure shouldn't block invitation creation
+      return null;
     }
   }
 }
@@ -389,7 +388,7 @@ describe('InvitationsService', () => {
 
 - [Source: _bmad-output/planning-artifacts/epics.md#Story-1.6]
 - [Source: _bmad-output/planning-artifacts/prd.md#FR1-FR10]
-- [Nodemailer: https://nodemailer.com/about/]
+- [Resend Node.js SDK: https://resend.com/docs/send-with-nodejs]
 
 ## Dev Agent Record
 
@@ -406,10 +405,10 @@ Files to create:
 - `apps/api/src/invitations/invitations.service.ts`
 - `apps/api/src/invitations/invitations.controller.ts`
 - `apps/api/src/invitations/dto/invitation.dto.ts`
-- `apps/api/src/email/email.module.ts`
-- `apps/api/src/email/email.service.ts`
+- `apps/api/src/modules/email.module.ts`
+- `apps/api/src/services/email.service.ts`
 - `apps/api/test/invitations/invitations.service.spec.ts`
 
 Files to modify:
 - `apps/api/src/app.module.ts` (import InvitationsModule, EmailModule)
-- `apps/api/package.json` (add nodemailer)
+- `apps/api/package.json` (add resend)
