@@ -3,6 +3,7 @@ import {
   BadRequestException,
   NotFoundException,
   Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
@@ -215,13 +216,17 @@ export class InvitationsService {
       throw new BadRequestException('Cannot cancel an accepted invitation');
     }
 
-    // Delete Auth0 user if one was pre-created
+    // Delete Auth0 user if one was pre-created — must succeed before removing invitation
+    // to avoid orphaned Auth0 accounts (auth0UserId would be lost)
     if (invitation.auth0UserId) {
       try {
         await this.auth0Management.deleteUser(invitation.auth0UserId);
       } catch (error) {
         this.logger.error(
           `Failed to delete Auth0 user ${invitation.auth0UserId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        throw new ServiceUnavailableException(
+          'Failed to delete Auth0 user; invitation was not cancelled. Please retry.',
         );
       }
     }

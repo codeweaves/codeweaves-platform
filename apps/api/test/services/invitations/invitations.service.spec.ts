@@ -626,22 +626,22 @@ describe('InvitationsService', () => {
       expect(mockAuth0Management.deleteUser).not.toHaveBeenCalled();
     });
 
-    it('should handle Auth0 delete failure gracefully on cancel', async () => {
+    it('should throw ServiceUnavailableException when Auth0 delete fails on cancel', async () => {
       const invitationWithAuth0 = {
         ...mockInvitation,
         auth0UserId: 'auth0|to-delete',
       };
       mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithAuth0);
-      mockPrisma.userInvitation.delete.mockResolvedValue(invitationWithAuth0);
       mockAuth0Management.deleteUser.mockRejectedValue(
         new Error('Auth0 API down'),
       );
 
-      // Should not throw — invitation is still cancelled
-      const result = await service.cancel('inv-uuid-1');
+      // Should throw — invitation must NOT be deleted to preserve auth0UserId
+      await expect(service.cancel('inv-uuid-1')).rejects.toThrow(
+        'Failed to delete Auth0 user; invitation was not cancelled. Please retry.',
+      );
 
-      expect(result).toEqual(invitationWithAuth0);
-      expect(mockPrisma.userInvitation.delete).toHaveBeenCalled();
+      expect(mockPrisma.userInvitation.delete).not.toHaveBeenCalled();
     });
   });
 });
