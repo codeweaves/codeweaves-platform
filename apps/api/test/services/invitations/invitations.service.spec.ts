@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InvitationsService } from '../../../src/services/invitations.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { EmailService } from '../../../src/services/email.service';
+import { Auth0ManagementService } from '../../../src/services/auth0-management.service';
 import { InvitationStatus, Prisma, Role } from '@prisma/client';
 
 describe('InvitationsService', () => {
@@ -28,12 +29,19 @@ describe('InvitationsService', () => {
   };
 
   const mockConfigService = {
-    get: jest.fn((key: string, defaultValue?: string) => {
+    get: (key: string, defaultValue?: string) => {
       const config: Record<string, string> = {
         DASHBOARD_URL: 'http://localhost:3000',
       };
       return config[key] ?? defaultValue;
-    }),
+    },
+  };
+
+  const mockAuth0Management = {
+    getUserByEmail: jest.fn(),
+    createUser: jest.fn(),
+    deleteUser: jest.fn(),
+    createPasswordChangeTicket: jest.fn(),
   };
 
   const mockInvitation = {
@@ -48,6 +56,7 @@ describe('InvitationsService', () => {
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     createdAt: new Date(),
     invitedBy: 'user-uuid-1',
+    auth0UserId: null as string | null,
   };
 
   beforeEach(async () => {
@@ -57,12 +66,34 @@ describe('InvitationsService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EmailService, useValue: mockEmailService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: Auth0ManagementService, useValue: mockAuth0Management },
       ],
     }).compile();
 
     service = module.get<InvitationsService>(InvitationsService);
+
+    // Reset mocks but preserve config service (plain function, not jest.fn)
     jest.clearAllMocks();
     mockEmailService.send.mockResolvedValue({ id: 'email-id' });
+
+    // Default Auth0 mock behavior
+    mockAuth0Management.getUserByEmail.mockResolvedValue(null);
+    mockAuth0Management.createUser.mockResolvedValue({
+      user_id: 'auth0|new-user',
+      email: 'new@example.com',
+    });
+    mockAuth0Management.createPasswordChangeTicket.mockResolvedValue(
+      'https://auth0.com/lo/reset?ticket=abc123',
+    );
+    mockAuth0Management.deleteUser.mockResolvedValue(undefined);
+
+    // Default prisma update mock (for auth0UserId updates)
+    mockPrisma.userInvitation.update.mockImplementation(
+      async ({ data }: { where: { id: string }; data: Record<string, unknown> }) => ({
+        ...mockInvitation,
+        ...data,
+      }),
+    );
   });
 
   describe('create', () => {
@@ -166,7 +197,71 @@ describe('InvitationsService', () => {
       expect(mockEmailService.send).toHaveBeenCalledWith({
         to: mockInvitation.email,
         subject: 'You have been invited to CodeWeaves',
-        html: expect.stringContaining(mockInvitation.token),
+        html: expect.stringContaining('Set Your Password'),
+      });
+    });
+
+    it('should pre-create Auth0 user and generate password ticket on create', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
+      mockPrisma.userInvitation.create.mockResolvedValue(mockInvitation);
+
+      await service.create(createDto, 'user-uuid-1');
+
+      expect(mockAuth0Management.getUserByEmail).toHaveBeenCalledWith(
+        'new@example.com',
+      );
+      expect(mockAuth0Management.createUser).toHaveBeenCalledWith(
+        'new@example.com',
+      );
+      expect(mockAuth0Management.createPasswordChangeTicket).toHaveBeenCalledWith(
+        'auth0|new-user',
+      );
+      // Should store auth0UserId on invitation
+      expect(mockPrisma.userInvitation.update).toHaveBeenCalledWith({
+        where: { id: mockInvitation.id },
+        data: { auth0UserId: 'auth0|new-user' },
+      });
+    });
+
+    it('should reuse existing Auth0 user on create', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
+      mockPrisma.userInvitation.create.mockResolvedValue(mockInvitation);
+      mockAuth0Management.getUserByEmail.mockResolvedValue({
+        user_id: 'auth0|existing',
+        email: 'new@example.com',
+      });
+
+      await service.create(createDto, 'user-uuid-1');
+
+      expect(mockAuth0Management.createUser).not.toHaveBeenCalled();
+      expect(mockAuth0Management.createPasswordChangeTicket).toHaveBeenCalledWith(
+        'auth0|existing',
+      );
+      expect(mockPrisma.userInvitation.update).toHaveBeenCalledWith({
+        where: { id: mockInvitation.id },
+        data: { auth0UserId: 'auth0|existing' },
+      });
+    });
+
+    it('should handle Auth0 failure gracefully on create', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
+      mockPrisma.userInvitation.create.mockResolvedValue(mockInvitation);
+      mockAuth0Management.getUserByEmail.mockRejectedValue(
+        new Error('Auth0 API down'),
+      );
+
+      // Should not throw — invitation is still created
+      const result = await service.create(createDto, 'user-uuid-1');
+
+      expect(result).toEqual(mockInvitation);
+      // Email still sent with fallback signup URL
+      expect(mockEmailService.send).toHaveBeenCalledWith({
+        to: mockInvitation.email,
+        subject: 'You have been invited to CodeWeaves',
+        html: expect.stringContaining('Create Your Account'),
       });
     });
   });
@@ -207,7 +302,7 @@ describe('InvitationsService', () => {
     it('should resend a pending invitation with updated expiration', async () => {
       mockPrisma.userInvitation.findUnique.mockResolvedValue(mockInvitation);
       const updatedInvitation = { ...mockInvitation };
-      mockPrisma.userInvitation.update.mockResolvedValue(updatedInvitation);
+      mockPrisma.userInvitation.update.mockResolvedValueOnce(updatedInvitation);
 
       const result = await service.resend('inv-uuid-1');
 
@@ -240,6 +335,26 @@ describe('InvitationsService', () => {
         'Can only resend pending invitations',
       );
     });
+
+    it('should generate new password setup URL on resend', async () => {
+      const invitationWithAuth0 = {
+        ...mockInvitation,
+        auth0UserId: 'auth0|existing',
+      };
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithAuth0);
+      mockPrisma.userInvitation.update.mockResolvedValueOnce(invitationWithAuth0);
+
+      await service.resend('inv-uuid-1');
+
+      expect(mockAuth0Management.createPasswordChangeTicket).toHaveBeenCalledWith(
+        'auth0|existing',
+      );
+      expect(mockEmailService.send).toHaveBeenCalledWith(
+        expect.objectContaining({
+          html: expect.stringContaining('Set Your Password'),
+        }),
+      );
+    });
   });
 
   describe('reissue', () => {
@@ -251,7 +366,7 @@ describe('InvitationsService', () => {
         reissueCount: 0,
       };
       mockPrisma.userInvitation.findUnique.mockResolvedValue(expiredInvitation);
-      mockPrisma.userInvitation.update.mockResolvedValue({
+      mockPrisma.userInvitation.update.mockResolvedValueOnce({
         ...expiredInvitation,
         status: InvitationStatus.PENDING,
         reissueCount: 1,
@@ -329,7 +444,7 @@ describe('InvitationsService', () => {
         reissueCount: 2,
       };
       mockPrisma.userInvitation.findUnique.mockResolvedValue(expiredInvitation);
-      mockPrisma.userInvitation.update.mockResolvedValue({
+      mockPrisma.userInvitation.update.mockResolvedValueOnce({
         ...expiredInvitation,
         status: InvitationStatus.PENDING,
         reissueCount: 3,
@@ -338,6 +453,28 @@ describe('InvitationsService', () => {
       await service.reissue('reissue-uuid-1');
 
       expect(mockEmailService.send).toHaveBeenCalled();
+    });
+
+    it('should generate new password setup URL on reissue', async () => {
+      const expiredInvitation = {
+        ...mockInvitation,
+        status: InvitationStatus.EXPIRED,
+        expiresAt: new Date(Date.now() - 1000),
+        reissueCount: 0,
+        auth0UserId: 'auth0|existing',
+      };
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(expiredInvitation);
+      mockPrisma.userInvitation.update.mockResolvedValueOnce({
+        ...expiredInvitation,
+        status: InvitationStatus.PENDING,
+        reissueCount: 1,
+      });
+
+      await service.reissue('reissue-uuid-1');
+
+      expect(mockAuth0Management.createPasswordChangeTicket).toHaveBeenCalledWith(
+        'auth0|existing',
+      );
     });
   });
 
@@ -460,6 +597,51 @@ describe('InvitationsService', () => {
       await expect(service.cancel('inv-uuid-1')).rejects.toThrow(
         'Cannot cancel an accepted invitation',
       );
+    });
+
+    it('should delete Auth0 user when cancelling invitation with auth0UserId', async () => {
+      const invitationWithAuth0 = {
+        ...mockInvitation,
+        auth0UserId: 'auth0|to-delete',
+      };
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithAuth0);
+      mockPrisma.userInvitation.delete.mockResolvedValue(invitationWithAuth0);
+
+      await service.cancel('inv-uuid-1');
+
+      expect(mockAuth0Management.deleteUser).toHaveBeenCalledWith(
+        'auth0|to-delete',
+      );
+      expect(mockPrisma.userInvitation.delete).toHaveBeenCalledWith({
+        where: { id: 'inv-uuid-1' },
+      });
+    });
+
+    it('should not delete Auth0 user when invitation has no auth0UserId', async () => {
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(mockInvitation);
+      mockPrisma.userInvitation.delete.mockResolvedValue(mockInvitation);
+
+      await service.cancel('inv-uuid-1');
+
+      expect(mockAuth0Management.deleteUser).not.toHaveBeenCalled();
+    });
+
+    it('should throw ServiceUnavailableException when Auth0 delete fails on cancel', async () => {
+      const invitationWithAuth0 = {
+        ...mockInvitation,
+        auth0UserId: 'auth0|to-delete',
+      };
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithAuth0);
+      mockAuth0Management.deleteUser.mockRejectedValue(
+        new Error('Auth0 API down'),
+      );
+
+      // Should throw — invitation must NOT be deleted to preserve auth0UserId
+      await expect(service.cancel('inv-uuid-1')).rejects.toThrow(
+        'Failed to delete Auth0 user; invitation was not cancelled. Please retry.',
+      );
+
+      expect(mockPrisma.userInvitation.delete).not.toHaveBeenCalled();
     });
   });
 });

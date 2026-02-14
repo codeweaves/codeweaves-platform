@@ -63,7 +63,7 @@ export function ReissueContent() {
             <CardTitle className="text-xl">New Invitation Sent</CardTitle>
             <CardDescription>
               A new invitation has been sent to your email. Please check your
-              inbox and click the link to create your account.
+              inbox and click the link to set your password.
             </CardDescription>
           </CardHeader>
         </Card>

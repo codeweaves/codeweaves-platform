@@ -2,11 +2,14 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
+  Logger,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from './prisma.service';
 import { EmailService } from './email.service';
+import { Auth0ManagementService } from './auth0-management.service';
 import { InvitationStatus, Prisma } from '@prisma/client';
 import { CreateInvitationDto } from '../models/invitation.dto';
 
@@ -15,10 +18,13 @@ const MAX_REISSUE_COUNT = 5;
 
 @Injectable()
 export class InvitationsService {
+  private readonly logger = new Logger(InvitationsService.name);
+
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
     private configService: ConfigService,
+    private auth0Management: Auth0ManagementService,
   ) {}
 
   async create(dto: CreateInvitationDto, invitedById: string) {
@@ -58,7 +64,11 @@ export class InvitationsService {
         },
       });
 
-      await this.sendInvitationEmail(invitation);
+      // Pre-create Auth0 user and generate password setup link
+      const passwordSetupUrl =
+        await this.getOrCreateAuth0UserAndTicket(invitation);
+
+      await this.sendInvitationEmail(invitation, passwordSetupUrl);
 
       return invitation;
     } catch (error) {
@@ -114,7 +124,10 @@ export class InvitationsService {
       },
     });
 
-    await this.sendInvitationEmail(updated);
+    // Generate new password setup link
+    const passwordSetupUrl = await this.getOrCreateAuth0UserAndTicket(updated);
+
+    await this.sendInvitationEmail(updated, passwordSetupUrl);
 
     return updated;
   }
@@ -152,7 +165,10 @@ export class InvitationsService {
       },
     });
 
-    await this.sendInvitationEmail(updated);
+    // Generate new password setup link
+    const passwordSetupUrl = await this.getOrCreateAuth0UserAndTicket(updated);
+
+    await this.sendInvitationEmail(updated, passwordSetupUrl);
 
     return { message: 'Invitation reissued successfully' };
   }
@@ -200,21 +216,85 @@ export class InvitationsService {
       throw new BadRequestException('Cannot cancel an accepted invitation');
     }
 
+    // Delete Auth0 user if one was pre-created — must succeed before removing invitation
+    // to avoid orphaned Auth0 accounts (auth0UserId would be lost)
+    if (invitation.auth0UserId) {
+      try {
+        await this.auth0Management.deleteUser(invitation.auth0UserId);
+      } catch (error) {
+        this.logger.error(
+          `Failed to delete Auth0 user ${invitation.auth0UserId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        );
+        throw new ServiceUnavailableException(
+          'Failed to delete Auth0 user; invitation was not cancelled. Please retry.',
+        );
+      }
+    }
+
     return this.prisma.userInvitation.delete({
       where: { id },
     });
   }
 
-  private async sendInvitationEmail(invitation: {
+  private async getOrCreateAuth0UserAndTicket(invitation: {
+    id: string;
     email: string;
-    token: string;
-    reissueToken: string;
-  }) {
+    auth0UserId: string | null;
+  }): Promise<string | null> {
+    try {
+      let auth0UserId = invitation.auth0UserId;
+
+      if (!auth0UserId) {
+        const existingAuth0User = await this.auth0Management.getUserByEmail(
+          invitation.email,
+        );
+
+        if (existingAuth0User) {
+          auth0UserId = existingAuth0User.user_id;
+        } else {
+          const newUser = await this.auth0Management.createUser(
+            invitation.email,
+          );
+          auth0UserId = newUser.user_id;
+        }
+
+        // Store Auth0 user ID on the invitation
+        await this.prisma.userInvitation.update({
+          where: { id: invitation.id },
+          data: { auth0UserId },
+        });
+      }
+
+      // Generate password change ticket
+      return await this.auth0Management.createPasswordChangeTicket(auth0UserId);
+    } catch (error) {
+      this.logger.error(
+        `Failed to get/create Auth0 user for invitation ${invitation.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return null;
+    }
+  }
+
+  private async sendInvitationEmail(
+    invitation: {
+      email: string;
+      token: string;
+      reissueToken: string;
+    },
+    passwordSetupUrl: string | null,
+  ) {
     const dashboardUrl = this.configService.get<string>(
       'DASHBOARD_URL',
       'http://localhost:3000',
     );
-    const signupUrl = `${dashboardUrl}/signup?token=${invitation.token}`;
+
+    // Use password setup URL if available, fallback to signup URL
+    const actionUrl =
+      passwordSetupUrl ??
+      `${dashboardUrl}/signup?token=${invitation.token}`;
+    const actionLabel = passwordSetupUrl
+      ? 'Set Your Password'
+      : 'Create Your Account';
 
     await this.emailService.send({
       to: invitation.email,
@@ -222,8 +302,8 @@ export class InvitationsService {
       html: `
         <h1>Welcome to CodeWeaves!</h1>
         <p>You have been invited to join the platform.</p>
-        <p>Click the link below to create your account:</p>
-        <a href="${signupUrl}">${signupUrl}</a>
+        <p>Click the link below to ${actionLabel.toLowerCase()}:</p>
+        <a href="${actionUrl}">${actionLabel}</a>
         <p>This link expires in ${INVITATION_EXPIRY_DAYS} days.</p>
       `,
     });

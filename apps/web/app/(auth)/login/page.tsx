@@ -30,7 +30,7 @@ export default function LoginPage() {
         <h1 className="text-4xl font-bold">CodeWeaves</h1>
         <p className="mt-2 text-muted-foreground">AI Chat Widget Platform</p>
       </div>
-      <Button onClick={() => login()} size="lg">
+      <Button onClick={() => login()} size="lg" className="cursor-pointer">
         Log In
       </Button>
     </div>
