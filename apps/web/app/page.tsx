@@ -1,8 +1,8 @@
 'use client';
 
-import { LoginButton } from "@/components/auth/login-button";
-import { LogoutButton } from "@/components/auth/logout-button";
-import { UserMenu } from "@/components/auth/user-menu";
+import { LoginButton } from "@/components/features/auth/login-button";
+import { LogoutButton } from "@/components/features/auth/logout-button";
+import { UserMenu } from "@/components/features/auth/user-menu";
 import { useAuth } from "@/hooks/use-auth";
 
 export default function Home() {

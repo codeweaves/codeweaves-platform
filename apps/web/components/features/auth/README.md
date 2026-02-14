@@ -8,7 +8,7 @@ This directory contains Auth0 React SDK integration components for the CodeWeave
 A button component that triggers Auth0 login flow.
 
 ```tsx
-import { LoginButton } from '@/components/auth/login-button';
+import { LoginButton } from '@/components/features/auth/login-button';
 
 export default function Page() {
   return <LoginButton />;
@@ -19,7 +19,7 @@ export default function Page() {
 A button component that logs out the user and clears the session.
 
 ```tsx
-import { LogoutButton } from '@/components/auth/logout-button';
+import { LogoutButton } from '@/components/features/auth/logout-button';
 
 export default function Page() {
   return <LogoutButton />;
@@ -30,7 +30,7 @@ export default function Page() {
 A dropdown menu component that displays user information and provides logout functionality.
 
 ```tsx
-import { UserMenu } from '@/components/auth/user-menu';
+import { UserMenu } from '@/components/features/auth/user-menu';
 
 export default function Header() {
   return (

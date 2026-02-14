@@ -35,6 +35,12 @@ export class InvitationsController {
     return this.invitationsService.create(dto, user.id);
   }
 
+  @Get('validate/:token')
+  @Public()
+  async validate(@Param('token') token: string) {
+    return this.invitationsService.validate(token);
+  }
+
   @Get()
   @Roles(Role.SUPER_ADMIN)
   @UseGuards(RolesGuard)

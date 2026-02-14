@@ -9,6 +9,7 @@ describe('InvitationsController', () => {
 
   const mockInvitationsService = {
     create: jest.fn(),
+    validate: jest.fn(),
     findAll: jest.fn(),
     findById: jest.fn(),
     resend: jest.fn(),
@@ -71,6 +72,24 @@ describe('InvitationsController', () => {
       expect(mockInvitationsService.create).toHaveBeenCalledWith(
         dto,
         mockUser.id,
+      );
+    });
+  });
+
+  describe('validate', () => {
+    it('should validate an invitation token', async () => {
+      const validationResult = {
+        email: 'new@example.com',
+        organizationId: 'org-uuid-1',
+        role: Role.CLIENT,
+      };
+      mockInvitationsService.validate.mockResolvedValue(validationResult);
+
+      const result = await controller.validate('token-uuid-1');
+
+      expect(result).toEqual(validationResult);
+      expect(mockInvitationsService.validate).toHaveBeenCalledWith(
+        'token-uuid-1',
       );
     });
   });

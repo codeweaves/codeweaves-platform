@@ -2,8 +2,7 @@
 
 import { useAuth0 } from '@auth0/auth0-react';
 import { useCallback, useMemo } from 'react';
-
-const API_BASE_URL = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
+import { apiUrl } from '@/config/api';
 
 export function useApiClient() {
   const { getAccessTokenSilently, isAuthenticated } = useAuth0();
@@ -18,7 +17,7 @@ export function useApiClient() {
 
     const token = await getAccessTokenSilently();
 
-    const response = await fetch(`${API_BASE_URL}${endpoint}`, {
+    const response = await fetch(apiUrl(endpoint), {
       ...options,
       headers: {
         ...options.headers,
