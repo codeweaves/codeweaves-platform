@@ -1,7 +1,5 @@
-version: '3.8'
-
 services:
-  # PostgreSQL Database (optional - using Supabase)
+  # PostgreSQL Database (local development - uncomment when needed)
   # postgres:
   #   image: postgres:16-alpine
   #   container_name: codeweaves-postgres
@@ -20,13 +18,14 @@ services:
   #     timeout: 5s
   #     retries: 5
 
-  # Redis (for rate limiting, caching - Epic 11)
+  # Redis (for rate limiting, caching)
   redis:
     image: redis:7-alpine
     container_name: codeweaves-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
+    command: redis-server --appendonly yes
     volumes:
       - redis_data:/data
     healthcheck:
@@ -35,7 +34,7 @@ services:
       timeout: 5s
       retries: 5
 
-  # API Server
+  # API Server (containerized mode - optional)
   api:
     build:
       context: .
@@ -48,6 +47,7 @@ services:
       NODE_ENV: development
       PORT: 3001
       DATABASE_URL: ${DATABASE_URL}
+      DIRECT_URL: ${DIRECT_URL}
       REDIS_URL: redis://redis:6379
     depends_on:
       redis:
@@ -57,7 +57,7 @@ services:
       - /app/node_modules
       - /app/apps/api/node_modules
 
-  # Web Dashboard
+  # Web Dashboard (containerized mode - optional)
   web:
     build:
       context: .
