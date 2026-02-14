@@ -1,6 +1,22 @@
-import { Injectable, UnauthorizedException } from '@nestjs/common';
+import {
+  Injectable,
+  NotFoundException,
+  UnauthorizedException,
+} from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { User, Role, InvitationStatus, Prisma } from '@prisma/client';
+import type { UpdateUserProfileDto, UserProfileResponse } from '../models/user.dto';
+
+const USER_WITH_ORG_SELECT = {
+  include: {
+    organization: {
+      select: {
+        id: true,
+        name: true,
+      },
+    },
+  },
+} as const;
 
 @Injectable()
 export class UsersService {
@@ -37,11 +53,44 @@ export class UsersService {
     });
   }
 
-  async updateProfile(userId: string, data: { name?: string }): Promise<User> {
-    return this.prisma.user.update({
+  async getProfile(userId: string): Promise<UserProfileResponse> {
+    const user = await this.prisma.user.findUnique({
       where: { id: userId },
-      data,
+      ...USER_WITH_ORG_SELECT,
     });
+
+    if (!user) {
+      throw new NotFoundException('User not found');
+    }
+
+    return this.toProfileResponse(user);
+  }
+
+  async updateProfile(
+    userId: string,
+    dto: UpdateUserProfileDto,
+  ): Promise<UserProfileResponse> {
+    const sanitizedName = dto.name ? this.sanitizeName(dto.name) : undefined;
+
+    try {
+      const user = await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          name: sanitizedName,
+        },
+        ...USER_WITH_ORG_SELECT,
+      });
+
+      return this.toProfileResponse(user);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('User not found');
+      }
+      throw error;
+    }
   }
 
   async findByOrganization(organizationId: string): Promise<User[]> {
@@ -60,6 +109,30 @@ export class UsersService {
     if (existingUser) return existingUser;
 
     return this.createFromInvitation(jwtUser);
+  }
+
+  private toProfileResponse(user: {
+    id: string;
+    email: string;
+    name: string | null;
+    role: Role;
+    organization: { id: string; name: string };
+    createdAt: Date;
+    updatedAt: Date;
+  }): UserProfileResponse {
+    return {
+      id: user.id,
+      email: user.email,
+      name: user.name,
+      role: user.role,
+      organization: user.organization,
+      createdAt: user.createdAt,
+      updatedAt: user.updatedAt,
+    };
+  }
+
+  private sanitizeName(name: string): string {
+    return name.replace(/<[^>]*>?/g, '').trim();
   }
 
   private async createFromInvitation(jwtUser: {

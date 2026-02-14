@@ -1,6 +1,6 @@
 # Story 1.7: Implement Invitation Acceptance Flow
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 

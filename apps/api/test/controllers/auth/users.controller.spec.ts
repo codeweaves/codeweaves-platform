@@ -8,7 +8,7 @@ describe('UsersController', () => {
   let controller: UsersController;
 
   const mockUsersService = {
-    findByAuth0Id: jest.fn(),
+    getProfile: jest.fn(),
     updateProfile: jest.fn(),
   };
 
@@ -17,7 +17,6 @@ describe('UsersController', () => {
     name: 'Test Org',
   };
 
-  // After UserSyncInterceptor, user has full DB data
   const mockUser: CurrentUserData = {
     auth0Id: 'auth0|123456',
     email: 'test@example.com',
@@ -26,6 +25,16 @@ describe('UsersController', () => {
     role: Role.CLIENT,
     organizationId: 'org-uuid',
     organization: mockOrganization,
+  };
+
+  const mockProfileResponse = {
+    id: 'user-uuid',
+    email: 'test@example.com',
+    name: 'Test User',
+    role: Role.CLIENT,
+    organization: mockOrganization,
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
   };
 
   beforeEach(async () => {
@@ -48,39 +57,34 @@ describe('UsersController', () => {
   });
 
   describe('getProfile', () => {
-    it('should return synced user profile from request', async () => {
+    it('should call usersService.getProfile with user id', async () => {
+      mockUsersService.getProfile.mockResolvedValue(mockProfileResponse);
+
       const result = await controller.getProfile(mockUser);
 
-      expect(result).toEqual({
-        id: 'user-uuid',
-        email: 'test@example.com',
-        role: Role.CLIENT,
-        organizationId: 'org-uuid',
-        organization: mockOrganization,
-        roles: ['user'],
-      });
+      expect(mockUsersService.getProfile).toHaveBeenCalledWith('user-uuid');
+      expect(result).toEqual(mockProfileResponse);
     });
 
-    it('should not call UsersService since user is already synced', async () => {
-      await controller.getProfile(mockUser);
+    it('should return profile with organization details', async () => {
+      mockUsersService.getProfile.mockResolvedValue(mockProfileResponse);
 
-      expect(mockUsersService.findByAuth0Id).not.toHaveBeenCalled();
+      const result = await controller.getProfile(mockUser);
+
+      expect(result.organization).toEqual(mockOrganization);
+      expect(result.createdAt).toBeDefined();
+      expect(result.updatedAt).toBeDefined();
     });
   });
 
   describe('updateProfile', () => {
-    it('should update user profile using synced user id', async () => {
-      const updatedUser = {
-        id: 'user-uuid',
-        email: 'test@example.com',
+    it('should update user profile with name', async () => {
+      const updatedProfile = {
+        ...mockProfileResponse,
         name: 'Updated Name',
-        role: Role.CLIENT,
-        auth0Id: 'auth0|123456',
-        organizationId: 'org-uuid',
-        createdAt: new Date(),
-        updatedAt: new Date(),
+        updatedAt: new Date('2026-01-02'),
       };
-      mockUsersService.updateProfile.mockResolvedValue(updatedUser);
+      mockUsersService.updateProfile.mockResolvedValue(updatedProfile);
 
       const result = await controller.updateProfile(mockUser, {
         name: 'Updated Name',
@@ -90,15 +94,27 @@ describe('UsersController', () => {
         'user-uuid',
         { name: 'Updated Name' },
       );
-      expect(result).toEqual(updatedUser);
+      expect(result).toEqual(updatedProfile);
+    });
+
+    it('should update profile with empty data object', async () => {
+      mockUsersService.updateProfile.mockResolvedValue(mockProfileResponse);
+
+      const result = await controller.updateProfile(mockUser, {});
+
+      expect(mockUsersService.updateProfile).toHaveBeenCalledWith(
+        'user-uuid',
+        {},
+      );
+      expect(result).toEqual(mockProfileResponse);
     });
 
     it('should not need to look up user by auth0Id', async () => {
-      mockUsersService.updateProfile.mockResolvedValue({});
+      mockUsersService.updateProfile.mockResolvedValue(mockProfileResponse);
 
       await controller.updateProfile(mockUser, { name: 'New Name' });
 
-      expect(mockUsersService.findByAuth0Id).not.toHaveBeenCalled();
+      expect(mockUsersService.getProfile).not.toHaveBeenCalled();
     });
   });
 });
