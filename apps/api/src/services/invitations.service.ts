@@ -172,7 +172,7 @@ export class InvitationsService {
 
     if (
       invitation.status === InvitationStatus.EXPIRED ||
-      invitation.expiresAt < new Date()
+      invitation.expiresAt <= new Date()
     ) {
       throw new BadRequestException({
         message: 'Invitation has expired',

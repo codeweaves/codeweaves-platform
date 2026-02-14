@@ -4,5 +4,7 @@ export const API_BASE_URL =
 export const API_PREFIX = '/api/codeweaves/v1';
 
 export function apiUrl(path: string): string {
-  return `${API_BASE_URL}${API_PREFIX}${path}`;
+  const base = API_BASE_URL.replace(/\/$/, '');
+  const normalizedPath = path.startsWith('/') ? path : `/${path}`;
+  return `${base}${API_PREFIX}${normalizedPath}`;
 }

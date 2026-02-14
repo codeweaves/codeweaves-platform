@@ -54,7 +54,7 @@ export function SignupContent() {
 
     const controller = new AbortController();
 
-    fetch(apiUrl(`/invitations/validate/${token}`), {
+    fetch(apiUrl(`/invitations/validate/${encodeURIComponent(token)}`), {
       signal: controller.signal,
     })
       .then(async (res) => {
@@ -139,7 +139,7 @@ export function SignupContent() {
                 className="w-full"
                 onClick={() =>
                   router.push(
-                    `/reissue-invitation?token=${state.error.reissueToken}`
+                    `/reissue-invitation?token=${encodeURIComponent(state.error.reissueToken!)}`
                   )
                 }
               >
@@ -152,7 +152,7 @@ export function SignupContent() {
     );
   }
 
-  const roleLabel = state.invitation.role.replace('_', ' ').toLowerCase();
+  const roleLabel = state.invitation.role.replaceAll('_', ' ').toLowerCase();
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">

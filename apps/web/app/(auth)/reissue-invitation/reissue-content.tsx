@@ -22,14 +22,13 @@ type ReissueState =
 export function ReissueContent() {
   const searchParams = useSearchParams();
   const reissueToken = searchParams.get('token') || '';
-  const [state, setState] = useState<ReissueState>({ status: 'idle' });
+  const [state, setState] = useState<ReissueState>(() =>
+    reissueToken
+      ? { status: 'idle' as const }
+      : { status: 'error' as const, message: 'No reissue token found. Please use the link from your original invitation email.' }
+  );
 
   const handleReissue = async () => {
-    if (!reissueToken) {
-      setState({ status: 'error', message: 'No reissue token provided.' });
-      return;
-    }
-
     setState({ status: 'loading' });
 
     try {
@@ -85,12 +84,6 @@ export function ReissueContent() {
         <CardContent>
           {state.status === 'error' && (
             <p className="text-sm text-destructive">{state.message}</p>
-          )}
-          {!reissueToken && (
-            <p className="text-sm text-destructive">
-              No reissue token found. Please use the link from your original
-              invitation email.
-            </p>
           )}
         </CardContent>
         <CardFooter>
