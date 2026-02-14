@@ -1,5 +1,6 @@
 'use client';
 
+import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import {
   DropdownMenu,
@@ -13,6 +14,7 @@ import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
 
 export function UserMenu() {
   const { user, logout, isAuthenticated } = useAuth();
+  const router = useRouter();
 
   if (!isAuthenticated || !user) {
     return null;
@@ -43,7 +45,7 @@ export function UserMenu() {
           </div>
         </DropdownMenuLabel>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={() => window.location.href = '/settings/profile'}>
+        <DropdownMenuItem onClick={() => router.push('/dashboard/settings')}>
           Profile Settings
         </DropdownMenuItem>
         <DropdownMenuSeparator />
