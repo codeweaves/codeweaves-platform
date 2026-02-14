@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body, NotFoundException } from '@nestjs/common';
+import { Controller, Get, Patch, Body } from '@nestjs/common';
 import { UsersService } from '../../services/users.service';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { UpdateUserDto } from '../../models/user.dto';
@@ -9,23 +9,14 @@ export class UsersController {
 
   @Get('me')
   async getProfile(@CurrentUser() user: CurrentUserData) {
-    const dbUser = await this.usersService.findByAuth0Id(user.auth0Id);
-    if (!dbUser) {
-      return {
-        auth0Id: user.auth0Id,
-        email: user.email,
-        roles: user.roles,
-        synced: false,
-      };
-    }
+    // User is already synced by UserSyncInterceptor
     return {
-      id: dbUser.id,
-      email: dbUser.email,
-      name: dbUser.name,
-      role: dbUser.role,
-      organizationId: dbUser.organizationId,
+      id: user.id,
+      email: user.email,
+      role: user.role,
+      organizationId: user.organizationId,
+      organization: user.organization,
       roles: user.roles,
-      synced: true,
     };
   }
 
@@ -34,10 +25,7 @@ export class UsersController {
     @CurrentUser() user: CurrentUserData,
     @Body() data: UpdateUserDto,
   ) {
-    const dbUser = await this.usersService.findByAuth0Id(user.auth0Id);
-    if (!dbUser) {
-      throw new NotFoundException('User not found in database');
-    }
-    return this.usersService.updateProfile(dbUser.id, data);
+    // User is already synced by UserSyncInterceptor, so user.id is available
+    return this.usersService.updateProfile(user.id, data);
   }
 }

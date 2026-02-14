@@ -1,7 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
+import { UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '../../../src/services/users.service';
 import { PrismaService } from '../../../src/services/prisma.service';
-import { Role } from '@prisma/client';
+import { Role, InvitationStatus, Prisma } from '@prisma/client';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -13,6 +14,11 @@ describe('UsersService', () => {
       update: jest.fn(),
       findMany: jest.fn(),
     },
+    userInvitation: {
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
+    $transaction: jest.fn(),
   };
 
   const mockOrganization = {
@@ -316,6 +322,258 @@ describe('UsersService', () => {
       );
 
       await expect(service.createFromAuth0(createData)).rejects.toThrow();
+    });
+  });
+
+  describe('syncOrCreateUser', () => {
+    const mockInvitation = {
+      id: 'inv-uuid-1',
+      email: 'new@example.com',
+      role: Role.CLIENT,
+      organizationId: mockOrganization.id,
+      token: 'token-1',
+      reissueToken: 'reissue-1',
+      reissueCount: 0,
+      status: InvitationStatus.PENDING,
+      expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      createdAt: new Date(),
+      invitedBy: null,
+    };
+
+    it('should return existing user when found by auth0Id', async () => {
+      const userWithOrg = { ...mockUser, organization: mockOrganization };
+      mockPrismaService.user.findUnique.mockResolvedValue(userWithOrg);
+
+      const result = await service.syncOrCreateUser({
+        auth0Id: 'auth0|123456',
+        email: 'test@example.com',
+      });
+
+      expect(result).toEqual(userWithOrg);
+      expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
+        where: { auth0Id: 'auth0|123456' },
+        include: { organization: true },
+      });
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should create user from invitation on first login', async () => {
+      const createdUser = {
+        ...mockUser,
+        id: 'new-user-uuid',
+        auth0Id: 'auth0|new',
+        email: 'new@example.com',
+        organization: mockOrganization,
+      };
+
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue(mockInvitation);
+      mockPrismaService.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            user: { create: jest.fn().mockResolvedValue(createdUser) },
+            userInvitation: {
+              update: jest.fn().mockResolvedValue({
+                ...mockInvitation,
+                status: InvitationStatus.ACCEPTED,
+              }),
+            },
+          };
+          return fn(tx);
+        },
+      );
+
+      const result = await service.syncOrCreateUser({
+        auth0Id: 'auth0|new',
+        email: 'new@example.com',
+      });
+
+      expect(result).toEqual(createdUser);
+      expect(mockPrismaService.$transaction).toHaveBeenCalled();
+    });
+
+    it('should normalize email to lowercase for invitation lookup', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.syncOrCreateUser({
+          auth0Id: 'auth0|mixed',
+          email: 'User@Example.COM',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockPrismaService.userInvitation.findFirst).toHaveBeenCalledWith({
+        where: {
+          email: 'user@example.com',
+          status: InvitationStatus.PENDING,
+          expiresAt: { gt: expect.any(Date) },
+        },
+      });
+    });
+
+    it('should throw UnauthorizedException when no invitation exists', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.syncOrCreateUser({
+          auth0Id: 'auth0|unknown',
+          email: 'unknown@example.com',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      await expect(
+        service.syncOrCreateUser({
+          auth0Id: 'auth0|unknown',
+          email: 'unknown@example.com',
+        }),
+      ).rejects.toThrow('No valid invitation found');
+    });
+
+    it('should mark invitation as accepted in the transaction', async () => {
+      const createdUser = {
+        ...mockUser,
+        id: 'new-uuid',
+        auth0Id: 'auth0|inv-test',
+        email: 'inv@example.com',
+        organization: mockOrganization,
+      };
+
+      let capturedInvUpdate: unknown;
+
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue({
+        ...mockInvitation,
+        email: 'inv@example.com',
+      });
+      mockPrismaService.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            user: { create: jest.fn().mockResolvedValue(createdUser) },
+            userInvitation: {
+              update: jest.fn().mockImplementation((args) => {
+                capturedInvUpdate = args;
+                return { ...mockInvitation, status: InvitationStatus.ACCEPTED };
+              }),
+            },
+          };
+          return fn(tx);
+        },
+      );
+
+      await service.syncOrCreateUser({
+        auth0Id: 'auth0|inv-test',
+        email: 'inv@example.com',
+      });
+
+      expect(capturedInvUpdate).toEqual({
+        where: { id: mockInvitation.id },
+        data: { status: InvitationStatus.ACCEPTED },
+      });
+    });
+
+    it('should handle race condition with unique constraint error', async () => {
+      const existingUser = {
+        ...mockUser,
+        auth0Id: 'auth0|race',
+        email: 'race@example.com',
+        organization: mockOrganization,
+      };
+
+      // First findUnique returns null (cache miss)
+      mockPrismaService.user.findUnique
+        .mockResolvedValueOnce(null)
+        // Second findUnique (retry after P2002) returns the user
+        .mockResolvedValueOnce(existingUser);
+
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue({
+        ...mockInvitation,
+        email: 'race@example.com',
+      });
+
+      mockPrismaService.$transaction.mockRejectedValue(
+        new Prisma.PrismaClientKnownRequestError('Unique constraint failed', {
+          code: 'P2002',
+          clientVersion: '5.0.0',
+        }),
+      );
+
+      const result = await service.syncOrCreateUser({
+        auth0Id: 'auth0|race',
+        email: 'race@example.com',
+      });
+
+      expect(result).toEqual(existingUser);
+      expect(mockPrismaService.user.findUnique).toHaveBeenCalledTimes(2);
+    });
+
+    it('should rethrow non-P2002 errors from transaction', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue({
+        ...mockInvitation,
+        email: 'error@example.com',
+      });
+      mockPrismaService.$transaction.mockRejectedValue(
+        new Error('Database connection lost'),
+      );
+
+      await expect(
+        service.syncOrCreateUser({
+          auth0Id: 'auth0|error',
+          email: 'error@example.com',
+        }),
+      ).rejects.toThrow('Database connection lost');
+    });
+
+    it('should assign role from invitation', async () => {
+      const adminInvitation = {
+        ...mockInvitation,
+        email: 'admin@example.com',
+        role: Role.ADMIN,
+      };
+      const adminUser = {
+        ...mockUser,
+        id: 'admin-uuid',
+        auth0Id: 'auth0|admin',
+        email: 'admin@example.com',
+        role: Role.ADMIN,
+        organization: mockOrganization,
+      };
+
+      let capturedCreateData: unknown;
+
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue(adminInvitation);
+      mockPrismaService.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            user: {
+              create: jest.fn().mockImplementation((args) => {
+                capturedCreateData = args;
+                return adminUser;
+              }),
+            },
+            userInvitation: {
+              update: jest.fn().mockResolvedValue({
+                ...adminInvitation,
+                status: InvitationStatus.ACCEPTED,
+              }),
+            },
+          };
+          return fn(tx);
+        },
+      );
+
+      const result = await service.syncOrCreateUser({
+        auth0Id: 'auth0|admin',
+        email: 'admin@example.com',
+      });
+
+      expect(result.role).toBe(Role.ADMIN);
+      expect(
+        (capturedCreateData as { data: { role: Role } }).data.role,
+      ).toBe(Role.ADMIN);
     });
   });
 });
