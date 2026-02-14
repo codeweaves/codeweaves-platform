@@ -1,7 +1,7 @@
 'use client';
 
 import { Suspense } from 'react';
-import { SignupContent } from './signup-content';
+import { InvitationContent } from './invitation-content';
 
 export default function SignupPage() {
   return (
@@ -15,7 +15,7 @@ export default function SignupPage() {
         </div>
       }
     >
-      <SignupContent />
+      <InvitationContent />
     </Suspense>
   );
 }

@@ -62,6 +62,7 @@ model UserInvitation {
   expiresAt      DateTime
   createdAt      DateTime         @default(now())
   invitedBy      String?
+  auth0UserId    String?
 
   @@unique([email, status, organizationId])
   @@index([email])

@@ -31,7 +31,7 @@ type PageState =
   | { status: 'valid'; invitation: InvitationData }
   | { status: 'error'; error: ValidationError };
 
-export function SignupContent() {
+export function InvitationContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
   const { loginWithRedirect, isAuthenticated, isLoading: authLoading } = useAuth0();
@@ -83,12 +83,11 @@ export function SignupContent() {
     return () => controller.abort();
   }, [token, isAuthenticated, authLoading, router]);
 
-  const handleSignup = () => {
+  const handleLogin = () => {
     if (state.status !== 'valid') return;
 
     loginWithRedirect({
       authorizationParams: {
-        screen_hint: 'signup',
         login_hint: state.invitation.email,
       },
       appState: {
@@ -113,12 +112,21 @@ export function SignupContent() {
       <div className="flex min-h-screen items-center justify-center p-4">
         <Card className="w-full max-w-md">
           <CardHeader>
-            <CardTitle className="text-xl">Invalid Link</CardTitle>
+            <CardTitle className="text-xl">Invitation Only</CardTitle>
             <CardDescription>
-              No invitation token was provided. Please check your email for the
-              correct invitation link.
+              Registration is by invitation only. If you received an invitation,
+              please check your email for the setup link.
             </CardDescription>
           </CardHeader>
+          <CardFooter>
+            <Button
+              variant="outline"
+              className="w-full"
+              onClick={() => router.push('/login')}
+            >
+              Go to Login
+            </Button>
+          </CardFooter>
         </Card>
       </div>
     );
@@ -162,6 +170,8 @@ export function SignupContent() {
           <CardDescription>
             You&apos;ve been invited to join as a{' '}
             <span className="font-medium text-foreground">{roleLabel}</span>.
+            Please check your email for the password setup link, or log in if
+            you&apos;ve already set your password.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -170,8 +180,8 @@ export function SignupContent() {
           </p>
         </CardContent>
         <CardFooter>
-          <Button className="w-full" size="lg" onClick={handleSignup}>
-            Create Your Account
+          <Button className="w-full" size="lg" onClick={handleLogin}>
+            Log In
           </Button>
         </CardFooter>
       </Card>
