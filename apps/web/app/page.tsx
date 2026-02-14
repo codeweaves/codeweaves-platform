@@ -3,7 +3,7 @@
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
-import { Loader2 } from 'lucide-react';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 export default function Home() {
   const { isAuthenticated, isLoading } = useAuth();
@@ -19,10 +19,5 @@ export default function Home() {
     }
   }, [isAuthenticated, isLoading, router]);
 
-  return (
-    <div className="flex h-screen items-center justify-center">
-      <Loader2 className="h-8 w-8 animate-spin text-primary" />
-      <span className="ml-2 text-muted-foreground">Loading...</span>
-    </div>
-  );
+  return <LoadingSpinner message="Loading..." />;
 }

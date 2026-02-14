@@ -4,7 +4,7 @@ import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
-import { Loader2 } from 'lucide-react';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 export default function LoginPage() {
   const { isAuthenticated, isLoading, login } = useAuth();
@@ -17,21 +17,11 @@ export default function LoginPage() {
   }, [isAuthenticated, isLoading, router]);
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2 text-muted-foreground">Loading...</span>
-      </div>
-    );
+    return <LoadingSpinner message="Loading..." />;
   }
 
   if (isAuthenticated) {
-    return (
-      <div className="flex h-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2 text-muted-foreground">Redirecting...</span>
-      </div>
-    );
+    return <LoadingSpinner message="Redirecting..." />;
   }
 
   return (

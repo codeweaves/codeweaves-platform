@@ -3,7 +3,7 @@
 import { useAuth } from '@/hooks/use-auth';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
-import { Loader2 } from 'lucide-react';
+import { LoadingSpinner } from '@/components/ui/loading-spinner';
 
 interface AuthGuardProps {
   children: React.ReactNode;
@@ -20,21 +20,11 @@ export function AuthGuard({ children }: AuthGuardProps) {
   }, [isLoading, isAuthenticated, login, pathname]);
 
   if (isLoading) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2 text-muted-foreground">Loading...</span>
-      </div>
-    );
+    return <LoadingSpinner message="Loading..." />;
   }
 
   if (!isAuthenticated) {
-    return (
-      <div className="flex h-screen w-screen items-center justify-center">
-        <Loader2 className="h-8 w-8 animate-spin text-primary" />
-        <span className="ml-2 text-muted-foreground">Redirecting to login...</span>
-      </div>
-    );
+    return <LoadingSpinner message="Redirecting to login..." />;
   }
 
   return <>{children}</>;
