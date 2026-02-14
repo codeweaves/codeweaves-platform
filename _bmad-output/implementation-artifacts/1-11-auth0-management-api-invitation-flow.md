@@ -122,7 +122,7 @@ So that only explicitly invited users can create accounts and access the platfor
 
 ### Auth0 Management API Endpoints Used
 
-```
+```text
 POST /api/v2/users                    — Create user
 GET  /api/v2/users-by-email?email=... — Find user by email
 DELETE /api/v2/users/{id}             — Delete user
@@ -147,7 +147,7 @@ export class Auth0ManagementService {
 
 ### Updated Invitation Create Flow
 
-```
+```text
 1. Validate email (not already registered/invited)
 2. Create invitation record in DB
 3. Check if Auth0 user exists (getUserByEmail)

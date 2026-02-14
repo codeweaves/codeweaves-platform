@@ -52,7 +52,7 @@ describe('Auth0ManagementService', () => {
       expect(token).toBe('mock-management-token');
       expect(mockFetch).toHaveBeenCalledWith(
         'https://test-tenant.auth0.com/oauth/token',
-        {
+        expect.objectContaining({
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({
@@ -61,7 +61,8 @@ describe('Auth0ManagementService', () => {
             audience: 'https://test-tenant.auth0.com/api/v2/',
             grant_type: 'client_credentials',
           }),
-        },
+          signal: expect.any(AbortSignal),
+        }),
       );
     });
 

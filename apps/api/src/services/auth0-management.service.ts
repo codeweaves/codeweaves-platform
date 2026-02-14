@@ -23,6 +23,8 @@ export class Auth0ManagementService {
   private readonly clientSecret: string;
   private readonly audience: string;
 
+  private static readonly FETCH_TIMEOUT_MS = 10_000;
+
   constructor(private configService: ConfigService) {
     this.domain = this.configService.get<string>('AUTH0_DOMAIN', '');
     this.clientId = this.configService.get<string>('AUTH0_M2M_CLIENT_ID', '');
@@ -31,6 +33,20 @@ export class Auth0ManagementService {
       '',
     );
     this.audience = `https://${this.domain}/api/v2/`;
+  }
+
+  private async fetchWithTimeout(
+    url: string,
+    init: RequestInit,
+    timeoutMs = Auth0ManagementService.FETCH_TIMEOUT_MS,
+  ): Promise<Response> {
+    const controller = new AbortController();
+    const timeout = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...init, signal: controller.signal });
+    } finally {
+      clearTimeout(timeout);
+    }
   }
 
   async getManagementToken(): Promise<string> {
@@ -53,7 +69,7 @@ export class Auth0ManagementService {
   }
 
   private async fetchManagementToken(): Promise<string> {
-    const response = await fetch(`https://${this.domain}/oauth/token`, {
+    const response = await this.fetchWithTimeout(`https://${this.domain}/oauth/token`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
@@ -86,7 +102,7 @@ export class Auth0ManagementService {
   async createUser(email: string): Promise<Auth0User> {
     const token = await this.getManagementToken();
 
-    const response = await fetch(`https://${this.domain}/api/v2/users`, {
+    const response = await this.fetchWithTimeout(`https://${this.domain}/api/v2/users`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${token}`,
@@ -125,7 +141,7 @@ export class Auth0ManagementService {
   async getUserByEmail(email: string): Promise<Auth0User | null> {
     const token = await this.getManagementToken();
 
-    const response = await fetch(
+    const response = await this.fetchWithTimeout(
       `https://${this.domain}/api/v2/users-by-email?email=${encodeURIComponent(email)}`,
       {
         method: 'GET',
@@ -145,7 +161,7 @@ export class Auth0ManagementService {
   async deleteUser(auth0UserId: string): Promise<void> {
     const token = await this.getManagementToken();
 
-    const response = await fetch(
+    const response = await this.fetchWithTimeout(
       `https://${this.domain}/api/v2/users/${encodeURIComponent(auth0UserId)}`,
       {
         method: 'DELETE',
@@ -171,7 +187,7 @@ export class Auth0ManagementService {
       'http://localhost:3000',
     );
 
-    const response = await fetch(
+    const response = await this.fetchWithTimeout(
       `https://${this.domain}/api/v2/tickets/password-change`,
       {
         method: 'POST',

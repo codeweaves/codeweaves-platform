@@ -264,7 +264,7 @@ export class InvitationsService {
       return await this.auth0Management.createPasswordChangeTicket(auth0UserId);
     } catch (error) {
       this.logger.error(
-        `Failed to get/create Auth0 user for ${invitation.email}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to get/create Auth0 user for invitation ${invitation.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       return null;
     }
