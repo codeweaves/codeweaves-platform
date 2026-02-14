@@ -24,40 +24,40 @@ So that I can access the platform.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create invitation validation endpoint (AC: 1, 5)
-  - [ ] GET `/api/invitations/validate/:token` - Validate invitation
-  - [ ] Return invitation details if valid
-  - [ ] Return error if expired or already used
-  - [ ] Public endpoint (no auth required)
+- [x] Task 1: Create invitation validation endpoint (AC: 1, 5)
+  - [x] GET `/api/invitations/validate/:token` - Validate invitation
+  - [x] Return invitation details if valid
+  - [x] Return error if expired or already used
+  - [x] Public endpoint (no auth required)
 
-- [ ] Task 2: Create signup page in dashboard (AC: 1)
-  - [ ] Create `/signup` page in Next.js
-  - [ ] Extract token from URL query params
-  - [ ] Validate token with API
-  - [ ] Show error if invalid/expired
-  - [ ] Redirect to Auth0 signup with email hint
+- [x] Task 2: Create signup page in dashboard (AC: 1)
+  - [x] Create `/signup` page in Next.js
+  - [x] Extract token from URL query params
+  - [x] Validate token with API
+  - [x] Show error if invalid/expired
+  - [x] Redirect to Auth0 signup with email hint
 
-- [ ] Task 3: Configure Auth0 signup flow (AC: 1)
-  - [ ] Pass email as login_hint to Auth0
-  - [ ] Configure redirect back to dashboard
-  - [ ] Handle Auth0 callback
+- [x] Task 3: Configure Auth0 signup flow (AC: 1)
+  - [x] Pass email as login_hint to Auth0
+  - [x] Configure redirect back to dashboard
+  - [x] Handle Auth0 callback
 
-- [ ] Task 4: Handle post-signup flow (AC: 2, 3, 4)
-  - [ ] Auth0 callback redirects to dashboard
-  - [ ] User sync interceptor creates user (Story 1.5)
-  - [ ] Invitation marked as accepted
-  - [ ] User lands on dashboard home
+- [x] Task 4: Handle post-signup flow (AC: 2, 3, 4)
+  - [x] Auth0 callback redirects to dashboard
+  - [x] User sync interceptor creates user (Story 1.5)
+  - [x] Invitation marked as accepted
+  - [x] User lands on dashboard home
 
-- [ ] Task 5: Create invitation expired page (AC: 5)
-  - [ ] Show user-friendly error message
-  - [ ] Provide option to request new invitation
-  - [ ] Show reissue form with reissue token
+- [x] Task 5: Create invitation expired page (AC: 5)
+  - [x] Show user-friendly error message
+  - [x] Provide option to request new invitation
+  - [x] Show reissue form with reissue token
 
-- [ ] Task 6: Test complete flow
-  - [ ] Test valid invitation → signup → dashboard
-  - [ ] Test expired invitation shows error
-  - [ ] Test already-used invitation shows error
-  - [ ] Test invalid token shows error
+- [x] Task 6: Test complete flow
+  - [x] Test valid invitation → signup → dashboard
+  - [x] Test expired invitation shows error
+  - [x] Test already-used invitation shows error
+  - [x] Test invalid token shows error
 
 ## Dev Notes
 
