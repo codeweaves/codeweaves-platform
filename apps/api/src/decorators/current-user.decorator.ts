@@ -1,11 +1,20 @@
 import { createParamDecorator, ExecutionContext } from '@nestjs/common';
+import { Role } from '@prisma/client';
 
 export interface CurrentUserData {
+  // From JWT
   auth0Id: string;
   email: string;
   roles: string[];
-  organizationId?: string;
-  userId?: string;  // Our internal user ID (populated after sync)
+
+  // From database (populated by UserSyncInterceptor)
+  id: string;
+  role: Role;
+  organizationId: string;
+  organization: {
+    id: string;
+    name: string;
+  };
 }
 
 export const CurrentUser = createParamDecorator(

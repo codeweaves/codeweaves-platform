@@ -72,7 +72,7 @@ development_status:
   1-2-implement-jwt-verification-strategy-in-nestjs: done
   1-3-create-authguard-for-protected-routes: done
   1-4-implement-user-model-and-database-schema: done
-  1-5-create-user-sync-on-first-login: ready-for-dev
+  1-5-create-user-sync-on-first-login: in-progress
   1-6-implement-user-invitation-system: ready-for-dev
   1-7-implement-invitation-acceptance-flow: ready-for-dev
   1-8-implement-user-profile-api: ready-for-dev

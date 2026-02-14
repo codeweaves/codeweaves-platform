@@ -1,5 +1,4 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
 import { UsersController } from '../../../src/controllers/auth/users.controller';
 import { UsersService } from '../../../src/services/users.service';
 import { CurrentUserData } from '../../../src/decorators/current-user.decorator';
@@ -13,21 +12,20 @@ describe('UsersController', () => {
     updateProfile: jest.fn(),
   };
 
+  const mockOrganization = {
+    id: 'org-uuid',
+    name: 'Test Org',
+  };
+
+  // After UserSyncInterceptor, user has full DB data
   const mockUser: CurrentUserData = {
     auth0Id: 'auth0|123456',
     email: 'test@example.com',
     roles: ['user'],
-  };
-
-  const mockDbUser = {
     id: 'user-uuid',
-    email: 'test@example.com',
-    name: 'Test User',
     role: Role.CLIENT,
-    auth0Id: 'auth0|123456',
     organizationId: 'org-uuid',
-    createdAt: new Date(),
-    updatedAt: new Date(),
+    organization: mockOrganization,
   };
 
   beforeEach(async () => {
@@ -50,55 +48,57 @@ describe('UsersController', () => {
   });
 
   describe('getProfile', () => {
-    it('should return user profile when user exists in database', async () => {
-      mockUsersService.findByAuth0Id.mockResolvedValue(mockDbUser);
-
+    it('should return synced user profile from request', async () => {
       const result = await controller.getProfile(mockUser);
 
-      expect(mockUsersService.findByAuth0Id).toHaveBeenCalledWith('auth0|123456');
       expect(result).toEqual({
-        id: mockDbUser.id,
-        email: mockDbUser.email,
-        name: mockDbUser.name,
-        role: mockDbUser.role,
-        organizationId: mockDbUser.organizationId,
+        id: 'user-uuid',
+        email: 'test@example.com',
+        role: Role.CLIENT,
+        organizationId: 'org-uuid',
+        organization: mockOrganization,
         roles: ['user'],
-        synced: true,
       });
     });
 
-    it('should return partial profile when user not in database', async () => {
-      mockUsersService.findByAuth0Id.mockResolvedValue(null);
+    it('should not call UsersService since user is already synced', async () => {
+      await controller.getProfile(mockUser);
 
-      const result = await controller.getProfile(mockUser);
-
-      expect(mockUsersService.findByAuth0Id).toHaveBeenCalledWith('auth0|123456');
-      expect(result).toEqual({
-        auth0Id: 'auth0|123456',
-        email: 'test@example.com',
-        roles: ['user'],
-        synced: false,
-      });
+      expect(mockUsersService.findByAuth0Id).not.toHaveBeenCalled();
     });
   });
 
   describe('updateProfile', () => {
-    it('should update user profile successfully', async () => {
-      const updatedUser = { ...mockDbUser, name: 'Updated Name' };
-      mockUsersService.findByAuth0Id.mockResolvedValue(mockDbUser);
+    it('should update user profile using synced user id', async () => {
+      const updatedUser = {
+        id: 'user-uuid',
+        email: 'test@example.com',
+        name: 'Updated Name',
+        role: Role.CLIENT,
+        auth0Id: 'auth0|123456',
+        organizationId: 'org-uuid',
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
       mockUsersService.updateProfile.mockResolvedValue(updatedUser);
 
-      const result = await controller.updateProfile(mockUser, { name: 'Updated Name' });
+      const result = await controller.updateProfile(mockUser, {
+        name: 'Updated Name',
+      });
 
-      expect(mockUsersService.findByAuth0Id).toHaveBeenCalledWith('auth0|123456');
-      expect(mockUsersService.updateProfile).toHaveBeenCalledWith('user-uuid', { name: 'Updated Name' });
+      expect(mockUsersService.updateProfile).toHaveBeenCalledWith(
+        'user-uuid',
+        { name: 'Updated Name' },
+      );
       expect(result).toEqual(updatedUser);
     });
 
-    it('should throw NotFoundException when user not found in database', async () => {
-      mockUsersService.findByAuth0Id.mockResolvedValue(null);
+    it('should not need to look up user by auth0Id', async () => {
+      mockUsersService.updateProfile.mockResolvedValue({});
 
-      await expect(controller.updateProfile(mockUser, { name: 'New Name' })).rejects.toThrow(NotFoundException);
+      await controller.updateProfile(mockUser, { name: 'New Name' });
+
+      expect(mockUsersService.findByAuth0Id).not.toHaveBeenCalled();
     });
   });
 });

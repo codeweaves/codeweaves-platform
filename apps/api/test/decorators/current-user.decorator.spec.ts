@@ -7,8 +7,10 @@ describe('CurrentUser Decorator', () => {
     auth0Id: 'auth0|123456',
     email: 'test@example.com',
     roles: ['user', 'admin'],
+    id: 'user-123',
+    role: 'CLIENT' as CurrentUserData['role'],
     organizationId: 'org-123',
-    userId: 'user-123',
+    organization: { id: 'org-123', name: 'Test Org' },
   };
 
   function getParamDecoratorFactory() {
