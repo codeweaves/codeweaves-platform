@@ -4,9 +4,10 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { randomUUID } from 'crypto';
 import { PrismaService } from './prisma.service';
 import { EmailService } from './email.service';
-import { InvitationStatus } from '@prisma/client';
+import { InvitationStatus, Prisma } from '@prisma/client';
 import { CreateInvitationDto } from '../models/invitation.dto';
 
 const INVITATION_EXPIRY_DAYS = 7;
@@ -44,21 +45,33 @@ export class InvitationsService {
       );
     }
 
-    const invitation = await this.prisma.userInvitation.create({
-      data: {
-        email,
-        role: dto.role,
-        organizationId: dto.organizationId,
-        invitedBy: invitedById,
-        expiresAt: new Date(
-          Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
-        ),
-      },
-    });
+    try {
+      const invitation = await this.prisma.userInvitation.create({
+        data: {
+          email,
+          role: dto.role,
+          organizationId: dto.organizationId,
+          invitedBy: invitedById,
+          expiresAt: new Date(
+            Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+          ),
+        },
+      });
 
-    await this.sendInvitationEmail(invitation);
+      await this.sendInvitationEmail(invitation);
 
-    return invitation;
+      return invitation;
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2002'
+      ) {
+        throw new BadRequestException(
+          'Pending invitation already exists for this email',
+        );
+      }
+      throw error;
+    }
   }
 
   async findAll() {
@@ -119,6 +132,10 @@ export class InvitationsService {
       throw new BadRequestException('Invitation already accepted');
     }
 
+    if (invitation.expiresAt > new Date()) {
+      throw new BadRequestException('Invitation is still valid');
+    }
+
     if (invitation.reissueCount >= MAX_REISSUE_COUNT) {
       throw new BadRequestException('Maximum reissue attempts reached');
     }
@@ -126,7 +143,7 @@ export class InvitationsService {
     const updated = await this.prisma.userInvitation.update({
       where: { id: invitation.id },
       data: {
-        token: crypto.randomUUID(),
+        token: randomUUID(),
         status: InvitationStatus.PENDING,
         reissueCount: { increment: 1 },
         expiresAt: new Date(

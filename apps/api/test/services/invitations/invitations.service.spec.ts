@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InvitationsService } from '../../../src/services/invitations.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { EmailService } from '../../../src/services/email.service';
-import { InvitationStatus, Role } from '@prisma/client';
+import { InvitationStatus, Prisma, Role } from '@prisma/client';
 
 describe('InvitationsService', () => {
   let service: InvitationsService;
@@ -138,6 +138,24 @@ describe('InvitationsService', () => {
       ).rejects.toThrow('Pending invitation already exists for this email');
     });
 
+    it('should handle P2002 unique constraint violation', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
+      const p2002Error = new Prisma.PrismaClientKnownRequestError(
+        'Unique constraint failed',
+        { code: 'P2002', clientVersion: '6.0.0' },
+      );
+      mockPrisma.userInvitation.create.mockRejectedValue(p2002Error);
+
+      await expect(
+        service.create(createDto, 'user-uuid-1'),
+      ).rejects.toThrow(
+        new BadRequestException(
+          'Pending invitation already exists for this email',
+        ),
+      );
+    });
+
     it('should send invitation email after creation', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null);
       mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
@@ -229,6 +247,7 @@ describe('InvitationsService', () => {
       const expiredInvitation = {
         ...mockInvitation,
         status: InvitationStatus.EXPIRED,
+        expiresAt: new Date(Date.now() - 1000),
         reissueCount: 0,
       };
       mockPrisma.userInvitation.findUnique.mockResolvedValue(expiredInvitation);
@@ -270,10 +289,19 @@ describe('InvitationsService', () => {
       });
 
       await expect(service.reissue('reissue-uuid-1')).rejects.toThrow(
-        BadRequestException,
+        new BadRequestException('Invitation already accepted'),
       );
+    });
+
+    it('should reject reissue for non-expired invitations', async () => {
+      mockPrisma.userInvitation.findUnique.mockResolvedValue({
+        ...mockInvitation,
+        status: InvitationStatus.PENDING,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+      });
+
       await expect(service.reissue('reissue-uuid-1')).rejects.toThrow(
-        'Invitation already accepted',
+        new BadRequestException('Invitation is still valid'),
       );
     });
 
@@ -281,6 +309,7 @@ describe('InvitationsService', () => {
       mockPrisma.userInvitation.findUnique.mockResolvedValue({
         ...mockInvitation,
         status: InvitationStatus.EXPIRED,
+        expiresAt: new Date(Date.now() - 1000),
         reissueCount: 5,
       });
 
@@ -296,6 +325,7 @@ describe('InvitationsService', () => {
       const expiredInvitation = {
         ...mockInvitation,
         status: InvitationStatus.EXPIRED,
+        expiresAt: new Date(Date.now() - 1000),
         reissueCount: 2,
       };
       mockPrisma.userInvitation.findUnique.mockResolvedValue(expiredInvitation);

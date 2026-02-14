@@ -63,6 +63,7 @@ model UserInvitation {
   createdAt      DateTime         @default(now())
   invitedBy      String?
 
+  @@unique([email, status, organizationId])
   @@index([email])
   @@index([organizationId])
   @@index([token])
