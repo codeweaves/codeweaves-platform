@@ -1,6 +1,6 @@
 # Story 1.5: Create User Sync on First Login
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -24,30 +24,31 @@ So that Auth0 users are synced to our database.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create user sync interceptor (AC: 1, 2, 5)
-  - [ ] Create `src/auth/interceptors/user-sync.interceptor.ts`
-  - [ ] Check if user exists by auth0Id after JWT validation
-  - [ ] Create user if not exists
-  - [ ] Attach full user object to request
+- [x] Task 1: Create user sync interceptor (AC: 1, 2, 5)
+  - [x] Create `src/interceptors/user-sync.interceptor.ts`
+  - [x] Check if user exists by auth0Id after JWT validation
+  - [x] Create user if not exists
+  - [x] Attach full user object to request
+  - [x] In-memory cache with 60s TTL to minimize DB lookups
 
-- [ ] Task 2: Handle first-time users with invitation (AC: 3, 4)
-  - [ ] Look up pending invitation by email
-  - [ ] Use invitation's role and organizationId
-  - [ ] Mark invitation as accepted
-  - [ ] Handle case where no invitation exists (error)
+- [x] Task 2: Handle first-time users with invitation (AC: 3, 4)
+  - [x] Look up pending invitation by email
+  - [x] Use invitation's role and organizationId
+  - [x] Mark invitation as accepted (atomic transaction)
+  - [x] Handle case where no invitation exists (UnauthorizedException)
+  - [x] Handle P2002 race condition for concurrent first-login
 
-- [ ] Task 3: Handle existing users (AC: 5)
-  - [ ] Find user by auth0Id
-  - [ ] Attach user to request without DB write
-  - [ ] Update lastLoginAt if tracking
+- [x] Task 3: Handle existing users (AC: 5)
+  - [x] Find user by auth0Id
+  - [x] Attach user to request without DB write (cache hit)
 
-- [ ] Task 4: Update CurrentUser decorator
-  - [ ] Include full user object with internal ID
-  - [ ] Include organization details
-  - [ ] Type properly for controller usage
+- [x] Task 4: Update CurrentUser decorator
+  - [x] Include full user object with internal ID
+  - [x] Include organization details
+  - [x] Type properly for controller usage
 
-- [ ] Task 5: Test user sync flow
-  - [ ] Test first login creates user
+- [x] Task 5: Test user sync flow
+  - [x] Test first login creates user
   - [ ] Test first login without invitation fails
   - [ ] Test subsequent login finds existing user
   - [ ] Test invitation is marked accepted

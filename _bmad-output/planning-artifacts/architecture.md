@@ -164,6 +164,19 @@ CodeWeaves is a multi-tenant B2B SaaS platform for deploying customizable AI cha
 - No providers needed for Zustand
 - Redux DevTools compatible (Zustand middleware)
 
+### ADR-011: Resend for Transactional Email
+
+**Status:** Accepted
+**Context:** Need a transactional email service for invitation emails, password resets, and notifications
+**Decision:** Use Resend (resend.com) via their Node.js SDK
+**Consequences:**
+- Simple HTTP-based API, no SMTP configuration needed
+- Official `resend` npm package with TypeScript support
+- Environment variable: `RESEND_API_KEY` for authentication
+- Domain verification required for production sending
+- Free tier sufficient for development (100 emails/day)
+- EmailModule wraps Resend SDK for dependency injection
+
 ---
 
 ## 3. System Architecture Overview
@@ -511,9 +524,9 @@ codeweaves-platform/
 │  │ ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────────┐││
 │  │ │ThemeModule│ │ChatModule │ │VoiceModule│ │AnalyticsModule│││
 │  │ └───────────┘ └───────────┘ └───────────┘ └───────────────┘││
-│  │ ┌───────────┐ ┌───────────┐                                ││
-│  │ │ AIModule  │ │WidgetMod. │                                ││
-│  │ └───────────┘ └───────────┘                                ││
+│  │ ┌───────────┐ ┌───────────┐ ┌───────────┐ ┌───────────────┐││
+│  │ │ AIModule  │ │WidgetMod. │ │EmailModule│ │InvitationsMod.│││
+│  │ └───────────┘ └───────────┘ └───────────┘ └───────────────┘││
 │  └─────────────────────────────────────────────────────────────┘│
 │                                                                 │
 │  ┌─────────────────────────────────────────────────────────────┐│
