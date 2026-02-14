@@ -157,6 +157,36 @@ export class InvitationsService {
     return { message: 'Invitation reissued successfully' };
   }
 
+  async validate(token: string) {
+    const invitation = await this.prisma.userInvitation.findUnique({
+      where: { token },
+    });
+
+    if (!invitation) {
+      throw new NotFoundException('Invalid invitation token');
+    }
+
+    if (invitation.status === InvitationStatus.ACCEPTED) {
+      throw new BadRequestException('Invitation has already been used');
+    }
+
+    if (
+      invitation.status === InvitationStatus.EXPIRED ||
+      invitation.expiresAt < new Date()
+    ) {
+      throw new BadRequestException({
+        message: 'Invitation has expired',
+        reissueToken: invitation.reissueToken,
+      });
+    }
+
+    return {
+      email: invitation.email,
+      organizationId: invitation.organizationId,
+      role: invitation.role,
+    };
+  }
+
   async cancel(id: string) {
     const invitation = await this.prisma.userInvitation.findUnique({
       where: { id },

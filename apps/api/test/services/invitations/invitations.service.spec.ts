@@ -341,6 +341,92 @@ describe('InvitationsService', () => {
     });
   });
 
+  describe('validate', () => {
+    it('should return invitation details for a valid token', async () => {
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(mockInvitation);
+
+      const result = await service.validate('token-uuid-1');
+
+      expect(result).toEqual({
+        email: mockInvitation.email,
+        organizationId: mockInvitation.organizationId,
+        role: mockInvitation.role,
+      });
+      expect(mockPrisma.userInvitation.findUnique).toHaveBeenCalledWith({
+        where: { token: 'token-uuid-1' },
+      });
+    });
+
+    it('should throw NotFoundException for invalid token', async () => {
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(null);
+
+      await expect(service.validate('bad-token')).rejects.toThrow(
+        NotFoundException,
+      );
+      await expect(service.validate('bad-token')).rejects.toThrow(
+        'Invalid invitation token',
+      );
+    });
+
+    it('should throw BadRequestException for already-used invitation', async () => {
+      mockPrisma.userInvitation.findUnique.mockResolvedValue({
+        ...mockInvitation,
+        status: InvitationStatus.ACCEPTED,
+      });
+
+      await expect(service.validate('token-uuid-1')).rejects.toThrow(
+        BadRequestException,
+      );
+      await expect(service.validate('token-uuid-1')).rejects.toThrow(
+        'Invitation has already been used',
+      );
+    });
+
+    it('should throw BadRequestException for EXPIRED status invitation', async () => {
+      mockPrisma.userInvitation.findUnique.mockResolvedValue({
+        ...mockInvitation,
+        status: InvitationStatus.EXPIRED,
+        expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000), // not yet expired by date
+      });
+
+      try {
+        await service.validate('token-uuid-1');
+        fail('Expected BadRequestException');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BadRequestException);
+        const response = (error as BadRequestException).getResponse();
+        expect(response).toEqual(
+          expect.objectContaining({
+            message: 'Invitation has expired',
+            reissueToken: mockInvitation.reissueToken,
+          }),
+        );
+      }
+    });
+
+    it('should throw BadRequestException with reissueToken for expired invitation', async () => {
+      const expiredInvitation = {
+        ...mockInvitation,
+        expiresAt: new Date(Date.now() - 1000),
+      };
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(expiredInvitation);
+
+      try {
+        await service.validate('token-uuid-1');
+        fail('Expected BadRequestException');
+      } catch (error) {
+        expect(error).toBeInstanceOf(BadRequestException);
+        const response = (error as BadRequestException).getResponse();
+        expect(response).toEqual(
+          expect.objectContaining({
+            message: 'Invitation has expired',
+            reissueToken: mockInvitation.reissueToken,
+          }),
+        );
+      }
+    });
+  });
+
   describe('cancel', () => {
     it('should delete the invitation', async () => {
       mockPrisma.userInvitation.findUnique.mockResolvedValue(mockInvitation);
