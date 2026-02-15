@@ -1,6 +1,6 @@
 # Story 2.1: Implement Organization Model and Schema
 
-Status: review
+Status: done
 
 ## Story
 

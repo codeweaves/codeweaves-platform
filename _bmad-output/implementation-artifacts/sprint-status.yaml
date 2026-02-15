@@ -90,7 +90,7 @@ development_status:
   # ============================================
   epic-2: in-progress
   2-1-implement-organization-model-and-schema: done
-  2-2-create-organization-crud-api: backlog
+  2-2-create-organization-crud-api: done
   2-3-implement-tenant-isolation-filter: backlog
   2-4-create-rolesguard-for-authorization: backlog
   2-5-implement-evil-twin-test-infrastructure: backlog
