@@ -6,6 +6,7 @@ import {
 import { PrismaService } from './prisma.service';
 import { User, Role, InvitationStatus, Prisma } from '@prisma/client';
 import type { UpdateUserProfileDto, UserProfileResponse } from '../models/user.dto';
+import { buildTenantFilter, TenantFilterUser } from '../utils/tenant-filter';
 
 const USER_WITH_ORG_SELECT = {
   include: {
@@ -24,8 +25,8 @@ export class UsersService {
   constructor(private prisma: PrismaService) {}
 
   async findByAuth0Id(auth0Id: string): Promise<User | null> {
-    return this.prisma.user.findUnique({
-      where: { auth0Id },
+    return this.prisma.user.findFirst({
+      where: { auth0Id, deletedAt: null },
       include: { organization: true },
     });
   }
@@ -103,7 +104,15 @@ export class UsersService {
 
   async findByOrganization(organizationId: string): Promise<User[]> {
     return this.prisma.user.findMany({
-      where: { organizationId },
+      where: { organizationId, deletedAt: null },
+      orderBy: { createdAt: 'desc' },
+    });
+  }
+
+  async findAllForTenant(user: TenantFilterUser): Promise<User[]> {
+    const tenantFilter = buildTenantFilter(user);
+    return this.prisma.user.findMany({
+      where: { ...tenantFilter },
       orderBy: { createdAt: 'desc' },
     });
   }
@@ -114,7 +123,12 @@ export class UsersService {
       include: { organization: true },
     });
 
-    if (existingUser) return existingUser;
+    if (existingUser) {
+      if (existingUser.deletedAt) {
+        throw new UnauthorizedException('Account has been deactivated');
+      }
+      return existingUser;
+    }
 
     return this.createFromInvitation(jwtUser);
   }

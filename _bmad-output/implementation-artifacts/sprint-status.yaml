@@ -91,8 +91,8 @@ development_status:
   epic-2: in-progress
   2-1-implement-organization-model-and-schema: done
   2-2-create-organization-crud-api: done
-  2-3-implement-tenant-isolation-filter: backlog
-  2-4-create-rolesguard-for-authorization: backlog
+  2-3-implement-tenant-isolation-filter: review
+  2-4-create-rolesguard-for-authorization: review
   2-5-implement-evil-twin-test-infrastructure: backlog
   2-6-create-organization-membership-validation: backlog
   2-7-implement-organization-dashboard-view: backlog

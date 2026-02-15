@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, UnauthorizedException } from '@nestjs/common';
+import { ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '../../../src/services/users.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { Role, InvitationStatus, Prisma } from '@prisma/client';
@@ -10,6 +10,7 @@ describe('UsersService', () => {
   const mockPrismaService = {
     user: {
       findUnique: jest.fn(),
+      findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
       findMany: jest.fn(),
@@ -80,26 +81,38 @@ describe('UsersService', () => {
   });
 
   describe('findByAuth0Id', () => {
-    it('should find user by auth0Id and include organization', async () => {
-      mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
+    it('should find active user by auth0Id and include organization', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
 
       const result = await service.findByAuth0Id('auth0|123456');
 
       expect(result).toEqual(mockUser);
-      expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
-        where: { auth0Id: 'auth0|123456' },
+      expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
+        where: { auth0Id: 'auth0|123456', deletedAt: null },
         include: { organization: true },
       });
     });
 
     it('should return null when user is not found', async () => {
-      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
 
       const result = await service.findByAuth0Id('auth0|nonexistent');
 
       expect(result).toBeNull();
-      expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
-        where: { auth0Id: 'auth0|nonexistent' },
+      expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
+        where: { auth0Id: 'auth0|nonexistent', deletedAt: null },
+        include: { organization: true },
+      });
+    });
+
+    it('should exclude soft-deleted users', async () => {
+      mockPrismaService.user.findFirst.mockResolvedValue(null);
+
+      const result = await service.findByAuth0Id('auth0|deleted');
+
+      expect(result).toBeNull();
+      expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
+        where: { auth0Id: 'auth0|deleted', deletedAt: null },
         include: { organization: true },
       });
     });
@@ -428,7 +441,7 @@ describe('UsersService', () => {
   });
 
   describe('findByOrganization', () => {
-    it('should find all users in an organization', async () => {
+    it('should find all active users in an organization', async () => {
       const users = [
         mockUser,
         {
@@ -444,7 +457,7 @@ describe('UsersService', () => {
 
       expect(result).toEqual(users);
       expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
-        where: { organizationId: mockOrganization.id },
+        where: { organizationId: mockOrganization.id, deletedAt: null },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -456,7 +469,7 @@ describe('UsersService', () => {
 
       expect(result).toEqual([]);
       expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
-        where: { organizationId: 'empty-org-id' },
+        where: { organizationId: 'empty-org-id', deletedAt: null },
         orderBy: { createdAt: 'desc' },
       });
     });
@@ -535,6 +548,30 @@ describe('UsersService', () => {
       expect(result).toEqual(mockSuperAdmin);
       expect(result.organization).toBeNull();
       expect(result.organizationId).toBeNull();
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should throw UnauthorizedException for soft-deleted user', async () => {
+      const deletedUser = {
+        ...mockUser,
+        deletedAt: new Date('2026-02-01'),
+      };
+      mockPrismaService.user.findUnique.mockResolvedValue(deletedUser);
+
+      await expect(
+        service.syncOrCreateUser({
+          auth0Id: 'auth0|123456',
+          email: 'test@example.com',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      await expect(
+        service.syncOrCreateUser({
+          auth0Id: 'auth0|123456',
+          email: 'test@example.com',
+        }),
+      ).rejects.toThrow('Account has been deactivated');
+
       expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
     });
 
@@ -749,6 +786,58 @@ describe('UsersService', () => {
       expect(
         (capturedCreateData as { data: { role: Role } }).data.role,
       ).toBe(Role.ADMIN);
+    });
+  });
+
+  describe('findAllForTenant', () => {
+    it('should filter by organizationId and exclude soft-deleted for CLIENT user', async () => {
+      const users = [mockUser];
+      mockPrismaService.user.findMany.mockResolvedValue(users);
+
+      const clientUser = { role: Role.CLIENT, organizationId: mockOrganization.id };
+      const result = await service.findAllForTenant(clientUser);
+
+      expect(result).toEqual(users);
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
+        where: { organizationId: mockOrganization.id, deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('should return all non-deleted users for SUPER_ADMIN (no org filter)', async () => {
+      const allUsers = [mockUser, mockSuperAdmin];
+      mockPrismaService.user.findMany.mockResolvedValue(allUsers);
+
+      const superAdmin = { role: Role.SUPER_ADMIN, organizationId: null };
+      const result = await service.findAllForTenant(superAdmin);
+
+      expect(result).toEqual(allUsers);
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('should return all non-deleted users for ADMIN (no org filter)', async () => {
+      const allUsers = [mockUser];
+      mockPrismaService.user.findMany.mockResolvedValue(allUsers);
+
+      const admin = { role: Role.ADMIN, organizationId: 'org-uuid' };
+      const result = await service.findAllForTenant(admin);
+
+      expect(result).toEqual(allUsers);
+      expect(mockPrismaService.user.findMany).toHaveBeenCalledWith({
+        where: { deletedAt: null },
+        orderBy: { createdAt: 'desc' },
+      });
+    });
+
+    it('should throw ForbiddenException for CLIENT without organizationId', async () => {
+      const clientUser = { role: Role.CLIENT, organizationId: null };
+
+      await expect(service.findAllForTenant(clientUser)).rejects.toThrow(
+        ForbiddenException,
+      );
     });
   });
 });

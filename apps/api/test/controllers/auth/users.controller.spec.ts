@@ -145,4 +145,22 @@ describe('UsersController', () => {
       expect(mockUsersService.getProfile).not.toHaveBeenCalled();
     });
   });
+
+  describe('role authorization metadata', () => {
+    it('should NOT have role metadata on getProfile (all authenticated users)', () => {
+      const metadata = Reflect.getMetadata(
+        'roles',
+        UsersController.prototype.getProfile,
+      );
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should NOT have role metadata on updateProfile (all authenticated users)', () => {
+      const metadata = Reflect.getMetadata(
+        'roles',
+        UsersController.prototype.updateProfile,
+      );
+      expect(metadata).toBeUndefined();
+    });
+  });
 });
