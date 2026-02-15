@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { OrganizationsService } from '../../../src/services/organizations.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { Prisma } from '@prisma/client';
@@ -143,6 +143,12 @@ describe('OrganizationsService', () => {
         service.create({ name: 'Acme Corp' }),
       ).rejects.toThrow(ConflictException);
       expect(mockPrismaService.organization.create).toHaveBeenCalledTimes(3);
+    });
+
+    it('should throw BadRequestException when name has no alphanumeric characters', async () => {
+      await expect(
+        service.create({ name: '!@#$%' }),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('should rethrow non-P2002 errors from create without retry', async () => {

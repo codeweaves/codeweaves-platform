@@ -2,6 +2,7 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { Prisma } from '@prisma/client';
@@ -15,12 +16,19 @@ export class OrganizationsService {
   constructor(private prisma: PrismaService) {}
 
   async create(data: CreateOrganizationDto) {
-    const baseSlug = data.slug ?? generateSlug(data.name);
+    let baseSlug: string;
+    try {
+      baseSlug = data.slug ?? generateSlug(data.name);
+    } catch {
+      throw new BadRequestException(
+        'Name must contain at least one alphanumeric character to generate a slug',
+      );
+    }
 
     for (let attempt = 0; attempt < MAX_SLUG_RETRIES; attempt++) {
       const slug = attempt === 0
         ? await this.resolveUniqueSlug(baseSlug)
-        : generateUniqueSlug(baseSlug);
+        : generateUniqueSlug(this.trimSlugBase(baseSlug));
 
       try {
         return await this.prisma.organization.create({
@@ -122,6 +130,12 @@ export class OrganizationsService {
       return baseSlug;
     }
 
-    return generateUniqueSlug(baseSlug);
+    return generateUniqueSlug(this.trimSlugBase(baseSlug));
+  }
+
+  private trimSlugBase(slug: string): string {
+    const maxBaseLength = 100 - 7; // 100 max slug - "-" - 6-char suffix
+    if (slug.length <= maxBaseLength) return slug;
+    return slug.slice(0, maxBaseLength).replace(/-$/, '');
   }
 }

@@ -204,9 +204,8 @@ describe('OrganizationsController', () => {
       expect(result.slug).toBe('new-slug');
     });
 
-    it('should accept update with empty body', () => {
-      const result = updatePipe.transform({});
-      expect(result).toEqual({});
+    it('should reject update with empty body', () => {
+      expect(() => updatePipe.transform({})).toThrow(BadRequestException);
     });
 
     it('should reject update with name too short', () => {

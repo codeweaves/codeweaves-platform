@@ -116,10 +116,14 @@ export const createOrganizationSchema = z.object({
 
 export type CreateOrganizationDto = z.infer<typeof createOrganizationSchema>;
 
-export const updateOrganizationSchema = z.object({
-  name: z.string().min(3, 'Name must be at least 3 characters').max(100, 'Name must be at most 100 characters').optional(),
-  slug: slugSchema.optional(),
-});
+export const updateOrganizationSchema = z
+  .object({
+    name: z.string().min(3, 'Name must be at least 3 characters').max(100, 'Name must be at most 100 characters').optional(),
+    slug: slugSchema.optional(),
+  })
+  .refine((data) => data.name !== undefined || data.slug !== undefined, {
+    message: 'At least one field (name or slug) must be provided',
+  });
 
 export type UpdateOrganizationDto = z.infer<typeof updateOrganizationSchema>;
 
