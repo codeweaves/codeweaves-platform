@@ -76,6 +76,26 @@ describe('CurrentUser Decorator', () => {
     expect(result).toBe('auth0|123456');
   });
 
+  it('should return null organizationId for SUPER_ADMIN', () => {
+    const superAdminUser: CurrentUserData = {
+      auth0Id: 'auth0|superadmin',
+      email: 'admin@codeweaves.com',
+      roles: ['SUPER_ADMIN'],
+      id: 'superadmin-123',
+      role: 'SUPER_ADMIN' as CurrentUserData['role'],
+      organizationId: null,
+      organization: null,
+    };
+
+    const factory = getParamDecoratorFactory();
+    const context = createMockExecutionContext(superAdminUser);
+
+    const result = factory(undefined, context) as CurrentUserData;
+
+    expect(result.organizationId).toBeNull();
+    expect(result.organization).toBeNull();
+  });
+
   it('should return undefined when user is not set', () => {
     const factory = getParamDecoratorFactory();
     const context = createMockExecutionContext(null);

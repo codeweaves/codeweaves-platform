@@ -88,7 +88,7 @@ export const userProfileResponseSchema = z.object({
   email: z.string().email(),
   name: z.string().nullable(),
   role: roleEnum,
-  organization: organizationSummarySchema,
+  organization: organizationSummarySchema.nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),
 });

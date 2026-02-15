@@ -11,6 +11,7 @@ export default [
       "eslint.config.js",
       "*.cjs",
       "prisma.config.ts",
+      "prisma/seed.ts",
     ],
   },
   ...config,

@@ -10,11 +10,11 @@ export interface CurrentUserData {
   // From database (populated by UserSyncInterceptor)
   id: string;
   role: Role;
-  organizationId: string;
+  organizationId: string | null;
   organization: {
     id: string;
     name: string;
-  };
+  } | null;
 }
 
 export const CurrentUser = createParamDecorator(
