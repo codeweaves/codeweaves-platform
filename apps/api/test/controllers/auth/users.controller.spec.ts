@@ -66,6 +66,33 @@ describe('UsersController', () => {
       expect(result).toEqual(mockProfileResponse);
     });
 
+    it('should return profile with null organization for SUPER_ADMIN', async () => {
+      const superAdminUser: CurrentUserData = {
+        auth0Id: 'auth0|superadmin',
+        email: 'admin@codeweaves.com',
+        roles: ['SUPER_ADMIN'],
+        id: 'superadmin-uuid',
+        role: Role.SUPER_ADMIN,
+        organizationId: null,
+        organization: null,
+      };
+      const superAdminProfile = {
+        id: 'superadmin-uuid',
+        email: 'admin@codeweaves.com',
+        name: 'Super Admin',
+        role: Role.SUPER_ADMIN,
+        organization: null,
+        createdAt: new Date('2026-01-01'),
+        updatedAt: new Date('2026-01-01'),
+      };
+      mockUsersService.getProfile.mockResolvedValue(superAdminProfile);
+
+      const result = await controller.getProfile(superAdminUser);
+
+      expect(result.organization).toBeNull();
+      expect(mockUsersService.getProfile).toHaveBeenCalledWith('superadmin-uuid');
+    });
+
     it('should return profile with organization details', async () => {
       mockUsersService.getProfile.mockResolvedValue(mockProfileResponse);
 

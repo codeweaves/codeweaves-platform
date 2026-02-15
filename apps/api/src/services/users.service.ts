@@ -40,16 +40,23 @@ export class UsersService {
     email: string;
     name?: string;
     role: Role;
-    organizationId: string;
+    organizationId?: string;
   }): Promise<User> {
     return this.prisma.user.create({
-      data: {
-        auth0Id: data.auth0Id,
-        email: data.email,
-        name: data.name,
-        role: data.role,
-        organizationId: data.organizationId,
-      },
+      data: data.organizationId
+        ? {
+            auth0Id: data.auth0Id,
+            email: data.email,
+            name: data.name,
+            role: data.role,
+            organizationId: data.organizationId,
+          }
+        : {
+            auth0Id: data.auth0Id,
+            email: data.email,
+            name: data.name,
+            role: data.role,
+          },
     });
   }
 
@@ -116,7 +123,7 @@ export class UsersService {
     email: string;
     name: string | null;
     role: Role;
-    organization: { id: string; name: string };
+    organization: { id: string; name: string } | null;
     createdAt: Date;
     updatedAt: Date;
   }): UserProfileResponse {

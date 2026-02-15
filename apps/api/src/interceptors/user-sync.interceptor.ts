@@ -13,8 +13,8 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 interface CachedUserData {
   id: string;
   role: Role;
-  organizationId: string;
-  organization: { id: string; name: string };
+  organizationId: string | null;
+  organization: { id: string; name: string } | null;
 }
 
 @Injectable()

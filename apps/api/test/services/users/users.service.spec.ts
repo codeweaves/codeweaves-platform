@@ -38,6 +38,18 @@ describe('UsersService', () => {
     updatedAt: new Date('2026-01-01'),
   };
 
+  const mockSuperAdmin = {
+    id: '123e4567-e89b-12d3-a456-426614174099',
+    email: 'admin@codeweaves.com',
+    name: 'Super Admin',
+    role: Role.SUPER_ADMIN,
+    auth0Id: 'auth0|superadmin',
+    organizationId: null,
+    organization: null,
+    createdAt: new Date('2026-01-01'),
+    updatedAt: new Date('2026-01-01'),
+  };
+
   const userWithOrgInclude = {
     include: {
       organization: {
@@ -187,6 +199,31 @@ describe('UsersService', () => {
       });
     });
 
+    it('should create SUPER_ADMIN without organizationId', async () => {
+      const createData = {
+        auth0Id: 'auth0|superadmin',
+        email: 'admin@codeweaves.com',
+        name: 'Super Admin',
+        role: Role.SUPER_ADMIN,
+      };
+
+      mockPrismaService.user.create.mockResolvedValue(mockSuperAdmin);
+
+      const result = await service.createFromAuth0(createData);
+
+      expect(result).toEqual(mockSuperAdmin);
+      expect(result.organizationId).toBeNull();
+      expect(mockPrismaService.user.create).toHaveBeenCalledWith({
+        data: {
+          auth0Id: createData.auth0Id,
+          email: createData.email,
+          name: createData.name,
+          role: createData.role,
+          organizationId: undefined,
+        },
+      });
+    });
+
     it('should enforce unique email constraint', async () => {
       const createData = {
         auth0Id: 'auth0|456',
@@ -266,6 +303,22 @@ describe('UsersService', () => {
       const result = await service.getProfile(mockUser.id);
 
       expect(result.name).toBeNull();
+    });
+
+    it('should return profile with null organization for SUPER_ADMIN', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(mockSuperAdmin);
+
+      const result = await service.getProfile(mockSuperAdmin.id);
+
+      expect(result).toEqual({
+        id: mockSuperAdmin.id,
+        email: mockSuperAdmin.email,
+        name: mockSuperAdmin.name,
+        role: mockSuperAdmin.role,
+        organization: null,
+        createdAt: mockSuperAdmin.createdAt,
+        updatedAt: mockSuperAdmin.updatedAt,
+      });
     });
 
     it('should exclude sensitive fields (auth0Id, organizationId) from response', async () => {
@@ -467,6 +520,20 @@ describe('UsersService', () => {
         where: { auth0Id: 'auth0|123456' },
         include: { organization: true },
       });
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should return existing SUPER_ADMIN with null organization', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(mockSuperAdmin);
+
+      const result = await service.syncOrCreateUser({
+        auth0Id: 'auth0|superadmin',
+        email: 'admin@codeweaves.com',
+      });
+
+      expect(result).toEqual(mockSuperAdmin);
+      expect(result.organization).toBeNull();
+      expect(result.organizationId).toBeNull();
       expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
     });
 

@@ -150,6 +150,37 @@ describe('UserSyncInterceptor', () => {
       });
     });
 
+    it('should attach null organization for SUPER_ADMIN users', async () => {
+      const jwtUser = {
+        auth0Id: 'auth0|superadmin',
+        email: 'admin@codeweaves.com',
+        roles: ['SUPER_ADMIN'],
+      };
+      const mockSuperAdminUser = {
+        id: 'superadmin-uuid-1',
+        email: 'admin@codeweaves.com',
+        name: 'Super Admin',
+        role: Role.SUPER_ADMIN,
+        auth0Id: 'auth0|superadmin',
+        organizationId: null,
+        organization: null,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+      };
+      mockUsersService.syncOrCreateUser.mockResolvedValue(mockSuperAdminUser);
+
+      const { context, request } = createMockContext(jwtUser);
+      await interceptor.intercept(context, mockCallHandler);
+
+      expect(request.user).toEqual({
+        ...jwtUser,
+        id: mockSuperAdminUser.id,
+        role: mockSuperAdminUser.role,
+        organizationId: null,
+        organization: null,
+      });
+    });
+
     it('should call next.handle() after sync', async () => {
       const jwtUser = {
         auth0Id: 'auth0|123456',
