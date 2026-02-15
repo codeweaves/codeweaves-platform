@@ -10,7 +10,7 @@ describe('CurrentUser Decorator', () => {
     id: 'user-123',
     role: 'CLIENT' as CurrentUserData['role'],
     organizationId: 'org-123',
-    organization: { id: 'org-123', name: 'Test Org' },
+    organization: { id: 'org-123', name: 'Test Org', slug: 'test-org' },
   };
 
   function getParamDecoratorFactory() {

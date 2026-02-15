@@ -79,6 +79,7 @@ export type UpdateUserProfileDto = z.infer<typeof updateUserProfileSchema>;
 export const organizationSummarySchema = z.object({
   id: z.string().uuid(),
   name: z.string(),
+  slug: z.string(),
 });
 
 export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
@@ -94,6 +95,33 @@ export const userProfileResponseSchema = z.object({
 });
 
 export type UserProfileResponse = z.infer<typeof userProfileResponseSchema>;
+
+// ============================================
+// Organization Management Schemas
+// ============================================
+
+export const slugSchema = z
+  .string()
+  .regex(
+    /^[a-z0-9]+(-[a-z0-9]+)*$/,
+    'Slug must start/end with a letter or number, and contain only lowercase letters, numbers, and hyphens',
+  )
+  .min(2, 'Slug must be at least 2 characters')
+  .max(100, 'Slug must be at most 100 characters');
+
+export const createOrganizationSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters'),
+  slug: slugSchema.optional(),
+});
+
+export type CreateOrganizationDto = z.infer<typeof createOrganizationSchema>;
+
+export const updateOrganizationSchema = z.object({
+  name: z.string().min(2).max(100).optional(),
+  slug: slugSchema.optional(),
+});
+
+export type UpdateOrganizationDto = z.infer<typeof updateOrganizationSchema>;
 
 // ============================================
 // Utility Functions

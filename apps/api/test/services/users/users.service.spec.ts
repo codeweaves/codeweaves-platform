@@ -24,6 +24,7 @@ describe('UsersService', () => {
   const mockOrganization = {
     id: '123e4567-e89b-12d3-a456-426614174000',
     name: 'Test Organization',
+    slug: 'test-organization',
   };
 
   const mockUser = {
@@ -53,7 +54,7 @@ describe('UsersService', () => {
   const userWithOrgInclude = {
     include: {
       organization: {
-        select: { id: true, name: true },
+        select: { id: true, name: true, slug: true },
       },
     },
   };

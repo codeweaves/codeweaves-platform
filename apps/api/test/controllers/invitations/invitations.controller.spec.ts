@@ -24,7 +24,7 @@ describe('InvitationsController', () => {
     id: 'user-uuid-1',
     role: Role.SUPER_ADMIN,
     organizationId: 'org-uuid-1',
-    organization: { id: 'org-uuid-1', name: 'Test Org' },
+    organization: { id: 'org-uuid-1', name: 'Test Org', slug: 'test-org' },
   };
 
   const mockInvitation = {
