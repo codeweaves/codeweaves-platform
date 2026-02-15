@@ -48,11 +48,11 @@ So that I can invite new users, view team members, and manage pending invitation
    **When** I view the Team page
    **Then** I see appropriate empty states with CTAs
 
-9. **Given** I submit an invite for an email that already has an account
+9. **Given** I submit an invitation for an email that already has an account
    **When** the API returns a 409 conflict
    **Then** I see an error message "This user already has an account"
 
-10. **Given** I submit an invite for an email with a pending invitation
+10. **Given** I submit an invitation for an email with a pending invitation
     **When** the API returns a 409 conflict
     **Then** I see an error message "A pending invitation already exists for this email"
 
@@ -113,7 +113,7 @@ So that I can invite new users, view team members, and manage pending invitation
 
 ### Page Structure
 
-```
+```text
 /dashboard/team
 ├── Header: "Team" + "Invite Member" button
 ├── Section: Team Members
@@ -125,7 +125,7 @@ So that I can invite new users, view team members, and manage pending invitation
 
 ### API Endpoints Used
 
-```
+```text
 GET    /api/codeweaves/v1/invitations              — List pending invitations
 POST   /api/codeweaves/v1/invitations              — Create invitation
 PUT    /api/codeweaves/v1/invitations/:id/resend   — Resend invitation

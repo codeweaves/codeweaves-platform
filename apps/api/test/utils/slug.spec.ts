@@ -40,10 +40,15 @@ describe('Slug Utility', () => {
       expect(generateSlug('  Trimmed  ')).toBe('trimmed');
     });
 
-    it('should handle empty and whitespace-only strings', () => {
-      expect(generateSlug('')).toBe('');
-      expect(generateSlug('   ')).toBe('');
-      expect(generateSlug('---')).toBe('');
+    it('should throw for empty and whitespace-only strings', () => {
+      expect(() => generateSlug('')).toThrow('alphanumeric');
+      expect(() => generateSlug('   ')).toThrow('alphanumeric');
+      expect(() => generateSlug('---')).toThrow('alphanumeric');
+    });
+
+    it('should throw for names with only symbols or emoji', () => {
+      expect(() => generateSlug('!@#$%^&*()')).toThrow('alphanumeric');
+      expect(() => generateSlug('...')).toThrow('alphanumeric');
     });
 
     it('should generate valid slugs from real-world names', () => {

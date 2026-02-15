@@ -9,7 +9,7 @@ import crypto from 'crypto';
  * generateSlug('Test & Demo!')    // 'test-demo'
  */
 export function generateSlug(name: string): string {
-  return name
+  const slug = name
     .normalize('NFD')
     .replace(/[\u0300-\u036f]/g, '')
     .toLowerCase()
@@ -18,6 +18,14 @@ export function generateSlug(name: string): string {
     .replace(/\s+/g, '-')
     .replace(/-+/g, '-')
     .replace(/^-|-$/g, '');
+
+  if (!slug) {
+    throw new Error(
+      'Name must contain at least one alphanumeric character to generate a slug',
+    );
+  }
+
+  return slug;
 }
 
 /**

@@ -78,7 +78,7 @@ So that I can onboard and manage B2B clients.
 
 ### API Endpoints
 
-```
+```text
 POST   /api/codeweaves/v1/organizations          — Create organization
 GET    /api/codeweaves/v1/organizations          — List all organizations
 GET    /api/codeweaves/v1/organizations/:id      — Get organization by ID

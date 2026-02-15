@@ -38,10 +38,10 @@ So that components can access current organization info and user role.
   - [ ] Return `{ organization, isLoading, error }`
   - [ ] Handle null organization (SUPER_ADMIN without org)
 
-- [ ] Task 2: Create OrganizationProvider component (`apps/web/providers/organization-provider.tsx`)
-  - [ ] Wraps dashboard layout (inside Auth0Provider, after profile is loaded)
-  - [ ] Provides organization context via React Context
-  - [ ] Handles org switching for Admin users (optional, if needed)
+- [ ] Task 2: ~~Create OrganizationProvider component~~ — **Not needed**
+  - Organization data is derived from the existing `useProfile()` query (cached via TanStack Query)
+  - A `useOrganization()` hook (Task 1) reads from profile — no separate provider wrapper required
+  - If org switching is needed later, a provider can be introduced at that time
 
 - [ ] Task 3: Create useCurrentRole hook (`apps/web/hooks/use-current-role.ts`)
   - [ ] Returns the authenticated user's role from profile
@@ -78,13 +78,15 @@ const { role, isSuperAdmin, isAdmin, isClient } = useCurrentRole();
 ### RoleGate Component
 
 ```tsx
+import { Role } from '@repo/validation';
+
 // Only Super Admin sees the create button
-<RoleGate roles={['SUPER_ADMIN']}>
+<RoleGate roles={[Role.SUPER_ADMIN]}>
   <Button>Create Organization</Button>
 </RoleGate>
 
 // Admin and Super Admin see the org list
-<RoleGate roles={['SUPER_ADMIN', 'ADMIN']} fallback={<Redirect to="/dashboard" />}>
+<RoleGate roles={[Role.SUPER_ADMIN, Role.ADMIN]} fallback={<Redirect to="/dashboard" />}>
   <OrganizationsList />
 </RoleGate>
 ```
