@@ -14,7 +14,7 @@ interface CachedUserData {
   id: string;
   role: Role;
   organizationId: string | null;
-  organization: { id: string; name: string } | null;
+  organization: { id: string; name: string; slug: string } | null;
 }
 
 @Injectable()

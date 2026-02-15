@@ -12,6 +12,7 @@ describe('UserSyncInterceptor', () => {
   const mockOrganization = {
     id: 'org-uuid-1',
     name: 'Test Org',
+    slug: 'test-org',
     createdAt: new Date(),
     updatedAt: new Date(),
   };

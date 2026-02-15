@@ -13,6 +13,7 @@ const USER_WITH_ORG_SELECT = {
       select: {
         id: true,
         name: true,
+        slug: true,
       },
     },
   },
@@ -123,7 +124,7 @@ export class UsersService {
     email: string;
     name: string | null;
     role: Role;
-    organization: { id: string; name: string } | null;
+    organization: { id: string; name: string; slug: string } | null;
     createdAt: Date;
     updatedAt: Date;
   }): UserProfileResponse {

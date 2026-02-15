@@ -476,6 +476,7 @@ This document provides the complete epic and story breakdown for CodeWeaves Plat
 - RBAC enforcement (RolesGuard)
 - organizationId filter on ALL Prisma queries
 - "Evil Twin" tests for tenant isolation
+- Team management & invitation UI (Story 2.9)
 
 **FRs:** FR11-FR16
 **NFRs:** NFR15, NFR20-23 (Security)
@@ -1243,6 +1244,33 @@ So that components can access current organization info.
 **And** `useOrganization()` hook returns org details
 **And** Context updates if user switches organization (Admin)
 **And** Loading and error states are handled
+
+---
+
+#### Story 2.9: Implement Team Management & Invitation UI
+
+As an **Admin or Super Admin**,
+I want a Team page in the dashboard to manage members and send invitations,
+So that I can invite new users, view team members, and manage pending invitations.
+
+**Acceptance Criteria:**
+
+**Given** I am logged in as Admin or Super Admin
+**When** I navigate to the Team page
+**Then** I see a list of current team members with name, email, role, and joined date
+**And** I see a list of pending invitations with email, status, sent date, and expiration
+**And** I can invite a new member by entering their email and selecting a role
+**And** invitation triggers the existing backend invitation API (POST `/api/invitations`)
+**And** I can resend a pending invitation
+**And** I can cancel a pending invitation
+**And** I see success/error toast notifications for all actions
+**And** the member list refreshes automatically after invitation acceptance
+**And** Super Admin can invite Admin-level users (without organization context)
+**And** Admin can invite Client Users to their organization
+**And** the page uses TanStack Query for data fetching and cache invalidation
+**And** the UI uses shadcn components (Table, Dialog, Button, Select, Toast)
+
+**Dependencies:** Stories 1.6, 1.7, 1.11 (backend APIs), Story 2.8 (org context for org-scoped invites)
 
 ---
 

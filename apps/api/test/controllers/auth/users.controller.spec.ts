@@ -15,6 +15,7 @@ describe('UsersController', () => {
   const mockOrganization = {
     id: 'org-uuid',
     name: 'Test Org',
+    slug: 'test-org',
   };
 
   const mockUser: CurrentUserData = {

@@ -14,6 +14,7 @@ export interface CurrentUserData {
   organization: {
     id: string;
     name: string;
+    slug: string;
   } | null;
 }
 
