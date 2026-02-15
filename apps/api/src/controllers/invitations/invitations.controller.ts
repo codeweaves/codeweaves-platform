@@ -29,12 +29,12 @@ export class InvitationsController {
   constructor(private readonly invitationsService: InvitationsService) {}
 
   @Post()
-  @Roles(Role.SUPER_ADMIN)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'Create a new invitation' })
   @ApiResponse({ status: 201, description: 'Invitation created' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
+  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN or ADMIN only' })
   async create(
     @Body() dto: CreateInvitationDto,
     @CurrentUser() user: CurrentUserData,
@@ -53,11 +53,11 @@ export class InvitationsController {
   }
 
   @Get()
-  @Roles(Role.SUPER_ADMIN)
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'List all invitations' })
   @ApiResponse({ status: 200, description: 'List of invitations' })
-  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
+  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN or ADMIN only' })
   async findAll() {
     return this.invitationsService.findAll();
   }

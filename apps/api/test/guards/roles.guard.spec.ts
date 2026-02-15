@@ -93,4 +93,92 @@ describe('RolesGuard', () => {
 
     expect(guard.canActivate(context)).toBe(true);
   });
+
+  describe('RBAC Permission Matrix', () => {
+    describe('SUPER_ADMIN-only endpoints (Organizations, Invitations)', () => {
+      beforeEach(() => {
+        mockReflector.getAllAndOverride.mockReturnValue([Role.SUPER_ADMIN]);
+      });
+
+      it('should allow SUPER_ADMIN', () => {
+        const context = createMockContext({ role: Role.SUPER_ADMIN });
+        expect(guard.canActivate(context)).toBe(true);
+      });
+
+      it('should deny ADMIN', () => {
+        const context = createMockContext({ role: Role.ADMIN });
+        expect(guard.canActivate(context)).toBe(false);
+      });
+
+      it('should deny CLIENT', () => {
+        const context = createMockContext({ role: Role.CLIENT });
+        expect(guard.canActivate(context)).toBe(false);
+      });
+    });
+
+    describe('SUPER_ADMIN + ADMIN endpoints', () => {
+      beforeEach(() => {
+        mockReflector.getAllAndOverride.mockReturnValue([
+          Role.SUPER_ADMIN,
+          Role.ADMIN,
+        ]);
+      });
+
+      it('should allow SUPER_ADMIN', () => {
+        const context = createMockContext({ role: Role.SUPER_ADMIN });
+        expect(guard.canActivate(context)).toBe(true);
+      });
+
+      it('should allow ADMIN', () => {
+        const context = createMockContext({ role: Role.ADMIN });
+        expect(guard.canActivate(context)).toBe(true);
+      });
+
+      it('should deny CLIENT', () => {
+        const context = createMockContext({ role: Role.CLIENT });
+        expect(guard.canActivate(context)).toBe(false);
+      });
+    });
+
+    describe('all-roles endpoints (no @Roles decorator)', () => {
+      beforeEach(() => {
+        mockReflector.getAllAndOverride.mockReturnValue(undefined);
+      });
+
+      it('should allow SUPER_ADMIN', () => {
+        const context = createMockContext({ role: Role.SUPER_ADMIN });
+        expect(guard.canActivate(context)).toBe(true);
+      });
+
+      it('should allow ADMIN', () => {
+        const context = createMockContext({ role: Role.ADMIN });
+        expect(guard.canActivate(context)).toBe(true);
+      });
+
+      it('should allow CLIENT', () => {
+        const context = createMockContext({ role: Role.CLIENT });
+        expect(guard.canActivate(context)).toBe(true);
+      });
+    });
+
+    describe('edge cases in RBAC', () => {
+      it('should deny user with undefined role against SUPER_ADMIN requirement', () => {
+        mockReflector.getAllAndOverride.mockReturnValue([Role.SUPER_ADMIN]);
+        const context = createMockContext({ role: undefined });
+        expect(guard.canActivate(context)).toBe(false);
+      });
+
+      it('should deny null user against any role requirement', () => {
+        mockReflector.getAllAndOverride.mockReturnValue([Role.CLIENT]);
+        const context = createMockContext(null);
+        expect(guard.canActivate(context)).toBe(false);
+      });
+
+      it('should deny user with invalid string role', () => {
+        mockReflector.getAllAndOverride.mockReturnValue([Role.SUPER_ADMIN]);
+        const context = createMockContext({ role: 'INVALID_ROLE' });
+        expect(guard.canActivate(context)).toBe(false);
+      });
+    });
+  });
 });

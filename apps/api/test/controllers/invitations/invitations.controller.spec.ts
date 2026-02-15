@@ -155,4 +155,62 @@ describe('InvitationsController', () => {
       );
     });
   });
+
+  describe('role authorization metadata', () => {
+    it('should have SUPER_ADMIN and ADMIN role metadata on create endpoint', () => {
+      const metadata = Reflect.getMetadata(
+        'roles',
+        InvitationsController.prototype.create,
+      );
+      expect(metadata).toEqual([Role.SUPER_ADMIN, Role.ADMIN]);
+    });
+
+    it('should have SUPER_ADMIN and ADMIN role metadata on findAll endpoint', () => {
+      const metadata = Reflect.getMetadata(
+        'roles',
+        InvitationsController.prototype.findAll,
+      );
+      expect(metadata).toEqual([Role.SUPER_ADMIN, Role.ADMIN]);
+    });
+
+    it('should have SUPER_ADMIN role metadata on findById endpoint', () => {
+      const metadata = Reflect.getMetadata(
+        'roles',
+        InvitationsController.prototype.findById,
+      );
+      expect(metadata).toEqual([Role.SUPER_ADMIN]);
+    });
+
+    it('should have SUPER_ADMIN role metadata on resend endpoint', () => {
+      const metadata = Reflect.getMetadata(
+        'roles',
+        InvitationsController.prototype.resend,
+      );
+      expect(metadata).toEqual([Role.SUPER_ADMIN]);
+    });
+
+    it('should have SUPER_ADMIN role metadata on cancel endpoint', () => {
+      const metadata = Reflect.getMetadata(
+        'roles',
+        InvitationsController.prototype.cancel,
+      );
+      expect(metadata).toEqual([Role.SUPER_ADMIN]);
+    });
+
+    it('should NOT have role metadata on validate (public endpoint)', () => {
+      const metadata = Reflect.getMetadata(
+        'roles',
+        InvitationsController.prototype.validate,
+      );
+      expect(metadata).toBeUndefined();
+    });
+
+    it('should NOT have role metadata on reissue (public endpoint)', () => {
+      const metadata = Reflect.getMetadata(
+        'roles',
+        InvitationsController.prototype.reissue,
+      );
+      expect(metadata).toBeUndefined();
+    });
+  });
 });
