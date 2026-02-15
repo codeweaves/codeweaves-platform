@@ -106,8 +106,8 @@ describe('Organization Validation Schemas', () => {
       expect(updateOrganizationSchema.parse(data)).toEqual(data);
     });
 
-    it('should accept empty object (no updates)', () => {
-      expect(updateOrganizationSchema.parse({})).toEqual({});
+    it('should reject empty object (no updates)', () => {
+      expect(() => updateOrganizationSchema.parse({})).toThrow();
     });
 
     it('should reject invalid name length', () => {

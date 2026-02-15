@@ -6,6 +6,7 @@ import { PrismaModule } from './prisma.module';
 import { AuthModule } from './auth.module';
 import { UsersModule } from './users.module';
 import { InvitationsModule } from './invitations.module';
+import { OrganizationsModule } from './organizations.module';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { UserSyncInterceptor } from '../interceptors/user-sync.interceptor';
 
@@ -19,6 +20,7 @@ import { UserSyncInterceptor } from '../interceptors/user-sync.interceptor';
     AuthModule,
     UsersModule,
     InvitationsModule,
+    OrganizationsModule,
   ],
   controllers: [HealthController],
   providers: [

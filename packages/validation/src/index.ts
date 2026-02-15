@@ -71,7 +71,7 @@ export type RoleEnum = z.infer<typeof roleEnum>;
 // ============================================
 
 export const updateUserProfileSchema = z.object({
-  name: z.string().min(2).max(100).optional(),
+  name: z.string().min(1, 'Name must be at least 1 character').max(100, 'Name must be at most 100 characters').optional(),
 });
 
 export type UpdateUserProfileDto = z.infer<typeof updateUserProfileSchema>;
@@ -110,16 +110,20 @@ export const slugSchema = z
   .max(100, 'Slug must be at most 100 characters');
 
 export const createOrganizationSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters'),
+  name: z.string().min(3, 'Name must be at least 3 characters').max(100, 'Name must be at most 100 characters'),
   slug: slugSchema.optional(),
 });
 
 export type CreateOrganizationDto = z.infer<typeof createOrganizationSchema>;
 
-export const updateOrganizationSchema = z.object({
-  name: z.string().min(2).max(100).optional(),
-  slug: slugSchema.optional(),
-});
+export const updateOrganizationSchema = z
+  .object({
+    name: z.string().min(3, 'Name must be at least 3 characters').max(100, 'Name must be at most 100 characters').optional(),
+    slug: slugSchema.optional(),
+  })
+  .refine((data) => data.name !== undefined || data.slug !== undefined, {
+    message: 'At least one field (name or slug) must be provided',
+  });
 
 export type UpdateOrganizationDto = z.infer<typeof updateOrganizationSchema>;
 
