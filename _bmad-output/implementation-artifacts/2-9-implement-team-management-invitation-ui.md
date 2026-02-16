@@ -32,7 +32,7 @@ So that I can invite new users, view team members, and manage pending invitation
 
 5. **Given** I click "Resend" on a pending invitation
    **When** I confirm the action
-   **Then** it calls PUT `/api/codeweaves/v1/invitations/:id/resend`
+   **Then** it calls POST `/api/codeweaves/v1/invitations/:id/resend`
    **And** success shows a toast notification
 
 6. **Given** I click "Cancel" on a pending invitation
@@ -128,7 +128,7 @@ So that I can invite new users, view team members, and manage pending invitation
 ```text
 GET    /api/codeweaves/v1/invitations              — List pending invitations
 POST   /api/codeweaves/v1/invitations              — Create invitation
-PUT    /api/codeweaves/v1/invitations/:id/resend   — Resend invitation
+POST   /api/codeweaves/v1/invitations/:id/resend   — Resend invitation
 DELETE /api/codeweaves/v1/invitations/:id           — Cancel invitation
 GET    /api/codeweaves/v1/organizations/:id/members — List org members (Story 2.6)
 ```

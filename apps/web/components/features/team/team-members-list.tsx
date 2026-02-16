@@ -145,9 +145,11 @@ export function TeamMembersList() {
               </TableRow>
             </TableHeader>
             <TableBody>
-              {members.map((member) => (
-                <MemberRow key={member.id} member={member} />
-              ))}
+              {[...members]
+                .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime())
+                .map((member) => (
+                  <MemberRow key={member.id} member={member} />
+                ))}
             </TableBody>
           </Table>
         </div>

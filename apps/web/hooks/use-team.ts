@@ -43,7 +43,7 @@ export function usePendingInvitations(organizationId: string | undefined) {
   return useQuery<Invitation[]>({
     queryKey: ['invitations', organizationId],
     queryFn: () => api.get('/invitations'),
-    enabled: isAuthenticated && !authLoading,
+    enabled: isAuthenticated && !authLoading && !!organizationId,
     select: organizationId
       ? (data) => data.filter((inv) => inv.organizationId === organizationId)
       : undefined,
