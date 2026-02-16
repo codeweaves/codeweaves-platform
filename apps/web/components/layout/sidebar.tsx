@@ -53,7 +53,7 @@ const navigation: NavItem[] = [
   { name: 'Agents', href: '/dashboard/agents', icon: Bot, roles: 'all' },
   { name: 'Theme Editor', href: '/dashboard/theme', icon: Palette, roles: 'all' },
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: 'all' },
-  { name: 'Team', href: '/dashboard/team', icon: Users, roles: 'all' },
+  { name: 'Team', href: '/dashboard/team', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { name: 'Settings', href: '/dashboard/settings', icon: Settings, roles: 'all' },
 ];
 
