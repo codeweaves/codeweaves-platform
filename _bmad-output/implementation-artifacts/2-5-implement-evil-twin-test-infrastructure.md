@@ -1,6 +1,6 @@
 # Story 2.5: Implement "Evil Twin" Test Infrastructure
 
-Status: backlog
+Status: complete
 
 ## Story
 
@@ -34,37 +34,37 @@ So that I can verify no cross-tenant data leakage exists.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create test helper utilities (`apps/api/test/helpers/tenant-test.helper.ts`)
-  - [ ] `createTestOrg(name: string): Organization` — create test org
-  - [ ] `createTestUser(org: Organization, role: Role): RequestUser` — create mock user context
-  - [ ] `seedTestData(org: Organization): TestData` — seed resources for an org
+- [x] Task 1: Create test helper utilities (`apps/api/test/helpers/tenant-test.helper.ts`)
+  - [x] `createTestOrg(name: string): Organization` — create test org
+  - [x] `createTestUser(org: Organization, role: Role): RequestUser` — create mock user context
+  - [x] `seedTestData(org: Organization): TestData` — seed resources for an org
 
-- [ ] Task 2: Create Evil Twin base test suite (`apps/api/test/tenant-isolation/`)
-  - [ ] `tenant-isolation.spec.ts` — main test file
-  - [ ] Setup: Create Org A, Org B, users for each
-  - [ ] Teardown: Clean up test data
+- [x] Task 2: Create Evil Twin base test suite (`apps/api/test/tenant-isolation/`)
+  - [x] `tenant-isolation.spec.ts` — main test file
+  - [x] Setup: Create Org A, Org B, users for each
+  - [x] Teardown: Clean up test data (via jest.clearAllMocks in beforeEach)
 
-- [ ] Task 3: Test Organization isolation
-  - [ ] Org A user cannot list Org B's details
-  - [ ] Org A user cannot update Org B
-  - [ ] CLIENT user cannot access any org endpoints
+- [x] Task 3: Test Organization isolation
+  - [x] Org A user cannot list Org B's details
+  - [x] Org A user cannot update Org B
+  - [x] CLIENT user cannot access any org endpoints (SUPER_ADMIN only at controller level)
 
-- [ ] Task 4: Test User isolation
-  - [ ] Org A admin cannot list Org B's users
-  - [ ] `findByOrganization` respects org boundary
+- [x] Task 4: Test User isolation
+  - [x] Org A admin cannot list Org B's users
+  - [x] `findByOrganization` respects org boundary
 
-- [ ] Task 5: Test Invitation isolation
-  - [ ] Org A admin cannot see Org B's invitations
-  - [ ] Org A admin cannot cancel Org B's invitations
-  - [ ] Invitation create enforces user's organizationId
+- [x] Task 5: Test Invitation isolation
+  - [x] Org A admin cannot see Org B's invitations
+  - [x] Org A admin cannot cancel Org B's invitations
+  - [x] Invitation create enforces user's organizationId
 
-- [ ] Task 6: Create reusable assertion helpers
-  - [ ] `expectTenantIsolated(fn: () => Promise<any>)` — asserts NotFoundException
-  - [ ] `expectCrossTenantBlocked(orgAUser, orgBResourceId, serviceFn)` — generic helper
+- [x] Task 6: Create reusable assertion helpers
+  - [x] `expectTenantIsolated(fn: () => Promise<any>)` — asserts NotFoundException
+  - [x] `expectCrossTenantBlocked(orgAUser, orgBResourceId, serviceFn)` — generic helper
 
-- [ ] Task 7: Add Evil Twin tests to CI pipeline
-  - [ ] Ensure tests run as part of `bun run test:cov`
-  - [ ] Tests should be tagged/grouped for easy filtering
+- [x] Task 7: Add Evil Twin tests to CI pipeline
+  - [x] Ensure tests run as part of `bun run test:cov` (26 tests included in 306 total)
+  - [x] Tests grouped under `test/tenant-isolation/` for easy filtering
 
 ## Dev Notes
 
