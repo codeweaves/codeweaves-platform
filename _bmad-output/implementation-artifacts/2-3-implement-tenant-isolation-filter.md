@@ -1,6 +1,6 @@
 # Story 2.3: Implement Tenant Isolation Filter
 
-Status: review
+Status: done
 
 ## Story
 

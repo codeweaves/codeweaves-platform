@@ -1,6 +1,6 @@
 # Story 2.5: Implement "Evil Twin" Test Infrastructure
 
-Status: complete
+Status: done
 
 ## Story
 

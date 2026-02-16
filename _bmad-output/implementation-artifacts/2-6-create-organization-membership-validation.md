@@ -1,6 +1,6 @@
 # Story 2.6: Create Organization Membership Validation
 
-Status: backlog
+Status: complete
 
 ## Story
 
