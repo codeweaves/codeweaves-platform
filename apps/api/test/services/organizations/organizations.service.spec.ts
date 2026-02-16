@@ -15,6 +15,7 @@ describe('OrganizationsService', () => {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
       update: jest.fn(),
+      count: jest.fn(),
     },
   };
 
@@ -165,7 +166,9 @@ describe('OrganizationsService', () => {
   });
 
   describe('findAll', () => {
-    it('should return all organizations with user counts', async () => {
+    const defaultQuery = { page: 1, limit: 20, sortBy: 'createdAt' as const, sortOrder: 'desc' as const };
+
+    it('should return paginated organizations with user counts', async () => {
       const orgs = [
         mockOrgWithCounts,
         {
@@ -178,13 +181,16 @@ describe('OrganizationsService', () => {
       ];
 
       mockPrismaService.organization.findMany.mockResolvedValue(orgs);
+      mockPrismaService.organization.count.mockResolvedValue(2);
 
-      const result = await service.findAll();
+      const result = await service.findAll(defaultQuery);
 
-      expect(result).toEqual(orgs);
-      expect(result).toHaveLength(2);
-      expect(result[0]!._count.users).toBe(5);
+      expect(result.data).toEqual(orgs);
+      expect(result.data).toHaveLength(2);
+      expect(result.data[0]!._count.users).toBe(5);
+      expect(result.meta).toEqual({ page: 1, limit: 20, total: 2, totalPages: 1 });
       expect(mockPrismaService.organization.findMany).toHaveBeenCalledWith({
+        where: {},
         include: {
           _count: {
             select: {
@@ -193,15 +199,94 @@ describe('OrganizationsService', () => {
           },
         },
         orderBy: { createdAt: 'desc' },
+        skip: 0,
+        take: 20,
       });
     });
 
-    it('should return empty array when no organizations exist', async () => {
+    it('should return empty data when no organizations exist', async () => {
       mockPrismaService.organization.findMany.mockResolvedValue([]);
+      mockPrismaService.organization.count.mockResolvedValue(0);
 
-      const result = await service.findAll();
+      const result = await service.findAll(defaultQuery);
 
-      expect(result).toEqual([]);
+      expect(result.data).toEqual([]);
+      expect(result.meta.total).toBe(0);
+      expect(result.meta.totalPages).toBe(0);
+    });
+
+    it('should apply search filter on name and slug', async () => {
+      mockPrismaService.organization.findMany.mockResolvedValue([mockOrgWithCounts]);
+      mockPrismaService.organization.count.mockResolvedValue(1);
+
+      await service.findAll({ ...defaultQuery, search: 'acme' });
+
+      expect(mockPrismaService.organization.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            OR: [
+              { name: { contains: 'acme', mode: 'insensitive' } },
+              { slug: { contains: 'acme', mode: 'insensitive' } },
+            ],
+          },
+        }),
+      );
+    });
+
+    it('should apply pagination correctly', async () => {
+      mockPrismaService.organization.findMany.mockResolvedValue([]);
+      mockPrismaService.organization.count.mockResolvedValue(25);
+
+      const result = await service.findAll({ ...defaultQuery, page: 2, limit: 10 });
+
+      expect(mockPrismaService.organization.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          skip: 10,
+          take: 10,
+        }),
+      );
+      expect(result.meta.totalPages).toBe(3);
+    });
+
+    it('should sort by name', async () => {
+      mockPrismaService.organization.findMany.mockResolvedValue([]);
+      mockPrismaService.organization.count.mockResolvedValue(0);
+
+      await service.findAll({ ...defaultQuery, sortBy: 'name', sortOrder: 'asc' });
+
+      expect(mockPrismaService.organization.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { name: 'asc' },
+        }),
+      );
+    });
+
+    it('should sort by users count', async () => {
+      mockPrismaService.organization.findMany.mockResolvedValue([]);
+      mockPrismaService.organization.count.mockResolvedValue(0);
+
+      await service.findAll({ ...defaultQuery, sortBy: 'usersCount', sortOrder: 'desc' });
+
+      expect(mockPrismaService.organization.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          orderBy: { users: { _count: 'desc' } },
+        }),
+      );
+    });
+
+    it('should use defaults when called without params', async () => {
+      mockPrismaService.organization.findMany.mockResolvedValue([]);
+      mockPrismaService.organization.count.mockResolvedValue(0);
+
+      await service.findAll();
+
+      expect(mockPrismaService.organization.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          skip: 0,
+          take: 20,
+          orderBy: { createdAt: 'desc' },
+        }),
+      );
     });
   });
 

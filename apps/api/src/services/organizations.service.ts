@@ -6,7 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { Prisma } from '@prisma/client';
-import type { CreateOrganizationDto, UpdateOrganizationDto } from '../models/organization.dto';
+import type { CreateOrganizationDto, UpdateOrganizationDto, OrganizationListQuery } from '../models/organization.dto';
 import { generateSlug, generateUniqueSlug } from '../utils/slug';
 
 const MAX_SLUG_RETRIES = 3;
@@ -54,17 +54,50 @@ export class OrganizationsService {
     throw new ConflictException('Unable to generate a unique slug. Please provide one manually.');
   }
 
-  async findAll() {
-    return this.prisma.organization.findMany({
-      include: {
-        _count: {
-          select: {
-            users: true,
+  async findAll(query: OrganizationListQuery = { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' }) {
+    const { page, limit, search, sortBy, sortOrder } = query;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.OrganizationWhereInput = search
+      ? {
+          OR: [
+            { name: { contains: search, mode: 'insensitive' } },
+            { slug: { contains: search, mode: 'insensitive' } },
+          ],
+        }
+      : {};
+
+    const orderBy: Prisma.OrganizationOrderByWithRelationInput =
+      sortBy === 'usersCount'
+        ? { users: { _count: sortOrder } }
+        : { [sortBy]: sortOrder };
+
+    const [data, total] = await Promise.all([
+      this.prisma.organization.findMany({
+        where,
+        include: {
+          _count: {
+            select: {
+              users: true,
+            },
           },
         },
+        orderBy,
+        skip,
+        take: limit,
+      }),
+      this.prisma.organization.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
       },
-      orderBy: { createdAt: 'desc' },
-    });
+    };
   }
 
   async findById(id: string) {

@@ -61,6 +61,7 @@ describe('Tenant Isolation — Evil Twin', () => {
       findFirst: jest.fn(),
       create: jest.fn(),
       update: jest.fn(),
+      count: jest.fn(),
     },
     userInvitation: {
       findMany: jest.fn(),
@@ -299,16 +300,18 @@ describe('Tenant Isolation — Evil Twin', () => {
         { ...orgBData.org, _count: { users: 2 } },
       ];
       mockPrisma.organization.findMany.mockResolvedValue(allOrgs);
+      mockPrisma.organization.count.mockResolvedValue(2);
 
       const result = await organizationsService.findAll();
 
-      expect(result).toHaveLength(2);
-      expect(result).toEqual(
+      expect(result.data).toHaveLength(2);
+      expect(result.data).toEqual(
         expect.arrayContaining([
           expect.objectContaining({ name: 'Acme Corp' }),
           expect.objectContaining({ name: 'Evil Corp' }),
         ]),
       );
+      expect(result.meta.total).toBe(2);
     });
 
     it('update throws NotFoundException when Org A user tries to update non-existent org', async () => {
