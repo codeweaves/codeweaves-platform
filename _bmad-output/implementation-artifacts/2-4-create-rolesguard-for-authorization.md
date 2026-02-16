@@ -1,6 +1,6 @@
 # Story 2.4: Create RolesGuard for Authorization
 
-Status: review
+Status: done
 
 ## Story
 
