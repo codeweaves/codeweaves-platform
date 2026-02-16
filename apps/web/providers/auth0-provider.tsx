@@ -29,7 +29,8 @@ export function Auth0ProviderWrapper({ children }: Auth0ProviderWrapperProps) {
       authorizationParams={{
         redirect_uri: redirectUri,
         ...(audience && { audience }),
-        scope: 'openid profile email',
+        scope: 'openid profile email offline_access',
+        max_age: 14400, // Force re-authentication after 4 hours
       }}
       onRedirectCallback={onRedirectCallback}
       cacheLocation="localstorage"

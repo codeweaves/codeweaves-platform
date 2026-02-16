@@ -62,16 +62,14 @@ function MemberRow({ member }: { member: TeamMember }) {
               {getInitials(member.name, member.email)}
             </AvatarFallback>
           </Avatar>
-          <span className="font-medium">{member.name || member.email}</span>
+          <span className="break-all">{member.name || member.email}</span>
         </div>
       </TableCell>
-      <TableCell className="text-muted-foreground">{member.email}</TableCell>
+      <TableCell><span className="break-all">{member.email}</span></TableCell>
       <TableCell>
         <RoleBadge role={member.role} />
       </TableCell>
-      <TableCell className="text-muted-foreground">
-        {formatDate(member.createdAt)}
-      </TableCell>
+      <TableCell>{formatDate(member.createdAt)}</TableCell>
     </TableRow>
   );
 }

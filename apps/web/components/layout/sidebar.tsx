@@ -16,7 +16,7 @@ import {
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useProfile } from '@/hooks/use-profile';
-import { Avatar, AvatarFallback, AvatarImage } from '@/components/ui/avatar';
+import { Avatar, AvatarFallback } from '@/components/ui/avatar';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -80,6 +80,10 @@ function NavUser() {
       .join('')
       .toUpperCase() || email[0]?.toUpperCase() || '?';
 
+  const roleLabel = profile?.role
+    ? profile.role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())
+    : null;
+
   return (
     <SidebarMenu>
       <SidebarMenuItem>
@@ -98,9 +102,9 @@ function NavUser() {
                 <span className="truncate font-medium">
                   {name || email}
                 </span>
-                {name && (
+                {roleLabel && (
                   <span className="truncate text-xs text-sidebar-foreground/70">
-                    {email}
+                    {roleLabel}
                   </span>
                 )}
               </div>
@@ -116,8 +120,7 @@ function NavUser() {
             <DropdownMenuLabel className="p-0 font-normal">
               <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
                 <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarImage src={auth0User.picture} alt={name || email} />
-                  <AvatarFallback className="rounded-lg">
+                  <AvatarFallback className="rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">
                     {initials}
                   </AvatarFallback>
                 </Avatar>
@@ -125,9 +128,12 @@ function NavUser() {
                   <span className="truncate font-medium">
                     {name || email}
                   </span>
-                  {name && (
-                    <span className="truncate text-xs text-muted-foreground">
-                      {email}
+                  <span className="truncate text-xs text-muted-foreground">
+                    {email}
+                  </span>
+                  {roleLabel && (
+                    <span className="truncate text-xs text-muted-foreground/70">
+                      {roleLabel}
                     </span>
                   )}
                 </div>

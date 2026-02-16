@@ -79,19 +79,15 @@ function InvitationRow({
 
   return (
     <TableRow>
-      <TableCell className="font-medium">{invitation.email}</TableCell>
+      <TableCell><span className="break-all">{invitation.email}</span></TableCell>
       <TableCell>
         <RoleBadge role={invitation.role} />
       </TableCell>
       <TableCell>
         <StatusBadge status={invitation.status} />
       </TableCell>
-      <TableCell className="text-muted-foreground">
-        {formatDate(invitation.createdAt)}
-      </TableCell>
-      <TableCell className="text-muted-foreground">
-        {formatDate(invitation.expiresAt)}
-      </TableCell>
+      <TableCell>{formatDate(invitation.createdAt)}</TableCell>
+      <TableCell>{formatDate(invitation.expiresAt)}</TableCell>
       <TableCell>
         {isPending && (
           <TooltipProvider>

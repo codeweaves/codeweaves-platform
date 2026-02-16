@@ -41,9 +41,9 @@ export function usePendingInvitations(organizationId: string | undefined) {
   const api = useApiClient();
 
   return useQuery<Invitation[]>({
-    queryKey: ['invitations', organizationId],
+    queryKey: ['invitations', organizationId ?? 'all'],
     queryFn: () => api.get('/invitations'),
-    enabled: isAuthenticated && !authLoading && !!organizationId,
+    enabled: isAuthenticated && !authLoading,
     select: organizationId
       ? (data) => data.filter((inv) => inv.organizationId === organizationId)
       : undefined,

@@ -7,7 +7,7 @@ export interface CurrentUserData {
   email: string;
   roles: string[];
 
-  // From database (populated by UserSyncInterceptor)
+  // From database (populated by UserSyncGuard)
   id: string;
   role: Role;
   organizationId: string | null;

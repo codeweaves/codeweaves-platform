@@ -1,0 +1,109 @@
+{
+  "repository_type": "monorepo",
+  "orchestrator": "turborepo",
+  "package_manager": "bun",
+  "parts": [
+    {
+      "part_id": "api",
+      "display_name": "NestJS API Backend",
+      "project_type_id": "backend",
+      "root_path": "apps/api",
+      "entry_point": "src/main.ts",
+      "technologies": {
+        "framework": "NestJS 11",
+        "language": "TypeScript 5.9.2",
+        "orm": "Prisma 7.3.0",
+        "database": "PostgreSQL 16 (Supabase)",
+        "auth": "Auth0 + Passport JWT",
+        "testing": "Jest 29 + Testcontainers"
+      },
+      "documentation": {
+        "architecture": "architecture-api.md",
+        "api_contracts": "api-contracts-api.md",
+        "data_models": "data-models-api.md"
+      }
+    },
+    {
+      "part_id": "web",
+      "display_name": "Next.js Web Dashboard",
+      "project_type_id": "web",
+      "root_path": "apps/web",
+      "entry_point": "app/layout.tsx",
+      "technologies": {
+        "framework": "Next.js 16.1.0",
+        "language": "TypeScript 5.9.2",
+        "ui_library": "React 19.2.0",
+        "css": "Tailwind CSS 4",
+        "components": "Shadcn/ui (new-york)",
+        "auth": "@auth0/auth0-react 2.12.0"
+      },
+      "documentation": {
+        "architecture": "architecture-web.md",
+        "component_inventory": "component-inventory-web.md"
+      }
+    },
+    {
+      "part_id": "widget",
+      "display_name": "Preact Embeddable Widget",
+      "project_type_id": "web",
+      "root_path": "apps/widget",
+      "entry_point": "src/main.tsx",
+      "technologies": {
+        "framework": "Preact 10.26.0",
+        "language": "TypeScript 5.9.2",
+        "bundler": "Vite 6.3.0"
+      },
+      "documentation": {
+        "architecture": "architecture-widget.md"
+      }
+    }
+  ],
+  "shared_packages": [
+    {
+      "name": "eslint-config",
+      "path": "packages/eslint-config",
+      "purpose": "Shared ESLint rules (base, jest, next, react-internal)"
+    },
+    {
+      "name": "jest-config",
+      "path": "packages/jest-config",
+      "purpose": "Shared Jest configurations (base, node, react)"
+    },
+    {
+      "name": "typescript-config",
+      "path": "packages/typescript-config",
+      "purpose": "Shared TypeScript configs (base, nextjs, react-library)"
+    },
+    {
+      "name": "validation",
+      "path": "packages/validation",
+      "purpose": "Shared Zod validation schemas"
+    }
+  ],
+  "integration_points": [
+    {
+      "from": "web",
+      "to": "api",
+      "type": "REST API",
+      "details": "api-client.ts makes HTTP calls with Auth0 JWT tokens"
+    },
+    {
+      "from": "web",
+      "to": "auth0",
+      "type": "OAuth2/OIDC",
+      "details": "@auth0/auth0-react handles login flow and token management"
+    },
+    {
+      "from": "api",
+      "to": "auth0",
+      "type": "JWKS Verification",
+      "details": "jwt.strategy.ts validates JWT tokens against Auth0 JWKS endpoint"
+    },
+    {
+      "from": "widget",
+      "to": "api",
+      "type": "REST API (planned)",
+      "details": "Widget will call API endpoints for customer-facing features"
+    }
+  ]
+}

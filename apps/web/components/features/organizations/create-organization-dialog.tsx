@@ -86,7 +86,8 @@ export function CreateOrganizationDialog() {
                 id="org-name"
                 placeholder="e.g. Acme Corp"
                 value={name}
-                onChange={(e) => setName(e.target.value)}
+                onChange={(e) => setName(e.target.value.trimStart())}
+                maxLength={100}
                 disabled={createOrganization.isPending}
                 autoFocus
               />
@@ -94,7 +95,7 @@ export function CreateOrganizationDialog() {
             {slugPreview && (
               <div className="grid gap-2">
                 <Label className="text-muted-foreground">Slug preview</Label>
-                <p className="text-sm font-mono text-muted-foreground bg-muted px-3 py-2 rounded-md">
+                <p className="text-sm font-mono text-muted-foreground bg-muted px-3 py-2 rounded-md truncate">
                   {slugPreview}
                 </p>
               </div>
