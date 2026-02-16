@@ -1,6 +1,6 @@
 # Story 2.6: Create Organization Membership Validation
 
-Status: complete
+Status: done
 
 ## Story
 
@@ -33,35 +33,35 @@ So that users can only access their assigned organization's data.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Verify UserSyncInterceptor sets organizationId on request
-  - [ ] Existing interceptor at `apps/api/src/interceptors/user-sync.interceptor.ts`
-  - [ ] Verify `request.user.organizationId` is set after sync
-  - [ ] Verify null organizationId is preserved for SUPER_ADMIN users
+- [x] Task 1: Verify UserSyncInterceptor sets organizationId on request
+  - [x] Existing interceptor at `apps/api/src/interceptors/user-sync.interceptor.ts`
+  - [x] Verify `request.user.organizationId` is set after sync
+  - [x] Verify null organizationId is preserved for SUPER_ADMIN users
 
-- [ ] Task 2: Create endpoint to assign user to organization (Super Admin only)
-  - [ ] `PATCH /api/codeweaves/v1/organizations/:orgId/members/:userId` — assign user to org
-  - [ ] Validate user exists and is not already in another org
-  - [ ] Only SUPER_ADMIN can perform this action
-  - [ ] Return updated user
+- [x] Task 2: Create endpoint to assign user to organization (Super Admin only)
+  - [x] `PATCH /api/codeweaves/v1/organizations/:orgId/members/:userId` — assign user to org
+  - [x] Validate user exists and is not already in another org
+  - [x] Only SUPER_ADMIN can perform this action
+  - [x] Return updated user
 
-- [ ] Task 3: Create endpoint to list organization members
-  - [ ] `GET /api/codeweaves/v1/organizations/:orgId/members` — list members
-  - [ ] SUPER_ADMIN: can list any org's members
-  - [ ] ADMIN: can list any org's members
-  - [ ] CLIENT: can only list their own org's members
+- [x] Task 3: Create endpoint to list organization members
+  - [x] `GET /api/codeweaves/v1/organizations/:orgId/members` — list members
+  - [x] SUPER_ADMIN: can list any org's members
+  - [x] ADMIN: can list any org's members
+  - [x] CLIENT: can only list their own org's members
 
-- [ ] Task 4: Create endpoint to remove user from organization
-  - [ ] `DELETE /api/codeweaves/v1/organizations/:orgId/members/:userId` — remove from org
-  - [ ] Sets organizationId to null (does not delete user)
-  - [ ] Only SUPER_ADMIN can perform this action
+- [x] Task 4: Create endpoint to remove user from organization
+  - [x] `DELETE /api/codeweaves/v1/organizations/:orgId/members/:userId` — remove from org
+  - [x] Sets organizationId to null (does not delete user)
+  - [x] Only SUPER_ADMIN can perform this action
 
-- [ ] Task 5: Write unit tests
-  - [ ] Test user assignment to organization
-  - [ ] Test preventing assignment to org when already in another org
-  - [ ] Test member listing with role-based filtering
-  - [ ] Test member removal
-  - [ ] Test CLIENT user cannot access other org's members
-  - [ ] Test validation rejects invalid org/user IDs
+- [x] Task 5: Write unit tests
+  - [x] Test user assignment to organization
+  - [x] Test preventing assignment to org when already in another org
+  - [x] Test member listing with role-based filtering
+  - [x] Test member removal
+  - [x] Test CLIENT user cannot access other org's members
+  - [x] Test validation rejects invalid org/user IDs
 
 ## Dev Notes
 

@@ -8,6 +8,7 @@ import { ZodValidationPipe } from '../../../src/pipes/zod-validation.pipe';
 import {
   createOrganizationSchema,
   updateOrganizationSchema,
+  organizationListQuerySchema,
 } from '../../../src/models/organization.dto';
 
 describe('OrganizationsController', () => {
@@ -31,6 +32,11 @@ describe('OrganizationsController', () => {
   const mockOrgWithCounts = {
     ...mockOrganization,
     _count: { users: 5 },
+  };
+
+  const mockPaginatedResponse = {
+    data: [mockOrgWithCounts],
+    meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
   };
 
   beforeEach(async () => {
@@ -77,22 +83,49 @@ describe('OrganizationsController', () => {
   });
 
   describe('findAll', () => {
-    it('should return all organizations', async () => {
-      const orgs = [mockOrgWithCounts];
-      mockOrganizationsService.findAll.mockResolvedValue(orgs);
+    const defaultQuery = { page: 1, limit: 20, sortBy: 'createdAt' as const, sortOrder: 'desc' as const };
 
-      const result = await controller.findAll();
+    it('should return paginated organizations', async () => {
+      mockOrganizationsService.findAll.mockResolvedValue(mockPaginatedResponse);
 
-      expect(result).toEqual(orgs);
-      expect(mockOrganizationsService.findAll).toHaveBeenCalled();
+      const result = await controller.findAll(defaultQuery);
+
+      expect(result).toEqual(mockPaginatedResponse);
+      expect(mockOrganizationsService.findAll).toHaveBeenCalledWith(defaultQuery);
     });
 
-    it('should return empty array when no organizations exist', async () => {
-      mockOrganizationsService.findAll.mockResolvedValue([]);
+    it('should pass search query to service', async () => {
+      const query = { ...defaultQuery, search: 'acme' };
+      mockOrganizationsService.findAll.mockResolvedValue(mockPaginatedResponse);
 
-      const result = await controller.findAll();
+      await controller.findAll(query);
 
-      expect(result).toEqual([]);
+      expect(mockOrganizationsService.findAll).toHaveBeenCalledWith(query);
+    });
+
+    it('should pass pagination params to service', async () => {
+      const query = { page: 2, limit: 10, sortBy: 'name' as const, sortOrder: 'asc' as const };
+      mockOrganizationsService.findAll.mockResolvedValue({
+        data: [],
+        meta: { page: 2, limit: 10, total: 1, totalPages: 1 },
+      });
+
+      await controller.findAll(query);
+
+      expect(mockOrganizationsService.findAll).toHaveBeenCalledWith(query);
+    });
+
+    it('should return empty data when no organizations exist', async () => {
+      const emptyResponse = {
+        data: [],
+        meta: { page: 1, limit: 20, total: 0, totalPages: 0 },
+      };
+      mockOrganizationsService.findAll.mockResolvedValue(emptyResponse);
+
+      const result = await controller.findAll(defaultQuery);
+
+      expect(result.data).toEqual([]);
+      expect(result.meta.total).toBe(0);
     });
   });
 
@@ -156,18 +189,51 @@ describe('OrganizationsController', () => {
   });
 
   describe('role authorization', () => {
-    it('should have SUPER_ADMIN role metadata on controller', () => {
+    it('should have SUPER_ADMIN role metadata on controller class', () => {
       const roles = Reflect.getMetadata(
         'roles',
         OrganizationsController,
       );
       expect(roles).toEqual(['SUPER_ADMIN']);
     });
+
+    it('should allow SUPER_ADMIN and ADMIN for findAll', () => {
+      const roles = Reflect.getMetadata(
+        'roles',
+        OrganizationsController.prototype.findAll,
+      );
+      expect(roles).toEqual(['SUPER_ADMIN', 'ADMIN']);
+    });
+
+    it('should allow SUPER_ADMIN and ADMIN for findById', () => {
+      const roles = Reflect.getMetadata(
+        'roles',
+        OrganizationsController.prototype.findById,
+      );
+      expect(roles).toEqual(['SUPER_ADMIN', 'ADMIN']);
+    });
+
+    it('should not override class-level SUPER_ADMIN for create', () => {
+      const roles = Reflect.getMetadata(
+        'roles',
+        OrganizationsController.prototype.create,
+      );
+      expect(roles).toBeUndefined();
+    });
+
+    it('should not override class-level SUPER_ADMIN for update', () => {
+      const roles = Reflect.getMetadata(
+        'roles',
+        OrganizationsController.prototype.update,
+      );
+      expect(roles).toBeUndefined();
+    });
   });
 
   describe('validation', () => {
     const createPipe = new ZodValidationPipe(createOrganizationSchema);
     const updatePipe = new ZodValidationPipe(updateOrganizationSchema);
+    const listQueryPipe = new ZodValidationPipe(organizationListQuerySchema);
 
     it('should reject create with missing name', () => {
       expect(() => createPipe.transform({} as unknown)).toThrow(BadRequestException);
@@ -210,6 +276,35 @@ describe('OrganizationsController', () => {
 
     it('should reject update with name too short', () => {
       expect(() => updatePipe.transform({ name: 'AB' })).toThrow(BadRequestException);
+    });
+
+    it('should apply defaults for list query with empty params', () => {
+      const result = listQueryPipe.transform({});
+      expect(result.page).toBe(1);
+      expect(result.limit).toBe(20);
+      expect(result.sortBy).toBe('createdAt');
+      expect(result.sortOrder).toBe('desc');
+    });
+
+    it('should accept list query with search param', () => {
+      const result = listQueryPipe.transform({ search: 'acme' });
+      expect(result.search).toBe('acme');
+    });
+
+    it('should accept list query with sorting params', () => {
+      const result = listQueryPipe.transform({ sortBy: 'name', sortOrder: 'asc' });
+      expect(result.sortBy).toBe('name');
+      expect(result.sortOrder).toBe('asc');
+    });
+
+    it('should coerce page and limit to numbers', () => {
+      const result = listQueryPipe.transform({ page: '2', limit: '10' });
+      expect(result.page).toBe(2);
+      expect(result.limit).toBe(10);
+    });
+
+    it('should reject invalid sortBy value', () => {
+      expect(() => listQueryPipe.transform({ sortBy: 'invalid' })).toThrow(BadRequestException);
     });
   });
 });

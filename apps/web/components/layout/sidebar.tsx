@@ -2,9 +2,11 @@
 
 import Link from 'next/link';
 import { usePathname, useRouter } from 'next/navigation';
+import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
   Bot,
+  Building2,
   Palette,
   BarChart3,
   Settings,
@@ -38,13 +40,21 @@ import {
   useSidebar,
 } from '@/components/ui/sidebar';
 
-const navigation = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
-  { name: 'Agents', href: '/dashboard/agents', icon: Bot },
-  { name: 'Theme Editor', href: '/dashboard/theme', icon: Palette },
-  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3 },
-  { name: 'Team', href: '/dashboard/team', icon: Users },
-  { name: 'Settings', href: '/dashboard/settings', icon: Settings },
+interface NavItem {
+  name: string;
+  href: string;
+  icon: LucideIcon;
+  roles: 'all' | string[];
+}
+
+const navigation: NavItem[] = [
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: 'all' },
+  { name: 'Organizations', href: '/dashboard/organizations', icon: Building2, roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { name: 'Agents', href: '/dashboard/agents', icon: Bot, roles: 'all' },
+  { name: 'Theme Editor', href: '/dashboard/theme', icon: Palette, roles: 'all' },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: 'all' },
+  { name: 'Team', href: '/dashboard/team', icon: Users, roles: 'all' },
+  { name: 'Settings', href: '/dashboard/settings', icon: Settings, roles: 'all' },
 ];
 
 function NavUser() {
@@ -146,6 +156,14 @@ function NavUser() {
 
 export function AppSidebar() {
   const pathname = usePathname();
+  const { profile } = useProfile();
+  const userRole = profile?.role;
+
+  const visibleNavigation = navigation.filter((item) => {
+    if (item.roles === 'all') return true;
+    if (!userRole) return false;
+    return item.roles.includes(userRole);
+  });
 
   return (
     <Sidebar collapsible="icon">
@@ -159,7 +177,7 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
-              {navigation.map((item) => {
+              {visibleNavigation.map((item) => {
                 const isActive =
                   item.href === '/dashboard'
                     ? pathname === '/dashboard'

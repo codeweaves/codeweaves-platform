@@ -5,10 +5,11 @@ import {
   Patch,
   Body,
   Param,
+  Query,
   ParseUUIDPipe,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { OrganizationsService } from '../../services/organizations.service';
 import { Roles } from '../../decorators/roles.decorator';
@@ -17,10 +18,12 @@ import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import {
   createOrganizationSchema,
   updateOrganizationSchema,
+  organizationListQuerySchema,
 } from '../../models/organization.dto';
 import type {
   CreateOrganizationDto,
   UpdateOrganizationDto,
+  OrganizationListQuery,
 } from '../../models/organization.dto';
 
 @ApiTags('Organizations')
@@ -45,20 +48,30 @@ export class OrganizationsController {
   }
 
   @Get()
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @ApiOperation({ summary: 'List all organizations' })
-  @ApiResponse({ status: 200, description: 'List of organizations' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by name or slug' })
+  @ApiQuery({ name: 'sortBy', required: false, enum: ['name', 'slug', 'createdAt', 'usersCount'], description: 'Sort field (default: createdAt)' })
+  @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'], description: 'Sort order (default: desc)' })
+  @ApiResponse({ status: 200, description: 'Paginated list of organizations' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
-  async findAll() {
-    return this.organizationsService.findAll();
+  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN or ADMIN only' })
+  async findAll(
+    @Query(new ZodValidationPipe(organizationListQuerySchema))
+    query: OrganizationListQuery,
+  ) {
+    return this.organizationsService.findAll(query);
   }
 
   @Get(':id')
+  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @ApiOperation({ summary: 'Get organization by ID' })
   @ApiParam({ name: 'id', description: 'Organization UUID' })
   @ApiResponse({ status: 200, description: 'Organization details' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
+  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN or ADMIN only' })
   @ApiResponse({ status: 404, description: 'Organization not found' })
   async findById(@Param('id', ParseUUIDPipe) id: string) {
     return this.organizationsService.findById(id);

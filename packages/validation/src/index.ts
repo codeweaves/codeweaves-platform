@@ -109,6 +109,14 @@ export const slugSchema = z
   .min(2, 'Slug must be at least 2 characters')
   .max(100, 'Slug must be at most 100 characters');
 
+export const organizationListQuerySchema = paginationSchema.extend({
+  search: z.string().optional(),
+  sortBy: z.enum(['name', 'slug', 'createdAt', 'usersCount']).default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+});
+
+export type OrganizationListQuery = z.infer<typeof organizationListQuerySchema>;
+
 export const createOrganizationSchema = z.object({
   name: z.string().min(3, 'Name must be at least 3 characters').max(100, 'Name must be at most 100 characters'),
   slug: slugSchema.optional(),
