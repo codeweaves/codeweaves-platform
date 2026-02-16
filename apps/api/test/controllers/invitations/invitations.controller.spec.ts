@@ -157,12 +157,12 @@ describe('InvitationsController', () => {
   });
 
   describe('role authorization metadata', () => {
-    it('should have SUPER_ADMIN and ADMIN role metadata on create endpoint', () => {
+    it('should have SUPER_ADMIN role metadata on create endpoint', () => {
       const metadata = Reflect.getMetadata(
         'roles',
         InvitationsController.prototype.create,
       );
-      expect(metadata).toEqual([Role.SUPER_ADMIN, Role.ADMIN]);
+      expect(metadata).toEqual([Role.SUPER_ADMIN]);
     });
 
     it('should have SUPER_ADMIN and ADMIN role metadata on findAll endpoint', () => {

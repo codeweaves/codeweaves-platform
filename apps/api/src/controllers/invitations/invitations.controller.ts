@@ -29,12 +29,12 @@ export class InvitationsController {
   constructor(private readonly invitationsService: InvitationsService) {}
 
   @Post()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @Roles(Role.SUPER_ADMIN)
   @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'Create a new invitation' })
   @ApiResponse({ status: 201, description: 'Invitation created' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN or ADMIN only' })
+  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
   async create(
     @Body() dto: CreateInvitationDto,
     @CurrentUser() user: CurrentUserData,
