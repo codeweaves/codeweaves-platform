@@ -47,7 +47,7 @@ AgentEditor/
 
 # Bmad Agents files
 _bmad/
-docs/
+# docs/
 
 nul
 NUL
