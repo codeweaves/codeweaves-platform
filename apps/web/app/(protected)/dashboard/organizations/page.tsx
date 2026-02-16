@@ -1,11 +1,10 @@
 'use client';
 
-import { Suspense, useEffect } from 'react';
+import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { useProfile } from '@/hooks/use-profile';
 import { OrganizationsDataTable } from '@/components/features/organizations/organizations-data-table';
 import { CreateOrganizationDialog } from '@/components/features/organizations/create-organization-dialog';
-import { Skeleton } from '@/components/ui/skeleton';
 
 export default function OrganizationsPage() {
   const router = useRouter();
@@ -35,11 +34,9 @@ export default function OrganizationsPage() {
         {isSuperAdmin && <CreateOrganizationDialog />}
       </div>
 
-      <Suspense fallback={<Skeleton className="h-96 w-full" />}>
-        <OrganizationsDataTable
-          emptyAction={isSuperAdmin ? <CreateOrganizationDialog /> : undefined}
-        />
-      </Suspense>
+      <OrganizationsDataTable
+        emptyAction={isSuperAdmin ? <CreateOrganizationDialog /> : undefined}
+      />
     </div>
   );
 }
