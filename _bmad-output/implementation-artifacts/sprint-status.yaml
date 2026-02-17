@@ -1,4 +1,4 @@
-# generated: 2026-02-03
+# generated: 2026-02-18
 # project: codeweaves-platform
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-02-03
+generated: 2026-02-18
 project: codeweaves-platform
 project_key: NOKEY
 tracking_system: file-system
@@ -45,7 +45,7 @@ development_status:
   # Priority: P0 (FIRST - blocks all other epics)
   # Stories: 13
   # ============================================
-  epic-0: in-progress
+  epic-0: done
   0-1-initialize-turborepo-monorepo-structure: done
   0-2-remove-default-docs-app: done
   0-3-scaffold-nestjs-backend-application: done
@@ -103,19 +103,19 @@ development_status:
   # ============================================
   # Epic 3: Agent Creation & Configuration
   # Priority: P1
-  # Stories: 9
+  # Stories: 8 (3-3 merged into 3-1)
   # Dependencies: Epic 0, Epic 1, Epic 2
   # ============================================
-  epic-3: backlog
-  3-1-implement-agent-model-and-schema: backlog
-  3-2-create-agent-crud-api: backlog
-  3-3-generate-url-safe-public-ids: backlog
-  3-4-implement-domain-allowlist-configuration: backlog
-  3-5-create-agentsecret-model-for-sensitive-data: backlog
-  3-6-implement-webhook-url-configuration: backlog
-  3-7-create-agent-status-management: backlog
-  3-8-implement-agent-list-dashboard-page: backlog
-  3-9-create-agent-detail-edit-page: backlog
+  epic-3: in-progress
+  3-1-implement-agent-model-and-schema: done
+  # 3-2 (Agent CRUD API) absorbed into 3-1 — module, service, controller, tests all covered
+  # 3-3 (URL-safe public IDs) merged into 3-1
+  3-4-implement-domain-allowlist-configuration: ready-for-dev
+  3-5-create-agentsecret-model-for-sensitive-data: ready-for-dev
+  3-6-implement-webhook-url-configuration: ready-for-dev
+  3-7-create-agent-status-management: ready-for-dev
+  3-8-implement-agent-list-dashboard-page: ready-for-dev
+  3-9-create-agent-detail-edit-page: ready-for-dev
   epic-3-retrospective: optional
 
   # ============================================
@@ -283,7 +283,7 @@ development_status:
   # Dependencies: Epic 0, Epic 1, Epic 2
   # Test Priority: P0 (RBAC suite - 30 test cases)
   # ============================================
-  epic-11: backlog
+  epic-11: in-progress
   11-1-rate-limiting-infrastructure-redis: backlog
   11-2-api-rate-limit-guard: backlog
   11-3-widget-message-rate-limiting: backlog
@@ -307,7 +307,7 @@ development_status:
   # Stories: 14
   # Dependencies: Epic 0
   # ============================================
-  epic-12: backlog
+  epic-12: in-progress
   12-1-sentry-sdk-integration: backlog
   12-2-error-capture-and-context: backlog
   12-3-health-check-endpoint-liveness: backlog
