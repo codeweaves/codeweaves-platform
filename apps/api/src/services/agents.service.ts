@@ -3,7 +3,9 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  Logger,
 } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from './prisma.service';
 import { Prisma, Role, Agent } from '@prisma/client';
 import type { CreateAgentDto, UpdateAgentDto, AgentListQuery } from '../models/agent.dto';
@@ -11,14 +13,20 @@ import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { generatePublicId } from '../utils/public-id';
 import { deduplicateDomains, isValidDomain } from '../utils/domain';
 import { AgentLoggerService } from '../common/logger/agent.logger';
+import { CryptoService } from '../common/crypto/crypto.service';
 
 const MAX_PUBLIC_ID_RETRIES = 3;
+const WEBHOOK_TEST_TIMEOUT = 10_000;
 
 @Injectable()
 export class AgentsService {
+  private readonly logger = new Logger(AgentsService.name);
+
   constructor(
     private prisma: PrismaService,
     private readonly agentLogger: AgentLoggerService,
+    private readonly cryptoService: CryptoService,
+    private readonly configService: ConfigService,
   ) {}
 
   async create(dto: CreateAgentDto, user: CurrentUserData) {
@@ -188,6 +196,128 @@ export class AgentsService {
     });
     return agent?.status === 'ACTIVE';
   }
+
+  // ==========================================
+  // Webhook Management
+  // ==========================================
+
+  async setWebhookUrl(agentId: string, webhookUrl: string, user: CurrentUserData) {
+    await this.findByIdRaw(agentId, user);
+
+    // Enforce HTTPS in production
+    if (
+      this.configService.get<string>('NODE_ENV') === 'production' &&
+      !webhookUrl.startsWith('https://')
+    ) {
+      throw new BadRequestException('Webhook URL must use HTTPS in production');
+    }
+
+    const encrypted = this.cryptoService.encrypt(webhookUrl);
+
+    const existing = await this.prisma.agentSecret.findUnique({
+      where: { agentId },
+    });
+
+    await this.prisma.agentSecret.upsert({
+      where: { agentId },
+      create: { agentId, webhookUrl: encrypted },
+      update: { webhookUrl: encrypted },
+    });
+
+    if (existing) {
+      await this.agentLogger.logSecretUpdated(agentId, user.id);
+    } else {
+      await this.agentLogger.logSecretCreated(agentId, user.id);
+    }
+    await this.agentLogger.logWebhookUpdated(agentId, user.id);
+
+    return { message: 'Webhook URL updated' };
+  }
+
+  async getWebhookUrl(agentId: string, user: CurrentUserData) {
+    await this.findByIdRaw(agentId, user);
+
+    const secret = await this.prisma.agentSecret.findUnique({
+      where: { agentId },
+    });
+
+    if (secret?.webhookUrl) {
+      return { webhookUrl: this.cryptoService.decrypt(secret.webhookUrl) };
+    }
+
+    const fallback = this.configService.get<string>('DEFAULT_WEBHOOK_URL');
+    if (fallback) {
+      return { webhookUrl: fallback, isFallback: true };
+    }
+
+    return { webhookUrl: null };
+  }
+
+  /**
+   * Get the effective webhook URL for internal use (resolves fallback).
+   */
+  async getEffectiveWebhookUrl(agentId: string): Promise<string> {
+    const secret = await this.prisma.agentSecret.findUnique({
+      where: { agentId },
+    });
+
+    if (secret?.webhookUrl) {
+      return this.cryptoService.decrypt(secret.webhookUrl);
+    }
+
+    const fallback = this.configService.get<string>('DEFAULT_WEBHOOK_URL');
+    if (!fallback) {
+      throw new NotFoundException('No webhook URL configured for this agent');
+    }
+    return fallback;
+  }
+
+  async testWebhook(agentId: string, user: CurrentUserData) {
+    await this.findByIdRaw(agentId, user);
+
+    let url: string;
+    try {
+      url = await this.getEffectiveWebhookUrl(agentId);
+    } catch {
+      throw new NotFoundException('No webhook URL configured for this agent');
+    }
+
+    const payload = {
+      type: 'test',
+      agentId,
+      timestamp: new Date().toISOString(),
+    };
+
+    const startTime = Date.now();
+    try {
+      const response = await fetch(url, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(payload),
+        signal: AbortSignal.timeout(WEBHOOK_TEST_TIMEOUT),
+      });
+
+      return {
+        success: response.ok,
+        statusCode: response.status,
+        responseTime: Date.now() - startTime,
+      };
+    } catch (error) {
+      this.logger.warn(
+        `Webhook test failed for agent ${agentId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      );
+      return {
+        success: false,
+        statusCode: null,
+        responseTime: Date.now() - startTime,
+        error: error instanceof Error ? error.message : 'Unknown error',
+      };
+    }
+  }
+
+  // ==========================================
+  // Internal helpers
+  // ==========================================
 
   /**
    * Internal: fetch agent without stripping sensitive fields.

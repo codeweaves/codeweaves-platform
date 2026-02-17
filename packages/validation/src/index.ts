@@ -191,6 +191,13 @@ export const agentListQuerySchema = paginationSchema.extend({
 
 export type AgentListQuery = z.infer<typeof agentListQuerySchema>;
 
+// Webhook configuration schemas
+export const updateWebhookSchema = z.object({
+  webhookUrl: z.string().url('Must be a valid URL'),
+});
+
+export type UpdateWebhookDto = z.infer<typeof updateWebhookSchema>;
+
 // ============================================
 // Utility Functions
 // ============================================

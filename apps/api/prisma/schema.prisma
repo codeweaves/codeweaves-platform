@@ -82,23 +82,37 @@ model UserInvitation {
 }
 
 model Agent {
-  id             String       @id @default(uuid())
-  publicId       String       @unique @db.VarChar(8)
+  id             String        @id @default(uuid())
+  publicId       String        @unique @db.VarChar(8)
   name           String
-  status         AgentStatus  @default(ACTIVE)
+  status         AgentStatus   @default(ACTIVE)
   organizationId String
-  organization   Organization @relation(fields: [organizationId], references: [id])
+  organization   Organization  @relation(fields: [organizationId], references: [id])
   allowedDomains String[]
-  systemPrompt   String?      @db.Text
+  systemPrompt   String?       @db.Text
   welcomeMessage String?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  secret         AgentSecret?
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
   deletedAt      DateTime?
 
   @@index([publicId])
   @@index([organizationId])
   @@index([status])
   @@map("agents")
+}
+
+model AgentSecret {
+  id         String   @id @default(uuid())
+  agentId    String   @unique
+  agent      Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  webhookUrl String?  @db.Text
+  apiKey     String?  @db.Text
+  createdAt  DateTime @default(now())
+  updatedAt  DateTime @updatedAt
+
+  @@index([agentId])
+  @@map("agent_secrets")
 }
 
 model AuditLog {

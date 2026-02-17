@@ -1,6 +1,6 @@
 # Story 3.5: Create AgentSecret Model for Sensitive Data
 
-Status: ready-for-dev
+Status: done
 
 > **Prerequisite:** Story 3-1 (Agent Model & Schema) must be complete.
 
@@ -25,37 +25,37 @@ so that sensitive configuration is protected at rest and only decrypted when nee
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Prisma Schema** (AC: 1, 2, 7)
-  - [ ] 1.1 Add `AgentSecret` model to `schema.prisma`
-  - [ ] 1.2 Add `secret AgentSecret?` relation on `Agent` model
-  - [ ] 1.3 Run `bunx prisma migrate dev --name add-agent-secret-model`
-  - [ ] 1.4 Verify migration SQL
+- [x] **Task 1: Prisma Schema** (AC: 1, 2, 7)
+  - [x] 1.1 Add `AgentSecret` model to `schema.prisma`
+  - [x] 1.2 Add `secret AgentSecret?` relation on `Agent` model
+  - [x] 1.3 Run `bunx prisma migrate dev --name add-agent-secret-model`
+  - [x] 1.4 Verify migration SQL
 
-- [ ] **Task 2: CryptoService** (AC: 3, 4, 5, 8, 10)
-  - [ ] 2.1 Create `apps/api/src/common/crypto/crypto.service.ts`
-  - [ ] 2.2 Implement `encrypt(plaintext: string): string` — returns `iv:ciphertext`
-  - [ ] 2.3 Implement `decrypt(encrypted: string): string` — splits `iv:ciphertext`, decrypts
-  - [ ] 2.4 Read `AGENT_SECRET_KEY` from `ConfigService`, validate 32-byte hex on module init
-  - [ ] 2.5 Create `apps/api/src/common/crypto/crypto.module.ts`
-  - [ ] 2.6 Register `CryptoModule` as a global module in `AppModule`
+- [x] **Task 2: CryptoService** (AC: 3, 4, 5, 8, 10)
+  - [x] 2.1 Create `apps/api/src/common/crypto/crypto.service.ts`
+  - [x] 2.2 Implement `encrypt(plaintext: string): string` — returns `iv:ciphertext:tag`
+  - [x] 2.3 Implement `decrypt(encrypted: string): string` — splits `iv:ciphertext:tag`, decrypts
+  - [x] 2.4 Read `AGENT_SECRET_KEY` from `ConfigService`, validate 32-byte hex on module init
+  - [x] 2.5 Create `apps/api/src/common/crypto/crypto.module.ts`
+  - [x] 2.6 Register `CryptoModule` as a global module in `AppModule`
 
-- [ ] **Task 3: Environment Configuration** (AC: 4, 8)
-  - [ ] 3.1 Add `AGENT_SECRET_KEY` to `.env.example` with generation instructions
-  - [ ] 3.2 Add validation in `CryptoService.onModuleInit()` — throw if missing or wrong length
-  - [ ] 3.3 Add to env schema in `@repo/validation` if applicable
+- [x] **Task 3: Environment Configuration** (AC: 4, 8)
+  - [x] 3.1 Add `AGENT_SECRET_KEY` to `.env.example` with generation instructions
+  - [x] 3.2 Add validation in `CryptoService.onModuleInit()` — throw if missing or wrong length
+  - [ ] 3.3 Add to env schema in `@repo/validation` if applicable (deferred — not needed for runtime)
 
-- [ ] **Task 4: AgentSecret Logger Events** (AC: 9)
-  - [ ] 4.1 Add audit events to `AgentLoggerService`: `AGENT_SECRET_CREATED`, `AGENT_SECRET_UPDATED`
-  - [ ] 4.2 NEVER log decrypted values — only log that the secret was created/updated
+- [x] **Task 4: AgentSecret Logger Events** (AC: 9)
+  - [x] 4.1 Add audit events to `AgentLoggerService`: `AGENT_SECRET_CREATED`, `AGENT_SECRET_UPDATED`
+  - [x] 4.2 NEVER log decrypted values — only log that the secret was created/updated
 
-- [ ] **Task 5: Unit Tests** (AC: 9)
-  - [ ] 5.1 Create `apps/api/test/common/crypto/crypto.service.spec.ts`
-  - [ ] 5.2 Test encrypt → decrypt roundtrip produces original plaintext
-  - [ ] 5.3 Test each encrypt call produces a different IV (non-deterministic)
-  - [ ] 5.4 Test decrypt with wrong key throws error
-  - [ ] 5.5 Test decrypt with tampered ciphertext throws error
-  - [ ] 5.6 Test missing `AGENT_SECRET_KEY` throws on module init
-  - [ ] 5.7 Test invalid key length (not 32 bytes) throws on module init
+- [x] **Task 5: Unit Tests** (AC: 9)
+  - [x] 5.1 Create `apps/api/test/common/crypto/crypto.service.spec.ts`
+  - [x] 5.2 Test encrypt → decrypt roundtrip produces original plaintext
+  - [x] 5.3 Test each encrypt call produces a different IV (non-deterministic)
+  - [x] 5.4 Test decrypt with wrong key throws error
+  - [x] 5.5 Test decrypt with tampered ciphertext throws error
+  - [x] 5.6 Test missing `AGENT_SECRET_KEY` throws on module init
+  - [x] 5.7 Test invalid key length (not 32 bytes) throws on module init
 
 ## Dev Notes
 
@@ -189,10 +189,21 @@ apps/api/test/common/crypto/
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
-
-### Debug Log References
+Claude Opus 4.6
 
 ### Completion Notes List
 
+- AES-256-GCM with `iv:ciphertext:authTag` (3-part format, not 2-part as AC10 states — GCM requires auth tag)
+- CryptoModule registered as `@Global()` so all modules can inject CryptoService
+- 22 crypto unit tests covering roundtrip, IV uniqueness, tampering, wrong key, missing/invalid env var
+
 ### File List
+
+- `apps/api/prisma/schema.prisma` — MODIFIED (AgentSecret model + Agent relation)
+- `apps/api/prisma/migrations/20260217200547_add_agent_secret_model/migration.sql` — NEW
+- `apps/api/src/common/crypto/crypto.service.ts` — NEW
+- `apps/api/src/common/crypto/crypto.module.ts` — NEW
+- `apps/api/src/modules/app.module.ts` — MODIFIED (import CryptoModule)
+- `apps/api/src/common/logger/agent.logger.ts` — MODIFIED (secret audit events)
+- `apps/api/.env.example` — MODIFIED (AGENT_SECRET_KEY, DEFAULT_WEBHOOK_URL)
+- `apps/api/test/common/crypto/crypto.service.spec.ts` — NEW

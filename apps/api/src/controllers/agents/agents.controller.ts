@@ -23,11 +23,13 @@ import {
   createAgentSchema,
   updateAgentSchema,
   agentListQuerySchema,
+  updateWebhookSchema,
 } from '../../models/agent.dto';
 import type {
   CreateAgentDto,
   UpdateAgentDto,
   AgentListQuery,
+  UpdateWebhookDto,
 } from '../../models/agent.dto';
 
 @ApiTags('Agents')
@@ -114,5 +116,56 @@ export class AgentsController {
     @CurrentUser() user: CurrentUserData,
   ): Promise<void> {
     await this.agentsService.softDelete(id, user);
+  }
+
+  // ==========================================
+  // Webhook Management
+  // ==========================================
+
+  @Patch(':id/webhook')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Set agent webhook URL' })
+  @ApiParam({ name: 'id', description: 'Agent UUID' })
+  @ApiResponse({ status: 200, description: 'Webhook URL updated' })
+  @ApiResponse({ status: 400, description: 'Validation failed' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - ADMIN or SUPER_ADMIN only' })
+  @ApiResponse({ status: 404, description: 'Agent not found' })
+  async setWebhook(
+    @Param('id', ParseUUIDPipe) id: string,
+    @Body(new ZodValidationPipe(updateWebhookSchema)) dto: UpdateWebhookDto,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.agentsService.setWebhookUrl(id, dto.webhookUrl, user);
+  }
+
+  @Get(':id/webhook')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Get agent webhook URL (decrypted)' })
+  @ApiParam({ name: 'id', description: 'Agent UUID' })
+  @ApiResponse({ status: 200, description: 'Webhook URL' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - ADMIN or SUPER_ADMIN only' })
+  @ApiResponse({ status: 404, description: 'Agent not found' })
+  async getWebhook(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.agentsService.getWebhookUrl(id, user);
+  }
+
+  @Post(':id/webhook/test')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({ summary: 'Test agent webhook connectivity' })
+  @ApiParam({ name: 'id', description: 'Agent UUID' })
+  @ApiResponse({ status: 200, description: 'Webhook test result' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - ADMIN or SUPER_ADMIN only' })
+  @ApiResponse({ status: 404, description: 'Agent not found or no webhook configured' })
+  async testWebhook(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.agentsService.testWebhook(id, user);
   }
 }
