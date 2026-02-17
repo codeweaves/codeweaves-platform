@@ -57,7 +57,7 @@ model UserInvitation {
   id             String           @id @default(uuid())
   email          String
   role           Role             @default(CLIENT)
-  organizationId String
+  organizationId String?
   token          String           @unique @default(uuid())
   reissueToken   String           @unique @default(uuid())
   reissueCount   Int              @default(0)
