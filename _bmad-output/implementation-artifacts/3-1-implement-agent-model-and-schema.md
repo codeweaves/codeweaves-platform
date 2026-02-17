@@ -1,6 +1,6 @@
 # Story 3.1: Implement Agent Model and Schema
 
-Status: review
+Status: done
 
 ## Story
 
