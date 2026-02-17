@@ -194,10 +194,7 @@ export class Auth0ManagementService {
 
   async createPasswordChangeTicket(auth0UserId: string): Promise<string> {
     const token = await this.getManagementToken();
-    const dashboardUrl = this.configService.get<string>(
-      'DASHBOARD_URL',
-      'http://localhost:3000',
-    );
+    const spaClientId = this.configService.get<string>('AUTH0_SPA_CLIENT_ID', '');
 
     const response = await this.fetchWithTimeout(
       `https://${this.domain}/api/v2/tickets/password-change`,
@@ -209,7 +206,7 @@ export class Auth0ManagementService {
         },
         body: JSON.stringify({
           user_id: auth0UserId,
-          result_url: `${dashboardUrl}/login`,
+          client_id: spaClientId || undefined,
           ttl_sec: 604800, // 7 days
           mark_email_as_verified: true,
           includeEmailInRedirect: false,

@@ -36,17 +36,43 @@ export function useTeamMembers() {
   });
 }
 
-export function usePendingInvitations(organizationId: string | undefined) {
+export interface InvitationListParams {
+  page?: number;
+  limit?: number;
+  search?: string;
+  status?: 'PENDING' | 'ACCEPTED' | 'EXPIRED';
+  sortBy?: 'email' | 'status' | 'createdAt' | 'expiresAt';
+  sortOrder?: 'asc' | 'desc';
+}
+
+export interface InvitationListResponse {
+  data: Invitation[];
+  meta: {
+    page: number;
+    limit: number;
+    total: number;
+    totalPages: number;
+  };
+}
+
+export function useInvitations(params: InvitationListParams = {}) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
-  return useQuery<Invitation[]>({
-    queryKey: ['invitations', organizationId ?? 'all'],
-    queryFn: () => api.get('/invitations'),
+  const queryParams = new URLSearchParams();
+  if (params.page) queryParams.set('page', String(params.page));
+  if (params.limit) queryParams.set('limit', String(params.limit));
+  if (params.search) queryParams.set('search', params.search);
+  if (params.status) queryParams.set('status', params.status);
+  if (params.sortBy) queryParams.set('sortBy', params.sortBy);
+  if (params.sortOrder) queryParams.set('sortOrder', params.sortOrder);
+
+  const qs = queryParams.toString();
+
+  return useQuery<InvitationListResponse>({
+    queryKey: ['invitations', qs],
+    queryFn: () => api.get(`/invitations${qs ? `?${qs}` : ''}`),
     enabled: isAuthenticated && !authLoading,
-    select: organizationId
-      ? (data) => data.filter((inv) => inv.organizationId === organizationId)
-      : undefined,
   });
 }
 

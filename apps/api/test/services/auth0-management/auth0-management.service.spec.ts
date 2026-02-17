@@ -15,6 +15,7 @@ describe('Auth0ManagementService', () => {
     AUTH0_M2M_CLIENT_ID: 'test-client-id',
     AUTH0_M2M_CLIENT_SECRET: 'test-client-secret',
     DASHBOARD_URL: 'http://localhost:3000',
+    AUTH0_SPA_CLIENT_ID: 'test-spa-client-id',
   };
 
   const mockConfigService = {
@@ -352,7 +353,7 @@ describe('Auth0ManagementService', () => {
       const callBody = JSON.parse(mockFetch.mock.calls[1][1].body);
       expect(callBody).toEqual({
         user_id: 'auth0|123',
-        result_url: 'http://localhost:3000/login',
+        client_id: 'test-spa-client-id',
         ttl_sec: 604800,
         mark_email_as_verified: true,
         includeEmailInRedirect: false,

@@ -1,5 +1,6 @@
 import { z } from 'zod';
-import { Role } from '@prisma/client';
+import { InvitationStatus, Role } from '@prisma/client';
+import { paginationSchema } from '@repo/validation';
 
 export const createInvitationSchema = z
   .object({
@@ -29,3 +30,12 @@ export const reissueInvitationSchema = z.object({
 });
 
 export type ReissueInvitationDto = z.infer<typeof reissueInvitationSchema>;
+
+export const invitationListQuerySchema = paginationSchema.extend({
+  search: z.string().optional(),
+  status: z.nativeEnum(InvitationStatus).optional(),
+  sortBy: z.enum(['email', 'status', 'createdAt', 'expiresAt']).default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+});
+
+export type InvitationListQuery = z.infer<typeof invitationListQuerySchema>;

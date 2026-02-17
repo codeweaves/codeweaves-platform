@@ -1,19 +1,11 @@
 'use client';
 
-import { useState } from 'react';
-import { AlertCircle, Mail, RotateCw, X } from 'lucide-react';
+import { useCallback, useMemo, useState } from 'react';
+import type { ColumnDef, Row } from '@tanstack/react-table';
+import { Mail, RotateCw, X } from 'lucide-react';
 import { toast } from 'sonner';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,12 +18,15 @@ import {
 } from '@/components/ui/alert-dialog';
 import { Tooltip, TooltipContent, TooltipProvider, TooltipTrigger } from '@/components/ui/tooltip';
 import {
-  usePendingInvitations,
+  DataTable,
+  type DataTableFetchParams,
+} from '@/components/ui/data-table';
+import {
+  useInvitations,
   useResendInvitation,
   useCancelInvitation,
   type Invitation,
 } from '@/hooks/use-team';
-import { useCurrentOrganization } from '@/hooks/use-current-organization';
 import { RoleBadge } from './team-members-list';
 import { formatDate } from '@/lib/utils';
 
@@ -62,7 +57,7 @@ function StatusBadge({ status }: { status: string }) {
   );
 }
 
-function InvitationRow({
+function ActionsCell({
   invitation,
   onResend,
   onCancel,
@@ -75,100 +70,76 @@ function InvitationRow({
   isResending: boolean;
   isCancelling: boolean;
 }) {
-  const isPending = invitation.status === 'PENDING';
+  if (invitation.status !== 'PENDING') return null;
 
   return (
-    <TableRow>
-      <TableCell><span className="break-all">{invitation.email}</span></TableCell>
-      <TableCell>
-        <RoleBadge role={invitation.role} />
-      </TableCell>
-      <TableCell>
-        <StatusBadge status={invitation.status} />
-      </TableCell>
-      <TableCell>{formatDate(invitation.createdAt)}</TableCell>
-      <TableCell>{formatDate(invitation.expiresAt)}</TableCell>
-      <TableCell>
-        {isPending && (
-          <TooltipProvider>
-            <div className="flex items-center gap-1">
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8"
-                    onClick={() => onResend(invitation)}
-                    disabled={isResending}
-                  >
-                    <RotateCw className={`h-4 w-4 ${isResending ? 'animate-spin' : ''}`} />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Resend invitation</TooltipContent>
-              </Tooltip>
+    <TooltipProvider>
+      <div className="flex items-center gap-1">
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8"
+              onClick={() => onResend(invitation)}
+              disabled={isResending}
+            >
+              <RotateCw className={`h-4 w-4 ${isResending ? 'animate-spin' : ''}`} />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Resend invitation</TooltipContent>
+        </Tooltip>
 
-              <Tooltip>
-                <TooltipTrigger asChild>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    className="h-8 w-8 text-destructive hover:text-destructive"
-                    onClick={() => onCancel(invitation)}
-                    disabled={isCancelling}
-                  >
-                    <X className="h-4 w-4" />
-                  </Button>
-                </TooltipTrigger>
-                <TooltipContent>Cancel invitation</TooltipContent>
-              </Tooltip>
-            </div>
-          </TooltipProvider>
-        )}
-      </TableCell>
-    </TableRow>
-  );
-}
-
-function TableSkeleton() {
-  return (
-    <div className="rounded-md border">
-      <Table>
-        <TableHeader>
-          <TableRow>
-            <TableHead>Email</TableHead>
-            <TableHead>Role</TableHead>
-            <TableHead>Status</TableHead>
-            <TableHead>Sent</TableHead>
-            <TableHead>Expires</TableHead>
-            <TableHead>Actions</TableHead>
-          </TableRow>
-        </TableHeader>
-        <TableBody>
-          {Array.from({ length: 2 }).map((_, i) => (
-            <TableRow key={i}>
-              <TableCell><Skeleton className="h-5 w-40" /></TableCell>
-              <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-              <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-              <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-              <TableCell><Skeleton className="h-5 w-24" /></TableCell>
-              <TableCell><Skeleton className="h-5 w-16" /></TableCell>
-            </TableRow>
-          ))}
-        </TableBody>
-      </Table>
-    </div>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button
+              variant="ghost"
+              size="icon"
+              className="h-8 w-8 text-destructive hover:text-destructive"
+              onClick={() => onCancel(invitation)}
+              disabled={isCancelling}
+            >
+              <X className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>Cancel invitation</TooltipContent>
+        </Tooltip>
+      </div>
+    </TooltipProvider>
   );
 }
 
 export function PendingInvitationsList() {
-  const { organization } = useCurrentOrganization();
-  const { data: invitations, isLoading, isError } = usePendingInvitations(organization?.id);
   const resendInvitation = useResendInvitation();
   const cancelInvitation = useCancelInvitation();
   const [cancelTarget, setCancelTarget] = useState<Invitation | null>(null);
   const [resendTarget, setResendTarget] = useState<Invitation | null>(null);
   const [resendingId, setResendingId] = useState<string | null>(null);
   const [cancellingId, setCancellingId] = useState<string | null>(null);
+  const [fetchParams, setFetchParams] = useState<DataTableFetchParams>({
+    page: 0,
+    pageSize: 10,
+    sorting: [],
+    search: '',
+    filters: {},
+  });
+
+  // Map DataTable fetch params to API params
+  const statusFilter = fetchParams.filters.status;
+  const statusValue = Array.isArray(statusFilter) ? statusFilter[0] : statusFilter;
+
+  const { data, isLoading } = useInvitations({
+    page: fetchParams.page + 1, // API is 1-based
+    limit: fetchParams.pageSize,
+    search: fetchParams.search || undefined,
+    status: statusValue as 'PENDING' | 'ACCEPTED' | 'EXPIRED' | undefined,
+    sortBy: 'createdAt',
+    sortOrder: 'desc',
+  });
+
+  const handleFetch = useCallback((params: DataTableFetchParams) => {
+    setFetchParams(params);
+  }, []);
 
   const handleResendConfirm = async () => {
     if (!resendTarget) return;
@@ -201,59 +172,105 @@ export function PendingInvitationsList() {
     }
   };
 
-  // Filter to show only pending invitations in this section
-  const pendingInvitations = invitations?.filter((inv) => inv.status === 'PENDING') ?? [];
+  const columns: ColumnDef<Invitation, unknown>[] = useMemo(
+    () => [
+      {
+        accessorKey: 'email',
+        header: 'Email',
+        cell: ({ row }) => (
+          <span className="break-all">{row.getValue('email')}</span>
+        ),
+        enableSorting: false,
+      },
+      {
+        accessorKey: 'role',
+        header: 'Role',
+        cell: ({ row }) => <RoleBadge role={row.getValue('role')} />,
+        enableSorting: false,
+      },
+      {
+        accessorKey: 'status',
+        header: 'Status',
+        cell: ({ row }) => <StatusBadge status={row.getValue('status')} />,
+        enableSorting: false,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: 'Sent',
+        cell: ({ row }) => formatDate(row.getValue('createdAt')),
+        enableSorting: false,
+      },
+      {
+        accessorKey: 'expiresAt',
+        header: 'Expires',
+        cell: ({ row }) => formatDate(row.getValue('expiresAt')),
+        enableSorting: false,
+      },
+      {
+        id: 'actions',
+        header: 'Actions',
+        cell: ({ row }: { row: Row<Invitation> }) => (
+          <ActionsCell
+            invitation={row.original}
+            onResend={setResendTarget}
+            onCancel={setCancelTarget}
+            isResending={resendingId === row.original.id}
+            isCancelling={cancellingId === row.original.id}
+          />
+        ),
+        enableSorting: false,
+      },
+    ],
+    [resendingId, cancellingId],
+  );
 
-  return (
-    <div className="space-y-4">
-      <h2 className="text-lg font-semibold">Pending Invitations</h2>
+  const isEmpty = !isLoading && data?.meta.total === 0 && !fetchParams.search && !statusValue;
 
-      {isLoading ? (
-        <TableSkeleton />
-      ) : isError ? (
-        <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
-          <AlertCircle className="h-12 w-12 text-destructive/50" />
-          <h3 className="mt-4 text-lg font-semibold">Failed to load invitations</h3>
-          <p className="mt-2 text-sm text-muted-foreground">
-            Something went wrong. Please try refreshing the page.
-          </p>
-        </div>
-      ) : !pendingInvitations.length ? (
+  if (isEmpty) {
+    return (
+      <div className="space-y-4">
+        <h2 className="text-lg font-semibold">Invitations</h2>
         <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
           <Mail className="h-12 w-12 text-muted-foreground/50" />
-          <h3 className="mt-4 text-lg font-semibold">No pending invitations</h3>
+          <h3 className="mt-4 text-lg font-semibold">No invitations yet</h3>
           <p className="mt-2 text-sm text-muted-foreground">
             Invite team members using the button above.
           </p>
         </div>
-      ) : (
-        <div className="rounded-md border">
-          <Table>
-            <TableHeader>
-              <TableRow>
-                <TableHead>Email</TableHead>
-                <TableHead>Role</TableHead>
-                <TableHead>Status</TableHead>
-                <TableHead>Sent</TableHead>
-                <TableHead>Expires</TableHead>
-                <TableHead className="w-25">Actions</TableHead>
-              </TableRow>
-            </TableHeader>
-            <TableBody>
-              {pendingInvitations.map((invitation) => (
-                <InvitationRow
-                  key={invitation.id}
-                  invitation={invitation}
-                  onResend={setResendTarget}
-                  onCancel={setCancelTarget}
-                  isResending={resendingId === invitation.id}
-                  isCancelling={cancellingId === invitation.id}
-                />
-              ))}
-            </TableBody>
-          </Table>
-        </div>
-      )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-4">
+      <h2 className="text-lg font-semibold">Invitations</h2>
+
+      <DataTable<Invitation, unknown>
+        columns={columns}
+        data={data?.data ?? []}
+        pageCount={data?.meta.totalPages ?? 0}
+        totalItems={data?.meta.total ?? 0}
+        isLoading={isLoading}
+        onFetch={handleFetch}
+        initialPageSize={10}
+        searchConfig={{
+          placeholder: 'Search by email...',
+          searchKey: 'search',
+        }}
+        filters={[
+          {
+            id: 'status',
+            label: 'Status',
+            options: [
+              { label: 'Pending', value: 'PENDING' },
+              { label: 'Accepted', value: 'ACCEPTED' },
+              { label: 'Expired', value: 'EXPIRED' },
+            ],
+          },
+        ]}
+        showHeader={false}
+        hideSelectionCount
+      />
 
       {/* Resend confirmation dialog */}
       <AlertDialog open={!!resendTarget} onOpenChange={(open) => !open && setResendTarget(null)}>
