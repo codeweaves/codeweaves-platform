@@ -18,6 +18,11 @@ enum Role {
   CLIENT
 }
 
+enum AgentStatus {
+  ACTIVE
+  INACTIVE
+}
+
 enum InvitationStatus {
   PENDING
   ACCEPTED
@@ -29,6 +34,7 @@ model Organization {
   name      String
   slug      String   @unique
   users     User[]
+  agents    Agent[]
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
 
@@ -73,6 +79,26 @@ model UserInvitation {
   @@index([token])
   @@index([status])
   @@map("user_invitations")
+}
+
+model Agent {
+  id             String       @id @default(uuid())
+  publicId       String       @unique @db.VarChar(8)
+  name           String
+  status         AgentStatus  @default(ACTIVE)
+  organizationId String
+  organization   Organization @relation(fields: [organizationId], references: [id])
+  allowedDomains String[]
+  systemPrompt   String?      @db.Text
+  welcomeMessage String?
+  createdAt      DateTime     @default(now())
+  updatedAt      DateTime     @updatedAt
+  deletedAt      DateTime?
+
+  @@index([publicId])
+  @@index([organizationId])
+  @@index([status])
+  @@map("agents")
 }
 
 model AuditLog {

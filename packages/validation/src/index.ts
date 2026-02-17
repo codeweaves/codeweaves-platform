@@ -136,6 +136,40 @@ export const updateOrganizationSchema = z
 export type UpdateOrganizationDto = z.infer<typeof updateOrganizationSchema>;
 
 // ============================================
+// Agent Management Schemas
+// ============================================
+
+export const agentStatusEnum = z.enum(['ACTIVE', 'INACTIVE']);
+export type AgentStatusEnum = z.infer<typeof agentStatusEnum>;
+
+export const createAgentSchema = z.object({
+  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters'),
+  organizationId: z.string().uuid('Invalid organization ID'),
+});
+
+export type CreateAgentDto = z.infer<typeof createAgentSchema>;
+
+export const updateAgentSchema = z
+  .object({
+    name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters').optional(),
+  })
+  .refine((data) => data.name !== undefined, {
+    message: 'At least one field (name) must be provided',
+  });
+
+export type UpdateAgentDto = z.infer<typeof updateAgentSchema>;
+
+export const agentListQuerySchema = paginationSchema.extend({
+  search: z.string().optional(),
+  organizationId: z.string().uuid().optional(),
+  status: agentStatusEnum.optional(),
+  sortBy: z.enum(['name', 'createdAt', 'updatedAt']).default('createdAt'),
+  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+});
+
+export type AgentListQuery = z.infer<typeof agentListQuerySchema>;
+
+// ============================================
 // Utility Functions
 // ============================================
 

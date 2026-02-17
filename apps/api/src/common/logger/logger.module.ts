@@ -4,6 +4,7 @@ import { InvitationLoggerService } from './invitation.logger';
 import { UserLoggerService } from './user.logger';
 import { Auth0LoggerService } from './auth0.logger';
 import { EmailLoggerService } from './email.logger';
+import { AgentLoggerService } from './agent.logger';
 
 @Module({
   providers: [
@@ -12,6 +13,7 @@ import { EmailLoggerService } from './email.logger';
     UserLoggerService,
     Auth0LoggerService,
     EmailLoggerService,
+    AgentLoggerService,
   ],
   exports: [
     OrganizationLoggerService,
@@ -19,6 +21,7 @@ import { EmailLoggerService } from './email.logger';
     UserLoggerService,
     Auth0LoggerService,
     EmailLoggerService,
+    AgentLoggerService,
   ],
 })
 export class LoggerModule {}

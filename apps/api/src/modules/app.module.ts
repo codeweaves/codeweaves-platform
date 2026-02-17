@@ -7,6 +7,7 @@ import { AuthModule } from './auth.module';
 import { UsersModule } from './users.module';
 import { InvitationsModule } from './invitations.module';
 import { OrganizationsModule } from './organizations.module';
+import { AgentsModule } from './agents.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { UserSyncGuard } from '../guards/user-sync.guard';
@@ -25,6 +26,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     UsersModule,
     InvitationsModule,
     OrganizationsModule,
+    AgentsModule,
     TracerModule,
   ],
   controllers: [HealthController],

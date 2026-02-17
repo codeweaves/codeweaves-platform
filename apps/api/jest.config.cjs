@@ -26,6 +26,7 @@ const config = {
   moduleNameMapper: {
     '^@/(.*)$': '<rootDir>/src/$1',
     '^@test/(.*)$': '<rootDir>/test/$1',
+    '^nanoid$': '<rootDir>/test/__mocks__/nanoid.ts',
   },
   setupFilesAfterEnv: ['<rootDir>/test/setup/jest-setup.ts'],
   clearMocks: true,
