@@ -1,112 +1,231 @@
-'use client';
-
-import { useCallback, useEffect, useRef, useState } from 'react';
-import type { Table } from '@tanstack/react-table';
-import { Columns3, Search } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
+import { Button } from '@/components/ui/button';
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from '@/components/ui/select';
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-import type { DataTableToolbarConfig } from './data-table.types';
+import { Search, X, ChevronDown, Download, Loader2 } from 'lucide-react';
+import {
+  DataTableToolbarProps,
+  DataTableFilterConfig,
+  DataTableExportConfig,
+  DataTableExportFormat,
+} from './types';
 
-interface DataTableToolbarProps<TData> {
-  table: Table<TData>;
-  config: DataTableToolbarConfig;
-  searchValue?: string;
-  onSearchChange?: (value: string) => void;
+function SingleSelectFilter({
+  filter,
+  value,
+  onChange,
+}: {
+  filter: DataTableFilterConfig;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <Select value={value} onValueChange={onChange}>
+      <SelectTrigger className="w-[160px] cursor-pointer">
+        <SelectValue placeholder={filter.placeholder || filter.label} />
+      </SelectTrigger>
+      <SelectContent>
+        {filter.options.map((option) => (
+          <SelectItem key={option.value} value={option.value}>
+            <div className="flex items-center gap-2">
+              {option.icon && <option.icon className="size-4" />}
+              {option.label}
+            </div>
+          </SelectItem>
+        ))}
+      </SelectContent>
+    </Select>
+  );
 }
 
-export function DataTableToolbar<TData>({
-  table,
-  config,
-  searchValue,
-  onSearchChange,
-}: DataTableToolbarProps<TData>) {
-  const [localSearch, setLocalSearch] = useState(searchValue ?? '');
-  const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+const FORMAT_LABELS: Record<DataTableExportFormat, string> = {
+  csv: 'CSV',
+  xlsx: 'Excel',
+  json: 'JSON',
+};
 
-  // Sync local state when external search value changes
-  useEffect(() => {
-    setLocalSearch(searchValue ?? '');
-  }, [searchValue]);
+function ExportButton({ config }: { config: DataTableExportConfig }) {
+  const formats = config.formats ?? ['csv'];
+  const label = config.label ?? 'Export';
 
-  // Cleanup debounce on unmount
-  useEffect(() => {
-    return () => {
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-    };
-  }, []);
+  // Single format - just a button
+  if (formats.length === 1) {
+    return (
+      <Button
+        variant="outline"
+        size="sm"
+        onClick={() => config.onExport(formats[0]!)}
+        disabled={config.isExporting}
+        className="h-9"
+      >
+        {config.isExporting ? (
+          <Loader2 className="mr-2 size-4 animate-spin" />
+        ) : (
+          <Download className="mr-2 size-4" />
+        )}
+        {label}
+      </Button>
+    );
+  }
 
-  const handleSearchChange = useCallback(
-    (e: React.ChangeEvent<HTMLInputElement>) => {
-      const value = e.target.value.trimStart();
-      setLocalSearch(value);
-
-      if (!onSearchChange) return;
-
-      if (debounceRef.current) clearTimeout(debounceRef.current);
-      debounceRef.current = setTimeout(() => {
-        onSearchChange(value.trim());
-      }, 300);
-    },
-    [onSearchChange],
+  // Multiple formats - dropdown
+  return (
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" size="sm" disabled={config.isExporting} className="h-9">
+          {config.isExporting ? (
+            <Loader2 className="mr-2 size-4 animate-spin" />
+          ) : (
+            <Download className="mr-2 size-4" />
+          )}
+          {label}
+          <ChevronDown className="ml-2 size-4" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="end">
+        {formats.map((format) => (
+          <DropdownMenuCheckboxItem
+            key={format}
+            checked={false}
+            onCheckedChange={() => config.onExport(format)}
+          >
+            {FORMAT_LABELS[format]}
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
   );
+}
 
-  const hasSearch = onSearchChange !== undefined;
-  const showColumnVisibility = config.showColumnVisibility ?? false;
+function MultiSelectFilter({
+  filter,
+  values,
+  onChange,
+}: {
+  filter: DataTableFilterConfig;
+  values: string[];
+  onChange: (values: string[]) => void;
+}) {
+  const selectedCount = values.length;
+  const displayText =
+    selectedCount === 0
+      ? filter.placeholder || filter.label
+      : selectedCount === 1
+        ? filter.options.find((o) => o.value === values[0])?.label || values[0]
+        : `${selectedCount} selected`;
+
+  const handleToggle = (optionValue: string) => {
+    if (values.includes(optionValue)) {
+      onChange(values.filter((v) => v !== optionValue));
+    } else {
+      onChange([...values, optionValue]);
+    }
+  };
 
   return (
-    <div className="flex items-center justify-between gap-2">
-      <div className="flex items-center gap-2 flex-1">
-        {hasSearch && (
-          <div className="relative max-w-sm flex-1">
-            <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-            <Input
-              placeholder={config.searchPlaceholder ?? 'Search...'}
-              value={localSearch}
-              onChange={handleSearchChange}
-              className="pl-9"
-            />
-          </div>
-        )}
-      </div>
+    <DropdownMenu>
+      <DropdownMenuTrigger asChild>
+        <Button variant="outline" className="w-[160px] justify-between">
+          <span className="truncate">{displayText}</span>
+          <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
+        </Button>
+      </DropdownMenuTrigger>
+      <DropdownMenuContent align="start" className="w-[160px]">
+        {filter.options.map((option) => (
+          <DropdownMenuCheckboxItem
+            key={option.value}
+            checked={values.includes(option.value)}
+            onCheckedChange={() => handleToggle(option.value)}
+          >
+            <div className="flex items-center gap-2">
+              {option.icon && <option.icon className="size-4" />}
+              {option.label}
+            </div>
+          </DropdownMenuCheckboxItem>
+        ))}
+      </DropdownMenuContent>
+    </DropdownMenu>
+  );
+}
+
+export function DataTableToolbar({
+  searchConfig,
+  searchValue,
+  onSearchChange,
+  filters,
+  filterValues,
+  onFilterChange,
+  onClearAll,
+  hasActiveFilters,
+  exportConfig,
+}: DataTableToolbarProps) {
+  return (
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      {/* Search Input */}
+      {searchConfig && (
+        <div className="relative min-w-[200px] max-w-sm flex-1">
+          <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            id="data-table-search"
+            name="data-table-search"
+            placeholder={searchConfig.placeholder}
+            value={searchValue ?? ''}
+            onChange={(e) => onSearchChange?.(e.target.value)}
+            className="rounded-xl pl-10"
+          />
+        </div>
+      )}
+
+      {/* Filter Dropdowns and Clear Button */}
       <div className="flex items-center gap-2">
-        {showColumnVisibility && (
-          <DropdownMenu>
-            <DropdownMenuTrigger asChild>
-              <Button variant="outline" size="sm">
-                <Columns3 className="h-4 w-4" />
-                <span className="hidden lg:inline ml-2">Columns</span>
-              </Button>
-            </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
-              {table
-                .getAllColumns()
-                .filter(
-                  (column) =>
-                    typeof column.accessorFn !== 'undefined' &&
-                    column.getCanHide(),
-                )
-                .map((column) => (
-                  <DropdownMenuCheckboxItem
-                    key={column.id}
-                    className="capitalize"
-                    checked={column.getIsVisible()}
-                    onCheckedChange={(value) =>
-                      column.toggleVisibility(!!value)
-                    }
-                  >
-                    {column.id}
-                  </DropdownMenuCheckboxItem>
-                ))}
-            </DropdownMenuContent>
-          </DropdownMenu>
+        {filters?.map((filter) =>
+          filter.multiSelect ? (
+            <MultiSelectFilter
+              key={filter.id}
+              filter={filter}
+              values={
+                Array.isArray(filterValues?.[filter.id])
+                  ? (filterValues[filter.id] as string[])
+                  : []
+              }
+              onChange={(values) => onFilterChange?.(filter.id, values)}
+            />
+          ) : (
+            <SingleSelectFilter
+              key={filter.id}
+              filter={filter}
+              value={(filterValues?.[filter.id] as string) ?? 'all'}
+              onChange={(value) => onFilterChange?.(filter.id, value)}
+            />
+          )
         )}
-        {config.actions}
+
+        {/* Clear All Button */}
+        {hasActiveFilters && onClearAll && (
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onClearAll}
+            className="h-9 px-2 text-muted-foreground"
+          >
+            <X className="mr-1 size-4" />
+            Clear
+          </Button>
+        )}
+
+        {/* Export Button */}
+        {exportConfig && <ExportButton config={exportConfig} />}
       </div>
     </div>
   );

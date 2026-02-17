@@ -1,14 +1,20 @@
-'use client';
-
-import { useCallback, useMemo, useState } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
 import {
-  type SortingState,
-  type VisibilityState,
   flexRender,
   getCoreRowModel,
-  getSortedRowModel,
   useReactTable,
+  SortingState,
+  FilterFn,
 } from '@tanstack/react-table';
+import { Loader2 } from 'lucide-react';
+import { cn } from '@/lib/utils';
+
+// Module augmentation to add custom filter function
+declare module '@tanstack/react-table' {
+  interface FilterFns {
+    multipleFilter: FilterFn<unknown>;
+  }
+}
 import {
   Table,
   TableBody,
@@ -17,218 +23,675 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
-import { Loader2 } from 'lucide-react';
-import { cn } from '@/lib/utils';
-import type { DataTableProps } from './data-table.types';
 import { DataTableToolbar } from './data-table-toolbar';
 import { DataTablePagination } from './data-table-pagination';
-import { DataTableSkeleton } from './data-table-skeleton';
-import { DataTableEmptyState } from './data-table-empty-state';
+import { DataTableExpandToggle } from './data-table-expand-toggle';
+import {
+  DataTableProps,
+  DataTableTexts,
+  DataTableHeaderRenderProps,
+  DataTableFooterRenderProps,
+  DataTableToolbarRenderProps,
+} from './types';
 
-export function DataTable<TData>(props: DataTableProps<TData>) {
-  const {
-    columns,
-    toolbar,
-    emptyState,
-    onRowClick,
-    skeletonRowCount,
-    className,
-    initialColumnVisibility,
-  } = props;
+const DEFAULT_TEXTS: Required<DataTableTexts> = {
+  selected: 'row(s) selected',
+  noResults: 'No results found.',
+  rowsPerPage: 'Rows per page',
+  of: 'of',
+  page: 'Page',
+};
 
-  const isServer = props.mode === 'server';
+const DEFAULT_PAGE_SIZE_OPTIONS = [5, 10, 50, 100];
 
-  // Extract server-mode props for stable hook dependencies
-  const serverState = isServer ? props.state : undefined;
-  const serverSortableColumns = isServer ? props.sortableColumns : undefined;
-  const serverOnStateChange = isServer ? props.onStateChange : undefined;
-  const serverMeta = isServer ? props.meta : undefined;
-  const serverPageSizeOptions = isServer ? props.pageSizeOptions : undefined;
+export function DataTable<TData, TValue, TSubRow = unknown>({
+  columns,
+  data,
+  title,
+  totalItems = 0,
+  pageCount,
+  // Simplified API
+  onFetch,
+  initialPageSize = 10,
+  // Controlled API (optional overrides)
+  pageIndex: controlledPageIndex,
+  pageSize: controlledPageSize,
+  onPaginationChange: controlledOnPaginationChange,
+  sorting: controlledSorting,
+  onSortingChange: controlledOnSortingChange,
+  searchValue: controlledSearchValue,
+  onSearchChange: controlledOnSearchChange,
+  filterValues: controlledFilterValues,
+  onFilterChange: controlledOnFilterChange,
+  onClearAll: controlledOnClearAll,
+  // Common props
+  searchConfig,
+  filters,
+  exportConfig,
+  enableRowSelection = false,
+  rowSelection = {},
+  onRowSelectionChange,
+  isLoading = false,
+  // Expandable rows
+  expandableConfig,
+  expanded: controlledExpanded,
+  onExpandedChange: controlledOnExpandedChange,
+  defaultExpanded = {},
+  getRowId,
+  // Customization options
+  pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
+  fixedLayout = true,
+  texts,
+  showHeader = true,
+  showToolbar = true,
+  showPagination = true,
+  hideSelectionCount = false,
+  // Render props
+  renderHeader,
+  renderEmpty,
+  renderLoading,
+  renderToolbar,
+  renderFooter,
+}: DataTableProps<TData, TValue, TSubRow>) {
+  // Determine if we're in controlled mode (user manages state) or internal mode (we manage state)
+  const isControlled =
+    controlledPageIndex !== undefined && controlledOnPaginationChange !== undefined;
 
-  // Column visibility state
-  const [columnVisibility, setColumnVisibility] = useState<VisibilityState>(
-    initialColumnVisibility ?? {},
+  // Internal state (used when onFetch is provided and not in controlled mode)
+  const [internalPageIndex, setInternalPageIndex] = useState(0);
+  const [internalPageSize, setInternalPageSize] = useState(initialPageSize);
+  const [internalSorting, setInternalSorting] = useState<SortingState>([]);
+  const [internalSearchValue, setInternalSearchValue] = useState('');
+  const [internalFilterValues, setInternalFilterValues] = useState<
+    Record<string, string | string[]>
+  >({});
+
+  // Expandable rows state
+  const [internalExpanded, setInternalExpanded] = useState<Record<string, boolean>>(defaultExpanded);
+
+  // Debounce timer ref for search
+  const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  // Track if this is the first render (to skip debounced search on mount)
+  const isFirstRender = useRef(true);
+
+  // Use controlled values if provided, otherwise use internal state
+  const pageIndex = isControlled ? controlledPageIndex : internalPageIndex;
+  const pageSize = isControlled ? (controlledPageSize ?? initialPageSize) : internalPageSize;
+  const sorting = controlledSorting ?? internalSorting;
+  const searchValue = controlledSearchValue ?? internalSearchValue;
+  const filterValues = controlledFilterValues ?? internalFilterValues;
+  const expanded = controlledExpanded ?? internalExpanded;
+
+  // Merge custom texts with defaults
+  const mergedTexts = { ...DEFAULT_TEXTS, ...texts };
+
+  // Trigger onFetch when state changes (only in internal mode)
+  const triggerFetch = useCallback(
+    (params: {
+      page: number;
+      pageSize: number;
+      sorting: SortingState;
+      search: string;
+      filters: Record<string, string | string[]>;
+    }) => {
+      if (onFetch && !isControlled) {
+        onFetch(params);
+      }
+    },
+    [onFetch, isControlled]
   );
 
-  // Sorting state for simple mode
-  const [localSorting, setLocalSorting] = useState<SortingState>([]);
+  // Initial fetch on mount (only in internal mode)
+  useEffect(() => {
+    if (onFetch && !isControlled) {
+      triggerFetch({
+        page: internalPageIndex,
+        pageSize: internalPageSize,
+        sorting: internalSorting,
+        search: internalSearchValue,
+        filters: internalFilterValues,
+      });
+    }
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
-  // Derive sorting from server state
-  const serverSorting: SortingState = useMemo(() => {
-    if (!serverState) return [];
-    const { sortBy, sortOrder } = serverState;
-    if (!sortBy) return [];
-
-    // Reverse-map: find the column ID for this server sort field
-    const sortColumns = serverSortableColumns ?? {};
-    const columnId =
-      Object.entries(sortColumns).find(
-        ([, serverField]) => serverField === sortBy,
-      )?.[0] ?? sortBy;
-
-    return [{ id: columnId, desc: sortOrder !== 'asc' }];
-  }, [serverState, serverSortableColumns]);
-
-  // Handle sorting change for server mode
-  const handleServerSortingChange = useCallback(
-    (updater: SortingState | ((old: SortingState) => SortingState)) => {
-      if (!serverState || !serverOnStateChange) return;
-      const newSorting =
-        typeof updater === 'function' ? updater(serverSorting) : updater;
-      if (newSorting.length > 0) {
-        const sort = newSorting[0]!;
-        const sortColumns = serverSortableColumns ?? {};
-        const serverField = sortColumns[sort.id] ?? sort.id;
-        serverOnStateChange({
-          ...serverState,
-          page: 1,
-          sortBy: serverField,
-          sortOrder: sort.desc ? 'desc' : 'asc',
+  // Handlers that work for both modes
+  const handlePaginationChange = useCallback(
+    (newPageIndex: number, newPageSize: number) => {
+      if (isControlled) {
+        controlledOnPaginationChange?.(newPageIndex, newPageSize);
+      } else {
+        setInternalPageIndex(newPageIndex);
+        setInternalPageSize(newPageSize);
+        triggerFetch({
+          page: newPageIndex,
+          pageSize: newPageSize,
+          sorting: internalSorting,
+          search: internalSearchValue,
+          filters: internalFilterValues,
         });
       }
     },
-    [serverState, serverOnStateChange, serverSortableColumns, serverSorting],
+    [
+      isControlled,
+      controlledOnPaginationChange,
+      triggerFetch,
+      internalSorting,
+      internalSearchValue,
+      internalFilterValues,
+    ]
   );
 
-  const sorting = isServer ? serverSorting : localSorting;
-  const enableSorting =
-    isServer || ('enableSorting' in props && props.enableSorting);
+  const handleSortingChange = useCallback(
+    (newSorting: SortingState) => {
+      if (isControlled) {
+        controlledOnSortingChange?.(newSorting);
+      } else {
+        setInternalSorting(newSorting);
+        triggerFetch({
+          page: internalPageIndex,
+          pageSize: internalPageSize,
+          sorting: newSorting,
+          search: internalSearchValue,
+          filters: internalFilterValues,
+        });
+      }
+    },
+    [
+      isControlled,
+      controlledOnSortingChange,
+      triggerFetch,
+      internalPageIndex,
+      internalPageSize,
+      internalSearchValue,
+      internalFilterValues,
+    ]
+  );
+
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      if (isControlled) {
+        controlledOnSearchChange?.(value);
+      } else {
+        // Update search value immediately for UI responsiveness
+        setInternalSearchValue(value);
+        setInternalPageIndex(0); // Reset to first page
+        // Note: triggerFetch is called in the debounce effect below
+      }
+    },
+    [isControlled, controlledOnSearchChange]
+  );
+
+  // Debounced search effect - triggers fetch after user stops typing
+  useEffect(() => {
+    // Skip on first render (initial fetch already handles it)
+    if (isFirstRender.current) {
+      isFirstRender.current = false;
+      return;
+    }
+
+    // Skip debounce in controlled mode (parent handles it)
+    if (isControlled || !onFetch) return;
+
+    const debounceMs = searchConfig?.debounceMs ?? 300;
+
+    // Clear existing timer
+    if (debounceTimerRef.current) {
+      clearTimeout(debounceTimerRef.current);
+    }
+
+    // Set new timer
+    debounceTimerRef.current = setTimeout(() => {
+      triggerFetch({
+        page: 0,
+        pageSize: internalPageSize,
+        sorting: internalSorting,
+        search: internalSearchValue,
+        filters: internalFilterValues,
+      });
+    }, debounceMs);
+
+    // Cleanup on unmount or when dependencies change
+    return () => {
+      if (debounceTimerRef.current) {
+        clearTimeout(debounceTimerRef.current);
+      }
+    };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [internalSearchValue]);
+
+  const handleFilterChange = useCallback(
+    (filterId: string, value: string | string[]) => {
+      if (isControlled) {
+        controlledOnFilterChange?.(filterId, value);
+      } else {
+        const newFilters = { ...internalFilterValues, [filterId]: value };
+        setInternalFilterValues(newFilters);
+        setInternalPageIndex(0); // Reset to first page
+        triggerFetch({
+          page: 0,
+          pageSize: internalPageSize,
+          sorting: internalSorting,
+          search: internalSearchValue,
+          filters: newFilters,
+        });
+      }
+    },
+    [
+      isControlled,
+      controlledOnFilterChange,
+      triggerFetch,
+      internalPageSize,
+      internalSorting,
+      internalSearchValue,
+      internalFilterValues,
+    ]
+  );
+
+  const handleClearAll = useCallback(() => {
+    if (isControlled) {
+      controlledOnClearAll?.();
+    } else {
+      setInternalSearchValue('');
+      setInternalFilterValues({});
+      setInternalSorting([]);
+      setInternalPageIndex(0);
+      triggerFetch({
+        page: 0,
+        pageSize: internalPageSize,
+        sorting: [],
+        search: '',
+        filters: {},
+      });
+    }
+  }, [isControlled, controlledOnClearAll, triggerFetch, internalPageSize]);
+
+  // Handler for expand/collapse row
+  const handleExpandChange = useCallback(
+    (rowId: string, isExpanded: boolean) => {
+      const newExpanded = { ...expanded, [rowId]: isExpanded };
+
+      if (controlledOnExpandedChange) {
+        controlledOnExpandedChange(newExpanded);
+      } else {
+        setInternalExpanded(newExpanded);
+      }
+    },
+    [expanded, controlledOnExpandedChange]
+  );
+
+  // Helper to get unique row ID
+  const getRowIdFn = useCallback(
+    (row: TData, index: number): string => {
+      if (getRowId) {
+        return getRowId(row, index);
+      }
+      // Default: try common ID fields, fallback to index
+      const rowAny = row as Record<string, unknown>;
+      if (rowAny.id !== undefined) return String(rowAny.id);
+      if (rowAny.uniqueId !== undefined) return String(rowAny.uniqueId);
+      return String(index);
+    },
+    [getRowId]
+  );
+
+  // Helper to get ID from any row (sub-rows use same logic)
+  const getAnyRowId = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (row: any, index: number): string => {
+      if (row.id !== undefined) return String(row.id);
+      if (row.uniqueId !== undefined) return String(row.uniqueId);
+      return String(index);
+    },
+    []
+  );
+
+  // Get indentation class based on depth level
+  const getIndentClass = (depth: number): string => {
+    switch (depth) {
+      case 1:
+        return 'pl-4';
+      case 2:
+        return 'pl-8';
+      default:
+        return 'pl-12';
+    }
+  };
+
+  // Recursive function to render nested sub-rows (supports up to 3 levels: parent -> child -> grandchild)
+  const renderNestedSubRows = useCallback(
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    (subRows: any[], parentId: string, parentRow: any, depth: number): React.ReactNode[] => {
+      if (!expandableConfig || depth > 2) return []; // Max depth of 2 (grandchild level)
+
+      return subRows.flatMap((subRow, subIndex) => {
+        const subRowId = `${parentId}.${getAnyRowId(subRow, subIndex)}`;
+        const isSubRowExpanded = expanded[subRowId] ?? false;
+        // Check if this sub-row has its own children
+        const grandChildren = expandableConfig.getSubRows(subRow as TData);
+        const hasGrandChildren = grandChildren && grandChildren.length > 0;
+
+        const rows: React.ReactNode[] = [];
+
+        // Render the sub-row itself
+        if (expandableConfig.renderSubRowCells) {
+          const cells = expandableConfig.renderSubRowCells(subRow, parentRow, subIndex);
+          rows.push(
+            <TableRow
+              key={subRowId}
+              className={cn(
+                'bg-muted/30',
+                depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row',
+                isSubRowExpanded && hasGrandChildren && 'data-table-row-expanded font-medium',
+                expandableConfig.childRowClassName
+              )}
+              data-expanded={isSubRowExpanded && hasGrandChildren ? 'true' : undefined}
+              data-depth={depth}
+            >
+              {/* Expand toggle cell for nested rows */}
+              <TableCell className="w-10 px-2">
+                {hasGrandChildren && (
+                  <DataTableExpandToggle
+                    isExpanded={isSubRowExpanded}
+                    onToggle={() => handleExpandChange(subRowId, !isSubRowExpanded)}
+                    hasChildren={true}
+                  />
+                )}
+              </TableCell>
+              {/* Render each sub-row cell with its colSpan */}
+              {cells.map((cell, cellIndex) => (
+                <TableCell
+                  key={cellIndex}
+                  colSpan={cell.colSpan ?? 1}
+                  className={cn(
+                    cellIndex === 0 && expandableConfig.indentChildren !== false
+                      ? getIndentClass(depth)
+                      : '',
+                    cell.className
+                  )}
+                >
+                  {cell.content}
+                </TableCell>
+              ))}
+            </TableRow>
+          );
+        } else {
+          // Legacy: single cell spanning all columns
+          rows.push(
+            <TableRow
+              key={subRowId}
+              className={cn(
+                'bg-muted/30',
+                depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row',
+                isSubRowExpanded && hasGrandChildren && 'data-table-row-expanded font-medium',
+                expandableConfig.childRowClassName
+              )}
+              data-expanded={isSubRowExpanded && hasGrandChildren ? 'true' : undefined}
+              data-depth={depth}
+            >
+              {/* Expand toggle cell for nested rows */}
+              <TableCell className="w-10 px-2">
+                {hasGrandChildren && (
+                  <DataTableExpandToggle
+                    isExpanded={isSubRowExpanded}
+                    onToggle={() => handleExpandChange(subRowId, !isSubRowExpanded)}
+                    hasChildren={true}
+                  />
+                )}
+              </TableCell>
+              <TableCell
+                colSpan={(expandableConfig.subRowColSpan ?? columns.length)}
+                className={expandableConfig.indentChildren !== false ? getIndentClass(depth + 1) : ''}
+              >
+                {expandableConfig.renderSubRow?.(subRow, parentRow, subIndex)}
+              </TableCell>
+            </TableRow>
+          );
+        }
+
+        // Recursively render grandchildren if expanded
+        if (isSubRowExpanded && hasGrandChildren) {
+          rows.push(...renderNestedSubRows(grandChildren, subRowId, subRow, depth + 1));
+        }
+
+        return rows;
+      });
+    },
+    [expandableConfig, expanded, handleExpandChange, getAnyRowId, columns.length]
+  );
 
   const table = useReactTable({
-    data: props.data,
+    data,
     columns,
-    getCoreRowModel: getCoreRowModel(),
-    ...(isServer
-      ? {
-          manualSorting: true,
-          onSortingChange: handleServerSortingChange,
-        }
-      : enableSorting
-        ? {
-            getSortedRowModel: getSortedRowModel(),
-            onSortingChange: setLocalSorting,
-          }
-        : {}),
-    state: {
-      sorting,
-      columnVisibility,
+    pageCount,
+    filterFns: {
+      multipleFilter: (row, columnId, filterValue) =>
+        filterValue.includes((row.getValue(columnId) as string).toLowerCase()),
     },
-    onColumnVisibilityChange: setColumnVisibility,
+    state: {
+      pagination: { pageIndex, pageSize },
+      sorting,
+      rowSelection,
+    },
+    manualPagination: true,
+    manualSorting: true,
+    onPaginationChange: (updater) => {
+      if (typeof updater === 'function') {
+        const newState = updater({ pageIndex, pageSize });
+        handlePaginationChange(newState.pageIndex, newState.pageSize);
+      }
+    },
+    onSortingChange: (updater) => {
+      if (typeof updater === 'function') {
+        const newState = updater(sorting);
+        handleSortingChange(newState);
+      } else {
+        handleSortingChange(updater);
+      }
+    },
+    onRowSelectionChange: (updater) => {
+      if (typeof updater === 'function') {
+        const newState = updater(rowSelection);
+        onRowSelectionChange?.(newState);
+      } else {
+        onRowSelectionChange?.(updater);
+      }
+    },
+    getCoreRowModel: getCoreRowModel(),
+    enableRowSelection,
   });
 
-  // Loading states: skeleton for first load, inline spinner if data already exists
-  const isLoading = isServer ? props.isLoading : (props.isLoading ?? false);
-  const hasData = props.data.length > 0;
-  const isInitialLoad = isLoading && !hasData;
-  const isRefetching = isLoading && hasData;
+  const selectedCount = Object.keys(rowSelection).filter(
+    (key) => rowSelection[key]
+  ).length;
 
-  if (isInitialLoad) {
-    return (
-      <DataTableSkeleton
-        columnCount={columns.length}
-        rowCount={skeletonRowCount}
-        showToolbar={!!toolbar}
-      />
-    );
-  }
+  // Check if any filters, search, or sorting is active
+  const hasActiveFilters =
+    !!searchValue ||
+    sorting.length > 0 ||
+    (filterValues &&
+      Object.entries(filterValues).some(([, value]) => {
+        if (Array.isArray(value)) return value.length > 0;
+        return value && value !== 'all';
+      }));
 
-  // Empty state (only when no active search)
-  const isEmpty = props.data.length === 0;
-  const hasActiveSearch = serverState?.search;
-  if (isEmpty && !hasActiveSearch && emptyState) {
-    return <DataTableEmptyState config={emptyState} />;
-  }
+  // Render props data
+  const headerRenderProps: DataTableHeaderRenderProps = { title, totalItems };
+  const footerRenderProps: DataTableFooterRenderProps = { selectedCount, totalItems };
+  const toolbarRenderProps: DataTableToolbarRenderProps = {
+    searchConfig,
+    searchValue,
+    onSearchChange: handleSearchChange,
+    filters,
+    filterValues,
+    onFilterChange: handleFilterChange,
+    onClearAll: handleClearAll,
+    hasActiveFilters,
+    exportConfig,
+  };
 
-  const rows = table.getRowModel().rows;
+  // Default header renderer
+  const defaultHeader = title ? (
+    <h2 className="text-2xl font-semibold">
+      {title} ({totalItems})
+    </h2>
+  ) : null;
 
-  // Search change handler for server mode
-  const handleSearchChange = serverOnStateChange && serverState
-    ? (value: string) =>
-        serverOnStateChange({
-          ...serverState,
-          page: 1,
-          search: value || undefined,
-        })
-    : undefined;
+  // Calculate total columns including expand toggle
+  const totalColumns = columns.length + (expandableConfig ? 1 : 0);
+
+  // Default empty state renderer (simple text in table cell)
+  const defaultEmptyCell = (
+    <TableRow>
+      <TableCell colSpan={totalColumns} className="h-32 text-center">
+        <span className="text-sm text-muted-foreground">{mergedTexts.noResults}</span>
+      </TableCell>
+    </TableRow>
+  );
+
+  // Default loading renderer — spinner inside the table body
+  const defaultLoading = (
+    <TableRow>
+      <TableCell colSpan={totalColumns} className="h-32 text-center">
+        <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
+      </TableCell>
+    </TableRow>
+  );
+
+  // Default toolbar renderer
+  const defaultToolbar = (
+    <DataTableToolbar
+      searchConfig={searchConfig}
+      searchValue={searchValue}
+      onSearchChange={handleSearchChange}
+      filters={filters}
+      filterValues={filterValues}
+      onFilterChange={handleFilterChange}
+      onClearAll={handleClearAll}
+      hasActiveFilters={hasActiveFilters}
+      exportConfig={exportConfig}
+    />
+  );
+
+  // Default pagination/footer renderer
+  const defaultFooter = (
+    <DataTablePagination
+      table={table}
+      totalItems={totalItems}
+      selectedCount={selectedCount}
+      pageSizeOptions={pageSizeOptions}
+      texts={mergedTexts}
+      hideSelectionCount={hideSelectionCount}
+    />
+  );
 
   return (
-    <div className={cn('space-y-4', className)}>
-      {toolbar && (
-        <DataTableToolbar
-          table={table}
-          config={toolbar}
-          searchValue={serverState?.search ?? ''}
-          onSearchChange={handleSearchChange}
-        />
-      )}
+    <div className="space-y-4">
+      {/* Header */}
+      {showHeader && (renderHeader ? renderHeader(headerRenderProps) : defaultHeader)}
 
-      <div className="relative overflow-hidden rounded-md border">
-        {isRefetching && (
-          <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
-            <Loader2 className="h-6 w-6 animate-spin text-muted-foreground" />
-          </div>
-        )}
-        <Table className="table-fixed">
+      {/* Toolbar: Search + Filters */}
+      {showToolbar && (renderToolbar ? renderToolbar(toolbarRenderProps) : defaultToolbar)}
+
+      {/* Table */}
+      <div className="rounded-md border">
+        <Table className={fixedLayout ? 'table-fixed' : undefined}>
           <TableHeader>
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id}>
-                {headerGroup.headers.map((header) => (
-                  <TableHead key={header.id}>
-                    {header.isPlaceholder
-                      ? null
-                      : flexRender(
-                          header.column.columnDef.header,
-                          header.getContext(),
-                        )}
-                  </TableHead>
-                ))}
+                {/* Empty header cell for expand toggle column */}
+                {expandableConfig && (
+                  <TableHead className="w-10" />
+                )}
+                {headerGroup.headers.map((header) => {
+                  const size = header.column.columnDef.size;
+                  return (
+                    <TableHead
+                      key={header.id}
+                      style={size ? { width: size } : undefined}
+                    >
+                      {header.isPlaceholder
+                        ? null
+                        : flexRender(
+                            header.column.columnDef.header,
+                            header.getContext()
+                          )}
+                    </TableHead>
+                  );
+                })}
               </TableRow>
             ))}
           </TableHeader>
           <TableBody>
-            {rows.length ? (
-              rows.map((row) => (
-                <TableRow
-                  key={row.id}
-                  className={onRowClick ? 'cursor-pointer' : undefined}
-                  onClick={() => onRowClick?.(row.original)}
-                >
-                  {row.getVisibleCells().map((cell) => (
-                    <TableCell key={cell.id}>
-                      {flexRender(
-                        cell.column.columnDef.cell,
-                        cell.getContext(),
-                      )}
-                    </TableCell>
-                  ))}
+            {isLoading ? (
+              renderLoading ? (
+                <TableRow>
+                  <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0">
+                    {renderLoading()}
+                  </TableCell>
                 </TableRow>
-              ))
-            ) : (
+              ) : (
+                defaultLoading
+              )
+            ) : table.getRowModel().rows?.length ? (
+              table.getRowModel().rows.map((row, rowIndex) => {
+                const rowId = getRowIdFn(row.original, rowIndex);
+                const isRowExpanded = expanded[rowId] ?? false;
+                const subRows = expandableConfig?.getSubRows(row.original);
+                const hasChildren = subRows && subRows.length > 0;
+
+                return (
+                  <Fragment key={row.id}>
+                    {/* Parent Row */}
+                    <TableRow
+                      data-state={row.getIsSelected() && 'selected'}
+                      data-expanded={isRowExpanded && hasChildren ? 'true' : undefined}
+                      className={cn(
+                        'data-table-parent-row',
+                        isRowExpanded && hasChildren && 'data-table-row-expanded font-medium'
+                      )}
+                    >
+                      {/* Expand toggle cell */}
+                      {expandableConfig && (
+                        <TableCell className="w-10 px-2">
+                          <DataTableExpandToggle
+                            isExpanded={isRowExpanded}
+                            onToggle={() => handleExpandChange(rowId, !isRowExpanded)}
+                            hasChildren={hasChildren ?? false}
+                          />
+                        </TableCell>
+                      )}
+                      {row.getVisibleCells().map((cell) => (
+                        <TableCell key={cell.id}>
+                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        </TableCell>
+                      ))}
+                    </TableRow>
+
+                    {/* Child/Sub Rows (when expanded) - supports recursive nesting */}
+                    {expandableConfig && isRowExpanded && hasChildren &&
+                      renderNestedSubRows(subRows, rowId, row.original, 1)
+                    }
+                  </Fragment>
+                );
+              })
+            ) : renderEmpty ? (
               <TableRow>
-                <TableCell
-                  colSpan={columns.length}
-                  className="h-24 text-center"
-                >
-                  No results found.
+                <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0">
+                  {renderEmpty()}
                 </TableCell>
               </TableRow>
+            ) : (
+              defaultEmptyCell
             )}
           </TableBody>
         </Table>
       </div>
 
-      {serverMeta && serverMeta.totalPages > 1 && serverOnStateChange && serverState && (
-        <DataTablePagination
-          meta={serverMeta}
-          onPageChange={(page) =>
-            serverOnStateChange({ ...serverState, page })
-          }
-          onPageSizeChange={(size) =>
-            serverOnStateChange({ ...serverState, page: 1, limit: size })
-          }
-          pageSizeOptions={serverPageSizeOptions}
-        />
-      )}
+      {/* Pagination */}
+      {showPagination && (renderFooter ? renderFooter(footerRenderProps) : defaultFooter)}
     </div>
   );
 }

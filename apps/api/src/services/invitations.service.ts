@@ -56,7 +56,7 @@ export class InvitationsService {
         data: {
           email,
           role: dto.role,
-          organizationId: dto.organizationId,
+          organizationId: dto.organizationId ?? null,
           invitedBy: invitedById,
           expiresAt: new Date(
             Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,

@@ -1,13 +1,12 @@
 'use client';
 
-import { useCallback, useMemo } from 'react';
-import { useRouter, useSearchParams } from 'next/navigation';
+import { useCallback, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
 import { Building2 } from 'lucide-react';
 import {
   DataTable,
   DataTableColumnHeader,
-  type DataTableServerState,
+  type DataTableFetchParams,
 } from '@/components/ui/data-table';
 import {
   useOrganizations,
@@ -63,64 +62,63 @@ interface OrganizationsDataTableProps {
 export function OrganizationsDataTable({
   emptyAction,
 }: OrganizationsDataTableProps) {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-
-  const state: DataTableServerState = useMemo(
-    () => ({
-      page: Number(searchParams.get('page')) || 1,
-      limit: Number(searchParams.get('limit')) || 20,
-      search: searchParams.get('search') || undefined,
-      sortBy: searchParams.get('sortBy') || 'createdAt',
-      sortOrder:
-        (searchParams.get('sortOrder') as 'asc' | 'desc') || 'desc',
-    }),
-    [searchParams],
-  );
-
-  const { data, isLoading } = useOrganizations({
-    ...state,
-    sortBy: state.sortBy as 'name' | 'slug' | 'createdAt' | 'usersCount',
+  const [fetchParams, setFetchParams] = useState<DataTableFetchParams>({
+    page: 0,
+    pageSize: 20,
+    sorting: [],
+    search: '',
+    filters: {},
   });
 
-  const handleStateChange = useCallback(
-    (next: DataTableServerState) => {
-      const sp = new URLSearchParams();
-      if (next.page > 1) sp.set('page', String(next.page));
-      if (next.limit !== 20) sp.set('limit', String(next.limit));
-      if (next.search) sp.set('search', next.search);
-      if (next.sortBy && next.sortBy !== 'createdAt')
-        sp.set('sortBy', next.sortBy);
-      if (next.sortOrder && next.sortOrder !== 'desc')
-        sp.set('sortOrder', next.sortOrder);
-      const qs = sp.toString();
-      router.replace(`/dashboard/organizations${qs ? `?${qs}` : ''}`);
-    },
-    [router],
-  );
+  // Map DataTable fetch params to API params
+  const sortField = fetchParams.sorting[0];
+  const sortBy = sortField
+    ? (SORTABLE_COLUMNS[sortField.id] ?? sortField.id)
+    : 'createdAt';
+  const sortOrder = sortField ? (sortField.desc ? 'desc' : 'asc') : 'desc';
+
+  const { data, isLoading } = useOrganizations({
+    page: fetchParams.page + 1, // API is 1-based
+    limit: fetchParams.pageSize,
+    search: fetchParams.search || undefined,
+    sortBy: sortBy as 'name' | 'slug' | 'createdAt' | 'usersCount',
+    sortOrder,
+  });
+
+  const handleFetch = useCallback((params: DataTableFetchParams) => {
+    setFetchParams(params);
+  }, []);
+
+  const isEmpty = !isLoading && data?.meta.total === 0 && !fetchParams.search;
+
+  if (isEmpty && emptyAction) {
+    return (
+      <div className="flex flex-col items-center justify-center rounded-lg border border-dashed p-12 text-center">
+        <Building2 className="h-12 w-12 text-muted-foreground/50" />
+        <h3 className="mt-4 text-lg font-semibold">No organizations yet</h3>
+        <p className="mt-2 text-sm text-muted-foreground">
+          Get started by creating your first organization.
+        </p>
+        <div className="mt-4">{emptyAction}</div>
+      </div>
+    );
+  }
 
   return (
-    <DataTable<Organization>
-      mode="server"
+    <DataTable<Organization, unknown>
       columns={columns}
       data={data?.data ?? []}
-      meta={
-        data?.meta ?? { page: 1, limit: 20, total: 0, totalPages: 0 }
-      }
+      pageCount={data?.meta.totalPages ?? 0}
+      totalItems={data?.meta.total ?? 0}
       isLoading={isLoading}
-      state={state}
-      onStateChange={handleStateChange}
-      sortableColumns={SORTABLE_COLUMNS}
-      toolbar={{ searchPlaceholder: 'Search organizations...' }}
-      emptyState={{
-        icon: Building2,
-        title: 'No organizations yet',
-        description: 'Get started by creating your first organization.',
-        action: emptyAction,
+      onFetch={handleFetch}
+      initialPageSize={10}
+      searchConfig={{
+        placeholder: 'Search organizations...',
+        searchKey: 'search',
       }}
-      onRowClick={(org) =>
-        router.push(`/dashboard/organizations/${org.id}`)
-      }
+      showHeader={false}
+      hideSelectionCount
     />
   );
 }

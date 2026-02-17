@@ -5,14 +5,15 @@ import { useProfile } from '@/hooks/use-profile';
 import { usePathname } from 'next/navigation';
 import { useEffect } from 'react';
 import { LoadingSpinner } from '@/components/ui/loading-spinner';
+import { ErrorDisplay } from '@/components/ui/error-display';
 
 interface AuthGuardProps {
   children: React.ReactNode;
 }
 
 export function AuthGuard({ children }: AuthGuardProps) {
-  const { isAuthenticated, isLoading: authLoading, login } = useAuth();
-  const { profile, isLoading: profileLoading } = useProfile();
+  const { isAuthenticated, isLoading: authLoading, login, logout } = useAuth();
+  const { profile, isLoading: profileLoading, error: profileError, refetch } = useProfile();
   const pathname = usePathname();
 
   useEffect(() => {
@@ -27,6 +28,17 @@ export function AuthGuard({ children }: AuthGuardProps) {
 
   if (!isAuthenticated) {
     return <LoadingSpinner message="Redirecting to login..." />;
+  }
+
+  if (profileError) {
+    return (
+      <ErrorDisplay
+        title="Failed to load profile"
+        message="Could not connect to the server. Please try again or contact support if the problem persists."
+        onRetry={() => refetch()}
+        onLogout={() => logout()}
+      />
+    );
   }
 
   // Wait for profile to load from backend before rendering the dashboard

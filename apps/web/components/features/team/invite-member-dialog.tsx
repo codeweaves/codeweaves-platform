@@ -19,36 +19,25 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useInviteMember } from '@/hooks/use-team';
-import { useCurrentRole } from '@/hooks/use-current-role';
-import { useCurrentOrganization } from '@/hooks/use-current-organization';
 import { useOrganizations } from '@/hooks/use-organizations';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 export function InviteMemberDialog() {
   const inviteMember = useInviteMember();
-  const { isSuperAdmin } = useCurrentRole();
-  const { organization } = useCurrentOrganization();
-
-  // Super admin without org context picks org + role (ADMIN/SUPER_ADMIN)
-  // With org context, role is always CLIENT
-  const needsOrgPicker = isSuperAdmin && !organization;
 
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState(needsOrgPicker ? 'ADMIN' : 'CLIENT');
+  const [role, setRole] = useState('CLIENT');
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [error, setError] = useState('');
 
-  const { data: orgsData } = useOrganizations(
-    needsOrgPicker ? { limit: 100 } : {},
-  );
-
-  const resolvedOrgId = organization?.id ?? selectedOrgId;
+  const { data: orgsData } = useOrganizations({ limit: 100 });
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -66,8 +55,8 @@ export function InviteMemberDialog() {
       return;
     }
 
-    if (!resolvedOrgId) {
-      setError('Please select an organization');
+    if (role === 'CLIENT' && !selectedOrgId) {
+      setError('Please select an organization for a client role');
       return;
     }
 
@@ -75,7 +64,7 @@ export function InviteMemberDialog() {
       await inviteMember.mutateAsync({
         email: trimmedEmail,
         role,
-        organizationId: resolvedOrgId,
+        ...(role === 'CLIENT' && { organizationId: selectedOrgId }),
       });
       toast.success('Invitation sent');
       handleClose();
@@ -94,7 +83,7 @@ export function InviteMemberDialog() {
   const handleClose = () => {
     setOpen(false);
     setEmail('');
-    setRole(needsOrgPicker ? 'ADMIN' : 'CLIENT');
+    setRole('CLIENT');
     setSelectedOrgId('');
     setError('');
   };
@@ -116,16 +105,15 @@ export function InviteMemberDialog() {
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">
-        <form onSubmit={handleSubmit}>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-8">
           <DialogHeader>
             <DialogTitle>Invite Team Member</DialogTitle>
-            <DialogDescription className="truncate">
-              Send an invitation to join{' '}
-              {organization ? organization.name : 'an organization'}.
+            <DialogDescription>
+              Send an invitation to join an organization.
             </DialogDescription>
           </DialogHeader>
-          <div className="grid gap-4 py-4">
-            <div className="grid gap-2">
+          <div className="grid grid-cols-2 gap-4">
+            <div className="col-span-2 grid gap-2">
               <Label htmlFor="invite-email">Email</Label>
               <Input
                 id="invite-email"
@@ -138,54 +126,44 @@ export function InviteMemberDialog() {
                 autoFocus
               />
             </div>
-            {needsOrgPicker && (
-              <div className="grid gap-2">
-                <Label htmlFor="invite-org">Organization</Label>
-                <Select
-                  value={selectedOrgId}
-                  onValueChange={setSelectedOrgId}
-                  disabled={inviteMember.isPending}
-                >
-                  <SelectTrigger id="invite-org">
-                    <SelectValue placeholder="Select an organization" />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {orgsData?.data.map((org) => (
-                      <SelectItem key={org.id} value={org.id}>
-                        {org.name}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+            <div className="grid gap-2 min-w-0">
+              <Label>Organization</Label>
+              <SearchableSelect
+                options={orgsData?.data.map((org) => ({
+                  value: org.id,
+                  label: org.name,
+                })) ?? []}
+                value={selectedOrgId}
+                onValueChange={setSelectedOrgId}
+                placeholder="Select an organization"
+                searchPlaceholder="Search organizations..."
+                emptyMessage="No organizations found"
+                disabled={inviteMember.isPending}
+                triggerClassName="w-full"
+              />
+            </div>
             <div className="grid gap-2">
               <Label htmlFor="invite-role">Role</Label>
               <Select
                 value={role}
                 onValueChange={setRole}
-                disabled={!needsOrgPicker || inviteMember.isPending}
+                disabled={inviteMember.isPending}
               >
-                <SelectTrigger id="invite-role">
+                <SelectTrigger id="invite-role" className="w-full">
                   <SelectValue placeholder="Select a role" />
                 </SelectTrigger>
                 <SelectContent>
-                  {needsOrgPicker ? (
-                    <>
-                      <SelectItem value="ADMIN">Admin</SelectItem>
-                      <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
-                    </>
-                  ) : (
-                    <SelectItem value="CLIENT">Client</SelectItem>
-                  )}
+                  <SelectItem value="CLIENT">Client</SelectItem>
+                  <SelectItem value="ADMIN">Admin</SelectItem>
+                  <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
                 </SelectContent>
               </Select>
             </div>
             {error && (
-              <p className="text-sm text-destructive">{error}</p>
+              <p className="col-span-2 text-sm text-destructive">{error}</p>
             )}
           </div>
-          <DialogFooter>
+          <DialogFooter className="border-t pt-4">
             <Button
               type="button"
               variant="outline"
@@ -196,7 +174,7 @@ export function InviteMemberDialog() {
             </Button>
             <Button
               type="submit"
-              disabled={inviteMember.isPending || !email.trim() || !resolvedOrgId}
+              disabled={inviteMember.isPending || !email.trim() || (role === 'CLIENT' && !selectedOrgId)}
             >
               {inviteMember.isPending ? 'Sending...' : 'Send Invitation'}
             </Button>
