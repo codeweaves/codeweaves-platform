@@ -11,7 +11,7 @@ import { PrismaService } from './prisma.service';
 import { EmailService } from './email.service';
 import { Auth0ManagementService } from './auth0-management.service';
 import { InvitationStatus, Prisma } from '@prisma/client';
-import { CreateInvitationDto } from '../models/invitation.dto';
+import { CreateInvitationDto, InvitationListQuery } from '../models/invitation.dto';
 import { InvitationLoggerService } from '../common/logger/invitation.logger';
 
 const INVITATION_EXPIRY_DAYS = 7;
@@ -92,10 +92,36 @@ export class InvitationsService {
     }
   }
 
-  async findAll() {
-    return this.prisma.userInvitation.findMany({
-      orderBy: { createdAt: 'desc' },
-    });
+  async findAll(query: InvitationListQuery = { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' }) {
+    const { page, limit, search, status, sortBy, sortOrder } = query;
+    const skip = (page - 1) * limit;
+
+    const where: Prisma.UserInvitationWhereInput = {
+      ...(search
+        ? { email: { contains: search, mode: 'insensitive' as const } }
+        : {}),
+      ...(status ? { status } : {}),
+    };
+
+    const [data, total] = await Promise.all([
+      this.prisma.userInvitation.findMany({
+        where,
+        orderBy: { [sortBy]: sortOrder },
+        skip,
+        take: limit,
+      }),
+      this.prisma.userInvitation.count({ where }),
+    ]);
+
+    return {
+      data,
+      meta: {
+        page,
+        limit,
+        total,
+        totalPages: Math.ceil(total / limit),
+      },
+    };
   }
 
   async findById(id: string) {

@@ -5,14 +5,17 @@ import {
   Delete,
   Body,
   Param,
+  Query,
   UseGuards,
 } from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
+import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { InvitationsService } from '../../services/invitations.service';
 import {
   CreateInvitationDto,
   ReissueInvitationDto,
+  invitationListQuerySchema,
+  type InvitationListQuery,
 } from '../../models/invitation.dto';
 import {
   CurrentUser,
@@ -21,6 +24,7 @@ import {
 import { Roles } from '../../decorators/roles.decorator';
 import { RolesGuard } from '../../guards/roles.guard';
 import { Public } from '../../decorators/public.decorator';
+import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 
 @ApiTags('Invitations')
 @ApiBearerAuth()
@@ -56,10 +60,19 @@ export class InvitationsController {
   @Roles(Role.SUPER_ADMIN, Role.ADMIN)
   @UseGuards(RolesGuard)
   @ApiOperation({ summary: 'List all invitations' })
-  @ApiResponse({ status: 200, description: 'List of invitations' })
+  @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
+  @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
+  @ApiQuery({ name: 'search', required: false, type: String, description: 'Search by email' })
+  @ApiQuery({ name: 'status', required: false, enum: ['PENDING', 'ACCEPTED', 'EXPIRED'], description: 'Filter by status' })
+  @ApiQuery({ name: 'sortBy', required: false, enum: ['email', 'status', 'createdAt', 'expiresAt'], description: 'Sort field (default: createdAt)' })
+  @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'], description: 'Sort order (default: desc)' })
+  @ApiResponse({ status: 200, description: 'Paginated list of invitations' })
   @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN or ADMIN only' })
-  async findAll() {
-    return this.invitationsService.findAll();
+  async findAll(
+    @Query(new ZodValidationPipe(invitationListQuerySchema))
+    query: InvitationListQuery,
+  ) {
+    return this.invitationsService.findAll(query);
   }
 
   @Get(':id')

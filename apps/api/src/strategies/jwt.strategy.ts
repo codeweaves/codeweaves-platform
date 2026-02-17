@@ -32,7 +32,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   async validate(payload: JwtPayload): Promise<ValidatedUser> {
     return {
       auth0Id: payload.sub,
-      email: payload.email,
+      email: payload.email || payload['https://codeweaves.com/email'] || '',
       roles: payload['https://codeweaves.com/roles'] || [],
       organizationId: payload['https://codeweaves.com/organizationId'],
     };

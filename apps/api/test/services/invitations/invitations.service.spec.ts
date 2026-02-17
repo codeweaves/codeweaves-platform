@@ -22,6 +22,7 @@ describe('InvitationsService', () => {
       findFirst: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      count: jest.fn(),
     },
   };
 
@@ -282,16 +283,90 @@ describe('InvitationsService', () => {
   });
 
   describe('findAll', () => {
-    it('should return all invitations', async () => {
+    it('should return paginated invitations with defaults', async () => {
       const invitations = [mockInvitation];
       mockPrisma.userInvitation.findMany.mockResolvedValue(invitations);
+      mockPrisma.userInvitation.count.mockResolvedValue(1);
 
       const result = await service.findAll();
 
-      expect(result).toEqual(invitations);
-      expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith({
-        orderBy: { createdAt: 'desc' },
+      expect(result).toEqual({
+        data: invitations,
+        meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
       });
+      expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith({
+        where: {},
+        orderBy: { createdAt: 'desc' },
+        skip: 0,
+        take: 20,
+      });
+      expect(mockPrisma.userInvitation.count).toHaveBeenCalledWith({ where: {} });
+    });
+
+    it('should apply search filter on email', async () => {
+      mockPrisma.userInvitation.findMany.mockResolvedValue([]);
+      mockPrisma.userInvitation.count.mockResolvedValue(0);
+
+      await service.findAll({ page: 1, limit: 10, search: 'test@', sortBy: 'createdAt', sortOrder: 'desc' });
+
+      const expectedWhere = { email: { contains: 'test@', mode: 'insensitive' } };
+      expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expectedWhere }),
+      );
+      expect(mockPrisma.userInvitation.count).toHaveBeenCalledWith({ where: expectedWhere });
+    });
+
+    it('should apply status filter', async () => {
+      mockPrisma.userInvitation.findMany.mockResolvedValue([]);
+      mockPrisma.userInvitation.count.mockResolvedValue(0);
+
+      await service.findAll({ page: 1, limit: 10, status: InvitationStatus.PENDING, sortBy: 'createdAt', sortOrder: 'desc' });
+
+      const expectedWhere = { status: InvitationStatus.PENDING };
+      expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expectedWhere }),
+      );
+    });
+
+    it('should apply both search and status filters', async () => {
+      mockPrisma.userInvitation.findMany.mockResolvedValue([]);
+      mockPrisma.userInvitation.count.mockResolvedValue(0);
+
+      await service.findAll({
+        page: 1, limit: 10, search: 'admin', status: InvitationStatus.EXPIRED,
+        sortBy: 'createdAt', sortOrder: 'desc',
+      });
+
+      const expectedWhere = {
+        email: { contains: 'admin', mode: 'insensitive' },
+        status: InvitationStatus.EXPIRED,
+      };
+      expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expectedWhere }),
+      );
+    });
+
+    it('should handle pagination correctly', async () => {
+      mockPrisma.userInvitation.findMany.mockResolvedValue([]);
+      mockPrisma.userInvitation.count.mockResolvedValue(25);
+
+      const result = await service.findAll({ page: 2, limit: 10, sortBy: 'createdAt', sortOrder: 'desc' });
+
+      expect(result.meta).toEqual({ page: 2, limit: 10, total: 25, totalPages: 3 });
+      expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ skip: 10, take: 10 }),
+      );
+    });
+
+    it('should apply sorting', async () => {
+      mockPrisma.userInvitation.findMany.mockResolvedValue([]);
+      mockPrisma.userInvitation.count.mockResolvedValue(0);
+
+      await service.findAll({ page: 1, limit: 10, sortBy: 'email', sortOrder: 'asc' });
+
+      expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ orderBy: { email: 'asc' } }),
+      );
     });
   });
 

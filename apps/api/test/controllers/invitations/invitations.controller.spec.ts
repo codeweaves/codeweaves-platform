@@ -95,13 +95,35 @@ describe('InvitationsController', () => {
   });
 
   describe('findAll', () => {
-    it('should return all invitations for the organization', async () => {
-      mockInvitationsService.findAll.mockResolvedValue([mockInvitation]);
+    it('should return paginated invitations', async () => {
+      const paginatedResult = {
+        data: [mockInvitation],
+        meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
+      };
+      mockInvitationsService.findAll.mockResolvedValue(paginatedResult);
 
-      const result = await controller.findAll();
+      const query = { page: 1, limit: 20, sortBy: 'createdAt' as const, sortOrder: 'desc' as const };
+      const result = await controller.findAll(query);
 
-      expect(result).toEqual([mockInvitation]);
-      expect(mockInvitationsService.findAll).toHaveBeenCalled();
+      expect(result).toEqual(paginatedResult);
+      expect(mockInvitationsService.findAll).toHaveBeenCalledWith(query);
+    });
+
+    it('should pass search and status filters to service', async () => {
+      const paginatedResult = {
+        data: [],
+        meta: { page: 1, limit: 10, total: 0, totalPages: 0 },
+      };
+      mockInvitationsService.findAll.mockResolvedValue(paginatedResult);
+
+      const query = {
+        page: 1, limit: 10, search: 'test@', status: 'PENDING' as const,
+        sortBy: 'email' as const, sortOrder: 'asc' as const,
+      };
+      const result = await controller.findAll(query);
+
+      expect(result).toEqual(paginatedResult);
+      expect(mockInvitationsService.findAll).toHaveBeenCalledWith(query);
     });
   });
 

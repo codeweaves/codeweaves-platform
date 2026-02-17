@@ -73,6 +73,7 @@ describe('Tenant Isolation — Evil Twin', () => {
       create: jest.fn(),
       update: jest.fn(),
       delete: jest.fn(),
+      count: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -352,11 +353,12 @@ describe('Tenant Isolation — Evil Twin', () => {
         ...orgBData.invitations,
       ];
       mockPrisma.userInvitation.findMany.mockResolvedValue(allInvitations);
+      mockPrisma.userInvitation.count.mockResolvedValue(allInvitations.length);
 
       const result = await invitationsService.findAll();
 
-      expect(result).toHaveLength(4);
-      expect(result).toEqual(
+      expect(result.data).toHaveLength(4);
+      expect(result.data).toEqual(
         expect.arrayContaining([
           expect.objectContaining({
             organizationId: orgAData.org.id,
