@@ -142,6 +142,25 @@ export type UpdateOrganizationDto = z.infer<typeof updateOrganizationSchema>;
 export const agentStatusEnum = z.enum(['ACTIVE', 'INACTIVE']);
 export type AgentStatusEnum = z.infer<typeof agentStatusEnum>;
 
+// Domain validation schemas
+export const domainSchema = z
+  .string()
+  .min(1, 'Domain cannot be empty')
+  .max(253, 'Domain too long')
+  .transform((val) =>
+    val
+      .trim()
+      .toLowerCase()
+      .replace(/^https?:\/\//, '')
+      .replace(/\/.*/, '')
+      .replace(/\/$/, ''),
+  );
+
+export const allowedDomainsSchema = z
+  .array(domainSchema)
+  .max(50, 'Maximum 50 domains allowed')
+  .default([]);
+
 export const createAgentSchema = z.object({
   name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters'),
   organizationId: z.string().uuid('Invalid organization ID'),
@@ -152,10 +171,13 @@ export type CreateAgentDto = z.infer<typeof createAgentSchema>;
 export const updateAgentSchema = z
   .object({
     name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters').optional(),
+    status: agentStatusEnum.optional(),
+    allowedDomains: allowedDomainsSchema.optional(),
   })
-  .refine((data) => data.name !== undefined, {
-    message: 'At least one field (name) must be provided',
-  });
+  .refine(
+    (data) => data.name !== undefined || data.status !== undefined || data.allowedDomains !== undefined,
+    { message: 'At least one field must be provided' },
+  );
 
 export type UpdateAgentDto = z.infer<typeof updateAgentSchema>;
 
