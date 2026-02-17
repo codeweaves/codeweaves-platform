@@ -289,8 +289,8 @@ development_status:
   11-3-widget-message-rate-limiting: backlog
   11-4-hmac-signature-verification-webhook-security: backlog
   11-5-replay-attack-prevention-nonce-cache: backlog
-  11-6-audit-log-database-model: backlog
-  11-7-audit-logging-interceptor: backlog
+  11-6-audit-log-database-model: done
+  11-7-audit-logging-interceptor: done
   11-8-audit-log-query-api: backlog
   11-9-audit-log-dashboard-view: backlog
   11-10-rbac-permission-matrix: backlog
@@ -312,14 +312,14 @@ development_status:
   12-2-error-capture-and-context: backlog
   12-3-health-check-endpoint-liveness: backlog
   12-4-readiness-check-endpoint: backlog
-  12-5-request-correlation-ids: backlog
-  12-6-structured-logging: backlog
+  12-5-request-correlation-ids: done
+  12-6-structured-logging: done
   12-7-performance-monitoring-apm: backlog
   12-8-response-time-alerting: backlog
   12-9-error-rate-alerting: backlog
   12-10-graceful-degradation-ai-service: backlog
   12-11-graceful-degradation-database: backlog
   12-12-uptime-monitoring: backlog
-  12-13-request-response-logging: backlog
+  12-13-request-response-logging: done
   12-14-dashboard-system-status-indicator: backlog
   epic-12-retrospective: optional

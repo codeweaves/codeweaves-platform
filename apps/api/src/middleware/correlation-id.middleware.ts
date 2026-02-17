@@ -11,8 +11,9 @@ export class CorrelationIdMiddleware implements NestMiddleware {
   private readonly logger = new Logger('HTTP');
 
   use(req: Request, res: Response, next: NextFunction) {
+    const raw = req.headers['x-correlation-id'];
     const correlationId =
-      (req.headers['x-correlation-id'] as string) || randomUUID();
+      (typeof raw === 'string' ? raw : undefined) || randomUUID();
     res.setHeader('x-correlation-id', correlationId);
 
     const context: RequestContext = {

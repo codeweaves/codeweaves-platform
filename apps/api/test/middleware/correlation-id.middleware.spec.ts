@@ -83,6 +83,28 @@ describe('CorrelationIdMiddleware', () => {
     });
   });
 
+  it('should generate new UUID when header is an array', (done) => {
+    const req = {
+      headers: { 'x-correlation-id': ['id-1', 'id-2'] },
+      method: 'GET',
+      originalUrl: '/api/test',
+    } as unknown as Request;
+
+    const res = {
+      setHeader: jest.fn(),
+    } as unknown as Response;
+
+    middleware.use(req, res, () => {
+      expect(res.setHeader).toHaveBeenCalledWith(
+        'x-correlation-id',
+        expect.stringMatching(
+          /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+        ),
+      );
+      done();
+    });
+  });
+
   it('should not have context outside of middleware run', () => {
     const store = requestContextStorage.getStore();
     expect(store).toBeUndefined();

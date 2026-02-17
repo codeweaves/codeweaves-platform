@@ -41,7 +41,7 @@ export class OrganizationsService {
             slug,
           },
         });
-        await this.orgLogger.logOrganizationCreated(org.id, { response: org, request: data });
+        await this.orgLogger.logOrganizationCreated(org.id, { org, request: data });
         return org;
       } catch (error) {
         if (
@@ -148,7 +148,7 @@ export class OrganizationsService {
           ...(data.slug !== undefined && { slug: data.slug }),
         },
       });
-      await this.orgLogger.logOrganizationUpdated(org.id, { response: org, request: data });
+      await this.orgLogger.logOrganizationUpdated(org.id, { org, request: data });
       return org;
     } catch (error) {
       if (

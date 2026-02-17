@@ -132,9 +132,6 @@ export class UsersService {
       if (existingUser.deletedAt) {
         throw new UnauthorizedException('Account has been deactivated');
       }
-      await this.userLogger.logUserFirstLogin(existingUser.id, {
-        response: { id: existingUser.id, email: existingUser.email },
-      });
       return existingUser;
     }
 

@@ -123,22 +123,29 @@ export class InvitationsService {
       throw new BadRequestException('Can only resend pending invitations');
     }
 
-    const updated = await this.prisma.userInvitation.update({
-      where: { id },
-      data: {
-        expiresAt: new Date(
-          Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
-        ),
-      },
-    });
+    try {
+      const updated = await this.prisma.userInvitation.update({
+        where: { id },
+        data: {
+          expiresAt: new Date(
+            Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+          ),
+        },
+      });
 
-    // Generate new password setup link
-    const passwordSetupUrl = await this.getOrCreateAuth0UserAndTicket(updated);
+      // Generate new password setup link
+      const passwordSetupUrl = await this.getOrCreateAuth0UserAndTicket(updated);
 
-    await this.sendInvitationEmail(updated, passwordSetupUrl);
+      await this.sendInvitationEmail(updated, passwordSetupUrl);
 
-    await this.invitationLogger.logInvitationResent(updated.id, { response: updated });
-    return updated;
+      await this.invitationLogger.logInvitationResent(updated.id, { response: updated });
+      return updated;
+    } catch (error) {
+      await this.invitationLogger.logInvitationResentException(id, error, {
+        invitationId: id,
+      });
+      throw error;
+    }
   }
 
   async reissue(reissueToken: string) {
@@ -241,11 +248,18 @@ export class InvitationsService {
       }
     }
 
-    const deleted = await this.prisma.userInvitation.delete({
-      where: { id },
-    });
-    await this.invitationLogger.logInvitationCancelled(id, { response: deleted });
-    return deleted;
+    try {
+      const deleted = await this.prisma.userInvitation.delete({
+        where: { id },
+      });
+      await this.invitationLogger.logInvitationCancelled(id, { response: deleted });
+      return deleted;
+    } catch (error) {
+      await this.invitationLogger.logInvitationCancelledException(id, error, {
+        invitationId: id,
+      });
+      throw error;
+    }
   }
 
   private async getOrCreateAuth0UserAndTicket(invitation: {
