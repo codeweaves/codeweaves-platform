@@ -58,4 +58,23 @@ export class AgentLoggerService {
       this.tracer.mergeJsonResponse({ response: data }),
     );
   }
+
+  async logDomainsUpdated(agentId: string, data: Record<string, unknown>) {
+    await this.tracer.logAuditEvent(
+      agentId,
+      'AGENT_DOMAINS_UPDATED',
+      this.tracer.mergeJsonResponse({ response: data }),
+    );
+  }
+
+  async logStatusChanged(
+    agentId: string,
+    data: { oldStatus: string; newStatus: string },
+  ) {
+    await this.tracer.logAuditEvent(
+      agentId,
+      'AGENT_STATUS_CHANGED',
+      this.tracer.mergeJsonResponse({ response: data }),
+    );
+  }
 }

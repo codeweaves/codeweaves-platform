@@ -2,12 +2,14 @@ import {
   Injectable,
   NotFoundException,
   ConflictException,
+  BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, Role, Agent } from '@prisma/client';
 import type { CreateAgentDto, UpdateAgentDto, AgentListQuery } from '../models/agent.dto';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { generatePublicId } from '../utils/public-id';
+import { deduplicateDomains, isValidDomain } from '../utils/domain';
 import { AgentLoggerService } from '../common/logger/agent.logger';
 
 const MAX_PUBLIC_ID_RETRIES = 3;
@@ -92,7 +94,7 @@ export class AgentsService {
     ]);
 
     return {
-      data,
+      data: data.map((agent) => this.stripSensitiveFields(agent, user)),
       meta: {
         page,
         limit,
@@ -103,6 +105,95 @@ export class AgentsService {
   }
 
   async findById(id: string, user: CurrentUserData) {
+    const agent = await this.findByIdRaw(id, user);
+    return this.stripSensitiveFields(agent, user);
+  }
+
+  async update(id: string, dto: UpdateAgentDto, user: CurrentUserData) {
+    const existing = await this.findByIdRaw(id, user);
+
+    // Validate, normalize, and deduplicate domains before saving
+    if (dto.allowedDomains !== undefined) {
+      const invalidDomains = dto.allowedDomains.filter((d) => !isValidDomain(d));
+      if (invalidDomains.length > 0) {
+        throw new BadRequestException(
+          `Invalid domain(s): ${invalidDomains.join(', ')}`,
+        );
+      }
+    }
+    const normalizedDomains =
+      dto.allowedDomains !== undefined
+        ? deduplicateDomains(dto.allowedDomains)
+        : undefined;
+
+    try {
+      const updated = await this.prisma.agent.update({
+        where: { id },
+        data: {
+          ...(dto.name !== undefined && { name: dto.name }),
+          ...(dto.status !== undefined && { status: dto.status }),
+          ...(normalizedDomains !== undefined && { allowedDomains: normalizedDomains }),
+        },
+      });
+
+      // Audit: domain changes
+      if (normalizedDomains !== undefined) {
+        await this.agentLogger.logDomainsUpdated(updated.id, {
+          oldDomains: existing.allowedDomains,
+          newDomains: normalizedDomains,
+          userId: user.id,
+        });
+      }
+
+      // Audit: status changes
+      if (dto.status !== undefined && dto.status !== existing.status) {
+        await this.agentLogger.logStatusChanged(updated.id, {
+          oldStatus: existing.status,
+          newStatus: dto.status,
+        });
+      }
+
+      await this.agentLogger.logAgentUpdated(updated.id, { agent: updated, request: dto, userId: user.id });
+      return this.stripSensitiveFields(updated, user);
+    } catch (error) {
+      if (
+        error instanceof Prisma.PrismaClientKnownRequestError &&
+        error.code === 'P2025'
+      ) {
+        throw new NotFoundException('Agent not found');
+      }
+      await this.agentLogger.logAgentUpdateException(id, error, { request: dto, userId: user.id });
+      throw error;
+    }
+  }
+
+  async softDelete(id: string, user: CurrentUserData) {
+    await this.findByIdRaw(id, user);
+
+    const deleted = await this.prisma.agent.update({
+      where: { id },
+      data: { deletedAt: new Date() },
+    });
+    await this.agentLogger.logAgentDeleted(deleted.id, { agent: deleted, userId: user.id });
+    return deleted;
+  }
+
+  /**
+   * Check if an agent is active. For future use by widget/chat API.
+   */
+  async checkAgentActive(agentId: string): Promise<boolean> {
+    const agent = await this.prisma.agent.findFirst({
+      where: { id: agentId, deletedAt: null },
+      select: { status: true },
+    });
+    return agent?.status === 'ACTIVE';
+  }
+
+  /**
+   * Internal: fetch agent without stripping sensitive fields.
+   * Used by update/softDelete which need the full agent record.
+   */
+  private async findByIdRaw(id: string, user: CurrentUserData): Promise<Agent> {
     const agent = await this.prisma.agent.findFirst({
       where: {
         id,
@@ -118,38 +209,19 @@ export class AgentsService {
     return agent;
   }
 
-  async update(id: string, dto: UpdateAgentDto, user: CurrentUserData) {
-    await this.findById(id, user);
-
-    try {
-      const updated = await this.prisma.agent.update({
-        where: { id },
-        data: {
-          ...(dto.name !== undefined && { name: dto.name }),
-        },
-      });
-      await this.agentLogger.logAgentUpdated(updated.id, { agent: updated, request: dto, userId: user.id });
-      return updated;
-    } catch (error) {
-      if (
-        error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2025'
-      ) {
-        throw new NotFoundException('Agent not found');
-      }
-      await this.agentLogger.logAgentUpdateException(id, error, { request: dto, userId: user.id });
-      throw error;
+  /**
+   * Strip sensitive fields from agent response for CLIENT users.
+   * CLIENT users should not see allowedDomains.
+   */
+  private stripSensitiveFields(
+    agent: Agent,
+    user: CurrentUserData,
+  ): Omit<Agent, 'allowedDomains'> | Agent {
+    if (user.role === Role.CLIENT) {
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      const { allowedDomains, ...safe } = agent;
+      return safe;
     }
-  }
-
-  async softDelete(id: string, user: CurrentUserData) {
-    await this.findById(id, user);
-
-    const deleted = await this.prisma.agent.update({
-      where: { id },
-      data: { deletedAt: new Date() },
-    });
-    await this.agentLogger.logAgentDeleted(deleted.id, { agent: deleted, userId: user.id });
-    return deleted;
+    return agent;
   }
 }

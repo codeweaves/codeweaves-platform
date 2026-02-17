@@ -3,6 +3,8 @@ export {
   updateAgentSchema,
   agentListQuerySchema,
   agentStatusEnum,
+  domainSchema,
+  allowedDomainsSchema,
 } from '@repo/validation';
 
 export type {

@@ -1,5 +1,5 @@
 import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException, ConflictException } from '@nestjs/common';
+import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { AgentsService } from '../../../src/services/agents.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentLoggerService } from '../../../src/common/logger/agent.logger';
@@ -29,6 +29,8 @@ describe('AgentsService', () => {
     logAgentUpdated: jest.fn(),
     logAgentUpdateException: jest.fn(),
     logAgentDeleted: jest.fn(),
+    logDomainsUpdated: jest.fn(),
+    logStatusChanged: jest.fn(),
   };
 
   const orgId = '123e4567-e89b-12d3-a456-426614174000';
@@ -400,6 +402,246 @@ describe('AgentsService', () => {
       mockPrismaService.agent.findFirst.mockResolvedValue(null);
 
       await expect(service.softDelete(agentId, clientOtherOrg)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('update — allowedDomains', () => {
+    const agentWithDomains = { ...mockAgent, allowedDomains: ['example.com', 'test.com'] };
+
+    it('should normalize and deduplicate domains before saving', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue(agentWithDomains);
+
+      await service.update(
+        agentId,
+        { allowedDomains: ['https://Example.COM/path', 'EXAMPLE.COM', 'test.com'] },
+        adminUser,
+      );
+
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
+        where: { id: agentId },
+        data: { allowedDomains: ['example.com', 'test.com'] },
+      });
+    });
+
+    it('should accept empty array (no domain restriction)', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithDomains);
+      mockPrismaService.agent.update.mockResolvedValue({ ...mockAgent, allowedDomains: [] });
+
+      await service.update(agentId, { allowedDomains: [] }, adminUser);
+
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
+        where: { id: agentId },
+        data: { allowedDomains: [] },
+      });
+    });
+
+    it('should audit log domain changes', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue(agentWithDomains);
+
+      await service.update(agentId, { allowedDomains: ['example.com'] }, adminUser);
+
+      expect(mockAgentLogger.logDomainsUpdated).toHaveBeenCalledWith(
+        agentId,
+        expect.objectContaining({
+          oldDomains: mockAgent.allowedDomains,
+          newDomains: ['example.com'],
+          userId: adminUser.id,
+        }),
+      );
+    });
+
+    it('should not audit log domains if allowedDomains not in update', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue({ ...mockAgent, name: 'Renamed' });
+
+      await service.update(agentId, { name: 'Renamed' }, adminUser);
+
+      expect(mockAgentLogger.logDomainsUpdated).not.toHaveBeenCalled();
+    });
+
+    it('should reject invalid domain formats', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+
+      await expect(
+        service.update(agentId, { allowedDomains: ['not a domain'] }, adminUser),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrismaService.agent.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject when any domain in the list is invalid', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+
+      await expect(
+        service.update(
+          agentId,
+          { allowedDomains: ['example.com', 'invalid domain!', 'test.org'] },
+          adminUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrismaService.agent.update).not.toHaveBeenCalled();
+    });
+
+    it('should include invalid domain names in the error message', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+
+      await expect(
+        service.update(agentId, { allowedDomains: ['bad domain'] }, adminUser),
+      ).rejects.toThrow('Invalid domain(s): bad domain');
+    });
+  });
+
+  describe('response filtering — stripSensitiveFields', () => {
+    const agentWithDomains = { ...mockAgent, allowedDomains: ['example.com'] };
+
+    it('should strip allowedDomains from findById response for CLIENT', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithDomains);
+
+      const result = await service.findById(agentId, clientUser);
+
+      expect(result).not.toHaveProperty('allowedDomains');
+    });
+
+    it('should include allowedDomains in findById response for ADMIN', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithDomains);
+
+      const result = await service.findById(agentId, adminUser);
+
+      expect(result).toHaveProperty('allowedDomains', ['example.com']);
+    });
+
+    it('should include allowedDomains in findById response for SUPER_ADMIN', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithDomains);
+
+      const result = await service.findById(agentId, superAdminUser);
+
+      expect(result).toHaveProperty('allowedDomains', ['example.com']);
+    });
+
+    it('should strip allowedDomains from findAll response for CLIENT', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([agentWithDomains]);
+      mockPrismaService.agent.count.mockResolvedValue(1);
+
+      const result = await service.findAll(
+        { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' },
+        clientUser,
+      );
+
+      expect(result.data[0]).not.toHaveProperty('allowedDomains');
+    });
+
+    it('should include allowedDomains in findAll response for ADMIN', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([agentWithDomains]);
+      mockPrismaService.agent.count.mockResolvedValue(1);
+
+      const result = await service.findAll(
+        { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' },
+        adminUser,
+      );
+
+      expect(result.data[0]).toHaveProperty('allowedDomains', ['example.com']);
+    });
+
+    it('should strip allowedDomains from update response for CLIENT', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithDomains);
+      mockPrismaService.agent.update.mockResolvedValue(agentWithDomains);
+
+      const result = await service.update(agentId, { name: 'Updated' }, clientUser);
+
+      expect(result).not.toHaveProperty('allowedDomains');
+    });
+  });
+
+  describe('update — status management', () => {
+    it('should update status from ACTIVE to INACTIVE', async () => {
+      const inactiveAgent = { ...mockAgent, status: 'INACTIVE' };
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue(inactiveAgent);
+
+      const result = await service.update(agentId, { status: 'INACTIVE' }, adminUser);
+
+      expect(result.status).toBe('INACTIVE');
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
+        where: { id: agentId },
+        data: { status: 'INACTIVE' },
+      });
+    });
+
+    it('should audit log status change', async () => {
+      const inactiveAgent = { ...mockAgent, status: 'INACTIVE' };
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue(inactiveAgent);
+
+      await service.update(agentId, { status: 'INACTIVE' }, adminUser);
+
+      expect(mockAgentLogger.logStatusChanged).toHaveBeenCalledWith(agentId, {
+        oldStatus: 'ACTIVE',
+        newStatus: 'INACTIVE',
+      });
+    });
+
+    it('should not audit log if status unchanged', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue(mockAgent);
+
+      await service.update(agentId, { status: 'ACTIVE' }, adminUser);
+
+      expect(mockAgentLogger.logStatusChanged).not.toHaveBeenCalled();
+    });
+
+    it('should allow CLIENT to toggle status for own org agent', async () => {
+      const inactiveAgent = { ...mockAgent, status: 'INACTIVE' };
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue(inactiveAgent);
+
+      const result = await service.update(agentId, { status: 'INACTIVE' }, clientUser);
+
+      expect(result).not.toHaveProperty('allowedDomains');
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
+        where: { id: agentId },
+        data: { status: 'INACTIVE' },
+      });
+    });
+
+    it('should reject CLIENT toggling other org agent (via findById scoping)', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.update(agentId, { status: 'INACTIVE' }, clientOtherOrg),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('checkAgentActive', () => {
+    it('should return true for ACTIVE agent', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue({ status: 'ACTIVE' });
+
+      const result = await service.checkAgentActive(agentId);
+
+      expect(result).toBe(true);
+      expect(mockPrismaService.agent.findFirst).toHaveBeenCalledWith({
+        where: { id: agentId, deletedAt: null },
+        select: { status: true },
+      });
+    });
+
+    it('should return false for INACTIVE agent', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue({ status: 'INACTIVE' });
+
+      const result = await service.checkAgentActive(agentId);
+
+      expect(result).toBe(false);
+    });
+
+    it('should return false for deleted/nonexistent agent', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(null);
+
+      const result = await service.checkAgentActive(agentId);
+
+      expect(result).toBe(false);
     });
   });
 });

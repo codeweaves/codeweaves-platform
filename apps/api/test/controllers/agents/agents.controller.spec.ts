@@ -254,5 +254,64 @@ describe('AgentsController', () => {
       expect(result.page).toBe(2);
       expect(result.limit).toBe(10);
     });
+
+    // --- Status validation (Story 3-7) ---
+    it('should accept update with status ACTIVE', () => {
+      const result = updatePipe.transform({ status: 'ACTIVE' });
+      expect(result.status).toBe('ACTIVE');
+    });
+
+    it('should accept update with status INACTIVE', () => {
+      const result = updatePipe.transform({ status: 'INACTIVE' });
+      expect(result.status).toBe('INACTIVE');
+    });
+
+    it('should reject update with invalid status value', () => {
+      expect(() => updatePipe.transform({ status: 'PAUSED' })).toThrow(BadRequestException);
+    });
+
+    // --- Domain allowlist validation (Story 3-4) ---
+    it('should accept update with allowedDomains array', () => {
+      const result = updatePipe.transform({ allowedDomains: ['example.com', 'test.org'] });
+      expect(result.allowedDomains).toEqual(['example.com', 'test.org']);
+    });
+
+    it('should accept update with empty allowedDomains (no restriction)', () => {
+      const result = updatePipe.transform({ allowedDomains: [] });
+      expect(result.allowedDomains).toEqual([]);
+    });
+
+    it('should normalize domains in allowedDomains (lowercase, strip protocol)', () => {
+      const result = updatePipe.transform({ allowedDomains: ['https://Example.COM/path'] });
+      expect(result.allowedDomains).toEqual(['example.com']);
+    });
+
+    it('should reject allowedDomains exceeding 50 entries', () => {
+      const domains = Array.from({ length: 51 }, (_, i) => `domain${i}.com`);
+      expect(() => updatePipe.transform({ allowedDomains: domains })).toThrow(BadRequestException);
+    });
+
+    it('should accept allowedDomains at the 50 entry limit', () => {
+      const domains = Array.from({ length: 50 }, (_, i) => `domain${i}.com`);
+      const result = updatePipe.transform({ allowedDomains: domains });
+      expect(result.allowedDomains).toHaveLength(50);
+    });
+
+    it('should accept update with both name and status', () => {
+      const result = updatePipe.transform({ name: 'Updated', status: 'INACTIVE' });
+      expect(result.name).toBe('Updated');
+      expect(result.status).toBe('INACTIVE');
+    });
+
+    it('should accept update with name, status, and allowedDomains together', () => {
+      const result = updatePipe.transform({
+        name: 'Updated',
+        status: 'ACTIVE',
+        allowedDomains: ['example.com'],
+      });
+      expect(result.name).toBe('Updated');
+      expect(result.status).toBe('ACTIVE');
+      expect(result.allowedDomains).toEqual(['example.com']);
+    });
   });
 });

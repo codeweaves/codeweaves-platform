@@ -1,6 +1,6 @@
 # Story 3.4: Implement Domain Allowlist Configuration
 
-Status: ready-for-dev
+Status: done
 
 > **Prerequisite:** Story 3-1 (Agent Model & Schema) must be complete — the `allowedDomains String[]` field already exists on the Agent model.
 
@@ -25,35 +25,36 @@ so that the chat widget only loads on authorized websites.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Zod Validation Schema** (AC: 1, 3, 4, 5, 9)
-  - [ ] 1.1 Add `domainSchema` to `packages/validation/src/index.ts` — validates single domain string
-  - [ ] 1.2 Add `allowedDomainsSchema` — `z.array(domainSchema).transform(dedup)` with max 50 entries
-  - [ ] 1.3 Extend `updateAgentSchema` to include `allowedDomains` as optional field
-  - [ ] 1.4 Export types
+- [x] **Task 1: Zod Validation Schema** (AC: 1, 3, 4, 5, 9)
+  - [x] 1.1 Add `domainSchema` to `packages/validation/src/index.ts` — validates single domain string
+  - [x] 1.2 Add `allowedDomainsSchema` — `z.array(domainSchema).max(50)` with default `[]`
+  - [x] 1.3 Extend `updateAgentSchema` to include `allowedDomains` as optional field
+  - [x] 1.4 Export types via `apps/api/src/models/agent.dto.ts`
 
-- [ ] **Task 2: Domain Normalization Utility** (AC: 3, 4, 5)
-  - [ ] 2.1 Create `apps/api/src/utils/domain.ts`
-  - [ ] 2.2 `normalizeDomain(input: string): string` — strip protocol, path, trailing slash, lowercase
-  - [ ] 2.3 `isValidDomain(input: string): boolean` — validate hostname/IP/wildcard format
-  - [ ] 2.4 `deduplicateDomains(domains: string[]): string[]` — remove duplicates after normalization
-  - [ ] 2.5 Unit tests for the utility in `apps/api/test/utils/domain.spec.ts`
+- [x] **Task 2: Domain Normalization Utility** (AC: 3, 4, 5)
+  - [x] 2.1 Create `apps/api/src/utils/domain.ts`
+  - [x] 2.2 `normalizeDomain(input: string): string` — strip protocol, path, trailing slash, lowercase
+  - [x] 2.3 `isValidDomain(input: string): boolean` — validate hostname/IP/wildcard format
+  - [x] 2.4 `deduplicateDomains(domains: string[]): string[]` — remove duplicates after normalization
+  - [x] 2.5 Unit tests for the utility in `apps/api/test/utils/domain.spec.ts` — 26 tests passing
 
-- [ ] **Task 3: Service — Domain Update Logic** (AC: 1, 2, 5, 6)
-  - [ ] 3.1 In `AgentsService.update()`, normalize and deduplicate domains before saving
-  - [ ] 3.2 Log domain changes via `AgentLoggerService` (audit event: `AGENT_DOMAINS_UPDATED`)
+- [x] **Task 3: Service — Domain Update Logic** (AC: 1, 2, 5, 6)
+  - [x] 3.1 In `AgentsService.update()`, normalize and deduplicate domains before saving
+  - [x] 3.2 Log domain changes via `AgentLoggerService` (audit event: `AGENT_DOMAINS_UPDATED`)
 
-- [ ] **Task 4: Service — Response Filtering** (AC: 8)
-  - [ ] 4.1 In `AgentsService.findById()` and `findAll()`, strip `allowedDomains` from response when user is CLIENT
-  - [ ] 4.2 Create a private `stripSensitiveFields(agent, user)` helper in the service
+- [x] **Task 4: Service — Response Filtering** (AC: 8)
+  - [x] 4.1 In `AgentsService.findById()` and `findAll()`, strip `allowedDomains` from response when user is CLIENT
+  - [x] 4.2 Create a private `stripSensitiveFields(agent, user)` helper in the service
+  - [x] 4.3 Refactored `findById` into `findByIdRaw` (internal) + `findById` (public, applies filtering)
 
-- [ ] **Task 5: Unit Tests** (AC: 10)
-  - [ ] 5.1 Test domain normalization: `https://Example.COM/path` → `example.com`
-  - [ ] 5.2 Test wildcard format: `*.example.com` accepted, `**.example.com` rejected
-  - [ ] 5.3 Test deduplication: `['a.com', 'A.COM']` → `['a.com']`
-  - [ ] 5.4 Test CLIENT user does not receive `allowedDomains` in response
-  - [ ] 5.5 Test ADMIN/SUPER_ADMIN receive `allowedDomains` in response
-  - [ ] 5.6 Test empty array is valid (no domain restriction)
-  - [ ] 5.7 Test max 50 domains limit
+- [x] **Task 5: Unit Tests** (AC: 10)
+  - [x] 5.1 Test domain normalization: `https://Example.COM/path` → `example.com`
+  - [x] 5.2 Test wildcard format: `*.example.com` accepted, `**.example.com` rejected
+  - [x] 5.3 Test deduplication: `['a.com', 'A.COM']` → `['a.com']`
+  - [x] 5.4 Test CLIENT user does not receive `allowedDomains` in response
+  - [x] 5.5 Test ADMIN/SUPER_ADMIN receive `allowedDomains` in response
+  - [x] 5.6 Test empty array is valid (no domain restriction)
+  - [x] 5.7 Test max 50 domains limit
 
 ## Dev Notes
 
@@ -159,10 +160,29 @@ packages/validation/src/index.ts                 # MODIFIED — domain schemas
 
 ### Agent Model Used
 
-{{agent_model_name_version}}
+Claude Opus 4.6
 
 ### Debug Log References
 
+- Lint flagged unused destructured `allowedDomains` var — resolved with `eslint-disable-next-line`
+- Type error from `findById` return type after adding `stripSensitiveFields` — resolved by introducing `findByIdRaw` private method
+
 ### Completion Notes List
 
+- `domainSchema` and `allowedDomainsSchema` added to `@repo/validation`
+- Domain normalization utility with 26 passing tests
+- `stripSensitiveFields` strips `allowedDomains` for CLIENT users across `findById`, `findAll`, and `update`
+- `findByIdRaw` private method added for internal use (update, softDelete need full Agent)
+- Audit event `AGENT_DOMAINS_UPDATED` fires on domain changes
+- Combined with Story 3-7 in same branch for efficiency
+
 ### File List
+
+- `packages/validation/src/index.ts` — MODIFIED (domainSchema, allowedDomainsSchema, updateAgentSchema)
+- `apps/api/src/models/agent.dto.ts` — MODIFIED (re-export domainSchema, allowedDomainsSchema)
+- `apps/api/src/utils/domain.ts` — NEW (normalizeDomain, isValidDomain, deduplicateDomains)
+- `apps/api/src/services/agents.service.ts` — MODIFIED (domain normalization, response filtering, findByIdRaw)
+- `apps/api/src/common/logger/agent.logger.ts` — MODIFIED (AGENT_DOMAINS_UPDATED event)
+- `apps/api/test/utils/domain.spec.ts` — NEW (26 tests)
+- `apps/api/test/services/agents/agents.service.spec.ts` — MODIFIED (domain + filtering tests)
+- `apps/api/test/controllers/agents/agents.controller.spec.ts` — MODIFIED (domain validation tests)
