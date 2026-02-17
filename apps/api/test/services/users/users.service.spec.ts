@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '../../../src/services/users.service';
 import { PrismaService } from '../../../src/services/prisma.service';
+import { UserLoggerService } from '../../../src/common/logger/user.logger';
 import { Role, InvitationStatus, Prisma } from '@prisma/client';
 
 describe('UsersService', () => {
@@ -67,6 +68,19 @@ describe('UsersService', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: UserLoggerService,
+          useValue: {
+            logUserCreatedFromAuth0: jest.fn(),
+            logUserCreatedFromInvitation: jest.fn(),
+            logUserCreationException: jest.fn(),
+            logUserProfileUpdated: jest.fn(),
+            logUserProfileUpdateException: jest.fn(),
+            logUserFirstLogin: jest.fn(),
+            logMemberAssigned: jest.fn(),
+            logMemberRemoved: jest.fn(),
+          },
         },
       ],
     }).compile();

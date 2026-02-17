@@ -12,6 +12,7 @@ import { EmailService } from './email.service';
 import { Auth0ManagementService } from './auth0-management.service';
 import { InvitationStatus, Prisma } from '@prisma/client';
 import { CreateInvitationDto } from '../models/invitation.dto';
+import { InvitationLoggerService } from '../common/logger/invitation.logger';
 
 const INVITATION_EXPIRY_DAYS = 7;
 const MAX_REISSUE_COUNT = 5;
@@ -25,6 +26,7 @@ export class InvitationsService {
     private emailService: EmailService,
     private configService: ConfigService,
     private auth0Management: Auth0ManagementService,
+    private readonly invitationLogger: InvitationLoggerService,
   ) {}
 
   async create(dto: CreateInvitationDto, invitedById: string) {
@@ -70,6 +72,7 @@ export class InvitationsService {
 
       await this.sendInvitationEmail(invitation, passwordSetupUrl);
 
+      await this.invitationLogger.logInvitationCreated(invitation.id, { response: invitation, request: dto });
       return invitation;
     } catch (error) {
       if (
@@ -80,6 +83,11 @@ export class InvitationsService {
           'Pending invitation already exists for this email',
         );
       }
+      await this.invitationLogger.logInvitationCreationException(
+        email,
+        error,
+        { request: dto },
+      );
       throw error;
     }
   }
@@ -115,21 +123,29 @@ export class InvitationsService {
       throw new BadRequestException('Can only resend pending invitations');
     }
 
-    const updated = await this.prisma.userInvitation.update({
-      where: { id },
-      data: {
-        expiresAt: new Date(
-          Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
-        ),
-      },
-    });
+    try {
+      const updated = await this.prisma.userInvitation.update({
+        where: { id },
+        data: {
+          expiresAt: new Date(
+            Date.now() + INVITATION_EXPIRY_DAYS * 24 * 60 * 60 * 1000,
+          ),
+        },
+      });
 
-    // Generate new password setup link
-    const passwordSetupUrl = await this.getOrCreateAuth0UserAndTicket(updated);
+      // Generate new password setup link
+      const passwordSetupUrl = await this.getOrCreateAuth0UserAndTicket(updated);
 
-    await this.sendInvitationEmail(updated, passwordSetupUrl);
+      await this.sendInvitationEmail(updated, passwordSetupUrl);
 
-    return updated;
+      await this.invitationLogger.logInvitationResent(updated.id, { response: updated });
+      return updated;
+    } catch (error) {
+      await this.invitationLogger.logInvitationResentException(id, error, {
+        invitationId: id,
+      });
+      throw error;
+    }
   }
 
   async reissue(reissueToken: string) {
@@ -170,6 +186,7 @@ export class InvitationsService {
 
     await this.sendInvitationEmail(updated, passwordSetupUrl);
 
+    await this.invitationLogger.logInvitationReissued(invitation.id, { response: updated });
     return { message: 'Invitation reissued successfully' };
   }
 
@@ -231,9 +248,18 @@ export class InvitationsService {
       }
     }
 
-    return this.prisma.userInvitation.delete({
-      where: { id },
-    });
+    try {
+      const deleted = await this.prisma.userInvitation.delete({
+        where: { id },
+      });
+      await this.invitationLogger.logInvitationCancelled(id, { response: deleted });
+      return deleted;
+    } catch (error) {
+      await this.invitationLogger.logInvitationCancelledException(id, error, {
+        invitationId: id,
+      });
+      throw error;
+    }
   }
 
   private async getOrCreateAuth0UserAndTicket(invitation: {

@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { OrganizationsService } from '../../../src/services/organizations.service';
 import { PrismaService } from '../../../src/services/prisma.service';
+import { OrganizationLoggerService } from '../../../src/common/logger/organization.logger';
 import { Prisma } from '@prisma/client';
 import * as slugUtils from '../../../src/utils/slug';
 
@@ -44,6 +45,16 @@ describe('OrganizationsService', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: OrganizationLoggerService,
+          useValue: {
+            logOrganizationCreated: jest.fn(),
+            logOrganizationCreationFailed: jest.fn(),
+            logOrganizationCreationException: jest.fn(),
+            logOrganizationUpdated: jest.fn(),
+            logOrganizationUpdateException: jest.fn(),
+          },
         },
       ],
     }).compile();

@@ -6,6 +6,7 @@ import {
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { Role } from '@prisma/client';
+import { UserLoggerService } from '../common/logger/user.logger';
 
 export interface MemberResponse {
   id: string;
@@ -22,7 +23,10 @@ export interface MembersListCaller {
 
 @Injectable()
 export class OrganizationMembersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly userLogger: UserLoggerService,
+  ) {}
 
   async listMembers(
     orgId: string,
@@ -89,6 +93,7 @@ export class OrganizationMembersService {
       data: { organizationId: orgId },
     });
 
+    await this.userLogger.logMemberAssigned(userId, { organizationId: orgId });
     return this.toMemberResponse(updated);
   }
 
@@ -114,6 +119,7 @@ export class OrganizationMembersService {
       where: { id: userId },
       data: { organizationId: null },
     });
+    await this.userLogger.logMemberRemoved(userId, { organizationId: orgId });
   }
 
   private async ensureOrgExists(orgId: string): Promise<void> {

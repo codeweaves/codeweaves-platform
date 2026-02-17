@@ -4,9 +4,10 @@ import { OrganizationMembersService } from '../services/organization-members.ser
 import { OrganizationsController } from '../controllers/organizations/organizations.controller';
 import { OrganizationMembersController } from '../controllers/organizations/organization-members.controller';
 import { PrismaModule } from './prisma.module';
+import { LoggerModule } from '../common/logger/logger.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [PrismaModule, LoggerModule],
   controllers: [OrganizationsController, OrganizationMembersController],
   providers: [OrganizationsService, OrganizationMembersService],
   exports: [OrganizationsService, OrganizationMembersService],

@@ -21,6 +21,9 @@ import { InvitationsService } from '../../src/services/invitations.service';
 import { PrismaService } from '../../src/services/prisma.service';
 import { EmailService } from '../../src/services/email.service';
 import { Auth0ManagementService } from '../../src/services/auth0-management.service';
+import { OrganizationLoggerService } from '../../src/common/logger/organization.logger';
+import { InvitationLoggerService } from '../../src/common/logger/invitation.logger';
+import { UserLoggerService } from '../../src/common/logger/user.logger';
 
 import {
   seedTestData,
@@ -107,6 +110,9 @@ describe('Tenant Isolation — Evil Twin', () => {
         { provide: EmailService, useValue: mockEmailService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: Auth0ManagementService, useValue: mockAuth0Management },
+        { provide: OrganizationLoggerService, useValue: { logOrganizationCreated: jest.fn(), logOrganizationCreationException: jest.fn(), logOrganizationUpdated: jest.fn(), logOrganizationUpdateException: jest.fn(), logOrganizationCreationFailed: jest.fn() } },
+        { provide: InvitationLoggerService, useValue: { logInvitationCreated: jest.fn(), logInvitationCreationException: jest.fn(), logInvitationResent: jest.fn(), logInvitationCancelled: jest.fn(), logInvitationReissued: jest.fn(), logInvitationResentException: jest.fn(), logInvitationCancelledException: jest.fn(), logInvitationReissuedException: jest.fn(), logInvitationCreationFailed: jest.fn() } },
+        { provide: UserLoggerService, useValue: { logUserCreatedFromAuth0: jest.fn(), logUserCreatedFromInvitation: jest.fn(), logUserCreationException: jest.fn(), logUserProfileUpdated: jest.fn(), logUserFirstLogin: jest.fn(), logMemberAssigned: jest.fn(), logMemberRemoved: jest.fn(), logUserProfileUpdateException: jest.fn() } },
       ],
     }).compile();
 
