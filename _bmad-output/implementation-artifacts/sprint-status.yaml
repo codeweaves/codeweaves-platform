@@ -111,8 +111,8 @@ development_status:
   # 3-2 (Agent CRUD API) absorbed into 3-1 — module, service, controller, tests all covered
   # 3-3 (URL-safe public IDs) merged into 3-1
   3-4-implement-domain-allowlist-configuration: done
-  3-5-create-agentsecret-model-for-sensitive-data: ready-for-dev
-  3-6-implement-webhook-url-configuration: ready-for-dev
+  3-5-create-agentsecret-model-for-sensitive-data: done
+  3-6-implement-webhook-url-configuration: done
   3-7-create-agent-status-management: done
   3-8-implement-agent-list-dashboard-page: ready-for-dev
   3-9-create-agent-detail-edit-page: ready-for-dev

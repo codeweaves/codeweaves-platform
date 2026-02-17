@@ -5,6 +5,7 @@ export {
   agentStatusEnum,
   domainSchema,
   allowedDomainsSchema,
+  updateWebhookSchema,
 } from '@repo/validation';
 
 export type {
@@ -12,4 +13,5 @@ export type {
   UpdateAgentDto,
   AgentListQuery,
   AgentStatusEnum,
+  UpdateWebhookDto,
 } from '@repo/validation';

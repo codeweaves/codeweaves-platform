@@ -9,6 +9,7 @@ import {
   createAgentSchema,
   updateAgentSchema,
   agentListQuerySchema,
+  updateWebhookSchema,
 } from '../../../src/models/agent.dto';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
@@ -22,6 +23,9 @@ describe('AgentsController', () => {
     findById: jest.fn(),
     update: jest.fn(),
     softDelete: jest.fn(),
+    setWebhookUrl: jest.fn(),
+    getWebhookUrl: jest.fn(),
+    testWebhook: jest.fn(),
   };
 
   const orgId = '123e4567-e89b-12d3-a456-426614174000';
@@ -181,12 +185,99 @@ describe('AgentsController', () => {
       const roles = Reflect.getMetadata('roles', AgentsController.prototype.remove);
       expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN']);
     });
+
+    // Webhook endpoints — ADMIN and SUPER_ADMIN only (no CLIENT)
+    it('should have ADMIN and SUPER_ADMIN roles on setWebhook', () => {
+      const roles = Reflect.getMetadata('roles', AgentsController.prototype.setWebhook);
+      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN']);
+    });
+
+    it('should have ADMIN and SUPER_ADMIN roles on getWebhook', () => {
+      const roles = Reflect.getMetadata('roles', AgentsController.prototype.getWebhook);
+      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN']);
+    });
+
+    it('should have ADMIN and SUPER_ADMIN roles on testWebhook', () => {
+      const roles = Reflect.getMetadata('roles', AgentsController.prototype.testWebhook);
+      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN']);
+    });
+  });
+
+  // ==========================================
+  // Webhook Endpoints (Story 3-6)
+  // ==========================================
+
+  describe('setWebhook', () => {
+    it('should set webhook URL via service', async () => {
+      mockAgentsService.setWebhookUrl.mockResolvedValue({ message: 'Webhook URL updated' });
+
+      const result = await controller.setWebhook(
+        agentId,
+        { webhookUrl: 'https://example.com/webhook' },
+        adminUser,
+      );
+
+      expect(result).toEqual({ message: 'Webhook URL updated' });
+      expect(mockAgentsService.setWebhookUrl).toHaveBeenCalledWith(
+        agentId,
+        'https://example.com/webhook',
+        adminUser,
+      );
+    });
+
+    it('should propagate NotFoundException', async () => {
+      mockAgentsService.setWebhookUrl.mockRejectedValue(new NotFoundException('Agent not found'));
+
+      await expect(
+        controller.setWebhook(agentId, { webhookUrl: 'https://example.com/webhook' }, adminUser),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getWebhook', () => {
+    it('should get webhook URL via service', async () => {
+      mockAgentsService.getWebhookUrl.mockResolvedValue({
+        webhookUrl: 'https://example.com/webhook',
+      });
+
+      const result = await controller.getWebhook(agentId, adminUser);
+
+      expect(result).toEqual({ webhookUrl: 'https://example.com/webhook' });
+      expect(mockAgentsService.getWebhookUrl).toHaveBeenCalledWith(agentId, adminUser);
+    });
+
+    it('should propagate NotFoundException', async () => {
+      mockAgentsService.getWebhookUrl.mockRejectedValue(new NotFoundException('Agent not found'));
+
+      await expect(controller.getWebhook(agentId, adminUser)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('testWebhook', () => {
+    it('should test webhook via service', async () => {
+      const testResult = { success: true, statusCode: 200, responseTime: 150 };
+      mockAgentsService.testWebhook.mockResolvedValue(testResult);
+
+      const result = await controller.testWebhook(agentId, adminUser);
+
+      expect(result).toEqual(testResult);
+      expect(mockAgentsService.testWebhook).toHaveBeenCalledWith(agentId, adminUser);
+    });
+
+    it('should propagate NotFoundException when no webhook configured', async () => {
+      mockAgentsService.testWebhook.mockRejectedValue(
+        new NotFoundException('No webhook URL configured for this agent'),
+      );
+
+      await expect(controller.testWebhook(agentId, adminUser)).rejects.toThrow(NotFoundException);
+    });
   });
 
   describe('validation', () => {
     const createPipe = new ZodValidationPipe(createAgentSchema);
     const updatePipe = new ZodValidationPipe(updateAgentSchema);
     const listQueryPipe = new ZodValidationPipe(agentListQuerySchema);
+    const webhookPipe = new ZodValidationPipe(updateWebhookSchema);
 
     it('should reject create with missing name', () => {
       expect(() => createPipe.transform({ organizationId: orgId })).toThrow(BadRequestException);
@@ -312,6 +403,29 @@ describe('AgentsController', () => {
       expect(result.name).toBe('Updated');
       expect(result.status).toBe('ACTIVE');
       expect(result.allowedDomains).toEqual(['example.com']);
+    });
+
+    // --- Webhook URL validation (Story 3-6) ---
+    it('should accept valid webhook URL', () => {
+      const result = webhookPipe.transform({ webhookUrl: 'https://example.com/webhook' });
+      expect(result.webhookUrl).toBe('https://example.com/webhook');
+    });
+
+    it('should accept HTTP webhook URL (protocol enforcement is in service layer)', () => {
+      const result = webhookPipe.transform({ webhookUrl: 'http://localhost:5678/webhook' });
+      expect(result.webhookUrl).toBe('http://localhost:5678/webhook');
+    });
+
+    it('should reject invalid webhook URL', () => {
+      expect(() => webhookPipe.transform({ webhookUrl: 'not-a-url' })).toThrow(BadRequestException);
+    });
+
+    it('should reject empty webhook URL', () => {
+      expect(() => webhookPipe.transform({ webhookUrl: '' })).toThrow(BadRequestException);
+    });
+
+    it('should reject missing webhookUrl field', () => {
+      expect(() => webhookPipe.transform({})).toThrow(BadRequestException);
     });
   });
 });
