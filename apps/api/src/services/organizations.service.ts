@@ -8,12 +8,16 @@ import { PrismaService } from './prisma.service';
 import { Prisma } from '@prisma/client';
 import type { CreateOrganizationDto, UpdateOrganizationDto, OrganizationListQuery } from '../models/organization.dto';
 import { generateSlug, generateUniqueSlug } from '../utils/slug';
+import { OrganizationLoggerService } from '../common/logger/organization.logger';
 
 const MAX_SLUG_RETRIES = 3;
 
 @Injectable()
 export class OrganizationsService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly orgLogger: OrganizationLoggerService,
+  ) {}
 
   async create(data: CreateOrganizationDto) {
     let baseSlug: string;
@@ -31,12 +35,14 @@ export class OrganizationsService {
         : generateUniqueSlug(this.trimSlugBase(baseSlug));
 
       try {
-        return await this.prisma.organization.create({
+        const org = await this.prisma.organization.create({
           data: {
             name: data.name,
             slug,
           },
         });
+        await this.orgLogger.logOrganizationCreated(org.id, { response: org, request: data });
+        return org;
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -47,6 +53,11 @@ export class OrganizationsService {
           }
           continue;
         }
+        await this.orgLogger.logOrganizationCreationException(
+          data.name ?? 'unknown',
+          error,
+          { request: data },
+        );
         throw error;
       }
     }
@@ -130,13 +141,15 @@ export class OrganizationsService {
     }
 
     try {
-      return await this.prisma.organization.update({
+      const org = await this.prisma.organization.update({
         where: { id },
         data: {
           ...(data.name !== undefined && { name: data.name }),
           ...(data.slug !== undefined && { slug: data.slug }),
         },
       });
+      await this.orgLogger.logOrganizationUpdated(org.id, { response: org, request: data });
+      return org;
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
@@ -150,6 +163,7 @@ export class OrganizationsService {
       ) {
         throw new ConflictException('Slug is already in use');
       }
+      await this.orgLogger.logOrganizationUpdateException(id, error, { request: data });
       throw error;
     }
   }

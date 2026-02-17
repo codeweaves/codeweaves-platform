@@ -7,6 +7,7 @@ import { PrismaService } from './prisma.service';
 import { User, Role, InvitationStatus, Prisma } from '@prisma/client';
 import type { UpdateUserProfileDto, UserProfileResponse } from '../models/user.dto';
 import { buildTenantFilter, TenantFilterUser } from '../utils/tenant-filter';
+import { UserLoggerService } from '../common/logger/user.logger';
 
 const USER_WITH_ORG_SELECT = {
   include: {
@@ -22,7 +23,10 @@ const USER_WITH_ORG_SELECT = {
 
 @Injectable()
 export class UsersService {
-  constructor(private prisma: PrismaService) {}
+  constructor(
+    private prisma: PrismaService,
+    private readonly userLogger: UserLoggerService,
+  ) {}
 
   async findByAuth0Id(auth0Id: string): Promise<User | null> {
     return this.prisma.user.findFirst({
@@ -90,6 +94,7 @@ export class UsersService {
         ...USER_WITH_ORG_SELECT,
       });
 
+      await this.userLogger.logUserProfileUpdated(userId, { response: user, request: dto });
       return this.toProfileResponse(user);
     } catch (error) {
       if (
@@ -127,6 +132,9 @@ export class UsersService {
       if (existingUser.deletedAt) {
         throw new UnauthorizedException('Account has been deactivated');
       }
+      await this.userLogger.logUserFirstLogin(existingUser.id, {
+        response: { id: existingUser.id, email: existingUser.email },
+      });
       return existingUser;
     }
 
@@ -194,6 +202,10 @@ export class UsersService {
           data: { status: InvitationStatus.ACCEPTED },
         });
 
+        await this.userLogger.logUserCreatedFromInvitation(newUser.id, {
+          response: newUser,
+          invitationId: invitation.id,
+        });
         return newUser;
       });
     } catch (error) {

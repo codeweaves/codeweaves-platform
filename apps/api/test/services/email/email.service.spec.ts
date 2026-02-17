@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { EmailService } from '../../../src/services/email.service';
+import { EmailLoggerService } from '../../../src/common/logger/email.logger';
 
 // Mock Resend with a class so `new Resend()` works correctly
 jest.mock('resend', () => ({
@@ -27,6 +28,14 @@ describe('EmailService', () => {
           useValue: {
             get: (key: string, defaultValue?: string) =>
               configValues[key] ?? defaultValue,
+          },
+        },
+        {
+          provide: EmailLoggerService,
+          useValue: {
+            logEmailSent: jest.fn(),
+            logEmailFailed: jest.fn(),
+            logEmailException: jest.fn(),
           },
         },
       ],

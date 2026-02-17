@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { Auth0ManagementService } from '../../../src/services/auth0-management.service';
+import { Auth0LoggerService } from '../../../src/common/logger/auth0.logger';
 
 // Mock global fetch
 const mockFetch = jest.fn();
@@ -34,6 +35,17 @@ describe('Auth0ManagementService', () => {
       providers: [
         Auth0ManagementService,
         { provide: ConfigService, useValue: mockConfigService },
+        {
+          provide: Auth0LoggerService,
+          useValue: {
+            logAuth0UserCreated: jest.fn(),
+            logAuth0UserCreationFailed: jest.fn(),
+            logAuth0UserDeleted: jest.fn(),
+            logAuth0UserDeletionFailed: jest.fn(),
+            logAuth0PasswordTicketCreated: jest.fn(),
+            logAuth0PasswordTicketFailed: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

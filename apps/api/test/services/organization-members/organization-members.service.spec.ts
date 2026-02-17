@@ -7,6 +7,7 @@ import {
 import { Role } from '@prisma/client';
 import { OrganizationMembersService } from '../../../src/services/organization-members.service';
 import { PrismaService } from '../../../src/services/prisma.service';
+import { UserLoggerService } from '../../../src/common/logger/user.logger';
 
 describe('OrganizationMembersService', () => {
   let service: OrganizationMembersService;
@@ -59,6 +60,13 @@ describe('OrganizationMembersService', () => {
       providers: [
         OrganizationMembersService,
         { provide: PrismaService, useValue: mockPrismaService },
+        {
+          provide: UserLoggerService,
+          useValue: {
+            logMemberAssigned: jest.fn(),
+            logMemberRemoved: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

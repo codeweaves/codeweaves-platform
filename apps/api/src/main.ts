@@ -1,10 +1,10 @@
 import { NestFactory } from '@nestjs/core';
-import { ValidationPipe } from '@nestjs/common';
+import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './modules/app.module';
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  const app = await NestFactory.create(AppModule, { bufferLogs: true });
 
   // Global API prefix
   app.setGlobalPrefix('api/codeweaves/v1');
@@ -37,8 +37,9 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3001;
   await app.listen(port);
-  console.log(`🚀 API running on http://localhost:${port}/api/codeweaves/v1`);
-  console.log(`📄 Swagger docs at http://localhost:${port}/api/docs`);
+  const logger = new Logger('Bootstrap');
+  logger.log(`API running on http://localhost:${port}/api/codeweaves/v1`);
+  logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
 }
 
 bootstrap();

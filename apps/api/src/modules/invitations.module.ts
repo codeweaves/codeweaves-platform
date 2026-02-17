@@ -4,9 +4,10 @@ import { InvitationsController } from '../controllers/invitations/invitations.co
 import { PrismaModule } from './prisma.module';
 import { EmailModule } from './email.module';
 import { Auth0ManagementModule } from './auth0-management.module';
+import { LoggerModule } from '../common/logger/logger.module';
 
 @Module({
-  imports: [PrismaModule, EmailModule, Auth0ManagementModule],
+  imports: [PrismaModule, EmailModule, Auth0ManagementModule, LoggerModule],
   controllers: [InvitationsController],
   providers: [InvitationsService],
   exports: [InvitationsService],

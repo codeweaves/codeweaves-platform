@@ -74,3 +74,22 @@ model UserInvitation {
   @@index([status])
   @@map("user_invitations")
 }
+
+model AuditLog {
+  id            String   @id @default(uuid())
+  correlationId String?
+  userId        String?
+  auth0Id       String?
+  contextId     String
+  event         String
+  data          Json
+  createdAt     DateTime @default(now())
+
+  @@index([event])
+  @@index([contextId])
+  @@index([userId])
+  @@index([auth0Id])
+  @@index([correlationId])
+  @@index([createdAt])
+  @@map("audit_logs")
+}
