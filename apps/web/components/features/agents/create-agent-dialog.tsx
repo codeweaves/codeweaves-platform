@@ -16,13 +16,7 @@ import {
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useCreateAgent } from '@/hooks/use-agents';
 import { useOrganizations } from '@/hooks/use-organizations';
 
@@ -114,26 +108,19 @@ export function CreateAgentDialog() {
             </div>
             <div className="grid gap-2">
               <Label htmlFor="agent-org">Organization</Label>
-              <Select
+              <SearchableSelect
+                id="agent-org"
+                options={orgsData?.data.map((org) => ({
+                  value: org.id,
+                  label: org.name,
+                })) ?? []}
                 value={organizationId}
                 onValueChange={setOrganizationId}
-                disabled={createAgent.isPending}
-              >
-                <SelectTrigger id="agent-org">
-                  <SelectValue
-                    placeholder={
-                      orgsLoading ? 'Loading...' : 'Select organization'
-                    }
-                  />
-                </SelectTrigger>
-                <SelectContent>
-                  {orgsData?.data.map((org) => (
-                    <SelectItem key={org.id} value={org.id}>
-                      {org.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                placeholder={orgsLoading ? 'Loading...' : 'Select organization'}
+                searchPlaceholder="Search organizations..."
+                emptyMessage="No organizations found"
+                disabled={createAgent.isPending || orgsLoading}
+              />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}
           </div>

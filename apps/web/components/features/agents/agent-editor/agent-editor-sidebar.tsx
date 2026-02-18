@@ -107,7 +107,7 @@ export function AgentEditorSidebar({
               key={category.id}
               onClick={() => onCategoryChange(category.id)}
               className={cn(
-                'flex w-full items-center gap-3 rounded-lg p-3 text-left transition-colors',
+                'flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors',
                 selectedCategory === category.id
                   ? 'bg-primary/10 text-primary'
                   : 'text-muted-foreground hover:bg-muted hover:text-foreground',

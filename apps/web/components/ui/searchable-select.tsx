@@ -14,6 +14,7 @@ interface SearchableSelectOption {
 }
 
 interface SearchableSelectProps {
+  id?: string;
   options: SearchableSelectOption[];
   value?: string;
   onValueChange?: (value: string) => void;
@@ -27,6 +28,7 @@ interface SearchableSelectProps {
 }
 
 function SearchableSelect({
+  id,
   options,
   value,
   onValueChange,
@@ -59,6 +61,7 @@ function SearchableSelect({
     <Popover open={open} onOpenChange={setOpen} modal>
       <PopoverTrigger asChild>
         <button
+          id={id}
           ref={triggerRef}
           type='button'
           role='combobox'
@@ -71,7 +74,7 @@ function SearchableSelect({
             triggerClassName,
           )}
         >
-          <span className='min-w-0 flex-1 truncate'>
+          <span className='min-w-0 flex-1 truncate text-left'>
             {selectedOption ? (renderOption ? renderOption(selectedOption) : selectedOption.label) : placeholder}
           </span>
           <ChevronDownIcon className='size-4 opacity-50' />
