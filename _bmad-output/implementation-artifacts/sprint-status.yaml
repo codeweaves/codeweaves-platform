@@ -114,8 +114,8 @@ development_status:
   3-5-create-agentsecret-model-for-sensitive-data: done
   3-6-implement-webhook-url-configuration: done
   3-7-create-agent-status-management: done
-  3-8-implement-agent-list-dashboard-page: ready-for-dev
-  3-9-create-agent-detail-edit-page: ready-for-dev
+  3-8-implement-agent-list-dashboard-page: in-progress
+  3-9-create-agent-detail-edit-page: in-progress
   epic-3-retrospective: optional
 
   # ============================================
