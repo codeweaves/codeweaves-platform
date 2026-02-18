@@ -335,6 +335,7 @@ describe('AgentsService', () => {
       expect(result).toEqual(mockAgent);
       expect(mockPrismaService.agent.findFirst).toHaveBeenCalledWith({
         where: { id: agentId, deletedAt: null },
+        include: { organization: { select: { id: true, name: true } } },
       });
     });
 
@@ -345,6 +346,7 @@ describe('AgentsService', () => {
 
       expect(mockPrismaService.agent.findFirst).toHaveBeenCalledWith({
         where: { id: agentId, deletedAt: null, organizationId: orgId },
+        include: { organization: { select: { id: true, name: true } } },
       });
     });
 

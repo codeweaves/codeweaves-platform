@@ -72,6 +72,144 @@ function deepEqual(a: unknown, b: unknown): boolean {
   );
 }
 
+/** Full form data shape used by the ChatWidgetSurface preview.
+ *  Fields not yet persisted are filled with defaults by `toPreviewFormData`. */
+export interface PreviewFormData {
+  name: string;
+  greetingMessage: string;
+  webhookUrl: string;
+  domains: string[];
+  // Appearance
+  iconBg: string;
+  iconPosition: 'left' | 'right';
+  iconBorderRadius: number;
+  bubbleText: string;
+  bubbleBg: string;
+  bubbleTextColor: string;
+  bubbleShowDelay: number;
+  bubbleSound: boolean;
+  // Header
+  headerTitle: string;
+  headerSubtitle: string;
+  companyLogo: string;
+  headerBg: string;
+  headerTextColor: string;
+  headerBorderRadius: number;
+  // Chat Interface
+  botAvatarType: 'robot' | 'machine' | 'bot' | 'support' | 'custom';
+  botCustomImage: string;
+  botAvatarShape: string;
+  botAvatarBg: string;
+  botAvatarColor: string;
+  userAvatarType: string;
+  userAvatarShape: string;
+  userAvatarBg: string;
+  userAvatarColor: string;
+  userCustomImage: string;
+  userMessageBg: string;
+  userMessageTextColor: string;
+  userMessageBorderRadius: number;
+  systemMessageBg: string;
+  systemMessageTextColor: string;
+  systemMessageBorderRadius: number;
+  chatBodyBg: string;
+  timestampColor: string;
+  showTimestamp: boolean;
+  inputBg: string;
+  inputPlaceholder: string;
+  inputTextColor: string;
+  inputBorderRadius: number;
+  sendButtonBg: string;
+  sendButtonBorderRadius: number;
+  sendButtonIconColor: string;
+  // Typography
+  fontFamily: string;
+  defaultFontSize: number;
+  // Behavior
+  typingIndicator: boolean;
+  conversationalStarters: string[];
+  // Branding
+  brandingEnabled: boolean;
+  brandingTextPrefix: string;
+  brandingUseLogo: boolean;
+  brandingLinkText: string;
+  brandingLinkUrl: string;
+  brandingLogo: string;
+  brandingTextColor: string;
+  brandingLinkColor: string;
+}
+
+const previewDefaults: Omit<PreviewFormData, 'name' | 'greetingMessage' | 'webhookUrl' | 'domains'> = {
+  iconBg: '#3B82F6',
+  iconPosition: 'right',
+  iconBorderRadius: 14,
+  bubbleText: 'Need help?',
+  bubbleBg: '#3B82F6',
+  bubbleTextColor: '#FFFFFF',
+  bubbleShowDelay: 3,
+  bubbleSound: true,
+  headerTitle: 'Chat Support',
+  headerSubtitle: "We're here to help",
+  companyLogo: '',
+  headerBg: '#3B82F6',
+  headerTextColor: '#FFFFFF',
+  headerBorderRadius: 14,
+  botAvatarType: 'robot',
+  botCustomImage: '',
+  botAvatarShape: 'circle',
+  botAvatarBg: '#3B82F6',
+  botAvatarColor: '#FFFFFF',
+  userAvatarType: 'male',
+  userAvatarShape: 'circle',
+  userAvatarBg: '#3B82F6',
+  userAvatarColor: '#FFFFFF',
+  userCustomImage: '',
+  userMessageBg: '#3B82F6',
+  userMessageTextColor: '#FFFFFF',
+  userMessageBorderRadius: 14,
+  systemMessageBg: '#F3F4F6',
+  systemMessageTextColor: '#1F2937',
+  systemMessageBorderRadius: 14,
+  chatBodyBg: '#F9FAFB',
+  timestampColor: '#6B7280',
+  showTimestamp: true,
+  inputBg: '#FFFFFF',
+  inputPlaceholder: 'Type your message...',
+  inputTextColor: '#6B7280',
+  inputBorderRadius: 14,
+  sendButtonBg: '#3B82F6',
+  sendButtonBorderRadius: 14,
+  sendButtonIconColor: '#FFFFFF',
+  fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+  defaultFontSize: 16,
+  typingIndicator: true,
+  conversationalStarters: ['How can I help you?', 'What would you like to know?', 'Need assistance?'],
+  brandingEnabled: true,
+  brandingTextPrefix: 'Powered by',
+  brandingUseLogo: false,
+  brandingLinkText: 'Codeweaves',
+  brandingLinkUrl: 'https://codeweaves.com',
+  brandingLogo: '',
+  brandingTextColor: '#6B7280',
+  brandingLinkColor: '#2563EB',
+};
+
+/** Maps our lean AgentFormData to the full PreviewFormData shape for the chat widget preview. */
+export function toPreviewFormData(formData: AgentFormData): PreviewFormData {
+  return {
+    ...previewDefaults,
+    name: formData.name,
+    greetingMessage: formData.welcomeMessage || 'Hello! How can I help you today?',
+    webhookUrl: formData.webhookUrl,
+    domains: formData.allowedDomains,
+    // Override branding from our form data
+    brandingEnabled: formData.brandingEnabled,
+    brandingTextPrefix: formData.brandingTextPrefix,
+    brandingLinkText: formData.brandingLinkText,
+    brandingLinkUrl: formData.brandingLinkUrl,
+  };
+}
+
 export function agentToFormData(
   agent: Agent,
   webhookUrl = '',

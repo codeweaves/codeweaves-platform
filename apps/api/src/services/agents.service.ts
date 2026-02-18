@@ -97,6 +97,7 @@ export class AgentsService {
         orderBy,
         skip,
         take: limit,
+        include: { organization: { select: { id: true, name: true } } },
       }),
       this.prisma.agent.count({ where }),
     ]);
@@ -330,6 +331,7 @@ export class AgentsService {
         deletedAt: null,
         ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
       },
+      include: { organization: { select: { id: true, name: true } } },
     });
 
     if (!agent) {

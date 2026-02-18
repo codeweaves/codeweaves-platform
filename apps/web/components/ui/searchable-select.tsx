@@ -71,7 +71,7 @@ function SearchableSelect({
             triggerClassName,
           )}
         >
-          <span className='min-w-0 flex-1 truncate'>
+          <span className='min-w-0 flex-1 truncate text-left'>
             {selectedOption ? (renderOption ? renderOption(selectedOption) : selectedOption.label) : placeholder}
           </span>
           <ChevronDownIcon className='size-4 opacity-50' />
