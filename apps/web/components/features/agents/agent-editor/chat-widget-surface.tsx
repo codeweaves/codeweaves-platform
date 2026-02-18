@@ -152,7 +152,7 @@ export function ChatWidgetSurface({
     onWindowMinimizedChange(false);
   };
 
-  // Auto-scroll: keep last user message and start of AI reply in view
+  // Auto-scroll: prefer AI reply after last user message, then user message, then bottom
   useEffect(() => {
     if (isWindowMinimized) return;
     const lastUserIdx = (() => {
@@ -164,19 +164,21 @@ export function ChatWidgetSurface({
     if (lastUserIdx >= 0) {
       const userMsg = messages[lastUserIdx];
       if (userMsg) {
-        const targetEl = msgRefs.current.get(userMsg.id);
-        if (targetEl) {
-          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
-          return;
-        }
+        // Prefer scrolling to the AI reply that follows the last user message
         const aiMsg =
-          messages.slice(lastUserIdx + 1).find((m) => m.role === 'ai') ?? null;
+          messages.slice(lastUserIdx + 1).find((m) => m.role === 'ai' || m.role === 'system') ?? null;
         if (aiMsg) {
           const aiEl = msgRefs.current.get(aiMsg.id);
           if (aiEl) {
             aiEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
             return;
           }
+        }
+        // Otherwise scroll to the user message itself
+        const targetEl = msgRefs.current.get(userMsg.id);
+        if (targetEl) {
+          targetEl.scrollIntoView({ behavior: 'smooth', block: 'start' });
+          return;
         }
       }
     }
@@ -200,12 +202,16 @@ export function ChatWidgetSurface({
       {/* Bubble prompt */}
       {showBubble && isMinimized && (
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Open chat"
           className={`pointer-events-auto absolute ${iconOnRight ? 'bottom-24 right-6' : 'bottom-24 left-6'} z-10 max-w-xs cursor-pointer rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 hover:scale-105`}
           style={{
             backgroundColor: formData.bubbleBg,
             color: formData.bubbleTextColor,
           }}
           onClick={handleOpen}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); } }}
         >
           <div className="flex items-center justify-between">
             <span className="pr-2 text-sm font-medium">
@@ -235,12 +241,16 @@ export function ChatWidgetSurface({
       {/* Minimized icon */}
       {isMinimized && (
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Open chat widget"
           className={`pointer-events-auto absolute ${iconOnRight ? 'bottom-6 right-6' : 'bottom-6 left-6'} z-20 flex h-16 w-16 cursor-pointer items-center justify-center shadow-xl transition-all duration-300 hover:scale-110`}
           style={{
             backgroundColor: formData.iconBg,
             borderRadius: `${formData.iconBorderRadius || 14}px`,
           }}
           onClick={handleOpen}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); } }}
         >
           <MessageCircle className="h-7 w-7 text-white" />
         </div>
@@ -292,6 +302,7 @@ export function ChatWidgetSurface({
             </div>
             <div className="flex gap-2">
               <button
+                aria-label="Minimize chat"
                 className="flex h-8 w-8 items-center justify-center rounded-full p-0 hover:bg-white/20"
                 style={{ color: formData.headerTextColor }}
                 onClick={(e) => {
@@ -302,6 +313,7 @@ export function ChatWidgetSurface({
                 <Minimize2 className="h-4 w-4" />
               </button>
               <button
+                aria-label="Close chat"
                 className="flex h-8 w-8 items-center justify-center rounded-full p-0 hover:bg-white/20"
                 style={{ color: formData.headerTextColor }}
                 onClick={(e) => {
@@ -476,7 +488,7 @@ export function ChatWidgetSurface({
                 style={{ color: formData.brandingTextColor || '#6B7280' }}
               >
                 {formData.brandingTextPrefix}{' '}
-                {formData.brandingUseLogo ? (
+                {formData.brandingUseLogo && formData.brandingLogo ? (
                   <img
                     src={formData.brandingLogo}
                     alt="Brand"

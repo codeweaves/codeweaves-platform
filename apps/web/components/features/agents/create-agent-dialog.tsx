@@ -107,8 +107,9 @@ export function CreateAgentDialog() {
               />
             </div>
             <div className="grid gap-2">
-              <Label>Organization</Label>
+              <Label htmlFor="agent-org">Organization</Label>
               <SearchableSelect
+                id="agent-org"
                 options={orgsData?.data.map((org) => ({
                   value: org.id,
                   label: org.name,
@@ -118,8 +119,7 @@ export function CreateAgentDialog() {
                 placeholder={orgsLoading ? 'Loading...' : 'Select organization'}
                 searchPlaceholder="Search organizations..."
                 emptyMessage="No organizations found"
-                disabled={createAgent.isPending}
-                triggerClassName="w-full"
+                disabled={createAgent.isPending || orgsLoading}
               />
             </div>
             {error && <p className="text-sm text-destructive">{error}</p>}

@@ -71,6 +71,7 @@ describe('AgentsService', () => {
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
     deletedAt: null,
+    organization: { id: orgId, name: 'Test Org' },
   };
 
   const adminUser: CurrentUserData = {
@@ -237,6 +238,7 @@ describe('AgentsService', () => {
           orderBy: { createdAt: 'desc' },
           skip: 0,
           take: 20,
+          include: { organization: { select: { id: true, name: true } } },
         }),
       );
     });
@@ -375,6 +377,7 @@ describe('AgentsService', () => {
       expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
         where: { id: agentId },
         data: { name: 'New Name' },
+        include: { organization: { select: { id: true, name: true } } },
       });
     });
 
@@ -456,6 +459,7 @@ describe('AgentsService', () => {
       expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
         where: { id: agentId },
         data: { allowedDomains: ['example.com', 'test.com'] },
+        include: { organization: { select: { id: true, name: true } } },
       });
     });
 
@@ -468,6 +472,7 @@ describe('AgentsService', () => {
       expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
         where: { id: agentId },
         data: { allowedDomains: [] },
+        include: { organization: { select: { id: true, name: true } } },
       });
     });
 
@@ -602,6 +607,7 @@ describe('AgentsService', () => {
       expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
         where: { id: agentId },
         data: { status: 'INACTIVE' },
+        include: { organization: { select: { id: true, name: true } } },
       });
     });
 
@@ -638,6 +644,7 @@ describe('AgentsService', () => {
       expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
         where: { id: agentId },
         data: { status: 'INACTIVE' },
+        include: { organization: { select: { id: true, name: true } } },
       });
     });
 

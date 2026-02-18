@@ -114,7 +114,19 @@ export class AgentsService {
   }
 
   async findById(id: string, user: CurrentUserData) {
-    const agent = await this.findByIdRaw(id, user);
+    const agent = await this.prisma.agent.findFirst({
+      where: {
+        id,
+        deletedAt: null,
+        ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
+      },
+      include: { organization: { select: { id: true, name: true } } },
+    });
+
+    if (!agent) {
+      throw new NotFoundException('Agent not found');
+    }
+
     return this.stripSensitiveFields(agent, user);
   }
 
@@ -143,6 +155,7 @@ export class AgentsService {
           ...(dto.status !== undefined && { status: dto.status }),
           ...(normalizedDomains !== undefined && { allowedDomains: normalizedDomains }),
         },
+        include: { organization: { select: { id: true, name: true } } },
       });
 
       // Audit: domain changes
@@ -331,7 +344,6 @@ export class AgentsService {
         deletedAt: null,
         ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
       },
-      include: { organization: { select: { id: true, name: true } } },
     });
 
     if (!agent) {

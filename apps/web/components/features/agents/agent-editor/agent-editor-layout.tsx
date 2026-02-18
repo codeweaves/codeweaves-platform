@@ -27,6 +27,7 @@ function AgentEditorContent() {
   const {
     agent,
     formData,
+    savedFormData,
     hasUnsavedChanges,
     resetToSaved,
     markSaved,
@@ -55,15 +56,16 @@ function AgentEditorContent() {
   // Scrollbar visibility for form area
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const scrollTimer = useRef<number | null>(null);
+  const aiReplyTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
 
-  // Collapse main sidebar on mount, restore on unmount
+  // Collapse main sidebar on mount, restore on unmount.
+  // `open` is intentionally captured once at mount — deps are [] so the closure is stable.
   useEffect(() => {
     const previousState = open;
     setOpen(false);
     return () => {
       setOpen(previousState);
     };
-    // Only run on mount/unmount
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
@@ -93,12 +95,12 @@ function AgentEditorContent() {
     setTitle(formData.name || agent.name);
     return () => {
       setTitle('');
-      setActions(null);
     };
-  }, [formData.name, agent.name, setTitle, setActions]);
+  }, [formData.name, agent.name, setTitle]);
 
   // Set page header actions (toggle + embed), update when status changes
   useEffect(() => {
+    const cleanup = () => setActions(null);
     setActions(
       <div className="flex items-center gap-4">
         <div className="flex items-center gap-2">
@@ -126,6 +128,7 @@ function AgentEditorContent() {
         <EmbedCodeDialog publicId={agent.publicId} />
       </div>,
     );
+    return cleanup;
   }, [status, statusPending, pendingDirection, agent.publicId, setActions]);
 
   // Update greeting in preview when welcomeMessage changes
@@ -151,10 +154,11 @@ function AgentEditorContent() {
     return () => window.removeEventListener('beforeunload', handleBeforeUnload);
   }, [hasUnsavedChanges]);
 
-  // Cleanup scroll timer on unmount
+  // Cleanup timers on unmount
   useEffect(() => {
     return () => {
       if (scrollTimer.current) window.clearTimeout(scrollTimer.current);
+      if (aiReplyTimer.current) clearTimeout(aiReplyTimer.current);
     };
   }, []);
 
@@ -195,7 +199,7 @@ function AgentEditorContent() {
     setPreviewMessages((prev) => [...prev, userMessage]);
 
     // Simulate AI response
-    setTimeout(() => {
+    aiReplyTimer.current = setTimeout(() => {
       const aiResponse: PreviewMessage = {
         type: 'system',
         text: 'Thanks for your message! This is a preview response from your chat agent.',
@@ -220,7 +224,7 @@ function AgentEditorContent() {
     setPreviewMessages([
       {
         type: 'system',
-        text: formData.welcomeMessage || 'Hello! How can I help you today?',
+        text: savedFormData.welcomeMessage || 'Hello! How can I help you today?',
         timestamp: new Date(),
       },
     ]);
@@ -230,6 +234,7 @@ function AgentEditorContent() {
   const previewFormData = toPreviewFormData(formData);
 
   return (
+    // -m-6 offsets the parent <main>'s p-6 padding for full-bleed editor layout
     <div className="-m-6 flex h-[calc(100vh-4rem)] overflow-hidden bg-gray-50">
       {/* Content area: Sidebar + Form + Preview */}
         {/* Config Sidebar */}
