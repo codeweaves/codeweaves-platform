@@ -7,6 +7,9 @@ import { z } from 'zod';
 // Re-export zod for convenience
 export { z } from 'zod';
 
+// Re-export theme schemas and types
+export * from './theme.js';
+
 // ============================================
 // Common Schemas
 // ============================================

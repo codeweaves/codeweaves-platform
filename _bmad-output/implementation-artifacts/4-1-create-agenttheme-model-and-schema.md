@@ -1,6 +1,6 @@
 # Story 4.1: Create AgentTheme Model and Schema
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -21,36 +21,36 @@ so that widget appearance settings can be stored and versioned per agent.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Define WidgetTheme Zod Schemas** (AC: 4, 5)
-  - [ ] 1.1 Create `packages/validation/src/theme.ts`
-  - [ ] 1.2 Define `iconConfigSchema` — position (left/right), backgroundColor, hoverBackgroundColor, size (40-80), borderRadius (0-50), customImageUrl (optional), shadow
-  - [ ] 1.3 Define `headerConfigSchema` — title, subtitle (optional), backgroundColor, textColor, subtitleColor, showLogo, logoUrl (optional)
-  - [ ] 1.4 Define `messageConfigSchema` — backgroundColor, textColor, borderRadius (0-24)
-  - [ ] 1.5 Define `avatarConfigSchema` — type (robot/machine/bot/support/custom), shape (circle/square/rounded), backgroundColor, color, customImageUrl (optional)
-  - [ ] 1.6 Define `inputConfigSchema` — backgroundColor, textColor, placeholderText, placeholderColor, borderColor, borderRadius (0-24)
-  - [ ] 1.7 Define `sendButtonConfigSchema` — backgroundColor, hoverBackgroundColor, iconColor, borderRadius (0-24)
-  - [ ] 1.8 Define `bodyConfigSchema` — backgroundColor
-  - [ ] 1.9 Define `bubbleConfigSchema` — enabled, text, backgroundColor, textColor, delayMs (number)
-  - [ ] 1.10 Define `typographyConfigSchema` — fontFamily, baseFontSize
-  - [ ] 1.11 Define `animationsConfigSchema` — transitionDuration, showTypingIndicator
-  - [ ] 1.12 Define `timestampsConfigSchema` — show, format (12h/24h), color
-  - [ ] 1.13 Define `starterSchema` and `startersConfigSchema` — array of `{ text, message }` max 4
-  - [ ] 1.14 Define `brandingConfigSchema` — enabled, textPrefix, useLogo, linkText, linkUrl, logo (optional), textColor, linkColor
-  - [ ] 1.15 Define root `widgetThemeSchema` composing all sub-schemas
-  - [ ] 1.16 Export `WidgetTheme` type from `z.infer`
-  - [ ] 1.17 Define and export `defaultWidgetTheme` constant with all default values
-  - [ ] 1.18 Re-export everything from `packages/validation/src/index.ts`
+- [x] **Task 1: Define WidgetTheme Zod Schemas** (AC: 4, 5)
+  - [x] 1.1 Create `packages/validation/src/theme.ts`
+  - [x] 1.2 Define `iconConfigSchema` — position (left/right), backgroundColor, hoverBackgroundColor, size (40-80), borderRadius (0-50), customImageUrl (optional), shadow
+  - [x] 1.3 Define `headerConfigSchema` — title, subtitle (optional), backgroundColor, textColor, subtitleColor, showLogo, logoUrl (optional)
+  - [x] 1.4 Define `messageConfigSchema` — backgroundColor, textColor, borderRadius (0-24)
+  - [x] 1.5 Define `avatarConfigSchema` — type (robot/machine/bot/support/custom/user), shape (circle/square/rounded), backgroundColor, color, customImageUrl (optional)
+  - [x] 1.6 Define `inputConfigSchema` — backgroundColor, textColor, placeholderText, placeholderColor, borderColor, borderRadius (0-24)
+  - [x] 1.7 Define `sendButtonConfigSchema` — backgroundColor, hoverBackgroundColor, iconColor, borderRadius (0-24)
+  - [x] 1.8 Define `bodyConfigSchema` — backgroundColor
+  - [x] 1.9 Define `bubbleConfigSchema` — enabled, text, backgroundColor, textColor, delayMs (number)
+  - [x] 1.10 Define `typographyConfigSchema` — fontFamily, baseFontSize
+  - [x] 1.11 Define `animationsConfigSchema` — transitionDuration, showTypingIndicator
+  - [x] 1.12 Define `timestampsConfigSchema` — show, format (12h/24h), color
+  - [x] 1.13 Define `starterSchema` and `startersConfigSchema` — array of `{ text, message }` max 4
+  - [x] 1.14 Define `brandingConfigSchema` — enabled, textPrefix, useLogo, linkText, linkUrl, logo (optional), textColor, linkColor
+  - [x] 1.15 Define root `widgetThemeSchema` composing all sub-schemas
+  - [x] 1.16 Export `WidgetTheme` type from `z.infer`
+  - [x] 1.17 Define and export `defaultWidgetTheme` constant with all default values
+  - [x] 1.18 Re-export everything from `packages/validation/src/index.ts`
 
-- [ ] **Task 2: Prisma Schema** (AC: 1, 2, 3, 6, 7, 8)
-  - [ ] 2.1 Add `AgentTheme` model to `schema.prisma` with all fields
-  - [ ] 2.2 Add `theme AgentTheme?` relation on `Agent` model
-  - [ ] 2.3 Add `@@map("agent_themes")` table mapping
-  - [ ] 2.4 Add `@@index([agentId])` index
-  - [ ] 2.5 Run `bunx prisma migrate dev --name add-agent-theme-model`
-  - [ ] 2.6 Verify generated migration SQL is correct
+- [x] **Task 2: Prisma Schema** (AC: 1, 2, 3, 6, 7, 8)
+  - [x] 2.1 Add `AgentTheme` model to `schema.prisma` with all fields
+  - [x] 2.2 Add `theme AgentTheme?` relation on `Agent` model
+  - [x] 2.3 Add `@@map("agent_themes")` table mapping
+  - [x] 2.4 Add `@@index([agentId])` index
+  - [x] 2.5 Run `bunx prisma migrate dev --name add-agent-theme-model`
+  - [x] 2.6 Verify generated migration SQL is correct
 
-- [ ] **Task 3: DTO Re-exports** (AC: 5)
-  - [ ] 3.1 Create `apps/api/src/models/agent-theme.dto.ts` re-exporting theme types from `@repo/validation`
+- [x] **Task 3: DTO Re-exports** (AC: 5)
+  - [x] 3.1 Create `apps/api/src/models/agent-theme.dto.ts` re-exporting theme types from `@repo/validation`
 
 ## Dev Notes
 
@@ -191,9 +191,36 @@ export const defaultWidgetTheme: WidgetTheme = {
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Fixed ESM import extension: `./theme` → `./theme.js` in `packages/validation/src/index.ts` (node16 moduleResolution requires `.js`)
+- Fixed lint warning: unused destructured `_` variable in test → `_icon` with eslint-disable comment
 
 ### Completion Notes List
+- Task 1: Created `packages/validation/src/theme.ts` with 15 Zod sub-schemas, root `widgetThemeSchema`, `WidgetTheme` type, and `defaultWidgetTheme` constant. Added `user` to avatar type enum to match existing defaults. Re-exported from `index.ts`. 48 unit tests written and passing.
+- Task 2: Added `AgentTheme` model to Prisma schema with UUID id, unique agentId FK, JSONB config, version (default 1), timestamps. Added `theme AgentTheme?` on Agent model. Cascade delete configured. Migration `20260220130545_add_agent_theme_model` applied successfully.
+- Task 3: Created `apps/api/src/models/agent-theme.dto.ts` re-exporting all 16 schemas and 15 types from `@repo/validation`.
+- All validations pass: lint (0 warnings), check-types, build, test:cov (616 tests, 33 suites, 0 failures).
+
+### Code Review Fixes (2026-02-20)
+- [FIXED][HIGH] Added `colorString` validator (min(1), max(50)) to all ~25 color fields — prevents empty strings and excessively long values
+- [FIXED][MED] Exported `partialWidgetThemeSchema` (deepPartial) and `PartialWidgetTheme` type for future PATCH operations (story 4-2)
+- [FIXED][LOW] Added `delayMs` upper bound (max 30000ms) to `bubbleConfigSchema`
+- [FIXED][LOW] Added tests: invalid `customImageUrl`, empty color rejection, `delayMs` max boundary, `partialWidgetThemeSchema` (5 new tests → 60 total)
+- [DEFERRED][MED] `defaultWidgetTheme` values diverge from `defaultPreviewFormData` in `agent-editor-context.tsx` (13+ differences: borderRadius, colors, text, font). The frontend flat structure will be refactored to use WidgetTheme in stories 4-7 through 4-10. No action needed now.
+- [DEFERRED][MED] `starters` uses `{ text, message }` objects vs frontend `string[]` — mapping needed in story 4-12 (theme save/reset)
+- [DEFERRED][MED] `userAvatarType: 'male'` in frontend is not in WidgetTheme enum (uses `'user'`). Frontend update in later story.
+- [FIXED][LOW] Added `cssValueString` validator (min(1), max(200)) for `shadow` field
+
+### Change Log
+- 2026-02-20: Story 4.1 implementation complete — WidgetTheme schemas, Prisma AgentTheme model, DTO re-exports
+- 2026-02-20: Code review fixes — color validation, partial schema, delayMs bound, 12 new test cases
 
 ### File List
+- `packages/validation/src/theme.ts` (NEW) — Zod schemas + defaultWidgetTheme + partialWidgetThemeSchema
+- `packages/validation/src/index.ts` (MODIFIED) — added re-export of theme.js
+- `apps/api/prisma/schema.prisma` (MODIFIED) — AgentTheme model + Agent.theme relation
+- `apps/api/prisma/migrations/20260220130545_add_agent_theme_model/migration.sql` (NEW) — migration SQL
+- `apps/api/src/models/agent-theme.dto.ts` (NEW) — DTO re-exports (incl. partialWidgetThemeSchema)
+- `apps/api/test/models/theme.validation.spec.ts` (NEW) — 60 unit tests
