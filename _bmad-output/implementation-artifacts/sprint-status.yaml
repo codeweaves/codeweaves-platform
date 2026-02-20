@@ -125,7 +125,7 @@ development_status:
   # Dependencies: Epic 0, Epic 3
   # ============================================
   epic-4: in-progress
-  4-1-create-agenttheme-model-and-schema: ready-for-dev
+  4-1-create-agenttheme-model-and-schema: done
   4-2-create-theme-api-endpoints: ready-for-dev
   4-3-implement-theme-editor-page-layout: done
   4-4-create-formsection-component: ready-for-dev
