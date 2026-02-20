@@ -101,4 +101,20 @@ export class AgentLoggerService {
       this.tracer.mergeJsonResponse({ response: { userId } }),
     );
   }
+
+  async logThemeUpdated(agentId: string, userId: string) {
+    await this.tracer.logAuditEvent(
+      agentId,
+      'AGENT_THEME_UPDATED',
+      this.tracer.mergeJsonResponse({ response: { userId } }),
+    );
+  }
+
+  async logThemeReset(agentId: string, userId: string) {
+    await this.tracer.logAuditEvent(
+      agentId,
+      'AGENT_THEME_RESET',
+      this.tracer.mergeJsonResponse({ response: { userId } }),
+    );
+  }
 }
