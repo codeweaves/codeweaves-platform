@@ -1,15 +1,34 @@
 'use client';
 
-import { useState, useEffect, useRef, useMemo } from 'react';
-import { Save, RotateCcw } from 'lucide-react';
+import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
+import { Save, RotateCcw, ChevronDown, Loader2, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
+import { defaultWidgetTheme } from '@repo/validation';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuTrigger,
+} from '@/components/ui/dropdown-menu';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
 import { useSidebar } from '@/components/ui/sidebar';
 import { usePageHeader } from '@/components/layout/page-header';
 import { useApiClient } from '@/lib/api-client';
 import { useUpdateAgent, type Agent } from '@/hooks/use-agents';
+import { useUpdateAgentTheme, useResetAgentTheme } from '@/hooks/use-agent-theme';
+import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning';
 import { EmbedCodeDialog } from '../embed-code-dialog';
 import { AgentEditorSidebar, type CategoryId } from './agent-editor-sidebar';
 import { AgentEditorForm } from './agent-editor-form';
@@ -36,6 +55,8 @@ function AgentEditorContent() {
   } = useAgentEditor();
   const api = useApiClient();
   const updateAgent = useUpdateAgent();
+  const updateTheme = useUpdateAgentTheme();
+  const resetTheme = useResetAgentTheme();
   const { setOpen, open } = useSidebar();
   const { setTitle, setActions } = usePageHeader();
 
@@ -45,6 +66,7 @@ function AgentEditorContent() {
   const [statusPending, setStatusPending] = useState(false);
   const [pendingDirection, setPendingDirection] = useState<'activating' | 'deactivating' | null>(null);
   const [saving, setSaving] = useState(false);
+  const [resetDefaultsOpen, setResetDefaultsOpen] = useState(false);
 
   // Preview messages state
   const [previewMessages, setPreviewMessages] = useState<PreviewMessage[]>([
@@ -145,16 +167,8 @@ function AgentEditorContent() {
     ]);
   }, [formData.welcomeMessage]);
 
-  // Warn about unsaved changes when leaving
-  useEffect(() => {
-    const handleBeforeUnload = (e: BeforeUnloadEvent) => {
-      if (hasUnsavedChanges) {
-        e.preventDefault();
-      }
-    };
-    window.addEventListener('beforeunload', handleBeforeUnload);
-    return () => window.removeEventListener('beforeunload', handleBeforeUnload);
-  }, [hasUnsavedChanges]);
+  // Warn about unsaved changes on tab close/refresh and client-side navigation
+  useUnsavedChangesWarning(hasUnsavedChanges);
 
   // Cleanup timers on unmount
   useEffect(() => {
@@ -164,7 +178,10 @@ function AgentEditorContent() {
     };
   }, []);
 
-  const handleSave = async () => {
+  // Ref for retry — always calls the latest handleSave without stale closure
+  const handleSaveRef = useRef<() => void>(undefined);
+
+  const handleSave = useCallback(async () => {
     setSaving(true);
     try {
       const payload: Record<string, unknown> = {
@@ -174,24 +191,53 @@ function AgentEditorContent() {
         allowedDomains: formData.allowedDomains,
       };
 
-      await updateAgent.mutateAsync({ id: agent.id, data: payload });
+      // Save agent config, webhook, and theme in parallel
+      const promises: Promise<unknown>[] = [
+        updateAgent.mutateAsync({ id: agent.id, data: payload }),
+      ];
 
-      // Save webhook separately if changed
-      if (formData.webhookUrl !== undefined) {
-        await api.patch(`/agents/${agent.id}/webhook`, {
-          webhookUrl: formData.webhookUrl || null,
-        });
+      if (formData.webhookUrl !== savedFormData.webhookUrl) {
+        promises.push(
+          api.patch(`/agents/${agent.id}/webhook`, {
+            webhookUrl: formData.webhookUrl || null,
+          }),
+        );
       }
 
-      // Save theme if changed
       if (hasThemeChanges) {
-        await api.patch(`/agents/${agent.id}/theme`, themeData);
+        promises.push(
+          updateTheme.mutateAsync({ agentId: agent.id, config: themeData }),
+        );
       }
+
+      await Promise.all(promises);
 
       markSaved(formData, themeData);
-      toast.success('Agent updated successfully');
+      toast.success('Changes saved successfully');
     } catch {
-      toast.error('Failed to save changes');
+      toast.error('Failed to save changes', {
+        action: {
+          label: 'Retry',
+          onClick: () => handleSaveRef.current?.(),
+        },
+      });
+    } finally {
+      setSaving(false);
+    }
+  }, [agent.id, formData, savedFormData.webhookUrl, hasThemeChanges, themeData, api, updateAgent, updateTheme, markSaved]);
+
+  handleSaveRef.current = handleSave;
+
+  const handleResetToDefaults = async () => {
+    setResetDefaultsOpen(false);
+    setSaving(true);
+    try {
+      const result = await resetTheme.mutateAsync({ agentId: agent.id });
+      const newTheme = result?.config ?? defaultWidgetTheme;
+      markSaved(formData, newTheme);
+      toast.success('Theme reset to defaults');
+    } catch {
+      toast.error('Failed to reset theme to defaults');
     } finally {
       setSaving(false);
     }
@@ -266,19 +312,56 @@ function AgentEditorContent() {
           {/* Sticky bottom action bar */}
           <div className="border-t border-gray-200 bg-white px-6 py-4 shadow-lg">
             <div className="flex justify-end gap-3">
-              <Button
-                variant="outline"
-                onClick={handleReset}
-                disabled={!hasUnsavedChanges || saving}
-              >
-                <RotateCcw className="mr-2 h-4 w-4" />
-                Reset
-              </Button>
+              {/* Reset button with dropdown for "Reset to Defaults" */}
+              <DropdownMenu>
+                <div className="flex">
+                  <Button
+                    variant="outline"
+                    onClick={handleReset}
+                    disabled={!hasUnsavedChanges || saving}
+                    className="rounded-r-none border-r-0"
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Reset
+                  </Button>
+                  <DropdownMenuTrigger asChild>
+                    <Button
+                      variant="outline"
+                      size="icon"
+                      className="rounded-l-none"
+                      disabled={saving}
+                    >
+                      <ChevronDown className="h-4 w-4" />
+                    </Button>
+                  </DropdownMenuTrigger>
+                </div>
+                <DropdownMenuContent align="end">
+                  <DropdownMenuItem
+                    onClick={handleReset}
+                    disabled={!hasUnsavedChanges}
+                  >
+                    <RotateCcw className="mr-2 h-4 w-4" />
+                    Reset to Last Saved
+                  </DropdownMenuItem>
+                  <DropdownMenuItem
+                    onClick={() => setResetDefaultsOpen(true)}
+                  >
+                    <RotateCw className="mr-2 h-4 w-4" />
+                    Reset to Defaults
+                  </DropdownMenuItem>
+                </DropdownMenuContent>
+              </DropdownMenu>
+
+              {/* Save button with loading state */}
               <Button
                 onClick={handleSave}
                 disabled={!hasUnsavedChanges || saving}
               >
-                <Save className="mr-2 h-4 w-4" />
+                {saving ? (
+                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                ) : (
+                  <Save className="mr-2 h-4 w-4" />
+                )}
                 {saving ? 'Saving...' : 'Save Changes'}
               </Button>
             </div>
@@ -293,6 +376,25 @@ function AgentEditorContent() {
             onSendMessage={handleSendPreviewMessage}
           />
         </div>
+
+      {/* Reset to Defaults confirmation dialog */}
+      <AlertDialog open={resetDefaultsOpen} onOpenChange={setResetDefaultsOpen}>
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Reset theme to defaults?</AlertDialogTitle>
+            <AlertDialogDescription>
+              This will reset all theme settings to their default values. This action
+              cannot be undone and your current theme customizations will be lost.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <AlertDialogFooter>
+            <AlertDialogCancel>Cancel</AlertDialogCancel>
+            <AlertDialogAction onClick={handleResetToDefaults}>
+              Reset to Defaults
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
     </div>
   );
 }

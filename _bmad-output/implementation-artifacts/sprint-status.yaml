@@ -124,20 +124,20 @@ development_status:
   # Stories: 13
   # Dependencies: Epic 0, Epic 3
   # ============================================
-  epic-4: in-progress
+  epic-4: done
   4-1-create-agenttheme-model-and-schema: done
   4-2-create-theme-api-endpoints: done
   4-3-implement-theme-editor-page-layout: done
   4-4-create-formsection-component: done
   4-5-create-colorpicker-component: done
   4-6-create-tabgroup-component: done
-  4-7-implement-general-settings-form: ready-for-dev
-  4-8-implement-header-settings-form: ready-for-dev
-  4-9-implement-chat-appearance-settings-form: ready-for-dev
-  4-10-implement-behavior-settings-form: ready-for-dev
+  4-7-implement-general-settings-form: done
+  4-8-implement-header-settings-form: done
+  4-9-implement-chat-appearance-settings-form: done
+  4-10-implement-behavior-settings-form: done
   4-11-implement-live-preview-component: done
-  4-12-implement-theme-save-and-reset: ready-for-dev
-  4-13-implement-branding-settings-form: ready-for-dev
+  4-12-implement-theme-save-and-reset: done
+  4-13-implement-branding-settings-form: done
   epic-4-retrospective: optional
 
   # ============================================

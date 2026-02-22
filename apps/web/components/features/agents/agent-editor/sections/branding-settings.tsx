@@ -5,15 +5,19 @@ import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAgentEditor } from '../agent-editor-context';
 import { useProfile } from '@/hooks/use-profile';
+import { FormSection } from '../form-section';
+import { ColorPicker } from '../color-picker';
 
 export function BrandingSettings() {
   const { profile } = useProfile();
-  const { formData, updateFormData } = useAgentEditor();
+  const { themeData, updateThemeData } = useAgentEditor();
 
   const isAdmin =
     profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
 
   if (!isAdmin) return null;
+
+  const branding = themeData.branding;
 
   return (
     <div className="space-y-6">
@@ -24,59 +28,130 @@ export function BrandingSettings() {
         </p>
       </div>
 
-      <div className="space-y-4">
-        <div className="flex items-center justify-between rounded-lg bg-muted/50 p-3">
-          <div>
-            <Label className="text-sm font-medium">Show Branding</Label>
-            <p className="text-xs text-muted-foreground">
-              Toggle to show or hide the branding footer
-            </p>
-          </div>
-          <Switch
-            checked={formData.brandingEnabled}
-            onCheckedChange={(v: boolean) => updateFormData('brandingEnabled', v)}
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-sm font-medium">Prefix Text</Label>
-          <Input
-            value={formData.brandingTextPrefix}
-            onChange={(e) =>
-              updateFormData('brandingTextPrefix', e.target.value)
-            }
-            placeholder="Powered by"
-          />
-        </div>
-
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Link Text</Label>
-            <Input
-              value={formData.brandingLinkText}
-              onChange={(e) =>
-                updateFormData('brandingLinkText', e.target.value)
+      {/* Branding Visibility */}
+      <FormSection
+        title="Branding Visibility"
+        description="Show or hide the branding footer in the widget"
+      >
+        <div className="grid grid-cols-3 items-center gap-4">
+          <Label className="text-sm font-medium">Show Branding</Label>
+          <div className="col-span-2">
+            <Switch
+              checked={branding.enabled}
+              onCheckedChange={(checked) =>
+                updateThemeData('branding.enabled', checked)
               }
-              placeholder="Codeweaves"
-            />
-          </div>
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Link URL</Label>
-            <Input
-              value={formData.brandingLinkUrl}
-              onChange={(e) =>
-                updateFormData('brandingLinkUrl', e.target.value)
-              }
-              placeholder="https://codeweaves.com"
             />
           </div>
         </div>
+      </FormSection>
 
-        <p className="text-xs text-muted-foreground">
-          Branding settings will be fully stored in the AgentTheme model
-          (Epic 4). For now, these fields are UI-only.
-        </p>
-      </div>
+      {branding.enabled && (
+        <>
+          {/* Text Prefix */}
+          <FormSection
+            title="Footer Text"
+            description="Prefix text displayed before the brand link"
+          >
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label className="text-sm font-medium">Text Prefix</Label>
+              <Input
+                value={branding.textPrefix}
+                onChange={(e) =>
+                  updateThemeData('branding.textPrefix', e.target.value)
+                }
+                placeholder="Powered by"
+                className="col-span-2"
+              />
+            </div>
+          </FormSection>
+
+          {/* Display Mode: Logo vs Text Link */}
+          <FormSection
+            title="Display Mode"
+            description="Choose between a logo image or text link"
+          >
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label className="text-sm font-medium">Use Logo</Label>
+              <div className="col-span-2">
+                <Switch
+                  checked={branding.useLogo}
+                  onCheckedChange={(checked) =>
+                    updateThemeData('branding.useLogo', checked)
+                  }
+                />
+              </div>
+            </div>
+
+            {branding.useLogo ? (
+              <div className="grid grid-cols-3 items-center gap-4">
+                <Label className="text-sm font-medium">Logo URL</Label>
+                <Input
+                  value={branding.logo ?? ''}
+                  onChange={(e) =>
+                    updateThemeData('branding.logo', e.target.value || undefined)
+                  }
+                  placeholder="https://example.com/logo.png"
+                  className="col-span-2"
+                />
+              </div>
+            ) : (
+              <>
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label className="text-sm font-medium">Link Text</Label>
+                  <Input
+                    value={branding.linkText}
+                    onChange={(e) =>
+                      updateThemeData('branding.linkText', e.target.value)
+                    }
+                    placeholder="CodeWeaves"
+                    className="col-span-2"
+                  />
+                </div>
+                <div className="grid grid-cols-3 items-center gap-4">
+                  <Label className="text-sm font-medium">Link URL</Label>
+                  <Input
+                    value={branding.linkUrl}
+                    onChange={(e) =>
+                      updateThemeData('branding.linkUrl', e.target.value)
+                    }
+                    placeholder="https://codeweaves.com"
+                    type="url"
+                    className="col-span-2"
+                  />
+                </div>
+              </>
+            )}
+          </FormSection>
+
+          {/* Colors */}
+          <FormSection
+            title="Branding Colors"
+            description="Text and link colors for the branding footer"
+          >
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label className="text-sm font-medium">Text Color</Label>
+              <ColorPicker
+                value={branding.textColor}
+                onChange={(color) =>
+                  updateThemeData('branding.textColor', color)
+                }
+                className="col-span-2"
+              />
+            </div>
+            <div className="grid grid-cols-3 items-center gap-4">
+              <Label className="text-sm font-medium">Link Color</Label>
+              <ColorPicker
+                value={branding.linkColor}
+                onChange={(color) =>
+                  updateThemeData('branding.linkColor', color)
+                }
+                className="col-span-2"
+              />
+            </div>
+          </FormSection>
+        </>
+      )}
     </div>
   );
 }

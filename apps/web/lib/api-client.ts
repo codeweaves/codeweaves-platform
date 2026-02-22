@@ -46,8 +46,12 @@ export function useApiClient() {
 
   return useMemo(() => ({
     get: (endpoint: string) => fetchWithAuth(endpoint, { method: 'GET' }),
-    post: (endpoint: string, data: unknown) => fetchWithAuth(endpoint, {
+    post: (endpoint: string, data?: unknown) => fetchWithAuth(endpoint, {
       method: 'POST',
+      body: data !== undefined ? JSON.stringify(data) : undefined,
+    }),
+    put: (endpoint: string, data: unknown) => fetchWithAuth(endpoint, {
+      method: 'PUT',
       body: JSON.stringify(data),
     }),
     patch: (endpoint: string, data: unknown) => fetchWithAuth(endpoint, {

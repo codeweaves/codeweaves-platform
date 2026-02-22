@@ -1,6 +1,6 @@
 # Story 4.9: Implement Chat Appearance Settings Form
 
-Status: complete
+Status: done
 
 ## Story
 
