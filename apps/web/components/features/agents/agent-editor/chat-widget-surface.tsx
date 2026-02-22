@@ -244,15 +244,32 @@ export function ChatWidgetSurface({
           role="button"
           tabIndex={0}
           aria-label="Open chat widget"
-          className={`pointer-events-auto absolute ${iconOnRight ? 'bottom-6 right-6' : 'bottom-6 left-6'} z-20 flex h-16 w-16 cursor-pointer items-center justify-center shadow-xl transition-all duration-300 hover:scale-110`}
+          className={`pointer-events-auto absolute ${iconOnRight ? 'bottom-6 right-6' : 'bottom-6 left-6'} z-20 flex cursor-pointer items-center justify-center transition-all duration-300`}
           style={{
             backgroundColor: formData.iconBg,
-            borderRadius: `${formData.iconBorderRadius || 14}px`,
+            borderRadius: `${formData.iconBorderRadius}%`,
+            width: `${formData.iconSize ?? 56}px`,
+            height: `${formData.iconSize ?? 56}px`,
+            boxShadow: formData.iconShadow || '0 4px 12px rgba(0,0,0,0.15)',
           }}
           onClick={handleOpen}
+          onMouseEnter={(e) => {
+            if (formData.iconHoverBg) e.currentTarget.style.backgroundColor = formData.iconHoverBg;
+          }}
+          onMouseLeave={(e) => {
+            e.currentTarget.style.backgroundColor = formData.iconBg;
+          }}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); } }}
         >
-          <MessageCircle className="h-7 w-7 text-white" />
+          {formData.iconCustomImage ? (
+            <img
+              src={formData.iconCustomImage}
+              alt="Chat"
+              className="h-3/5 w-3/5 rounded-full object-cover"
+            />
+          ) : (
+            <MessageCircle className="h-7 w-7 text-white" />
+          )}
         </div>
       )}
 
@@ -263,7 +280,7 @@ export function ChatWidgetSurface({
           style={{
             width: 380,
             height: isWindowMinimized ? 80 : 520,
-            borderRadius: `${formData.headerBorderRadius || 14}px`,
+            borderRadius: '14px',
             fontFamily: formData.fontFamily,
             fontSize: `${formData.defaultFontSize}px`,
           }}
@@ -279,7 +296,7 @@ export function ChatWidgetSurface({
             onClick={() => isWindowMinimized && onWindowMinimizedChange(false)}
           >
             <div className="flex items-center gap-3">
-              {formData.companyLogo && (
+              {formData.headerShowLogo && formData.companyLogo && (
                 <img
                   src={formData.companyLogo}
                   alt="Logo"
@@ -294,7 +311,10 @@ export function ChatWidgetSurface({
                   {formData.headerTitle}
                 </h4>
                 {formData.headerSubtitle && (
-                  <p className="text-xs opacity-90">
+                  <p
+                    className="text-xs"
+                    style={{ color: formData.headerSubtitleColor || 'inherit', opacity: formData.headerSubtitleColor ? 1 : 0.9 }}
+                  >
                     {formData.headerSubtitle}
                   </p>
                 )}
