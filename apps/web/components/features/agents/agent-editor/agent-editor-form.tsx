@@ -3,7 +3,7 @@
 import type { CategoryId } from './agent-editor-sidebar';
 import { GeneralSettings } from './sections/general-settings';
 import { AppearanceSettings } from './sections/appearance-settings';
-import { HeaderSettings } from './sections/header-settings';
+import { ChatSettings } from './sections/chat-settings';
 import { BehaviorSettings } from './sections/behavior-settings';
 import { PromptSettings } from './sections/prompt-settings';
 import { IntegrationSettings } from './sections/integration-settings';
@@ -19,8 +19,8 @@ export function AgentEditorForm({ selectedCategory }: AgentEditorFormProps) {
       return <GeneralSettings />;
     case 'appearance':
       return <AppearanceSettings />;
-    case 'header':
-      return <HeaderSettings />;
+    case 'chat':
+      return <ChatSettings />;
     case 'behavior':
       return <BehaviorSettings />;
     case 'prompt':

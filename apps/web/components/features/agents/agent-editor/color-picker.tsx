@@ -82,7 +82,7 @@ export function ColorPicker({
           <button
             type="button"
             className={cn(
-              'h-8 w-8 shrink-0 rounded-md border border-input shadow-xs',
+              'h-8 w-8 shrink-0 cursor-pointer rounded-md border border-input shadow-xs',
               disabled && 'pointer-events-none opacity-50',
             )}
             style={{ backgroundColor: value }}

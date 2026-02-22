@@ -7,10 +7,11 @@ import { useAgentEditor } from '../agent-editor-context';
 import { useProfile } from '@/hooks/use-profile';
 import { FormSection } from '../form-section';
 import { ColorPicker } from '../color-picker';
+import { ImageUpload } from '../image-upload';
 
 export function BrandingSettings() {
   const { profile } = useProfile();
-  const { themeData, updateThemeData } = useAgentEditor();
+  const { agent, themeData, updateThemeData } = useAgentEditor();
 
   const isAdmin =
     profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
@@ -84,16 +85,19 @@ export function BrandingSettings() {
             </div>
 
             {branding.useLogo ? (
-              <div className="grid grid-cols-3 items-center gap-4">
-                <Label className="text-sm font-medium">Logo URL</Label>
-                <Input
-                  value={branding.logo ?? ''}
-                  onChange={(e) =>
-                    updateThemeData('branding.logo', e.target.value || undefined)
-                  }
-                  placeholder="https://example.com/logo.png"
-                  className="col-span-2"
-                />
+              <div className="grid grid-cols-3 items-start gap-4">
+                <Label className="pt-2 text-sm font-medium">Brand Logo</Label>
+                <div className="col-span-2">
+                  <ImageUpload
+                    value={branding.logo}
+                    onUpload={(url) => updateThemeData('branding.logo', url)}
+                    onRemove={() => updateThemeData('branding.logo', undefined)}
+                    agentId={agent.id}
+                    purpose="brand-logo"
+                    previewShape="square"
+                    hint="Logo will not be a hyperlink."
+                  />
+                </div>
               </div>
             ) : (
               <>

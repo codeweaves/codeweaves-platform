@@ -15,7 +15,7 @@ import { useProfile } from '@/hooks/use-profile';
 export type CategoryId =
   | 'general'
   | 'appearance'
-  | 'header'
+  | 'chat'
   | 'behavior'
   | 'prompt'
   | 'integration'
@@ -34,7 +34,7 @@ const allCategories: Category[] = [
     id: 'general',
     title: 'General',
     icon: <FileText className="h-5 w-5" />,
-    description: 'Name, position, typography, and icon',
+    description: 'Name and client mapping',
   },
   {
     id: 'appearance',
@@ -43,10 +43,10 @@ const allCategories: Category[] = [
     description: 'Colors, icons, and visual styling',
   },
   {
-    id: 'header',
-    title: 'Header',
+    id: 'chat',
+    title: 'Chat Interface',
     icon: <MessageCircle className="h-5 w-5" />,
-    description: 'Title, subtitle, logo, and header colors',
+    description: 'Messages, avatars, and chat layout',
   },
   {
     id: 'behavior',
