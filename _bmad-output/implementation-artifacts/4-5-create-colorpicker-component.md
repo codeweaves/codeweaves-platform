@@ -1,6 +1,6 @@
 # Story 4.5: Create ColorPicker Component
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -21,22 +21,22 @@ so that users can select colors for theme settings visually and precisely.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Install Color Picker Library** (AC: 4)
-  - [ ] 1.1 Run `cd apps/web && bun add react-colorful` (3KB, no deps, tree-shakeable)
+- [x] **Task 1: Install Color Picker Library** (AC: 4)
+  - [x] 1.1 Run `cd apps/web && bun add react-colorful` (3KB, no deps, tree-shakeable)
 
-- [ ] **Task 2: Install Shadcn Popover** (AC: 2, 7)
-  - [ ] 2.1 Run `bunx shadcn@latest add popover` (if not already installed)
+- [x] **Task 2: Install Shadcn Popover** (AC: 2, 7)
+  - [x] 2.1 Popover already installed — verified present at `apps/web/components/ui/popover.tsx`
 
-- [ ] **Task 3: Build ColorPicker Component** (AC: 1-8)
-  - [ ] 3.1 Create `apps/web/components/features/agents/agent-editor/color-picker.tsx`
-  - [ ] 3.2 Render color swatch button (24x24 rounded square with border)
-  - [ ] 3.3 Wrap picker in Shadcn Popover
-  - [ ] 3.4 Use `HexColorPicker` from react-colorful inside popover
-  - [ ] 3.5 Add hex input field below picker with `#` prefix
-  - [ ] 3.6 Validate hex input on blur — reject invalid, revert to previous value
-  - [ ] 3.7 Debounce onChange by 100ms to avoid excessive re-renders during drag
-  - [ ] 3.8 Add `label` prop for use with `<Label>`
-  - [ ] 3.9 Support `disabled` state
+- [x] **Task 3: Build ColorPicker Component** (AC: 1-8)
+  - [x] 3.1 Create `apps/web/components/features/agents/agent-editor/color-picker.tsx`
+  - [x] 3.2 Render color swatch button (24x24 rounded square with border)
+  - [x] 3.3 Wrap picker in Shadcn Popover
+  - [x] 3.4 Use `HexColorPicker` from react-colorful inside popover
+  - [x] 3.5 Add hex input field below picker with `#` prefix
+  - [x] 3.6 Validate hex input on blur — reject invalid, revert to previous value
+  - [x] 3.7 Debounce onChange by 100ms to avoid excessive re-renders during drag
+  - [x] 3.8 Add `label` prop for use with `<Label>`
+  - [x] 3.9 Support `disabled` state
 
 ## Dev Notes
 
@@ -136,9 +136,27 @@ export function ColorPicker({ value, onChange, disabled, className }: ColorPicke
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Type check initially failed on tab-group.tsx (sibling story) — fixed array access guard
 
 ### Completion Notes List
+- Installed react-colorful@5.6.1 (3KB, zero deps)
+- Popover was already installed — skipped reinstall
+- Built ColorPicker with: swatch button, HexColorPicker in Popover, hex Input with validation
+- Debounced picker onChange by 100ms via useRef timeout
+- Invalid hex reverted on blur (AC8)
+- **Code Review Fixes (2026-02-22):** 4 issues fixed
+  - [HIGH] Removed internal Label rendering — label prop now only drives aria-label for accessibility; external Label in grid layout is the correct pattern (AC6)
+  - [MED] Debounce now flushes pending color on unmount via pendingColorRef — no more lost final color
+  - [MED] HexColorPicker now uses localHex instead of value — eliminates thumb snap-back during drag
+  - [LOW] Hex display span now shows localHex for real-time feedback during typing
+- Syncs localHex with value prop via useEffect
+- Supports label, disabled, className props
+- All validations pass: lint, check-types, build, test:cov (655 tests)
 
 ### File List
+- `apps/web/package.json` (modified — added react-colorful dependency)
+- `apps/web/components/features/agents/agent-editor/color-picker.tsx` (new)
+- `bun.lock` (modified)
