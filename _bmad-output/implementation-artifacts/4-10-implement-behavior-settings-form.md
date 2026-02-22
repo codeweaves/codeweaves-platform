@@ -1,6 +1,6 @@
 # Story 4.10: Implement Behavior Settings Form
 
-Status: ready-for-dev
+Status: complete
 
 ## Story
 
@@ -20,21 +20,21 @@ so that the chat experience matches my engagement goals.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Replace Behavior Settings Section** (AC: 1-7)
-  - [ ] 1.1 Update `apps/web/components/features/agents/agent-editor/sections/behavior-settings.tsx`
-  - [ ] 1.2 Add FormSection "Greeting" with textarea for greeting message
-  - [ ] 1.3 Add FormSection "Conversational Starters" with:
+- [x] **Task 1: Replace Behavior Settings Section** (AC: 1-7)
+  - [x] 1.1 Update `apps/web/components/features/agents/agent-editor/sections/behavior-settings.tsx`
+  - [x] 1.2 Add FormSection "Greeting" with textarea for greeting message
+  - [x] 1.3 Add FormSection "Conversational Starters" with:
     - Dynamic list of starter items (up to 4)
     - Each item: Input for display text + Input for message
     - Add button (when < 4 items)
     - Remove button per item
-  - [ ] 1.4 Add FormSection "Bubble Notification" with:
+  - [x] 1.4 Add FormSection "Bubble Notification" with:
     - Switch to enable/disable
     - Input for bubble text
     - ColorPicker for background
     - ColorPicker for text color
     - Number input for delay (milliseconds)
-  - [ ] 1.5 Add FormSection "Animations" with:
+  - [x] 1.5 Add FormSection "Animations" with:
     - Switch for typing indicator
     - Number input for transition duration (ms)
 
@@ -148,9 +148,22 @@ const updateStarter = (index: number, field: 'text' | 'message', value: string) 
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+N/A
 
 ### Completion Notes List
+- Replaced placeholder with full behavior settings form
+- Greeting section uses Textarea bound to `formData.welcomeMessage` (Agent-level greeting)
+- Conversational Starters: dynamic list (max 4) with add/remove, each item has display text + message fields
+- Bubble Notification: toggle with conditional fields (text, bg color, text color, delay ms)
+- Animations: typing indicator toggle + transition duration number input
+- Drag-to-reorder (AC3 nice-to-have) deferred — add/remove implemented
+- All controls use `updateThemeData` for immediate preview (AC7)
+- [Review Fix H1] Greeting textarea now binds to `formData.welcomeMessage` instead of `themeData.header.title` (was overwriting header title)
+- [Review Fix H2] Removed useless `useCallback` wrappers on starter helpers (starters ref changes every render)
+- [Review Fix M3] Number inputs (delayMs, transitionDuration) now clamp values to valid Zod schema ranges
 
 ### File List
+- `apps/web/components/features/agents/agent-editor/sections/behavior-settings.tsx`

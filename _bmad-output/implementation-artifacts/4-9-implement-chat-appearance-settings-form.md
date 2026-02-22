@@ -1,6 +1,6 @@
 # Story 4.9: Implement Chat Appearance Settings Form
 
-Status: ready-for-dev
+Status: complete
 
 ## Story
 
@@ -23,19 +23,19 @@ so that conversations look on-brand and professional.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Replace Appearance Settings Section** (AC: 1-10)
-  - [ ] 1.1 Update `apps/web/components/features/agents/agent-editor/sections/appearance-settings.tsx`
-  - [ ] 1.2 Add TabGroup with "User Messages" and "Bot Messages" tabs
-  - [ ] 1.3 User Messages tab:
+- [x] **Task 1: Replace Appearance Settings Section** (AC: 1-10)
+  - [x] 1.1 Update `apps/web/components/features/agents/agent-editor/sections/appearance-settings.tsx`
+  - [x] 1.2 Add TabGroup with "User Messages" and "Bot Messages" tabs
+  - [x] 1.3 User Messages tab:
     - FormSection "Message Style" — ColorPicker bg, ColorPicker text, Slider border radius
     - FormSection "Avatar" — Select type, Select shape, ColorPicker bg, ColorPicker icon color, Input custom image URL
-  - [ ] 1.4 Bot Messages tab:
+  - [x] 1.4 Bot Messages tab:
     - FormSection "Message Style" — same controls as user
     - FormSection "Avatar" — same controls as user
-  - [ ] 1.5 Add FormSection "Chat Body" — ColorPicker background
-  - [ ] 1.6 Add FormSection "Timestamps" — Switch show/hide, Select format (12h/24h), ColorPicker color
-  - [ ] 1.7 Add FormSection "Input Field" — ColorPicker bg, ColorPicker text, Input placeholder, ColorPicker border, Slider border radius
-  - [ ] 1.8 Add FormSection "Send Button" — ColorPicker bg, ColorPicker hover bg, ColorPicker icon color, Slider border radius
+  - [x] 1.5 Add FormSection "Chat Body" — ColorPicker background
+  - [x] 1.6 Add FormSection "Timestamps" — Switch show/hide, Select format (12h/24h), ColorPicker color
+  - [x] 1.7 Add FormSection "Input Field" — ColorPicker bg, ColorPicker text, Input placeholder, ColorPicker border, Slider border radius
+  - [x] 1.8 Add FormSection "Send Button" — ColorPicker bg, ColorPicker hover bg, ColorPicker icon color, Slider border radius
 
 ## Dev Notes
 
@@ -110,9 +110,21 @@ const AVATAR_SHAPES = [
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+N/A
 
 ### Completion Notes List
+- Replaced placeholder with full appearance settings form
+- Split user/bot message controls into a shared `MessageControls` sub-component to keep file under 300 lines
+- TabGroup switches between User Messages and Bot Messages tabs (AC9)
+- Each tab shows Message Style (bg, text, border-radius) + Avatar (type, shape, bg, icon color, custom URL)
+- Custom image URL field only shown when avatar type is "custom"
+- Chat Body, Timestamps, Input Field, Send Button sections all implemented with conditional rendering for timestamp fields
+- All controls use `updateThemeData` dot-path API for immediate live preview (AC10)
+- [Review Fix M1] Moved MESSAGE_TABS JSX into component scope via useMemo to avoid module-level React elements
+- [Review Fix M2] MessageControls now receives themeData/updateThemeData as props instead of calling useAgentEditor() independently
 
 ### File List
+- `apps/web/components/features/agents/agent-editor/sections/appearance-settings.tsx`
