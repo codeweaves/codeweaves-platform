@@ -1,6 +1,6 @@
 # Story 4.13: Implement Branding Settings Form
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -23,11 +23,11 @@ so that the widget attribution can be customized to match my brand guidelines.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Replace Branding Settings Section** (AC: 1-10)
-  - [ ] 1.1 Update `apps/web/components/features/agents/agent-editor/sections/branding-settings.tsx`
-  - [ ] 1.2 Move branding data from `AgentFormData` to `themeData.branding`
-  - [ ] 1.3 Add FormSection "Branding Visibility" with enable/disable switch
-  - [ ] 1.4 When enabled, show:
+- [x] **Task 1: Replace Branding Settings Section** (AC: 1-10)
+  - [x] 1.1 Update `apps/web/components/features/agents/agent-editor/sections/branding-settings.tsx`
+  - [x] 1.2 Move branding data from `AgentFormData` to `themeData.branding`
+  - [x] 1.3 Add FormSection "Branding Visibility" with enable/disable switch
+  - [x] 1.4 When enabled, show:
     - Input for text prefix ("Powered by")
     - Toggle: Logo mode vs Text link mode
     - If text link: Input for link text + Input for link URL
@@ -35,10 +35,10 @@ so that the widget attribution can be customized to match my brand guidelines.
     - ColorPicker for text color
     - ColorPicker for link color
 
-- [ ] **Task 2: Migrate Branding from AgentFormData** (AC: all)
-  - [ ] 2.1 Remove branding fields from `AgentFormData` (they were placeholders)
-  - [ ] 2.2 Branding now lives in `themeData.branding` (from WidgetTheme schema)
-  - [ ] 2.3 Update `toPreviewFormData()` to read branding from `themeData.branding`
+- [x] **Task 2: Migrate Branding from AgentFormData** (AC: all)
+  - [x] 2.1 Remove branding fields from `AgentFormData` (they were placeholders)
+  - [x] 2.2 Branding now lives in `themeData.branding` (from WidgetTheme schema)
+  - [x] 2.3 Update `toPreviewFormData()` to read branding from `themeData.branding`
 
 ## Dev Notes
 
@@ -134,9 +134,15 @@ Remove these from `AgentFormData` and update all references.
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+None — no issues encountered.
 
 ### Completion Notes List
+- Task 1: Completely rewrote `branding-settings.tsx` to use `themeData.branding` via `updateThemeData()`. Added FormSections for: Branding Visibility (enabled toggle), Footer Text (textPrefix input), Display Mode (useLogo toggle with conditional logo URL or link text/URL fields), Branding Colors (textColor and linkColor ColorPickers). All fields conditionally rendered when branding is enabled. Admin-only guard preserved.
+- Task 2: Removed 4 placeholder branding fields (`brandingEnabled`, `brandingTextPrefix`, `brandingLinkText`, `brandingLinkUrl`) from `AgentFormData` interface and `agentToFormData()`. `toPreviewFormData()` already mapped from `themeData.branding` — no changes needed. `chat-widget-surface.tsx` uses `PreviewFormData` (not `AgentFormData`) — no changes needed.
 
 ### File List
+- `apps/web/components/features/agents/agent-editor/sections/branding-settings.tsx` (modified — full rewrite)
+- `apps/web/components/features/agents/agent-editor/agent-editor-context.tsx` (modified — removed branding fields from AgentFormData)

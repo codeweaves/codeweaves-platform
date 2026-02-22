@@ -18,11 +18,6 @@ export interface AgentFormData {
   welcomeMessage: string;
   allowedDomains: string[];
   webhookUrl: string;
-  // Branding (placeholder — stored in AgentTheme in Epic 4)
-  brandingEnabled: boolean;
-  brandingTextPrefix: string;
-  brandingLinkText: string;
-  brandingLinkUrl: string;
 }
 
 interface AgentEditorContextType {
@@ -255,10 +250,6 @@ export function agentToFormData(
     welcomeMessage: agent.welcomeMessage ?? '',
     allowedDomains: agent.allowedDomains ?? [],
     webhookUrl,
-    brandingEnabled: true,
-    brandingTextPrefix: 'Powered by',
-    brandingLinkText: 'Codeweaves',
-    brandingLinkUrl: 'https://codeweaves.com',
   };
 }
 
