@@ -129,8 +129,8 @@ development_status:
   4-2-create-theme-api-endpoints: done
   4-3-implement-theme-editor-page-layout: done
   4-4-create-formsection-component: done
-  4-5-create-colorpicker-component: ready-for-dev
-  4-6-create-tabgroup-component: ready-for-dev
+  4-5-create-colorpicker-component: done
+  4-6-create-tabgroup-component: done
   4-7-implement-general-settings-form: ready-for-dev
   4-8-implement-header-settings-form: ready-for-dev
   4-9-implement-chat-appearance-settings-form: ready-for-dev
