@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useMemo } from 'react';
 import { Save, RotateCcw } from 'lucide-react';
 import { toast } from 'sonner';
 import { Button } from '@/components/ui/button';
@@ -28,6 +28,8 @@ function AgentEditorContent() {
     agent,
     formData,
     savedFormData,
+    themeData,
+    hasThemeChanges,
     hasUnsavedChanges,
     resetToSaved,
     markSaved,
@@ -181,7 +183,12 @@ function AgentEditorContent() {
         });
       }
 
-      markSaved(formData);
+      // Save theme if changed
+      if (hasThemeChanges) {
+        await api.patch(`/agents/${agent.id}/theme`, themeData);
+      }
+
+      markSaved(formData, themeData);
       toast.success('Agent updated successfully');
     } catch {
       toast.error('Failed to save changes');
@@ -230,8 +237,11 @@ function AgentEditorContent() {
     ]);
   };
 
-  // Build preview form data with defaults for theme fields
-  const previewFormData = toPreviewFormData(formData);
+  // Build preview form data from agent form + theme data
+  const previewFormData = useMemo(
+    () => toPreviewFormData(formData, themeData),
+    [formData, themeData],
+  );
 
   return (
     // -m-6 offsets the parent <main>'s p-6 padding for full-bleed editor layout
@@ -291,16 +301,18 @@ function AgentEditorContent() {
 interface AgentEditorLayoutProps {
   agent: Agent;
   webhookUrl?: string;
+  initialThemeData?: import('@repo/validation').WidgetTheme;
 }
 
 export function AgentEditorLayout({
   agent,
   webhookUrl,
+  initialThemeData,
 }: AgentEditorLayoutProps) {
   const initialFormData: AgentFormData = agentToFormData(agent, webhookUrl);
 
   return (
-    <AgentEditorProvider agent={agent} initialFormData={initialFormData}>
+    <AgentEditorProvider agent={agent} initialFormData={initialFormData} initialThemeData={initialThemeData}>
       <AgentEditorContent />
     </AgentEditorProvider>
   );

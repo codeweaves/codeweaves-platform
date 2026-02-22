@@ -9,6 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Agent } from '@/hooks/use-agents';
+import { type WidgetTheme, defaultWidgetTheme } from '@repo/validation';
 
 export interface AgentFormData {
   name: string;
@@ -32,9 +33,13 @@ interface AgentEditorContextType {
     field: K,
     value: AgentFormData[K],
   ) => void;
+  themeData: WidgetTheme;
+  savedThemeData: WidgetTheme;
+  updateThemeData: (path: string, value: unknown) => void;
+  hasThemeChanges: boolean;
   hasUnsavedChanges: boolean;
   resetToSaved: () => void;
-  markSaved: (data: AgentFormData) => void;
+  markSaved: (data: AgentFormData, theme?: WidgetTheme) => void;
 }
 
 const AgentEditorContext = createContext<AgentEditorContextType | undefined>(
@@ -72,6 +77,23 @@ function deepEqual(a: unknown, b: unknown): boolean {
   );
 }
 
+/** Immutable dot-path setter — shallow-copies only the affected path segments. */
+function setNestedValue<T>(obj: T, path: string, value: unknown): T {
+  const keys = path.split('.');
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const result = { ...obj } as any;
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  let current: any = result;
+  for (let i = 0; i < keys.length - 1; i++) {
+    const key = keys[i] as string;
+    current[key] = { ...current[key] };
+    current = current[key];
+  }
+  const lastKey = keys[keys.length - 1] as string;
+  current[lastKey] = value;
+  return result as T;
+}
+
 /** Full form data shape used by the ChatWidgetSurface preview.
  *  Fields not yet persisted are filled with defaults by `toPreviewFormData`. */
 export interface PreviewFormData {
@@ -81,8 +103,12 @@ export interface PreviewFormData {
   domains: string[];
   // Appearance
   iconBg: string;
+  iconHoverBg: string;
   iconPosition: 'left' | 'right';
+  iconSize: number;
   iconBorderRadius: number;
+  iconShadow: string;
+  iconCustomImage: string;
   bubbleText: string;
   bubbleBg: string;
   bubbleTextColor: string;
@@ -92,9 +118,10 @@ export interface PreviewFormData {
   headerTitle: string;
   headerSubtitle: string;
   companyLogo: string;
+  headerShowLogo: boolean;
   headerBg: string;
   headerTextColor: string;
-  headerBorderRadius: number;
+  headerSubtitleColor: string;
   // Chat Interface
   botAvatarType: 'robot' | 'machine' | 'bot' | 'support' | 'custom';
   botCustomImage: string;
@@ -139,74 +166,82 @@ export interface PreviewFormData {
   brandingLinkColor: string;
 }
 
-const previewDefaults: Omit<PreviewFormData, 'name' | 'greetingMessage' | 'webhookUrl' | 'domains'> = {
-  iconBg: '#3B82F6',
-  iconPosition: 'right',
-  iconBorderRadius: 14,
-  bubbleText: 'Need help?',
-  bubbleBg: '#3B82F6',
-  bubbleTextColor: '#FFFFFF',
-  bubbleShowDelay: 3,
-  bubbleSound: true,
-  headerTitle: 'Chat Support',
-  headerSubtitle: "We're here to help",
-  companyLogo: '',
-  headerBg: '#3B82F6',
-  headerTextColor: '#FFFFFF',
-  headerBorderRadius: 14,
-  botAvatarType: 'robot',
-  botCustomImage: '',
-  botAvatarShape: 'circle',
-  botAvatarBg: '#3B82F6',
-  botAvatarColor: '#FFFFFF',
-  userAvatarType: 'male',
-  userAvatarShape: 'circle',
-  userAvatarBg: '#3B82F6',
-  userAvatarColor: '#FFFFFF',
-  userCustomImage: '',
-  userMessageBg: '#3B82F6',
-  userMessageTextColor: '#FFFFFF',
-  userMessageBorderRadius: 14,
-  systemMessageBg: '#F3F4F6',
-  systemMessageTextColor: '#1F2937',
-  systemMessageBorderRadius: 14,
-  chatBodyBg: '#F9FAFB',
-  timestampColor: '#6B7280',
-  showTimestamp: true,
-  inputBg: '#FFFFFF',
-  inputPlaceholder: 'Type your message...',
-  inputTextColor: '#6B7280',
-  inputBorderRadius: 14,
-  sendButtonBg: '#3B82F6',
-  sendButtonBorderRadius: 14,
-  sendButtonIconColor: '#FFFFFF',
-  fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-  defaultFontSize: 16,
-  typingIndicator: true,
-  conversationalStarters: ['How can I help you?', 'What would you like to know?', 'Need assistance?'],
-  brandingEnabled: true,
-  brandingTextPrefix: 'Powered by',
-  brandingUseLogo: false,
-  brandingLinkText: 'Codeweaves',
-  brandingLinkUrl: 'https://codeweaves.com',
-  brandingLogo: '',
-  brandingTextColor: '#6B7280',
-  brandingLinkColor: '#2563EB',
-};
-
-/** Maps our lean AgentFormData to the full PreviewFormData shape for the chat widget preview. */
-export function toPreviewFormData(formData: AgentFormData): PreviewFormData {
+/** Maps AgentFormData + WidgetTheme to the full PreviewFormData shape for the chat widget preview. */
+export function toPreviewFormData(formData: AgentFormData, themeData: WidgetTheme): PreviewFormData {
   return {
-    ...previewDefaults,
     name: formData.name,
     greetingMessage: formData.welcomeMessage || 'Hello! How can I help you today?',
     webhookUrl: formData.webhookUrl,
     domains: formData.allowedDomains,
-    // Override branding from our form data
-    brandingEnabled: formData.brandingEnabled,
-    brandingTextPrefix: formData.brandingTextPrefix,
-    brandingLinkText: formData.brandingLinkText,
-    brandingLinkUrl: formData.brandingLinkUrl,
+    // Icon
+    iconBg: themeData.icon.backgroundColor,
+    iconHoverBg: themeData.icon.hoverBackgroundColor,
+    iconPosition: themeData.icon.position,
+    iconSize: themeData.icon.size,
+    iconBorderRadius: themeData.icon.borderRadius,
+    iconShadow: themeData.icon.shadow,
+    iconCustomImage: themeData.icon.customImageUrl ?? '',
+    // Bubble
+    bubbleText: themeData.bubble.text,
+    bubbleBg: themeData.bubble.backgroundColor,
+    bubbleTextColor: themeData.bubble.textColor,
+    bubbleShowDelay: themeData.bubble.delayMs,
+    bubbleSound: true,
+    // Header
+    headerTitle: themeData.header.title,
+    headerSubtitle: themeData.header.subtitle ?? '',
+    companyLogo: themeData.header.logoUrl ?? '',
+    headerShowLogo: themeData.header.showLogo,
+    headerBg: themeData.header.backgroundColor,
+    headerTextColor: themeData.header.textColor,
+    headerSubtitleColor: themeData.header.subtitleColor,
+    // Bot messages
+    botAvatarType: themeData.botAvatar.type as PreviewFormData['botAvatarType'],
+    botCustomImage: themeData.botAvatar.customImageUrl ?? '',
+    botAvatarShape: themeData.botAvatar.shape,
+    botAvatarBg: themeData.botAvatar.backgroundColor,
+    botAvatarColor: themeData.botAvatar.color,
+    systemMessageBg: themeData.botMessage.backgroundColor,
+    systemMessageTextColor: themeData.botMessage.textColor,
+    systemMessageBorderRadius: themeData.botMessage.borderRadius,
+    // User messages
+    userAvatarType: themeData.userAvatar.type,
+    userAvatarShape: themeData.userAvatar.shape,
+    userAvatarBg: themeData.userAvatar.backgroundColor,
+    userAvatarColor: themeData.userAvatar.color,
+    userCustomImage: themeData.userAvatar.customImageUrl ?? '',
+    userMessageBg: themeData.userMessage.backgroundColor,
+    userMessageTextColor: themeData.userMessage.textColor,
+    userMessageBorderRadius: themeData.userMessage.borderRadius,
+    // Body
+    chatBodyBg: themeData.body.backgroundColor,
+    // Timestamps
+    timestampColor: themeData.timestamps.color,
+    showTimestamp: themeData.timestamps.show,
+    // Input
+    inputBg: themeData.input.backgroundColor,
+    inputPlaceholder: themeData.input.placeholderText,
+    inputTextColor: themeData.input.textColor,
+    inputBorderRadius: themeData.input.borderRadius,
+    // Send button
+    sendButtonBg: themeData.sendButton.backgroundColor,
+    sendButtonBorderRadius: themeData.sendButton.borderRadius,
+    sendButtonIconColor: themeData.sendButton.iconColor,
+    // Typography
+    fontFamily: themeData.typography.fontFamily,
+    defaultFontSize: themeData.typography.baseFontSize,
+    // Behavior
+    typingIndicator: themeData.animations.showTypingIndicator,
+    conversationalStarters: themeData.starters.map((s) => s.text),
+    // Branding
+    brandingEnabled: themeData.branding.enabled,
+    brandingTextPrefix: themeData.branding.textPrefix,
+    brandingUseLogo: themeData.branding.useLogo,
+    brandingLinkText: themeData.branding.linkText,
+    brandingLinkUrl: themeData.branding.linkUrl,
+    brandingLogo: themeData.branding.logo ?? '',
+    brandingTextColor: themeData.branding.textColor,
+    brandingLinkColor: themeData.branding.linkColor,
   };
 }
 
@@ -231,16 +266,22 @@ interface AgentEditorProviderProps {
   children: ReactNode;
   agent: Agent;
   initialFormData: AgentFormData;
+  initialThemeData?: WidgetTheme;
 }
 
 export function AgentEditorProvider({
   children,
   agent,
   initialFormData,
+  initialThemeData = defaultWidgetTheme,
 }: AgentEditorProviderProps) {
   const [savedFormData, setSavedFormData] =
     useState<AgentFormData>(initialFormData);
   const [formData, setFormData] = useState<AgentFormData>(initialFormData);
+
+  const [savedThemeData, setSavedThemeData] =
+    useState<WidgetTheme>(initialThemeData);
+  const [themeData, setThemeData] = useState<WidgetTheme>(initialThemeData);
 
   const updateFormData = useCallback(
     <K extends keyof AgentFormData>(field: K, value: AgentFormData[K]) => {
@@ -249,32 +290,62 @@ export function AgentEditorProvider({
     [],
   );
 
+  const updateThemeData = useCallback(
+    (path: string, value: unknown) => {
+      setThemeData((prev) => setNestedValue(prev, path, value));
+    },
+    [],
+  );
+
+  // NOTE: deepEqual traverses the full WidgetTheme tree on every theme state change.
+  // If perf becomes an issue, consider a dirty flag set by updateThemeData instead.
+  const hasThemeChanges = useMemo(
+    () => !deepEqual(themeData, savedThemeData),
+    [themeData, savedThemeData],
+  );
+
   const hasUnsavedChanges = useMemo(
-    () => !deepEqual(formData, savedFormData),
-    [formData, savedFormData],
+    () => !deepEqual(formData, savedFormData) || hasThemeChanges,
+    [formData, savedFormData, hasThemeChanges],
   );
 
   const resetToSaved = useCallback(() => {
     setFormData(savedFormData);
-  }, [savedFormData]);
+    setThemeData(savedThemeData);
+  }, [savedFormData, savedThemeData]);
 
-  const markSaved = useCallback((data: AgentFormData) => {
+  const markSaved = useCallback((data: AgentFormData, theme?: WidgetTheme) => {
     setSavedFormData(data);
     setFormData(data);
+    if (theme) {
+      setSavedThemeData(theme);
+      setThemeData(theme);
+    }
   }, []);
 
+  const contextValue = useMemo(
+    () => ({
+      agent,
+      formData,
+      savedFormData,
+      updateFormData,
+      themeData,
+      savedThemeData,
+      updateThemeData,
+      hasThemeChanges,
+      hasUnsavedChanges,
+      resetToSaved,
+      markSaved,
+    }),
+    [
+      agent, formData, savedFormData, updateFormData,
+      themeData, savedThemeData, updateThemeData,
+      hasThemeChanges, hasUnsavedChanges, resetToSaved, markSaved,
+    ],
+  );
+
   return (
-    <AgentEditorContext.Provider
-      value={{
-        agent,
-        formData,
-        savedFormData,
-        updateFormData,
-        hasUnsavedChanges,
-        resetToSaved,
-        markSaved,
-      }}
-    >
+    <AgentEditorContext.Provider value={contextValue}>
       {children}
     </AgentEditorContext.Provider>
   );

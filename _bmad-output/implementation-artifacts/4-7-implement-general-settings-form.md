@@ -1,6 +1,6 @@
 # Story 4.7: Implement General Settings Form
 
-Status: ready-for-dev
+Status: complete
 
 ## Story
 
@@ -24,29 +24,29 @@ so that the basic widget look matches my website.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Update Agent Editor Context for Theme Data** (AC: 10)
-  - [ ] 1.1 Add `themeData: WidgetTheme` to `AgentEditorContext`
-  - [ ] 1.2 Add `updateThemeData(path: string, value: any)` helper using lodash `set` or manual dot-path setter
-  - [ ] 1.3 Initialize `themeData` from API response or `defaultWidgetTheme`
-  - [ ] 1.4 Wire `themeData` into `toPreviewFormData()` bridge function
+- [x] **Task 1: Update Agent Editor Context for Theme Data** (AC: 10)
+  - [x] 1.1 Add `themeData: WidgetTheme` to `AgentEditorContext`
+  - [x] 1.2 Add `updateThemeData(path: string, value: unknown)` helper using dot-path setter (no lodash)
+  - [x] 1.3 Initialize `themeData` from API response or `defaultWidgetTheme`
+  - [x] 1.4 Wire `themeData` into `toPreviewFormData()` bridge function
 
-- [ ] **Task 2: Replace General Settings Section** (AC: 1-9, 11)
-  - [ ] 2.1 Update `apps/web/components/features/agents/agent-editor/sections/general-settings.tsx`
-  - [ ] 2.2 Keep existing agent name + org fields at top
-  - [ ] 2.3 Add FormSection "Widget Position" with left/right toggle
-  - [ ] 2.4 Add FormSection "Typography" with font family select + font size input
-  - [ ] 2.5 Add FormSection "Icon Appearance" with:
+- [x] **Task 2: Replace General Settings Section** (AC: 1-9, 11)
+  - [x] 2.1 Update `apps/web/components/features/agents/agent-editor/sections/general-settings.tsx`
+  - [x] 2.2 Keep existing agent name + org fields at top
+  - [x] 2.3 Add FormSection "Widget Position" with left/right TabGroup toggle
+  - [x] 2.4 Add FormSection "Typography" with font family select + font size slider
+  - [x] 2.5 Add FormSection "Icon Appearance" with:
     - ColorPicker for background color
     - ColorPicker for hover background color
-    - Number input for size (40-80)
-    - Slider for border radius (0-50)
+    - Slider for size (40-80)
+    - Slider for border radius (0-50%)
     - Input for shadow CSS
     - Input for custom image URL (optional)
 
-- [ ] **Task 3: Font Family Select** (AC: 2)
-  - [ ] 3.1 Define font options: Inter, Roboto, Open Sans, Lato, Poppins, system-ui
-  - [ ] 3.2 Use Shadcn Select component
-  - [ ] 3.3 Show font preview in each option if feasible
+- [x] **Task 3: Font Family Select** (AC: 2)
+  - [x] 3.1 Define font options: Inter, Roboto, Open Sans, Lato, Poppins, system-ui
+  - [x] 3.2 Use Shadcn Select component
+  - [x] 3.3 Show font preview in each option via inline fontFamily style
 
 ## Dev Notes
 
@@ -132,9 +132,35 @@ const FONT_OPTIONS = [
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Fixed `@repo/validation` package exports (import pointed to missing `.mjs` file)
+- Added `transpilePackages: ['@repo/validation']` to Next.js config for build resolution
+- Fixed preview icon to use dynamic `iconSize`, `iconShadow`, `iconHoverBg`, `iconCustomImage`
+- Fixed border radius unit: form shows `%`, preview applies `%` (not `px`)
+- Removed local `iconTab` state that could drift on reset — uses `themeData.icon.position` directly
+- Memoized context provider value and `toPreviewFormData` call for performance
+- Added `hasThemeChanges` flag to context to avoid `JSON.stringify` comparison
+- Fetches saved theme from `GET /agents/:id/theme` on page load
+- Saves theme via `PATCH /agents/:id/theme` only when theme data changed
 
 ### Completion Notes List
+- All 11 acceptance criteria implemented and wired to live preview
+- Shared `@repo/validation` package added as workspace dependency to `apps/web`
+- Shadcn Slider component installed
+- Context infrastructure (themeData, updateThemeData, save/reset) is shared for all future theme forms
 
 ### File List
+- `apps/web/components/features/agents/agent-editor/agent-editor-context.tsx` — added themeData, updateThemeData, setNestedValue, hasThemeChanges; rewired toPreviewFormData
+- `apps/web/components/features/agents/agent-editor/agent-editor-layout.tsx` — wire themeData to preview, add theme save/reset, memoize previewFormData
+- `apps/web/components/features/agents/agent-editor/sections/general-settings.tsx` — full implementation with FormSection, ColorPicker, TabGroup, Slider, Select
+- `apps/web/components/features/agents/agent-editor/chat-widget-surface.tsx` — dynamic icon size/shadow/hover/custom image, headerShowLogo, subtitleColor
+- `apps/web/components/features/agents/agent-editor/agent-editor-sidebar.tsx` — updated descriptions
+- `apps/web/components/features/agents/agent-editor/agent-editor-form.tsx` — updated import
+- `apps/web/app/(protected)/dashboard/agents/[id]/page.tsx` — fetch theme from API on load
+- `apps/web/next.config.js` — added transpilePackages for @repo/validation
+- `apps/web/package.json` — added @repo/validation workspace dependency
+- `apps/web/components/ui/slider.tsx` — new Shadcn Slider component
+- `packages/validation/package.json` — fixed exports field to match actual dist files
+- `bun.lock` — updated lockfile from @repo/validation dependency addition

@@ -1,6 +1,6 @@
 # Story 4.8: Implement Header Settings Form
 
-Status: ready-for-dev
+Status: complete
 
 ## Story
 
@@ -21,23 +21,22 @@ so that the chat widget header matches my brand.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Replace Chat Settings Section with Header Settings** (AC: 1-8)
-  - [ ] 1.1 Update `apps/web/components/features/agents/agent-editor/sections/chat-settings.tsx` — rename to header settings
-  - [ ] 1.2 OR create new section and update sidebar category mapping
-  - [ ] 1.3 Add FormSection "Header Content" with:
+- [x] **Task 1: Replace Chat Settings Section with Header Settings** (AC: 1-8)
+  - [x] 1.1 Renamed `chat-settings.tsx` to `header-settings.tsx`, exported `HeaderSettings`
+  - [x] 1.3 Add FormSection "Header Content" with:
     - Input for title
-    - Input for subtitle
-  - [ ] 1.4 Add FormSection "Header Appearance" with:
+    - Input for subtitle (optional, clears to undefined)
+  - [x] 1.4 Add FormSection "Header Appearance" with:
     - ColorPicker for background color
     - ColorPicker for text color
     - ColorPicker for subtitle color
-  - [ ] 1.5 Add FormSection "Logo" with:
+  - [x] 1.5 Add FormSection "Logo" with:
     - Switch to show/hide logo
-    - Input for logo URL (visible when enabled)
+    - Input for logo URL (conditionally visible when enabled)
 
-- [ ] **Task 2: Update Sidebar Categories** (AC: all)
-  - [ ] 2.1 If renaming "Chat Interface" to "Header", update `agent-editor-sidebar.tsx` category
-  - [ ] 2.2 Update `agent-editor-form.tsx` switch case
+- [x] **Task 2: Update Sidebar Categories** (AC: all)
+  - [x] 2.1 Renamed "Chat Interface" to "Header" in `agent-editor-sidebar.tsx`
+  - [x] 2.2 Updated `agent-editor-form.tsx` import to `header-settings.tsx`
 
 ## Dev Notes
 
@@ -114,9 +113,20 @@ const { themeData, updateThemeData } = useAgentEditor();
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Updated chat-widget-surface.tsx to respect `headerShowLogo` flag for conditional logo display
+- Updated subtitle rendering to use `headerSubtitleColor` instead of hardcoded `opacity-90`
 
 ### Completion Notes List
+- All 8 acceptance criteria implemented and wired to live preview
+- File renamed from chat-settings.tsx to header-settings.tsx for consistency
+- Sidebar label updated from "Chat Interface" to "Header"
+- Preview immediately reflects title, subtitle, logo, and all color changes
 
 ### File List
+- `apps/web/components/features/agents/agent-editor/sections/header-settings.tsx` — new HeaderSettings form (renamed from chat-settings.tsx)
+- `apps/web/components/features/agents/agent-editor/agent-editor-form.tsx` — updated import path
+- `apps/web/components/features/agents/agent-editor/agent-editor-sidebar.tsx` — renamed category to "Header"
+- `apps/web/components/features/agents/agent-editor/chat-widget-surface.tsx` — headerShowLogo + subtitleColor support
