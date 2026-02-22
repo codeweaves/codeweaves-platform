@@ -1,6 +1,6 @@
 # Story 4.7: Implement General Settings Form
 
-Status: complete
+Status: done
 
 ## Story
 
