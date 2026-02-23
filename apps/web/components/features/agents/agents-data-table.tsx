@@ -2,8 +2,9 @@
 
 import { useCallback, useState } from 'react';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Bot } from 'lucide-react';
+import { Bot, Pencil, Code, ExternalLink, Trash2 } from 'lucide-react';
 import {
   DataTable,
   DataTableColumnHeader,
@@ -11,10 +12,29 @@ import {
   type DataTableFilterConfig,
 } from '@/components/ui/data-table';
 import { Badge } from '@/components/ui/badge';
-import { useAgents, type Agent } from '@/hooks/use-agents';
+import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { useAgents, useDeleteAgent, type Agent } from '@/hooks/use-agents';
 import { useProfile } from '@/hooks/use-profile';
 import { useOrganizations } from '@/hooks/use-organizations';
 import { formatDate } from '@/lib/utils';
+import { EmbedCodeDialog } from './embed-code-dialog';
+import { toast } from 'sonner';
 
 const SORTABLE_COLUMNS: Record<string, string> = {
   name: 'name',
@@ -27,6 +47,7 @@ interface AgentsDataTableProps {
 }
 
 export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
+  const router = useRouter();
   const { profile } = useProfile();
   const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
 
@@ -37,6 +58,12 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
     search: '',
     filters: {},
   });
+
+  const [embedAgent, setEmbedAgent] = useState<Agent | null>(null);
+  const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null);
+  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+
+  const deleteAgentMutation = useDeleteAgent();
 
   // Fetch organizations list for admin filter dropdown
   const { data: orgsData } = useOrganizations({ limit: 100 });
@@ -66,6 +93,19 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
   const handleFetch = useCallback((params: DataTableFetchParams) => {
     setFetchParams(params);
   }, []);
+
+  const handleDelete = async () => {
+    if (!deleteAgent) return;
+    try {
+      await deleteAgentMutation.mutateAsync(deleteAgent.id);
+      toast.success(`Agent "${deleteAgent.name}" deleted successfully`);
+    } catch {
+      toast.error('Failed to delete agent. Please try again.');
+    } finally {
+      setDeleteAgent(null);
+      setDeleteConfirmText('');
+    }
+  };
 
   // Build columns based on role
   const columns: ColumnDef<Agent, unknown>[] = [
@@ -114,6 +154,72 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
       ),
       cell: ({ row }) => formatDate(row.getValue('createdAt')),
     },
+    {
+      id: 'actions',
+      header: () => <div className="text-center">Actions</div>,
+      enableSorting: false,
+      cell: ({ row }) => {
+        const agent = row.original;
+        return (
+          <TooltipProvider>
+          <div className="flex items-center justify-center gap-1">
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
+                >
+                  <Pencil className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Edit</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => setEmbedAgent(agent)}
+                >
+                  <Code className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Embed</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8"
+                  onClick={() => window.open(`/agents/demo/${agent.id}`, '_blank')}
+                >
+                  <ExternalLink className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Demo</TooltipContent>
+            </Tooltip>
+            <Tooltip>
+              <TooltipTrigger asChild>
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  className="h-8 w-8 text-destructive hover:text-destructive"
+                  onClick={() => setDeleteAgent(agent)}
+                >
+                  <Trash2 className="h-4 w-4" />
+                </Button>
+              </TooltipTrigger>
+              <TooltipContent>Delete</TooltipContent>
+            </Tooltip>
+          </div>
+          </TooltipProvider>
+        );
+      },
+    },
   ];
 
   // Build filters based on role
@@ -158,22 +264,75 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
   }
 
   return (
-    <DataTable<Agent, unknown>
-      columns={columns}
-      data={data?.data ?? []}
-      pageCount={data?.meta.totalPages ?? 0}
-      totalItems={data?.meta.total ?? 0}
-      isLoading={isLoading}
-      onFetch={handleFetch}
-      initialPageSize={10}
-      pageSizeOptions={[5, 10, 50, 100]}
-      searchConfig={{
-        placeholder: 'Search agents...',
-        searchKey: 'search',
-      }}
-      filters={filters}
-      showHeader={false}
-      hideSelectionCount
-    />
+    <>
+      <DataTable<Agent, unknown>
+        columns={columns}
+        data={data?.data ?? []}
+        pageCount={data?.meta.totalPages ?? 0}
+        totalItems={data?.meta.total ?? 0}
+        isLoading={isLoading}
+        onFetch={handleFetch}
+        initialPageSize={10}
+        pageSizeOptions={[5, 10, 50, 100]}
+        searchConfig={{
+          placeholder: 'Search agents...',
+          searchKey: 'search',
+        }}
+        filters={filters}
+        showHeader={false}
+        hideSelectionCount
+      />
+
+      {/* Controlled Embed Dialog */}
+      {embedAgent && (
+        <EmbedCodeDialog
+          publicId={embedAgent.publicId}
+          open={!!embedAgent}
+          onOpenChange={(open) => {
+            if (!open) setEmbedAgent(null);
+          }}
+        />
+      )}
+
+      {/* Delete Confirmation Dialog */}
+      <AlertDialog
+        open={!!deleteAgent}
+        onOpenChange={(open) => {
+          if (!open) {
+            setDeleteAgent(null);
+            setDeleteConfirmText('');
+          }
+        }}
+      >
+        <AlertDialogContent>
+          <AlertDialogHeader>
+            <AlertDialogTitle>Delete Agent</AlertDialogTitle>
+            <AlertDialogDescription>
+              Are you sure you want to delete &quot;{deleteAgent?.name}&quot;? This action
+              cannot be undone. Type <span className="font-semibold">DELETE</span> to confirm.
+            </AlertDialogDescription>
+          </AlertDialogHeader>
+          <input
+            type="text"
+            value={deleteConfirmText}
+            onChange={(e) => setDeleteConfirmText(e.target.value)}
+            placeholder="Type DELETE to confirm"
+            className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-destructive"
+          />
+          <AlertDialogFooter>
+            <AlertDialogCancel onClick={() => setDeleteConfirmText('')}>
+              Cancel
+            </AlertDialogCancel>
+            <AlertDialogAction
+              onClick={handleDelete}
+              disabled={deleteConfirmText !== 'DELETE' || deleteAgentMutation.isPending}
+              className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:pointer-events-none"
+            >
+              {deleteAgentMutation.isPending ? 'Deleting...' : 'Delete'}
+            </AlertDialogAction>
+          </AlertDialogFooter>
+        </AlertDialogContent>
+      </AlertDialog>
+    </>
   );
 }

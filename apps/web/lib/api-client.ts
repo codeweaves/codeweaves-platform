@@ -9,7 +9,8 @@ export function useApiClient() {
 
   const fetchWithAuth = useCallback(async (
     endpoint: string,
-    options: RequestInit = {}
+    options: RequestInit = {},
+    skipContentType = false,
   ) => {
     if (!isAuthenticated) {
       throw new Error('Not authenticated');
@@ -17,13 +18,17 @@ export function useApiClient() {
 
     const token = await getAccessTokenSilently();
 
+    const headers: Record<string, string> = {
+      ...(options.headers as Record<string, string>),
+      Authorization: `Bearer ${token}`,
+    };
+    if (!skipContentType) {
+      headers['Content-Type'] = 'application/json';
+    }
+
     const response = await fetch(apiUrl(endpoint), {
       ...options,
-      headers: {
-        ...options.headers,
-        'Content-Type': 'application/json',
-        Authorization: `Bearer ${token}`,
-      },
+      headers,
     });
 
     if (!response.ok) {
@@ -59,5 +64,15 @@ export function useApiClient() {
       body: JSON.stringify(data),
     }),
     delete: (endpoint: string) => fetchWithAuth(endpoint, { method: 'DELETE' }),
+    upload: (endpoint: string, file: File, fields?: Record<string, string>) => {
+      const formData = new FormData();
+      formData.append('file', file);
+      if (fields) {
+        for (const [key, value] of Object.entries(fields)) {
+          formData.append(key, value);
+        }
+      }
+      return fetchWithAuth(endpoint, { method: 'POST', body: formData }, true);
+    },
   }), [fetchWithAuth]);
 }

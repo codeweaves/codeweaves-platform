@@ -10,6 +10,7 @@ import { OrganizationsModule } from './organizations.module';
 import { AgentsModule } from './agents.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
+import { SupabaseStorageModule } from './supabase-storage.module';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { UserSyncGuard } from '../guards/user-sync.guard';
 import { CorrelationIdMiddleware } from '../middleware/correlation-id.middleware';
@@ -30,6 +31,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     AgentsModule,
     TracerModule,
     CryptoModule,
+    SupabaseStorageModule,
   ],
   controllers: [HealthController],
   providers: [

@@ -7,7 +7,7 @@ import {
   PopoverContent,
   PopoverTrigger,
 } from '@/components/ui/popover';
-import { Input } from '@/components/ui/input';
+import { Label } from '@/components/ui/label';
 import { cn } from '@/lib/utils';
 
 const HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
@@ -16,6 +16,7 @@ interface ColorPickerProps {
   value: string;
   onChange: (color: string) => void;
   label?: string;
+  id?: string;
   disabled?: boolean;
   className?: string;
 }
@@ -24,6 +25,7 @@ export function ColorPicker({
   value,
   onChange,
   label,
+  id,
   disabled,
   className,
 }: ColorPickerProps) {
@@ -75,34 +77,79 @@ export function ColorPicker({
     }
   }, [localHex, value]);
 
+  // When used with a label, render in a grid-cols-3 layout matching the reference
+  if (label) {
+    return (
+      <div className={cn('grid grid-cols-3 gap-4 items-center', className)}>
+        <Label htmlFor={id} className="text-sm font-medium text-gray-700">
+          {label}
+        </Label>
+        <div className="col-span-2 flex items-center gap-3">
+          <Popover>
+            <PopoverTrigger asChild disabled={disabled}>
+              <button
+                type="button"
+                className={cn(
+                  'h-12 w-12 shrink-0 cursor-pointer rounded-full border-2 border-gray-200 shadow-sm hover:shadow-md transition-shadow',
+                  disabled && 'pointer-events-none opacity-50',
+                )}
+                style={{ backgroundColor: value }}
+                aria-label={`Pick ${label}`}
+              />
+            </PopoverTrigger>
+            <PopoverContent className="w-auto p-3" align="start">
+              <HexColorPicker color={localHex} onChange={handlePickerChange} />
+            </PopoverContent>
+          </Popover>
+          <div className="flex-1">
+            <input
+              type="text"
+              id={id}
+              value={localHex}
+              onChange={(e) => handleHexInput(e.target.value)}
+              onBlur={handleHexBlur}
+              maxLength={7}
+              placeholder="#000000"
+              disabled={disabled}
+              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+            />
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // Without label: compact inline version (used in branding grid layouts)
   return (
-    <div className={cn('flex items-center gap-2', className)}>
+    <div className={cn('flex items-center gap-3', className)}>
       <Popover>
         <PopoverTrigger asChild disabled={disabled}>
           <button
             type="button"
             className={cn(
-              'h-8 w-8 shrink-0 rounded-md border border-input shadow-xs',
+              'h-12 w-12 shrink-0 cursor-pointer rounded-full border-2 border-gray-200 shadow-sm hover:shadow-md transition-shadow',
               disabled && 'pointer-events-none opacity-50',
             )}
             style={{ backgroundColor: value }}
-            aria-label={label ? `Pick ${label}` : 'Pick color'}
+            aria-label="Pick color"
           />
         </PopoverTrigger>
         <PopoverContent className="w-auto p-3" align="start">
           <HexColorPicker color={localHex} onChange={handlePickerChange} />
-          <Input
-            value={localHex}
-            onChange={(e) => handleHexInput(e.target.value)}
-            onBlur={handleHexBlur}
-            className="mt-2"
-            maxLength={7}
-          />
         </PopoverContent>
       </Popover>
-      <span className="font-mono text-sm text-muted-foreground">
-        {localHex}
-      </span>
+      <div className="flex-1">
+        <input
+          type="text"
+          value={localHex}
+          onChange={(e) => handleHexInput(e.target.value)}
+          onBlur={handleHexBlur}
+          maxLength={7}
+          placeholder="#000000"
+          disabled={disabled}
+          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+        />
+      </div>
     </div>
   );
 }

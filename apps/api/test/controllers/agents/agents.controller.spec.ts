@@ -181,9 +181,9 @@ describe('AgentsController', () => {
       expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN', 'CLIENT']);
     });
 
-    it('should have ADMIN and SUPER_ADMIN roles on remove', () => {
+    it('should have ADMIN, SUPER_ADMIN, and CLIENT roles on remove', () => {
       const roles = Reflect.getMetadata('roles', AgentsController.prototype.remove);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN']);
+      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN', 'CLIENT']);
     });
 
     // Webhook endpoints — ADMIN and SUPER_ADMIN only (no CLIENT)

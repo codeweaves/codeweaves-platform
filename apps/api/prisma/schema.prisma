@@ -129,6 +129,28 @@ model AgentTheme {
   @@map("agent_themes")
 }
 
+model File {
+  id             String   @id @default(uuid())
+  fileName       String
+  mimeType       String
+  sizeBytes      Int
+  storageKey     String
+  publicUrl      String
+  bucket         String   @default("agent-assets")
+  entityType     String
+  entityId       String
+  purpose        String
+  organizationId String
+  uploadedById   String
+  createdAt      DateTime @default(now())
+  updatedAt      DateTime @updatedAt
+
+  @@index([entityType, entityId])
+  @@index([organizationId])
+  @@index([uploadedById])
+  @@map("files")
+}
+
 model AuditLog {
   id            String   @id @default(uuid())
   correlationId String?

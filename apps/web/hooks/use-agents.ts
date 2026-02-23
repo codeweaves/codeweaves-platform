@@ -97,3 +97,15 @@ export function useUpdateAgent() {
     },
   });
 }
+
+export function useDeleteAgent() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<null, Error, string>({
+    mutationFn: (id: string) => api.delete(`/agents/${id}`),
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ['agents'] });
+    },
+  });
+}

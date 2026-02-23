@@ -18,9 +18,12 @@ const WIDGET_URL =
 
 interface EmbedCodeDialogProps {
   publicId: string;
+  open?: boolean;
+  onOpenChange?: (open: boolean) => void;
+  trigger?: React.ReactNode;
 }
 
-export function EmbedCodeDialog({ publicId }: EmbedCodeDialogProps) {
+export function EmbedCodeDialog({ publicId, open, onOpenChange, trigger }: EmbedCodeDialogProps) {
   const [copied, setCopied] = useState(false);
 
   const embedSnippet = `<script src="${WIDGET_URL}/widget.js" data-agent-id="${publicId}"></script>`;
@@ -32,14 +35,20 @@ export function EmbedCodeDialog({ publicId }: EmbedCodeDialogProps) {
     setTimeout(() => setCopied(false), 2000);
   };
 
+  const isControlled = open !== undefined;
+
   return (
-    <Dialog>
-      <DialogTrigger asChild>
-        <Button variant="outline" size="sm">
-          <Code className="mr-2 h-4 w-4" />
-          Embed Code
-        </Button>
-      </DialogTrigger>
+    <Dialog open={isControlled ? open : undefined} onOpenChange={isControlled ? onOpenChange : undefined}>
+      {!isControlled && (
+        <DialogTrigger asChild>
+          {trigger ?? (
+            <Button variant="outline" size="sm">
+              <Code className="mr-2 h-4 w-4" />
+              Embed Code
+            </Button>
+          )}
+        </DialogTrigger>
+      )}
       <DialogContent className="sm:max-w-lg">
         <DialogHeader>
           <DialogTitle>Embed Code</DialogTitle>

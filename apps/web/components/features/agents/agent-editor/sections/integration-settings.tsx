@@ -112,7 +112,7 @@ export function IntegrationSettings() {
                   <button
                     type="button"
                     onClick={() => removeDomain(d)}
-                    className="ml-1 rounded p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+                    className="ml-1 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
                     aria-label={`Remove ${d}`}
                   >
                     <X className="h-3 w-3" />

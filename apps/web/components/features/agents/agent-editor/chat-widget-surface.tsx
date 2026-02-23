@@ -253,12 +253,6 @@ export function ChatWidgetSurface({
             boxShadow: formData.iconShadow || '0 4px 12px rgba(0,0,0,0.15)',
           }}
           onClick={handleOpen}
-          onMouseEnter={(e) => {
-            if (formData.iconHoverBg) e.currentTarget.style.backgroundColor = formData.iconHoverBg;
-          }}
-          onMouseLeave={(e) => {
-            e.currentTarget.style.backgroundColor = formData.iconBg;
-          }}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); } }}
         >
           {formData.iconCustomImage ? (
@@ -280,7 +274,7 @@ export function ChatWidgetSurface({
           style={{
             width: 380,
             height: isWindowMinimized ? 80 : 520,
-            borderRadius: '14px',
+            borderRadius: `${formData.headerBorderRadius}px`,
             fontFamily: formData.fontFamily,
             fontSize: `${formData.defaultFontSize}px`,
           }}
