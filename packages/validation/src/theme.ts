@@ -34,6 +34,7 @@ export const headerConfigSchema = z.object({
   subtitleColor: colorString,
   showLogo: z.boolean(),
   logoUrl: z.string().url().optional(),
+  borderRadius: z.number().int().min(0).max(50),
 });
 export type HeaderConfig = z.infer<typeof headerConfigSchema>;
 
@@ -173,6 +174,7 @@ export const defaultWidgetTheme: WidgetTheme = {
     textColor: '#ffffff',
     subtitleColor: '#e0e7ff',
     showLogo: false,
+    borderRadius: 14,
   },
   userMessage: {
     backgroundColor: '#3b82f6',

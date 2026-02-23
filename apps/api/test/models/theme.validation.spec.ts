@@ -147,6 +147,7 @@ describe('Theme Validation Schemas', () => {
         textColor: '#ffffff',
         subtitleColor: '#e0e7ff',
         showLogo: false,
+        borderRadius: 14,
       };
       expect(headerConfigSchema.parse(data)).toEqual(data);
     });
@@ -158,6 +159,7 @@ describe('Theme Validation Schemas', () => {
         textColor: '#fff',
         subtitleColor: '#ccc',
         showLogo: true,
+        borderRadius: 14,
       };
       expect(headerConfigSchema.parse(data)).toEqual(data);
     });
@@ -170,6 +172,7 @@ describe('Theme Validation Schemas', () => {
         subtitleColor: '#ccc',
         showLogo: true,
         logoUrl: 'https://example.com/logo.png',
+        borderRadius: 14,
       };
       expect(headerConfigSchema.parse(data)).toEqual(data);
     });
@@ -181,6 +184,7 @@ describe('Theme Validation Schemas', () => {
           textColor: '#fff',
           subtitleColor: '#ccc',
           showLogo: false,
+          borderRadius: 14,
         }),
       ).toThrow();
     });

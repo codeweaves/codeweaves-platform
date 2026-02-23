@@ -1,6 +1,7 @@
 'use client';
 
 import { useCallback, useEffect, useRef } from 'react';
+import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 
 export interface TabItem {
@@ -58,34 +59,36 @@ export function TabGroup({
 
   return (
     <div
-      className={cn('flex gap-2', className)}
+      className={cn('flex flex-wrap gap-2 mb-6', className)}
       role="tablist"
       aria-label={ariaLabel}
     >
       {tabs.map((tab, index) => {
         const isActive = value === tab.id;
         return (
-          <button
+          <Button
             key={tab.id}
             ref={(el) => {
               tabsRef.current[index] = el;
             }}
             type="button"
             role="tab"
+            variant={isActive ? 'default' : 'outline'}
+            size="sm"
             aria-selected={isActive}
             tabIndex={isActive ? 0 : -1}
             onClick={() => onChange(tab.id)}
             onKeyDown={(e) => handleKeyDown(e, index)}
             className={cn(
-              'inline-flex cursor-pointer items-center gap-1.5 rounded-full px-3 py-1.5 text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-offset-2',
+              'flex items-center gap-2 transition-all duration-200 rounded-md',
               isActive
-                ? 'bg-primary text-primary-foreground'
-                : 'bg-muted text-muted-foreground hover:bg-muted/80',
+                ? 'bg-blue-600 text-white shadow-md hover:bg-blue-700'
+                : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200',
             )}
           >
-            {tab.icon}
+            {tab.icon && <span className="w-4 h-4">{tab.icon}</span>}
             {tab.label}
-          </button>
+          </Button>
         );
       })}
     </div>

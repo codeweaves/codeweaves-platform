@@ -104,12 +104,11 @@ export class AgentsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
   @ApiOperation({ summary: 'Soft-delete an agent' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 204, description: 'Agent deleted' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
-  @ApiResponse({ status: 403, description: 'Forbidden - ADMIN or SUPER_ADMIN only' })
   @ApiResponse({ status: 404, description: 'Agent not found' })
   async remove(
     @Param('id', ParseUUIDPipe) id: string,

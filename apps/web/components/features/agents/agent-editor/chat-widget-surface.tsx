@@ -274,7 +274,7 @@ export function ChatWidgetSurface({
           style={{
             width: 380,
             height: isWindowMinimized ? 80 : 520,
-            borderRadius: '14px',
+            borderRadius: `${formData.headerBorderRadius}px`,
             fontFamily: formData.fontFamily,
             fontSize: `${formData.defaultFontSize}px`,
           }}

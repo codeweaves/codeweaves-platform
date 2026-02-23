@@ -117,6 +117,7 @@ export interface PreviewFormData {
   headerBg: string;
   headerTextColor: string;
   headerSubtitleColor: string;
+  headerBorderRadius: number;
   // Chat Interface
   botAvatarType: 'robot' | 'machine' | 'bot' | 'support' | 'custom';
   botCustomImage: string;
@@ -190,6 +191,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     headerBg: themeData.header.backgroundColor,
     headerTextColor: themeData.header.textColor,
     headerSubtitleColor: themeData.header.subtitleColor,
+    headerBorderRadius: themeData.header.borderRadius,
     // Bot messages
     botAvatarType: themeData.botAvatar.type as PreviewFormData['botAvatarType'],
     botCustomImage: themeData.botAvatar.customImageUrl ?? '',

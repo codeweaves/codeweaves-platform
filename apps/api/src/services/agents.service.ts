@@ -211,6 +211,38 @@ export class AgentsService {
     return agent?.status === 'ACTIVE';
   }
 
+  /**
+   * Public: fetch agent info for the demo page (no auth required).
+   * Only returns active, non-deleted agents with safe public fields.
+   */
+  async getDemoInfo(id: string) {
+    const agent = await this.prisma.agent.findFirst({
+      where: { id, deletedAt: null, status: 'ACTIVE' },
+      select: {
+        id: true,
+        publicId: true,
+        name: true,
+        welcomeMessage: true,
+      },
+    });
+
+    if (!agent) {
+      throw new NotFoundException('Agent not found');
+    }
+
+    const theme = await this.prisma.agentTheme.findUnique({
+      where: { agentId: id },
+    });
+
+    return {
+      id: agent.id,
+      publicId: agent.publicId,
+      name: agent.name,
+      welcomeMessage: agent.welcomeMessage,
+      theme: theme?.config ?? null,
+    };
+  }
+
   // ==========================================
   // Webhook Management
   // ==========================================
