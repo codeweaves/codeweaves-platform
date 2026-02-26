@@ -513,10 +513,16 @@ This document provides the complete epic and story breakdown for CodeWeaves Plat
 - Theme versioning for cache busting
 - Main sidebar collapse behavior on this page
 - Categories: General, Appearance, Chat, Behavior, Prompt, Integration, Branding
+- Image upload via Supabase Storage (header logo, icon, avatars, branding logo)
+- Agent table actions column (Edit, Embed, Demo, Delete)
+- Public demo page for shareable agent testing
+- Conversation starters simplification (single message field, 80-char limit)
 
 **FRs:** FR28-FR44
 **NFRs:** NFR9 (Zero re-renders)
 **Dependencies:** Epic 0, Epic 3
+
+**Stories:** 4.1-4.18 (4.1-4.13 original, 4.14-4.18 added during implementation)
 
 ---
 
@@ -1675,6 +1681,124 @@ So that attribution can be customized.
 **And** I can choose logo or text link
 **And** I can set link URL and text
 **And** I can customize branding colors
+
+---
+
+#### Story 4.14: Supabase File Upload & Agent Editor Image Upload
+
+As an **agent owner**,
+I want to upload custom images (logos, icons, avatars) through the agent editor,
+So that my widget can display branded imagery.
+
+**Acceptance Criteria:**
+
+**Given** the agent editor is open
+**When** I click on an image upload area (header logo, icon image, bot avatar, user avatar, branding logo)
+**Then** a file picker opens for image selection
+**And** the image is uploaded to Supabase Storage
+**And** the uploaded URL is stored in the theme config
+**And** a generic File model tracks all uploads with metadata (filename, size, mime type, URL, entity reference)
+**And** images are validated for type (JPEG, PNG, SVG, WebP, GIF) and size (max 5MB)
+
+**Status:** Done
+**Branch:** `feature/agent-editor-enhancements`
+**PR:** #42
+
+---
+
+#### Story 4.15: Agent Editor UI Refinements
+
+As an **agent owner**,
+I want the theme editor form sections to be clean and well-styled,
+So that the editing experience is intuitive and professional.
+
+**Acceptance Criteria:**
+
+**Given** the agent editor is open
+**When** I view the Appearance or Chat Interface sections
+**Then** ColorPicker displays as a 3-column grid with round swatches and hex input
+**And** TabGroup uses blue active state buttons (bg-blue-600)
+**And** FormSection is simplified (non-collapsible, consistent spacing)
+**And** Header border radius field is available and updates the chat widget preview in real-time
+**And** border radius is persisted in theme config (0-50 range, default 14)
+
+**Status:** Done
+**Branch:** `feature/agent-editor-enhancements`
+**PR:** #42
+
+---
+
+#### Story 4.16: Agents Table Actions Column
+
+As an **agent manager** (any role),
+I want action buttons on each row of the agents table,
+So that I can quickly edit, embed, demo, or delete agents.
+
+**Acceptance Criteria:**
+
+**Given** I'm viewing the agents list table
+**When** I look at any agent row
+**Then** I see inline icon buttons for Edit, Embed, Demo, and Delete
+**And** Edit navigates to the agent editor page
+**And** Embed opens a dialog with the embed code snippet and copy button
+**And** Demo opens a public demo page in a new tab
+**And** Delete opens a confirmation dialog requiring typing "DELETE" to confirm
+**And** all actions are available to CLIENT, ADMIN, and SUPER_ADMIN roles
+**And** successful delete shows a success toast and refreshes the table
+
+**Status:** Done
+**Branch:** `feature/agent-editor-enhancements`
+**PR:** #42
+
+---
+
+#### Story 4.17: Public Agent Demo Page
+
+As a **stakeholder or client**,
+I want a shareable demo page to test an agent's chat interface,
+So that I can preview the conversation experience without authentication.
+
+**Acceptance Criteria:**
+
+**Given** a valid agent ID
+**When** I navigate to `/agents/demo/:agentId`
+**Then** the page loads without requiring authentication (public route)
+**And** the agent name, avatar initial, and online status are displayed in the header
+**And** a welcome message is shown as the first bot message
+**And** conversation starters from the theme config are displayed as clickable chip buttons
+**And** clicking a starter sends it as a user message and triggers a simulated bot response
+**And** I can type and send custom messages
+**And** a typing indicator animation shows while the bot is "responding"
+**And** the page shows "Agent not found" for inactive or non-existent agents
+**And** the backend exposes `GET /public/agents/:id/demo` with `@Public()` decorator (no JWT)
+
+**Status:** Done
+**Branch:** `feature/agent-editor-enhancements`
+**PR:** #42, #43
+
+---
+
+#### Story 4.18: Simplify Conversation Starters Schema
+
+As an **agent owner**,
+I want a single input field per conversation starter instead of separate "button text" and "message" fields,
+So that the editing experience is simpler and more intuitive.
+
+**Acceptance Criteria:**
+
+**Given** I'm editing conversation starters in the Behavior tab
+**When** I add a conversation starter
+**Then** I see a single input field (the message is both the button label and the sent text)
+**And** each starter has an 80-character maximum limit
+**And** a character counter (e.g. "12/80") is displayed inside the input
+**And** the schema validates `min(1).max(80)` per starter
+**And** max 4 starters are allowed
+**And** starters display correctly in the live preview and on the public demo page
+**And** clicking a starter on the demo page sends the message successfully
+
+**Status:** Done
+**Branch:** `feature/agent-editor-enhancements`
+**PR:** #43
 
 ---
 
