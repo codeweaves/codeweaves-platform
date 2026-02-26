@@ -121,7 +121,7 @@ development_status:
   # ============================================
   # Epic 4: Widget Theme Editor & Customization
   # Priority: P1
-  # Stories: 13
+  # Stories: 18
   # Dependencies: Epic 0, Epic 3
   # ============================================
   epic-4: done
@@ -138,6 +138,11 @@ development_status:
   4-11-implement-live-preview-component: done
   4-12-implement-theme-save-and-reset: done
   4-13-implement-branding-settings-form: done
+  4-14-supabase-file-upload-agent-editor-images: done
+  4-15-agent-editor-ui-refinements: done
+  4-16-agents-table-actions-column: done
+  4-17-public-agent-demo-page: done
+  4-18-simplify-conversation-starters: done
   epic-4-retrospective: optional
 
   # ============================================
