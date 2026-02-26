@@ -449,16 +449,16 @@ describe('Theme Validation Schemas', () => {
 
   describe('starterSchema / startersConfigSchema', () => {
     it('should accept valid starter', () => {
-      const data = { text: 'Hello', message: 'Hi there' };
+      const data = { message: 'Hi there' };
       expect(starterSchema.parse(data)).toEqual(data);
     });
 
     it('should accept array of up to 4 starters', () => {
       const starters = [
-        { text: 'A', message: 'a' },
-        { text: 'B', message: 'b' },
-        { text: 'C', message: 'c' },
-        { text: 'D', message: 'd' },
+        { message: 'a' },
+        { message: 'b' },
+        { message: 'c' },
+        { message: 'd' },
       ];
       expect(startersConfigSchema.parse(starters)).toEqual(starters);
     });
@@ -468,8 +468,21 @@ describe('Theme Validation Schemas', () => {
     });
 
     it('should reject more than 4 starters', () => {
-      const starters = Array.from({ length: 5 }, (_, i) => ({ text: `s${i}`, message: `m${i}` }));
+      const starters = Array.from({ length: 5 }, (_, i) => ({ message: `m${i}` }));
       expect(() => startersConfigSchema.parse(starters)).toThrow();
+    });
+
+    it('should reject empty message string', () => {
+      expect(() => starterSchema.parse({ message: '' })).toThrow();
+    });
+
+    it('should reject message exceeding 80 characters', () => {
+      expect(() => starterSchema.parse({ message: 'a'.repeat(81) })).toThrow();
+    });
+
+    it('should accept message at 80 character limit', () => {
+      const data = { message: 'a'.repeat(80) };
+      expect(starterSchema.parse(data)).toEqual(data);
     });
   });
 
