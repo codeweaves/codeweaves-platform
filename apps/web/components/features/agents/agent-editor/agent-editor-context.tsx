@@ -229,7 +229,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     defaultFontSize: themeData.typography.baseFontSize,
     // Behavior
     typingIndicator: themeData.animations.showTypingIndicator,
-    conversationalStarters: themeData.starters.map((s) => s.text),
+    conversationalStarters: themeData.starters.map((s) => s.message),
     // Branding
     brandingEnabled: themeData.branding.enabled,
     brandingTextPrefix: themeData.branding.textPrefix,

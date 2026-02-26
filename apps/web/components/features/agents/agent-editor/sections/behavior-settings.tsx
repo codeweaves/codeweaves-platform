@@ -16,7 +16,7 @@ export function BehaviorSettings() {
 
   const addStarter = () => {
     if (starters.length >= 4) return;
-    updateThemeData('starters', [...starters, { text: '', message: '' }]);
+    updateThemeData('starters', [...starters, { message: '' }]);
   };
 
   const removeStarter = (index: number) => {
@@ -26,8 +26,9 @@ export function BehaviorSettings() {
     );
   };
 
-  const updateStarter = (index: number, field: 'text' | 'message', value: string) => {
-    const updated = starters.map((s, i) => (i === index ? { ...s, [field]: value } : s));
+  const updateStarter = (index: number, value: string) => {
+    if (value.length > 80) return;
+    const updated = starters.map((s, i) => (i === index ? { message: value } : s));
     updateThemeData('starters', updated);
   };
 
@@ -71,18 +72,17 @@ export function BehaviorSettings() {
       >
         <div className="space-y-4">
           {starters.map((starter, index) => (
-            <div key={index} className="flex items-start gap-2 rounded-lg border p-3">
-              <div className="flex-1 space-y-2">
-                <Input
-                  value={starter.text}
-                  onChange={(e) => updateStarter(index, 'text', e.target.value)}
-                  placeholder="Button text"
-                />
+            <div key={index} className="flex items-center gap-2">
+              <div className="relative flex-1">
                 <Input
                   value={starter.message}
-                  onChange={(e) => updateStarter(index, 'message', e.target.value)}
-                  placeholder="Message to send"
+                  onChange={(e) => updateStarter(index, e.target.value)}
+                  placeholder="e.g. What services do you offer?"
+                  maxLength={80}
                 />
+                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-xs text-muted-foreground">
+                  {starter.message.length}/80
+                </span>
               </div>
               <Button variant="ghost" size="icon" onClick={() => removeStarter(index)}>
                 <X className="h-4 w-4" />

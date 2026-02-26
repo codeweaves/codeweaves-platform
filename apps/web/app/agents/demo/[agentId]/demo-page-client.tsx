@@ -1,12 +1,11 @@
 'use client';
 
-import { useState, useEffect, useRef, useCallback } from 'react';
+import { useState, useEffect, useRef } from 'react';
 import { ArrowLeft, Send, Bot, User } from 'lucide-react';
 import Link from 'next/link';
 import { apiUrl } from '@/config/api';
 
 interface Starter {
-  text: string;
   message: string;
 }
 
@@ -69,37 +68,34 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  const sendMessage = useCallback(
-    async (content: string) => {
-      if (!content.trim() || !agent) return;
+  const sendMessage = async (content: string) => {
+    if (!content.trim() || !agent || isTyping) return;
 
-      setStartersVisible(false);
+    setStartersVisible(false);
 
-      const userMsg: Message = {
-        id: crypto.randomUUID(),
-        role: 'user',
-        content: content.trim(),
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, userMsg]);
-      setInput('');
+    const userMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'user',
+      content: content.trim(),
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+    setInput('');
 
-      // Simulate bot response (webhook integration will be added later)
-      setIsTyping(true);
-      await new Promise((resolve) => setTimeout(resolve, 1200));
+    // Simulate bot response (webhook integration will be added later)
+    setIsTyping(true);
+    await new Promise((resolve) => setTimeout(resolve, 1200));
 
-      const botMsg: Message = {
-        id: crypto.randomUUID(),
-        role: 'bot',
-        content:
-          'This is a demo response. Webhook integration will be configured by your administrator.',
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, botMsg]);
-      setIsTyping(false);
-    },
-    [agent],
-  );
+    const botMsg: Message = {
+      id: crypto.randomUUID(),
+      role: 'bot',
+      content:
+        'This is a demo response. Webhook integration will be configured by your administrator.',
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, botMsg]);
+    setIsTyping(false);
+  };
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -107,7 +103,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   };
 
   const handleStarterClick = (starter: Starter) => {
-    sendMessage(starter.message);
+    void sendMessage(starter.message);
   };
 
   if (loading) {
@@ -189,10 +185,11 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                 {starters.map((starter, i) => (
                   <button
                     key={i}
+                    type="button"
                     onClick={() => handleStarterClick(starter)}
                     className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 transition-colors hover:bg-blue-100"
                   >
-                    {starter.text}
+                    {starter.message}
                   </button>
                 ))}
               </div>

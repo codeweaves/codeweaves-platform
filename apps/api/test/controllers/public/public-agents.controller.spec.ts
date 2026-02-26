@@ -37,7 +37,7 @@ describe('PublicAgentsController', () => {
         welcomeMessage: 'Hello!',
         theme: {
           header: { title: 'Test', backgroundColor: '#1e40af' },
-          starters: [{ text: 'Hi', message: 'Hello there' }],
+          starters: [{ message: 'Hello there' }],
         },
       };
       mockAgentsService.getDemoInfo.mockResolvedValue(demoInfo);
