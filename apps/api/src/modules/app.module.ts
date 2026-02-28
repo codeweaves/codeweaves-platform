@@ -8,6 +8,7 @@ import { UsersModule } from './users.module';
 import { InvitationsModule } from './invitations.module';
 import { OrganizationsModule } from './organizations.module';
 import { AgentsModule } from './agents.module';
+import { ChatModule } from './chat.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
 import { SupabaseStorageModule } from './supabase-storage.module';
@@ -29,6 +30,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     InvitationsModule,
     OrganizationsModule,
     AgentsModule,
+    ChatModule,
     TracerModule,
     CryptoModule,
     SupabaseStorageModule,

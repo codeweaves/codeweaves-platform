@@ -10,6 +10,9 @@ export { z } from 'zod';
 // Re-export theme schemas and types
 export * from './theme.js';
 
+// Re-export chat schemas and types
+export * from './chat.js';
+
 // ============================================
 // Common Schemas
 // ============================================
