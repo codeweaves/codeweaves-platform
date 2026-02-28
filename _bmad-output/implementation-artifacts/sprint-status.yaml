@@ -181,7 +181,7 @@ development_status:
   # ============================================
   epic-6: in-progress
   6-1-chat-models-and-module-setup: done
-  6-2-n8n-webhook-integration: backlog
+  6-2-n8n-webhook-integration: done
   6-3-sse-streaming-response: backlog
   6-4-demo-page-chat-integration: backlog
   6-5-response-formatting-rendering: backlog
