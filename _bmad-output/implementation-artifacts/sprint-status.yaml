@@ -170,50 +170,32 @@ development_status:
   epic-5-retrospective: optional
 
   # ============================================
-  # Epic 6: Chat Conversation Experience
+  # Epic 6: n8n Chat Integration (Demo-First)
   # Priority: P1
-  # Stories: 14
-  # Dependencies: Epic 0, Epic 5, Epic 7
-  # NFRs: NFR1 (<1.5s P95 response)
+  # Stories: 5 (consolidated from Epic 6 + Epic 7)
+  # Dependencies: Epic 0, Epic 3
+  # Architecture: Backend proxies to n8n webhook, simulated SSE streaming
+  # n8n handles: conversation memory, AI agent logic
+  # Our backend handles: session mgmt, message storage (analytics), SSE streaming, latency tracking
+  # Frontend: Next.js demo page (existing from 4-17)
   # ============================================
-  epic-6: backlog
-  6-1-chat-session-creation-api: backlog
-  6-2-device-id-generation-and-persistence: backlog
-  6-3-send-message-api-endpoint: backlog
-  6-4-sse-streaming-response-endpoint: backlog
-  6-5-widget-message-input-and-send: backlog
-  6-6-streaming-response-display: backlog
-  6-7-conversation-history-loading: backlog
-  6-8-session-inactivity-window-management: backlog
-  6-9-welcome-message-display: backlog
-  6-10-html-sanitization-for-messages: backlog
-  6-11-auto-scroll-behavior: backlog
-  6-12-message-timestamp-display: backlog
-  6-13-error-message-handling: backlog
-  6-14-chat-message-storage: backlog
+  epic-6: in-progress
+  6-1-chat-models-and-module-setup: done
+  6-2-n8n-webhook-integration: backlog
+  6-3-sse-streaming-response: backlog
+  6-4-demo-page-chat-integration: backlog
+  6-5-response-formatting-rendering: backlog
   epic-6-retrospective: optional
 
   # ============================================
   # Epic 7: AI Provider Integration & Abstraction
-  # Priority: P1
-  # Stories: 12
-  # Dependencies: Epic 0, Epic 1, Epic 3
-  # Test Priority: P1 (AI Service abstraction suite)
+  # NOTE: Merged into Epic 6 for demo-first approach.
+  # n8n webhook integration, response parsing, SSE streaming,
+  # error handling, and timeout handling are all covered in Epic 6.
+  # Remaining Epic 7 items (health checks, circuit breakers,
+  # provider abstraction) deferred to post-demo.
   # ============================================
   epic-7: backlog
-  7-1-ai-service-abstraction-interface: backlog
-  7-2-n8n-webhook-provider-implementation: backlog
-  7-3-multiple-response-format-parsing: backlog
-  7-4-system-prompt-builder: backlog
-  7-5-conversation-context-building: backlog
-  7-6-sse-response-streaming-from-backend: backlog
-  7-7-request-timeout-handling: backlog
-  7-8-ai-error-handling-and-fallback-messages: backlog
-  7-9-per-agent-webhook-configuration: backlog
-  7-10-ai-response-metadata-extraction: backlog
-  7-11-ai-service-health-check: backlog
-  7-12-conversation-memory-limit: backlog
-  epic-7-retrospective: optional
 
   # ============================================
   # Epic 8: Analytics Dashboard & KPIs

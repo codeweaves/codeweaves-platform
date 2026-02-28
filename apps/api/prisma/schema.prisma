@@ -23,6 +23,21 @@ enum AgentStatus {
   INACTIVE
 }
 
+enum SessionStatus {
+  ACTIVE
+  EXPIRED
+}
+
+enum MessageRole {
+  USER
+  ASSISTANT
+}
+
+enum ChatSource {
+  DEMO
+  WIDGET
+}
+
 enum InvitationStatus {
   PENDING
   ACCEPTED
@@ -93,6 +108,7 @@ model Agent {
   welcomeMessage String?
   secret         AgentSecret?
   theme          AgentTheme?
+  chatSessions   ChatSession[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
   deletedAt      DateTime?
@@ -127,6 +143,37 @@ model AgentTheme {
 
   @@index([agentId])
   @@map("agent_themes")
+}
+
+model ChatSession {
+  id            String        @id @default(uuid())
+  agentId       String
+  agent         Agent         @relation(fields: [agentId], references: [id]) // RESTRICT: sessions are analytics data, must not cascade-delete with agent
+  sessionId     String        @unique
+  source        ChatSource    @default(DEMO)
+  status        SessionStatus @default(ACTIVE)
+  messages      ChatMessage[]
+  createdAt     DateTime      @default(now())
+  updatedAt     DateTime      @updatedAt
+  lastMessageAt DateTime?
+
+  @@index([agentId])
+  @@index([source])
+  @@map("chat_sessions")
+}
+
+model ChatMessage {
+  id            String      @id @default(uuid())
+  chatSessionId String
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  role          MessageRole
+  content       String      @db.Text
+  metadata      Json?
+  createdAt     DateTime    @default(now())
+
+  @@index([chatSessionId])
+  @@index([createdAt])
+  @@map("chat_messages")
 }
 
 model File {
