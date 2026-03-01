@@ -370,4 +370,232 @@ describe('ChatService', () => {
       });
     });
   });
+
+  describe('chunkText', () => {
+    it('should split text into chunks at word boundaries', () => {
+      const chunks = ChatService.chunkText('one two three four five six');
+      expect(chunks).toEqual(['one two three', 'four five six']);
+    });
+
+    it('should handle default 3 words per chunk', () => {
+      const chunks = ChatService.chunkText('a b c d e f g');
+      expect(chunks).toEqual(['a b c', 'd e f', 'g']);
+    });
+
+    it('should return empty array for empty string', () => {
+      expect(ChatService.chunkText('')).toEqual([]);
+    });
+
+    it('should return empty array for whitespace-only string', () => {
+      expect(ChatService.chunkText('   \t\n  ')).toEqual([]);
+    });
+
+    it('should return single chunk for short text', () => {
+      const chunks = ChatService.chunkText('hello world');
+      expect(chunks).toEqual(['hello world']);
+    });
+
+    it('should handle single word', () => {
+      expect(ChatService.chunkText('hello')).toEqual(['hello']);
+    });
+
+    it('should respect custom chunkSize', () => {
+      const chunks = ChatService.chunkText('a b c d e f', 2);
+      expect(chunks).toEqual(['a b', 'c d', 'e f']);
+    });
+
+    it('should handle text with multiple whitespace characters', () => {
+      const chunks = ChatService.chunkText('one   two\tthree\nfour  five   six');
+      expect(chunks).toEqual(['one two three', 'four five six']);
+    });
+
+    it('should never split mid-word', () => {
+      const chunks = ChatService.chunkText('longword anotherlongword thirdword');
+      for (const chunk of chunks) {
+        // Each chunk should only contain complete words
+        const words = chunk.split(' ');
+        for (const word of words) {
+          expect(word).not.toContain(' ');
+          expect(word.length).toBeGreaterThan(0);
+        }
+      }
+    });
+
+    it('should produce chunks within expected size range for typical text', () => {
+      const text = 'The quick brown fox jumps over the lazy dog and runs away fast into the forest';
+      const chunks = ChatService.chunkText(text);
+      // Each chunk should have at most 3 words (default)
+      for (const chunk of chunks) {
+        const wordCount = chunk.split(' ').length;
+        expect(wordCount).toBeLessThanOrEqual(3);
+        expect(wordCount).toBeGreaterThanOrEqual(1);
+      }
+    });
+  });
+
+  describe('streamMessage', () => {
+    const baseDto = {
+      chatInput: 'Hello, AI!',
+      agentId: MOCK_AGENT_ID,
+    };
+
+    beforeEach(() => {
+      // streamMessage uses direct chatMessage.create (not $transaction)
+      mockPrismaService.chatMessage.create
+        .mockResolvedValueOnce({ id: MOCK_USER_MSG_ID })
+        .mockResolvedValueOnce({ id: MOCK_ASSISTANT_MSG_ID });
+      mockPrismaService.chatSession.update.mockResolvedValue(mockSession);
+    });
+
+    it('should return sessionId, messageId, chunks, and metadata', async () => {
+      const result = await service.streamMessage(baseDto);
+
+      expect(result).toEqual(expect.objectContaining({
+        sessionId: MOCK_SESSION_ID,
+        messageId: MOCK_USER_MSG_ID,
+        assistantMessageId: MOCK_ASSISTANT_MSG_ID,
+      }));
+      expect(result.chunks).toBeInstanceOf(Array);
+      expect(result.chunks.length).toBeGreaterThan(0);
+      expect(result.metadata).toEqual(expect.objectContaining({
+        backendReceivedAt: expect.any(String),
+        backendRespondedAt: expect.any(String),
+        responseLatencyMs: expect.any(Number),
+      }));
+    });
+
+    it('should store user message BEFORE calling n8n', async () => {
+      const callOrder: string[] = [];
+
+      mockPrismaService.chatMessage.create.mockReset();
+      mockPrismaService.chatMessage.create.mockImplementation(() => {
+        callOrder.push('chatMessage.create');
+        return Promise.resolve({ id: callOrder.length === 1 ? MOCK_USER_MSG_ID : MOCK_ASSISTANT_MSG_ID });
+      });
+
+      (global.fetch as jest.Mock).mockImplementation(() => {
+        callOrder.push('fetch');
+        return Promise.resolve({
+          ok: true,
+          json: () => Promise.resolve(mockN8nResponse),
+        });
+      });
+
+      await service.streamMessage(baseDto);
+
+      expect(callOrder[0]).toBe('chatMessage.create'); // user message first
+      expect(callOrder[1]).toBe('fetch'); // then n8n call
+      expect(callOrder[2]).toBe('chatMessage.create'); // then assistant message
+    });
+
+    it('should store AI message AFTER n8n response (before streaming)', async () => {
+      await service.streamMessage(baseDto);
+
+      // chatMessage.create called twice: user message + assistant message
+      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledTimes(2);
+
+      // Second call should store assistant message with n8n reply
+      const secondCall = mockPrismaService.chatMessage.create.mock.calls[1][0];
+      expect(secondCall.data.role).toBe('ASSISTANT');
+      expect(secondCall.data.content).toBe(mockN8nResponse.agentReply);
+    });
+
+    it('should chunk the n8n reply text', async () => {
+      const result = await service.streamMessage(baseDto);
+
+      // "Hello! How can I help you?" → chunks at word boundaries
+      expect(result.chunks.join(' ')).toBe(mockN8nResponse.agentReply);
+    });
+
+    it('should create a new session when no sessionId provided', async () => {
+      await service.streamMessage(baseDto);
+
+      expect(mockPrismaService.chatSession.create).toHaveBeenCalledWith({
+        data: {
+          agentId: MOCK_AGENT_ID,
+          sessionId: expect.any(String),
+          source: 'DEMO',
+        },
+      });
+    });
+
+    it('should reuse existing session when sessionId provided', async () => {
+      mockPrismaService.chatSession.findFirst.mockResolvedValue(mockSession);
+
+      await service.streamMessage({ ...baseDto, sessionId: MOCK_SESSION_ID });
+
+      expect(mockPrismaService.chatSession.findFirst).toHaveBeenCalledWith({
+        where: { sessionId: MOCK_SESSION_ID, agentId: MOCK_AGENT_ID, status: 'ACTIVE' },
+      });
+      expect(mockPrismaService.chatSession.create).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when agent not found', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(null);
+
+      await expect(service.streamMessage(baseDto)).rejects.toThrow(NotFoundException);
+      await expect(service.streamMessage(baseDto)).rejects.toThrow('Agent not found or inactive');
+    });
+
+    it('should throw BadGatewayException on n8n timeout', async () => {
+      const timeoutError = new DOMException('Timeout', 'TimeoutError');
+      (global.fetch as jest.Mock).mockRejectedValue(timeoutError);
+
+      await expect(service.streamMessage(baseDto)).rejects.toThrow(BadGatewayException);
+      await expect(service.streamMessage(baseDto)).rejects.toThrow(
+        'Response is taking too long, please try again',
+      );
+    });
+
+    it('should throw BadGatewayException on n8n network error', async () => {
+      (global.fetch as jest.Mock).mockRejectedValue(new TypeError('fetch failed'));
+
+      await expect(service.streamMessage(baseDto)).rejects.toThrow(BadGatewayException);
+    });
+
+    it('should update session lastMessageAt', async () => {
+      await service.streamMessage(baseDto);
+
+      expect(mockPrismaService.chatSession.update).toHaveBeenCalledWith({
+        where: { id: MOCK_SESSION_DB_ID },
+        data: { lastMessageAt: expect.any(Date) },
+      });
+    });
+
+    it('should include metadata with timestamps', async () => {
+      const result = await service.streamMessage(baseDto);
+
+      expect(result.metadata.n8nReceivedAt).toBe(mockN8nResponse.n8nReceivedAt);
+      expect(result.metadata.agentRepliedAt).toBe(mockN8nResponse.agentRepliedAt);
+    });
+
+    it('should not use $transaction (stores messages separately)', async () => {
+      await service.streamMessage(baseDto);
+
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should leave orphaned user message when n8n call fails (user msg stored before n8n)', async () => {
+      mockPrismaService.chatMessage.create.mockReset();
+      mockPrismaService.chatMessage.create.mockResolvedValueOnce({ id: MOCK_USER_MSG_ID });
+
+      (global.fetch as jest.Mock).mockRejectedValue(new TypeError('fetch failed'));
+
+      await expect(service.streamMessage(baseDto)).rejects.toThrow(BadGatewayException);
+
+      // User message was stored (before n8n call)
+      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledTimes(1);
+      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
+        data: {
+          chatSessionId: MOCK_SESSION_DB_ID,
+          role: 'USER',
+          content: baseDto.chatInput,
+        },
+      });
+
+      // Assistant message was NOT stored (n8n failed before we got a reply)
+      // Session was NOT updated
+      expect(mockPrismaService.chatSession.update).not.toHaveBeenCalled();
+    });
+  });
 });
