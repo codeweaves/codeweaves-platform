@@ -183,7 +183,7 @@ development_status:
   6-1-chat-models-and-module-setup: done
   6-2-n8n-webhook-integration: done
   6-3-sse-streaming-response: done
-  6-4-demo-page-chat-integration: backlog
+  6-4-demo-page-chat-integration: done
   6-5-response-formatting-rendering: backlog
   epic-6-retrospective: optional
 

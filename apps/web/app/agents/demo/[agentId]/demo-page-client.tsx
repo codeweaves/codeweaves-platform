@@ -1,6 +1,6 @@
 'use client';
 
-import { useState, useEffect, useRef } from 'react';
+import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Send, Bot, User } from 'lucide-react';
 import Link from 'next/link';
 import { apiUrl } from '@/config/api';
@@ -22,7 +22,7 @@ interface AgentDemoInfo {
 
 interface Message {
   id: string;
-  role: 'user' | 'bot';
+  role: 'user' | 'bot' | 'system';
   content: string;
   timestamp: Date;
 }
@@ -31,6 +31,8 @@ interface DemoPageClientProps {
   agentId: string;
 }
 
+const STREAM_TIMEOUT_MS = 45_000;
+
 export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const [agent, setAgent] = useState<AgentDemoInfo | null>(null);
   const [loading, setLoading] = useState(true);
@@ -38,8 +40,12 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [startersVisible, setStartersVisible] = useState(true);
   const messagesEndRef = useRef<HTMLDivElement>(null);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const sessionIdRef = useRef<string | null>(null);
+  const abortControllerRef = useRef<AbortController | null>(null);
 
   useEffect(() => {
     async function fetchAgent() {
@@ -64,47 +70,196 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
     fetchAgent();
   }, [agentId]);
 
+  // Abort in-flight stream on unmount
+  useEffect(() => {
+    return () => {
+      abortControllerRef.current?.abort();
+    };
+  }, []);
+
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, isTyping]);
 
-  const sendMessage = async (content: string) => {
-    if (!content.trim() || !agent || isTyping) return;
+  const sendMessageToBackend = useCallback(
+    async (content: string) => {
+      if (!agent) return;
 
-    setStartersVisible(false);
+      // Abort any previous in-flight request
+      abortControllerRef.current?.abort();
+      const controller = new AbortController();
+      abortControllerRef.current = controller;
 
-    const userMsg: Message = {
-      id: crypto.randomUUID(),
-      role: 'user',
-      content: content.trim(),
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, userMsg]);
-    setInput('');
+      const botId = crypto.randomUUID();
+      setIsTyping(true);
 
-    // Simulate bot response (webhook integration will be added later)
-    setIsTyping(true);
-    await new Promise((resolve) => setTimeout(resolve, 1200));
+      let buffer = '';
 
-    const botMsg: Message = {
-      id: crypto.randomUUID(),
-      role: 'bot',
-      content:
-        'This is a demo response. Webhook integration will be configured by your administrator.',
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, botMsg]);
-    setIsTyping(false);
-  };
+      try {
+        const res = await fetch(apiUrl('/public/chat/stream'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            agentId: agent.id,
+            chatInput: content,
+            sessionId: sessionIdRef.current,
+          }),
+          signal: AbortSignal.any([
+            controller.signal,
+            AbortSignal.timeout(STREAM_TIMEOUT_MS),
+          ]),
+        });
+
+        if (!res.ok) {
+          throw new Error(`Server error: ${res.status}`);
+        }
+
+        if (!res.body) {
+          throw new Error('No response body');
+        }
+
+        // Transition from typing to streaming: create empty bot message
+        setIsTyping(false);
+        setIsStreaming(true);
+        setMessages((prev) => [
+          ...prev,
+          { id: botId, role: 'bot', content: '', timestamp: new Date() },
+        ]);
+
+        const reader = res.body.getReader();
+        const decoder = new TextDecoder();
+
+        try {
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+
+            buffer += decoder.decode(value, { stream: true });
+
+            const events = buffer.split('\n\n');
+            // Keep the last piece as it may be incomplete
+            buffer = events.pop() ?? '';
+
+            for (const event of events) {
+              const dataLine = event
+                .split('\n')
+                .find((line) => line.startsWith('data: '));
+              if (!dataLine) continue;
+
+              const jsonStr = dataLine.slice(6);
+              let parsed: {
+                type: string;
+                content?: string;
+                sessionId?: string;
+                message?: string;
+              };
+              try {
+                parsed = JSON.parse(jsonStr);
+              } catch {
+                continue;
+              }
+
+              if (parsed.type === 'chunk' && parsed.content) {
+                setMessages((prev) =>
+                  prev.map((m) =>
+                    m.id === botId
+                      ? { ...m, content: m.content + parsed.content }
+                      : m,
+                  ),
+                );
+              } else if (parsed.type === 'done') {
+                if (parsed.sessionId) {
+                  sessionIdRef.current = parsed.sessionId;
+                }
+              } else if (parsed.type === 'error') {
+                // Remove empty bot message on error, keep partial content
+                setMessages((prev) => {
+                  const cleaned = prev.filter(
+                    (m) => !(m.id === botId && m.content === ''),
+                  );
+                  return [
+                    ...cleaned,
+                    {
+                      id: crypto.randomUUID(),
+                      role: 'system' as const,
+                      content:
+                        parsed.message ??
+                        'An error occurred while processing your message.',
+                      timestamp: new Date(),
+                    },
+                  ];
+                });
+              }
+            }
+          }
+        } finally {
+          reader.releaseLock();
+        }
+      } catch (err) {
+        // Ignore abort errors from unmount/cancellation
+        if (err instanceof DOMException && err.name === 'AbortError') return;
+
+        setIsTyping(false);
+        setMessages((prev) => {
+          // Remove empty bot message if streaming hadn't started with content
+          const filtered = prev.filter(
+            (m) => !(m.id === botId && m.content === ''),
+          );
+          return [
+            ...filtered,
+            {
+              id: crypto.randomUUID(),
+              role: 'system',
+              content:
+                err instanceof DOMException && err.name === 'TimeoutError'
+                  ? 'Request timed out. Please try again.'
+                  : 'Unable to connect. Please check your connection and try again.',
+              timestamp: new Date(),
+            },
+          ];
+        });
+      } finally {
+        if (abortControllerRef.current === controller) {
+          abortControllerRef.current = null;
+        }
+        setIsStreaming(false);
+        setIsTyping(false);
+        inputRef.current?.focus();
+      }
+    },
+    [agent],
+  );
+
+  const sendMessage = useCallback(
+    async (content: string) => {
+      if (!content.trim() || !agent || isTyping || isStreaming) return;
+
+      setStartersVisible(false);
+
+      const userMsg: Message = {
+        id: crypto.randomUUID(),
+        role: 'user',
+        content: content.trim(),
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+      setInput('');
+
+      await sendMessageToBackend(content.trim());
+    },
+    [agent, isTyping, isStreaming, sendMessageToBackend],
+  );
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
-    sendMessage(input);
+    sendMessage(input).catch(() => {});
   };
 
   const handleStarterClick = (starter: Starter) => {
-    void sendMessage(starter.message);
+    sendMessage(starter.message).catch(() => {});
   };
+
+  const isBusy = isTyping || isStreaming;
 
   if (loading) {
     return (
@@ -187,7 +342,8 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                     key={i}
                     type="button"
                     onClick={() => handleStarterClick(starter)}
-                    className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 transition-colors hover:bg-blue-100"
+                    disabled={isBusy}
+                    className="rounded-full border border-blue-200 bg-blue-50 px-4 py-2 text-sm text-blue-700 transition-colors hover:bg-blue-100 disabled:cursor-not-allowed disabled:opacity-50"
                   >
                     {starter.message}
                   </button>
@@ -196,33 +352,41 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
             )}
 
             {/* Messages */}
-            {messages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`mb-4 flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
-              >
-                <div
-                  className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${
-                    msg.role === 'user' ? 'bg-gray-500' : 'bg-blue-600'
-                  }`}
-                >
-                  {msg.role === 'user' ? (
-                    <User className="h-4 w-4" />
-                  ) : (
-                    agent.name.charAt(0).toUpperCase()
-                  )}
+            {messages.map((msg) =>
+              msg.role === 'system' ? (
+                <div key={msg.id} className="mb-4 flex justify-center">
+                  <div className="max-w-[80%] rounded-lg bg-gray-200 px-4 py-2 text-sm italic text-gray-600">
+                    {msg.content}
+                  </div>
                 </div>
+              ) : (
                 <div
-                  className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                    msg.role === 'user'
-                      ? 'rounded-tr-sm bg-blue-600 text-white'
-                      : 'rounded-tl-sm bg-white text-gray-800'
-                  }`}
+                  key={msg.id}
+                  className={`mb-4 flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
                 >
-                  {msg.content}
+                  <div
+                    className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${
+                      msg.role === 'user' ? 'bg-gray-500' : 'bg-blue-600'
+                    }`}
+                  >
+                    {msg.role === 'user' ? (
+                      <User className="h-4 w-4" />
+                    ) : (
+                      agent.name.charAt(0).toUpperCase()
+                    )}
+                  </div>
+                  <div
+                    className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
+                      msg.role === 'user'
+                        ? 'rounded-tr-sm bg-blue-600 text-white'
+                        : 'rounded-tl-sm bg-white text-gray-800'
+                    }`}
+                  >
+                    {msg.content || '\u00A0'}
+                  </div>
                 </div>
-              </div>
-            ))}
+              ),
+            )}
 
             {/* Typing Indicator */}
             {isTyping && (
@@ -247,16 +411,17 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
           <div className="border-t bg-white px-4 py-3">
             <form onSubmit={handleSubmit} className="flex gap-2">
               <input
+                ref={inputRef}
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 placeholder="Type a message..."
                 className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                disabled={isTyping}
+                disabled={isBusy}
               />
               <button
                 type="submit"
-                disabled={!input.trim() || isTyping}
+                disabled={!input.trim() || isBusy}
                 className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
               >
                 <Send className="h-4 w-4" />
