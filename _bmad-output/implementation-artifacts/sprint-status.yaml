@@ -184,7 +184,7 @@ development_status:
   6-2-n8n-webhook-integration: done
   6-3-sse-streaming-response: done
   6-4-demo-page-chat-integration: done
-  6-5-response-formatting-rendering: backlog
+  6-5-response-formatting-rendering: done
   epic-6-retrospective: optional
 
   # ============================================
