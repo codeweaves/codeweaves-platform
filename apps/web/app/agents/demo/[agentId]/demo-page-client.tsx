@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Send, Bot, User } from 'lucide-react';
 import Link from 'next/link';
 import { apiUrl } from '@/config/api';
+import { ChatMessageContent } from '@/components/features/chat/chat-message-content';
 
 interface Starter {
   message: string;
@@ -46,6 +47,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const inputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
+  const streamingMsgIdRef = useRef<string | null>(null);
 
   useEffect(() => {
     async function fetchAgent() {
@@ -91,6 +93,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
       abortControllerRef.current = controller;
 
       const botId = crypto.randomUUID();
+      streamingMsgIdRef.current = botId;
       setIsTyping(true);
 
       let buffer = '';
@@ -222,6 +225,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         if (abortControllerRef.current === controller) {
           abortControllerRef.current = null;
         }
+        streamingMsgIdRef.current = null;
         setIsStreaming(false);
         setIsTyping(false);
         inputRef.current?.focus();
@@ -382,7 +386,14 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                         : 'rounded-tl-sm bg-white text-gray-800'
                     }`}
                   >
-                    {msg.content || '\u00A0'}
+                    {msg.role === 'bot' ? (
+                      <ChatMessageContent
+                        content={msg.content}
+                        isStreaming={isStreaming && msg.id === streamingMsgIdRef.current}
+                      />
+                    ) : (
+                      msg.content || '\u00A0'
+                    )}
                   </div>
                 </div>
               ),
