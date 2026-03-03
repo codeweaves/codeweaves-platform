@@ -179,7 +179,7 @@ development_status:
   # Our backend handles: session mgmt, message storage (analytics), SSE streaming, latency tracking
   # Frontend: Next.js demo page (existing from 4-17)
   # ============================================
-  epic-6: in-progress
+  epic-6: done
   6-1-chat-models-and-module-setup: done
   6-2-n8n-webhook-integration: done
   6-3-sse-streaming-response: done
@@ -198,26 +198,26 @@ development_status:
   epic-7: backlog
 
   # ============================================
-  # Epic 8: Analytics Dashboard & KPIs
+  # Epic 8: Analytics Dashboard & KPIs (REFINED 2026-03-03)
   # Priority: P2
-  # Stories: 14
-  # Dependencies: Epic 0, Epic 1, Epic 2, Epic 9
+  # Stories: 12 (refined from 14 — deferred: Languages, Topics, Unresolved, Fallback, Satisfaction, Completion Rate)
+  # Dependencies: Epic 0, Epic 1, Epic 2 (Epic 9 removed — using existing chat data + seed data)
+  # Deferred KPIs documented in: _bmad-output/implementation-artifacts/epic-8-deferred-kpis.md
+  # Role-based access: Super Admin/Admin = all orgs | Client = own org only
   # ============================================
-  epic-8: backlog
-  8-1-analytics-dashboard-page-layout: backlog
-  8-2-kpi-summary-cards-component: backlog
-  8-3-date-range-filter-component: backlog
-  8-4-conversations-over-time-chart: backlog
-  8-5-response-time-distribution-chart: backlog
-  8-6-message-volume-by-hour-heatmap: backlog
-  8-7-per-agent-analytics-table: backlog
-  8-8-analytics-api-endpoints: backlog
-  8-9-analytics-aggregation-job-bullmq: backlog
-  8-10-real-time-kpi-updates: backlog
-  8-11-conversation-completion-rate-kpi: backlog
-  8-12-user-satisfaction-score-kpi: backlog
-  8-13-export-analytics-data: backlog
-  8-14-analytics-empty-state: backlog
+  epic-8: in-progress
+  8-0-analytics-schema-and-seed-data: ready-for-dev
+  8-1-analytics-api-endpoints: ready-for-dev
+  8-2-analytics-dashboard-page-layout: ready-for-dev
+  8-3-kpi-summary-cards-component: ready-for-dev
+  8-4-date-range-filter-component: ready-for-dev
+  8-5-conversations-over-time-chart: ready-for-dev
+  8-6-response-time-distribution-chart: ready-for-dev
+  8-7-message-volume-by-hour-heatmap: ready-for-dev
+  8-8-per-agent-analytics-table: ready-for-dev
+  8-9-real-time-kpi-polling: ready-for-dev
+  8-10-analytics-empty-state: ready-for-dev
+  8-11-export-analytics-data: ready-for-dev
   epic-8-retrospective: optional
 
   # ============================================
