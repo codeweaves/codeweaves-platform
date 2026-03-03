@@ -33,6 +33,8 @@ interface DemoPageClientProps {
 }
 
 const STREAM_TIMEOUT_MS = 45_000;
+const TYPEWRITER_MS = 12;
+const TYPEWRITER_CHARS = 2;
 
 export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const [agent, setAgent] = useState<AgentDemoInfo | null>(null);
@@ -48,6 +50,10 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const sessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingMsgIdRef = useRef<string | null>(null);
+
+  // Typewriter animation state
+  const typewriterBufferRef = useRef('');
+  const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
   useEffect(() => {
     async function fetchAgent() {
@@ -72,12 +78,54 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
     fetchAgent();
   }, [agentId]);
 
+  const stopTypewriter = useCallback(() => {
+    if (typewriterIntervalRef.current) {
+      clearInterval(typewriterIntervalRef.current);
+      typewriterIntervalRef.current = null;
+    }
+  }, []);
+
+  const flushTypewriterBuffer = useCallback(
+    (botId: string) => {
+      const remaining = typewriterBufferRef.current;
+      if (remaining) {
+        typewriterBufferRef.current = '';
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === botId ? { ...m, content: m.content + remaining } : m,
+          ),
+        );
+      }
+      stopTypewriter();
+    },
+    [stopTypewriter],
+  );
+
+  const startTypewriter = useCallback(
+    (botId: string) => {
+      stopTypewriter();
+      typewriterIntervalRef.current = setInterval(() => {
+        const buf = typewriterBufferRef.current;
+        if (!buf) return;
+        const chars = buf.slice(0, TYPEWRITER_CHARS);
+        typewriterBufferRef.current = buf.slice(TYPEWRITER_CHARS);
+        setMessages((prev) =>
+          prev.map((m) =>
+            m.id === botId ? { ...m, content: m.content + chars } : m,
+          ),
+        );
+      }, TYPEWRITER_MS);
+    },
+    [stopTypewriter],
+  );
+
   // Abort in-flight stream on unmount
   useEffect(() => {
     return () => {
       abortControllerRef.current?.abort();
+      stopTypewriter();
     };
-  }, []);
+  }, [stopTypewriter]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -105,7 +153,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
           body: JSON.stringify({
             agentId: agent.id,
             chatInput: content,
-            sessionId: sessionIdRef.current,
+            ...(sessionIdRef.current && { sessionId: sessionIdRef.current }),
           }),
           signal: AbortSignal.any([
             controller.signal,
@@ -124,10 +172,12 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         // Transition from typing to streaming: create empty bot message
         setIsTyping(false);
         setIsStreaming(true);
+        typewriterBufferRef.current = '';
         setMessages((prev) => [
           ...prev,
           { id: botId, role: 'bot', content: '', timestamp: new Date() },
         ]);
+        startTypewriter(botId);
 
         const reader = res.body.getReader();
         const decoder = new TextDecoder();
@@ -163,13 +213,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
               }
 
               if (parsed.type === 'chunk' && parsed.content) {
-                setMessages((prev) =>
-                  prev.map((m) =>
-                    m.id === botId
-                      ? { ...m, content: m.content + parsed.content }
-                      : m,
-                  ),
-                );
+                typewriterBufferRef.current += parsed.content;
               } else if (parsed.type === 'done') {
                 if (parsed.sessionId) {
                   sessionIdRef.current = parsed.sessionId;
@@ -197,10 +241,14 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
           }
         } finally {
           reader.releaseLock();
+          flushTypewriterBuffer(botId);
         }
       } catch (err) {
         // Ignore abort errors from unmount/cancellation
-        if (err instanceof DOMException && err.name === 'AbortError') return;
+        if (err instanceof DOMException && err.name === 'AbortError') {
+          stopTypewriter();
+          return;
+        }
 
         setIsTyping(false);
         setMessages((prev) => {
@@ -231,7 +279,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         inputRef.current?.focus();
       }
     },
-    [agent],
+    [agent, startTypewriter, flushTypewriterBuffer, stopTypewriter],
   );
 
   const sendMessage = useCallback(
