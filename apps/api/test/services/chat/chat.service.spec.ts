@@ -374,12 +374,12 @@ describe('ChatService', () => {
   describe('chunkText', () => {
     it('should split text into chunks at word boundaries', () => {
       const chunks = ChatService.chunkText('one two three four five six');
-      expect(chunks).toEqual(['one two three', 'four five six']);
+      expect(chunks).toEqual(['one two three ', 'four five six']);
     });
 
     it('should handle default 3 words per chunk', () => {
       const chunks = ChatService.chunkText('a b c d e f g');
-      expect(chunks).toEqual(['a b c', 'd e f', 'g']);
+      expect(chunks).toEqual(['a b c ', 'd e f ', 'g']);
     });
 
     it('should return empty array for empty string', () => {
@@ -401,19 +401,18 @@ describe('ChatService', () => {
 
     it('should respect custom chunkSize', () => {
       const chunks = ChatService.chunkText('a b c d e f', 2);
-      expect(chunks).toEqual(['a b', 'c d', 'e f']);
+      expect(chunks).toEqual(['a b ', 'c d ', 'e f']);
     });
 
     it('should handle text with multiple whitespace characters', () => {
       const chunks = ChatService.chunkText('one   two\tthree\nfour  five   six');
-      expect(chunks).toEqual(['one two three', 'four five six']);
+      expect(chunks).toEqual(['one two three ', 'four five six']);
     });
 
     it('should never split mid-word', () => {
       const chunks = ChatService.chunkText('longword anotherlongword thirdword');
       for (const chunk of chunks) {
-        // Each chunk should only contain complete words
-        const words = chunk.split(' ');
+        const words = chunk.trim().split(' ');
         for (const word of words) {
           expect(word).not.toContain(' ');
           expect(word.length).toBeGreaterThan(0);
@@ -424,12 +423,17 @@ describe('ChatService', () => {
     it('should produce chunks within expected size range for typical text', () => {
       const text = 'The quick brown fox jumps over the lazy dog and runs away fast into the forest';
       const chunks = ChatService.chunkText(text);
-      // Each chunk should have at most 3 words (default)
       for (const chunk of chunks) {
-        const wordCount = chunk.split(' ').length;
+        const wordCount = chunk.trim().split(' ').length;
         expect(wordCount).toBeLessThanOrEqual(3);
         expect(wordCount).toBeGreaterThanOrEqual(1);
       }
+    });
+
+    it('should concatenate chunks back to original text', () => {
+      const text = 'The quick brown fox jumps over the lazy dog';
+      const chunks = ChatService.chunkText(text);
+      expect(chunks.join('')).toBe(text);
     });
   });
 
@@ -503,8 +507,8 @@ describe('ChatService', () => {
     it('should chunk the n8n reply text', async () => {
       const result = await service.streamMessage(baseDto);
 
-      // "Hello! How can I help you?" → chunks at word boundaries
-      expect(result.chunks.join(' ')).toBe(mockN8nResponse.agentReply);
+      // Chunks include trailing spaces — concatenation reconstructs original text
+      expect(result.chunks.join('')).toBe(mockN8nResponse.agentReply);
     });
 
     it('should create a new session when no sessionId provided', async () => {

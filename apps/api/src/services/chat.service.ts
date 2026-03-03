@@ -119,7 +119,9 @@ export class ChatService {
 
     const chunks: string[] = [];
     for (let i = 0; i < words.length; i += chunkSize) {
-      chunks.push(words.slice(i, i + chunkSize).join(' '));
+      const chunk = words.slice(i, i + chunkSize).join(' ');
+      // Add trailing space between chunks so they concatenate correctly
+      chunks.push(i + chunkSize < words.length ? chunk + ' ' : chunk);
     }
 
     return chunks;
