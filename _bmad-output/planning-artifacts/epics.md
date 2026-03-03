@@ -584,21 +584,37 @@ This document provides the complete epic and story breakdown for CodeWeaves Plat
 
 ---
 
-### Epic 8: Analytics Dashboard & KPIs
-**Goal:** Users can view comprehensive analytics with 14 KPIs, understand their chat performance, and make data-driven decisions.
+### Epic 8: Analytics Dashboard & KPIs (REFINED)
+**Goal:** Users can view analytics dashboard with buildable KPIs, understand chat performance, and make data-driven decisions. Seeded with realistic dummy data for client demos.
 
-**Scope:**
-- Analytics dashboard page
-- 14 KPIs calculation and display
-- Date range filtering (7/14/30 days)
-- Charts visualization (line, bar, pie, area)
-- Per-agent analytics tables
-- Async job processing (BullMQ + Redis)
-- Hybrid analytics processing (ADR-008)
+**Scope (Refined 2026-03-03):**
+- Seed data script (realistic dummy data across multiple orgs/bots with WIDGET source)
+- Analytics API endpoints with role-based access (Super Admin/Admin: all orgs | Client: own org)
+- Analytics dashboard page layout with date range filtering (7/14/30 days + custom)
+- 10 buildable KPIs (see below)
+- Charts visualization (line, bar, heatmap)
+- Per-agent analytics table
+- Empty state for new users
+- Real-time polling updates
 
-**FRs:** FR83-FR100
+**Buildable KPIs (10):**
+1. Total Users (new vs returning, 60-day window)
+2. Total Conversations (session count)
+3. Total Messages (user sent + bot received)
+4. Message Volume Trends (peak hours/days)
+5. User Retention Rate (% returning within 60 days)
+6. User Growth Rate (new users period-over-period)
+7. % Change in New Users (daily/weekly/monthly deltas)
+8. Avg Bot Response Time (P50, P95, P99)
+9. Number of Queries Raised (total user prompts)
+10. Total Messages Exchanged (sum user + bot)
+
+**Deferred KPIs:** Languages Used, Most Popular Topics (AI categorization), Unresolved Queries, Fallback Rate, User Satisfaction Score, Conversation Completion Rate
+**Deferred details:** See `_bmad-output/implementation-artifacts/epic-8-deferred-kpis.md`
+
+**FRs:** FR83-FR87, FR90-FR92, FR95-FR100 (FR88, FR89, FR93, FR94 deferred)
 **NFRs:** NFR39 (Async processing), NFR61 (Business metrics)
-**Dependencies:** Epic 0, Epic 1, Epic 2, Epic 9
+**Dependencies:** Epic 0, Epic 1, Epic 2 (Epic 9 dependency removed — building with existing chat data + seed data)
 
 ---
 
@@ -2535,9 +2551,80 @@ So that AI requests stay within token limits.
 
 ---
 
-### Epic 8: Analytics Dashboard & KPIs
+### Epic 8: Analytics Dashboard & KPIs (REFINED 2026-03-03)
 
-#### Story 8.1: Analytics Dashboard Page Layout
+> **Refinement notes:** Scope reduced from 14 to 10 KPIs. Deferred: Languages Used, Most Popular Topics (AI categorization), Unresolved Queries, Fallback Rate, User Satisfaction Score, Conversation Completion Rate. Details in `_bmad-output/implementation-artifacts/epic-8-deferred-kpis.md`.
+> **Added:** Seed data script, role-based analytics access (Super Admin/Admin: all orgs | Client: own org), agent filter.
+
+#### Story 8.0: Analytics Schema Changes & Seed Data Script
+
+As a **developer**,
+I want the schema extended for analytics tracking and a seed script that populates realistic data,
+So that analytics queries work correctly and the dashboard can be demoed to clients.
+
+**Acceptance Criteria:**
+
+**Schema Changes:**
+
+**Given** the analytics epic requires user tracking and multi-channel support
+**When** the migration runs
+**Then** `ChatSource` enum is extended with `WHATSAPP` value
+**And** `visitorId` (String, nullable) field is added to `ChatSession` — stores IP address (web/widget) or phone number (WhatsApp)
+**And** index is added on `visitorId` for unique user queries
+**And** existing data is unaffected (visitorId defaults to null for old sessions)
+
+**Seed Data:**
+
+**Given** the seed script is executed
+**When** it completes
+**Then** multiple organizations have seeded data
+**And** each org has 2-5 agents with varied activity levels
+**And** ChatSessions are created with `source: 'WIDGET'` and realistic `visitorId` values across 90 days
+**And** ChatMessages have realistic patterns (varied responseLatencyMs in metadata, message lengths, hours of activity)
+**And** Data varies per bot (some high-volume, some low, different peak hours)
+**And** Returning visitors are seeded (same visitorId across multiple sessions for retention KPI)
+**And** Script is idempotent (safe to re-run, cleans up previous seed data)
+**And** Script is runnable via `bun run seed:analytics`
+
+---
+
+#### Story 8.1: Analytics API Endpoints
+
+As a **dashboard**,
+I want API endpoints for analytics data,
+So that I can fetch and display metrics.
+
+**Acceptance Criteria:**
+
+**Given** authenticated user with valid organization
+**When** calling GET `/api/analytics/summary`
+**Then** KPI summary data is returned for the 10 buildable KPIs
+**And** Super Admin/Admin see all orgs (can filter by orgId)
+**And** Client users see only their org's data
+**And** date range query params are respected (startDate, endDate)
+**And** optional agentId filter scopes to specific bot
+**And** response includes trend data (% change vs previous period)
+**And** cache headers enable client caching (5 min)
+
+**Given** authenticated user
+**When** calling GET `/api/analytics/charts/conversations`
+**Then** daily conversation counts are returned for the date range
+
+**Given** authenticated user
+**When** calling GET `/api/analytics/charts/response-times`
+**Then** response time distribution buckets are returned
+
+**Given** authenticated user
+**When** calling GET `/api/analytics/charts/message-volume`
+**Then** hourly message volume data is returned (for heatmap)
+
+**Given** authenticated user
+**When** calling GET `/api/analytics/agents`
+**Then** per-agent metrics table data is returned
+
+---
+
+#### Story 8.2: Analytics Dashboard Page Layout
 
 As an **agent owner**,
 I want a dedicated analytics page in the dashboard,
@@ -2548,15 +2635,17 @@ So that I can view all my chat performance metrics.
 **Given** I navigate to the Analytics page
 **When** the page loads
 **Then** page displays KPI summary cards at the top
-**And** date range selector is visible (7/14/30 days)
-**And** charts section shows trend visualizations
-**And** agent breakdown table is shown below
-**And** loading states are shown while data fetches
-**And** page respects tenant isolation (only my org's data)
+**And** date range selector is visible (7/14/30 days + custom)
+**And** agent filter dropdown allows scoping to a specific bot
+**And** charts section shows trend visualizations below KPIs
+**And** agent breakdown table is shown at the bottom
+**And** loading skeletons are shown while data fetches
+**And** Super Admin/Admin see org filter dropdown
+**And** Client users see only their org's data (no org filter)
 
 ---
 
-#### Story 8.2: KPI Summary Cards Component
+#### Story 8.3: KPI Summary Cards Component
 
 As an **agent owner**,
 I want to see key metrics at a glance,
@@ -2566,15 +2655,20 @@ So that I quickly understand my overall performance.
 
 **Given** the analytics page loads
 **When** KPI data is available
-**Then** 6 primary KPI cards are displayed
-**And** each card shows: metric name, current value, trend indicator
-**And** trend shows % change vs previous period
-**And** positive trends are green, negative are red
-**And** cards are responsive (2x3 grid on desktop)
+**Then** KPI cards are displayed showing:
+  - Total Users (new vs returning)
+  - Total Conversations
+  - Total Messages (sent + received)
+  - Avg Response Time
+  - User Retention Rate
+  - User Growth Rate
+**And** each card shows: metric name, current value, trend indicator (% change vs previous period)
+**And** positive trends are green, negative are red, neutral is gray
+**And** cards are responsive (grid layout adapts to screen size)
 
 ---
 
-#### Story 8.3: Date Range Filter Component
+#### Story 8.4: Date Range Filter Component
 
 As an **agent owner**,
 I want to filter analytics by date range,
@@ -2592,7 +2686,7 @@ So that I can analyze specific time periods.
 
 ---
 
-#### Story 8.4: Conversations Over Time Chart
+#### Story 8.5: Conversations Over Time Chart
 
 As an **agent owner**,
 I want to see conversation trends over time,
@@ -2610,7 +2704,7 @@ So that I can identify patterns and growth.
 
 ---
 
-#### Story 8.5: Response Time Distribution Chart
+#### Story 8.6: Response Time Distribution Chart
 
 As an **agent owner**,
 I want to see how fast my agents respond,
@@ -2628,7 +2722,7 @@ So that I can ensure good user experience.
 
 ---
 
-#### Story 8.6: Message Volume by Hour Heatmap
+#### Story 8.7: Message Volume by Hour Heatmap
 
 As an **agent owner**,
 I want to see when users are most active,
@@ -2646,7 +2740,7 @@ So that I can optimize agent availability.
 
 ---
 
-#### Story 8.7: Per-Agent Analytics Table
+#### Story 8.8: Per-Agent Analytics Table
 
 As an **agent owner**,
 I want to compare performance across my agents,
@@ -2657,50 +2751,14 @@ So that I can identify which agents need improvement.
 **Given** I have multiple agents
 **When** the agent table loads
 **Then** table shows one row per agent
-**And** columns: Agent Name, Conversations, Messages, Avg Response, Satisfaction
+**And** columns: Agent Name, Conversations, Messages, Avg Response Time, Queries Raised
 **And** table is sortable by any column
 **And** clicking agent name navigates to agent detail
 **And** pagination handles >10 agents
 
 ---
 
-#### Story 8.8: Analytics API Endpoints
-
-As a **dashboard**,
-I want API endpoints for analytics data,
-So that I can fetch and display metrics.
-
-**Acceptance Criteria:**
-
-**Given** authenticated user with valid organization
-**When** calling GET `/api/analytics/summary`
-**Then** KPI summary data is returned
-**And** data is filtered by organizationId
-**And** date range params are respected
-**And** response includes all 14 KPIs
-**And** cache headers enable client caching (5 min)
-
----
-
-#### Story 8.9: Analytics Aggregation Job (BullMQ)
-
-As a **system**,
-I want to pre-calculate analytics asynchronously,
-So that dashboard queries are fast.
-
-**Acceptance Criteria:**
-
-**Given** raw event data exists
-**When** aggregation job runs (hourly)
-**Then** KPIs are calculated from UsageEvent + ChatMessage
-**And** results are stored in AnalyticsAggregation table
-**And** job runs via BullMQ queue
-**And** job is idempotent (re-runnable without duplicates)
-**And** job failure triggers alert
-
----
-
-#### Story 8.10: Real-Time KPI Updates
+#### Story 8.9: Real-Time KPI Polling
 
 As an **agent owner**,
 I want KPIs to update without page refresh,
@@ -2709,70 +2767,16 @@ So that I see current data while monitoring.
 **Acceptance Criteria:**
 
 **Given** the analytics page is open
-**When** new events occur
-**Then** KPI values update within 60 seconds
+**When** new data arrives
+**Then** KPI values update every 60 seconds via polling
 **And** update animation highlights changed values
 **And** no full page reload required
-**And** polling interval is configurable (default 60s)
-**And** polling pauses when tab is inactive
+**And** polling pauses when browser tab is inactive
+**And** polling resumes when tab becomes active
 
 ---
 
-#### Story 8.11: Conversation Completion Rate KPI
-
-As an **agent owner**,
-I want to see what percentage of conversations complete successfully,
-So that I can improve agent effectiveness.
-
-**Acceptance Criteria:**
-
-**Given** conversation data exists
-**When** completion rate is calculated
-**Then** completed = sessions with user satisfaction rating OR >3 exchanges
-**And** rate = completed / total × 100
-**And** displayed as percentage with trend
-**And** breakdown by agent is available
-**And** low rates (<50%) trigger warning indicator
-
----
-
-#### Story 8.12: User Satisfaction Score KPI
-
-As an **agent owner**,
-I want to see average user satisfaction,
-So that I can track service quality.
-
-**Acceptance Criteria:**
-
-**Given** users have submitted ratings
-**When** satisfaction is calculated
-**Then** average rating is computed (1-5 scale)
-**And** displayed as score with star visualization
-**And** trend shows change vs previous period
-**And** rating distribution chart is available
-**And** sessions without rating are excluded
-
----
-
-#### Story 8.13: Export Analytics Data
-
-As an **agent owner**,
-I want to export my analytics data,
-So that I can analyze it in external tools.
-
-**Acceptance Criteria:**
-
-**Given** analytics data is displayed
-**When** I click "Export" button
-**Then** dropdown shows format options (CSV, JSON)
-**And** export includes all visible data for selected range
-**And** file downloads with descriptive filename
-**And** large exports (>10k rows) are processed async
-**And** export action is logged in audit trail
-
----
-
-#### Story 8.14: Analytics Empty State
+#### Story 8.10: Analytics Empty State
 
 As a **new user**,
 I want helpful guidance when I have no analytics data,
@@ -2786,6 +2790,23 @@ So that I understand how to get started.
 **And** message explains "Start chatting to see analytics"
 **And** link to create first agent is provided
 **And** sample data preview is NOT shown (avoid confusion)
+
+---
+
+#### Story 8.11: Export Analytics Data
+
+As an **agent owner**,
+I want to export my analytics data,
+So that I can analyze it in external tools.
+
+**Acceptance Criteria:**
+
+**Given** analytics data is displayed
+**When** I click "Export" button
+**Then** dropdown shows format options (CSV, JSON)
+**And** export includes all visible data for selected range
+**And** file downloads with descriptive filename
+**And** export action is logged in audit trail
 
 ---
 

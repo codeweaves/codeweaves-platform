@@ -100,8 +100,33 @@ N/A — no issues encountered during implementation.
   - M3: Replaced fragile last-message streaming detection with explicit `streamingMsgIdRef` tracking
   - L1: Removed unused `chat-message-content` CSS class from wrapper div
 
+### Post-Story Fixes (PR #51 — fix/chat-streaming-fixes)
+
+The following fixes and enhancements were added after the story was completed:
+
+**1. Client-side typewriter animation for streaming responses**
+- Added a character-by-character typewriter effect on the frontend for bot messages
+- SSE chunks from the backend are buffered in `typewriterBufferRef` and dripped out 2 characters every 12ms via `setInterval`
+- Constants: `TYPEWRITER_MS = 12`, `TYPEWRITER_CHARS = 2`
+- Three new callbacks: `startTypewriter`, `stopTypewriter`, `flushTypewriterBuffer`
+- Buffer is flushed immediately when the stream ends (`done` event) so no text is lost
+- Abort/unmount cleanup stops the interval to prevent memory leaks
+
+**2. Fix `sessionId: null` validation error on first message**
+- Frontend was sending `sessionId: null` in the request body on the first message (no session yet)
+- Zod `.optional()` allows `undefined` but rejects `null`, causing a 400 validation error
+- Fixed by conditionally omitting the field: `...(sessionIdRef.current && { sessionId: sessionIdRef.current })`
+
+**3. Fix missing spaces between SSE chunks (`chunkText`)**
+- `ChatService.chunkText()` splits the full n8n response into word groups but was not adding trailing spaces between chunks
+- Frontend concatenation produced "HowmayI" instead of "How may I"
+- Fixed by appending a trailing space to all non-last chunks: `chunks.push(i + chunkSize < words.length ? chunk + ' ' : chunk)`
+- Updated all related backend tests (746 total, all passing)
+
 ### File List
 - `apps/web/components/features/chat/chat-message-content.tsx` — NEW
-- `apps/web/app/agents/demo/[agentId]/demo-page-client.tsx` — MODIFIED (import + bot message rendering)
+- `apps/web/app/agents/demo/[agentId]/demo-page-client.tsx` — MODIFIED (import + bot message rendering + typewriter animation + sessionId fix)
 - `apps/web/package.json` — MODIFIED (added react-markdown dependency)
+- `apps/api/src/services/chat.service.ts` — MODIFIED (chunkText trailing space fix)
+- `apps/api/test/services/chat/chat.service.spec.ts` — MODIFIED (updated chunkText test expectations + new concatenation test)
 - `bun.lock` — MODIFIED (lockfile updated)
