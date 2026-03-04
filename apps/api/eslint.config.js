@@ -12,6 +12,7 @@ export default [
       "*.cjs",
       "prisma.config.ts",
       "prisma/seed.ts",
+      "prisma/seed-analytics.ts",
     ],
   },
   ...config,

@@ -10,7 +10,8 @@
     "check-types": "turbo run check-types",
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
-    "test:cov": "turbo run test:cov"
+    "test:cov": "turbo run test:cov",
+    "seed:analytics": "turbo run seed:analytics"
   },
   "devDependencies": {
     "eslint": "^9.39.2",

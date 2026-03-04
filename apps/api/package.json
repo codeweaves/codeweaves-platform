@@ -14,7 +14,8 @@
     "test": "jest --config jest.config.cjs",
     "test:watch": "jest --config jest.config.cjs --watch",
     "test:cov": "jest --config jest.config.cjs --coverage",
-    "test:e2e": "jest --config jest.e2e.config.cjs"
+    "test:e2e": "jest --config jest.e2e.config.cjs",
+    "seed:analytics": "bunx tsx prisma/seed-analytics.ts"
   },
   "prisma": {
     "seed": "bun run prisma/seed.ts"

@@ -206,7 +206,7 @@ development_status:
   # Role-based access: Super Admin/Admin = all orgs | Client = own org only
   # ============================================
   epic-8: in-progress
-  8-0-analytics-schema-and-seed-data: ready-for-dev
+  8-0-analytics-schema-and-seed-data: review
   8-1-analytics-api-endpoints: ready-for-dev
   8-2-analytics-dashboard-page-layout: ready-for-dev
   8-3-kpi-summary-cards-component: ready-for-dev
