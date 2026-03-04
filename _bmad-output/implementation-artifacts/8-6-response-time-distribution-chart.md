@@ -1,6 +1,6 @@
 # Story 8.6: Response Time Distribution Chart
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -21,14 +21,14 @@ So that I can ensure good user experience.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create response time chart component (AC: 1-8)
-  - [ ] 1.1 Create `apps/web/components/features/analytics/response-times-chart.tsx`
-  - [ ] 1.2 Use Recharts `<BarChart>` with `<Bar>` component
-  - [ ] 1.3 Color each bar based on bucket: <1s=green, 1-2s=lime, 2-5s=yellow, 5-10s=orange, >10s=red
-  - [ ] 1.4 Display percentage labels on top of each bar using Recharts `<LabelList>`
-  - [ ] 1.5 Display P50/P95/P99 as stat badges below the chart
-  - [ ] 1.6 Custom tooltip with count + percentage
-  - [ ] 1.7 Handle empty data and loading states
+- [x] Task 1: Create response time chart component (AC: 1-8)
+  - [x] 1.1 Create `apps/web/components/features/analytics/response-times-chart.tsx`
+  - [x] 1.2 Use Recharts `<BarChart>` with `<Bar>` component
+  - [x] 1.3 Color each bar based on bucket: <1s=green, 1-2s=lime, 2-5s=yellow, 5-10s=orange, >10s=red
+  - [x] 1.4 Display percentage labels on top of each bar using Recharts `<LabelList>`
+  - [x] 1.5 Display P50/P95/P99 as stat badges below the chart
+  - [x] 1.6 Custom tooltip with count + percentage
+  - [x] 1.7 Handle empty data and loading states
 
 ## Dev Notes
 
@@ -112,9 +112,26 @@ export function ResponseTimesChart({ params, className }: ChartProps) {
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Fixed LabelList formatter type: Recharts `LabelFormatter` expects `RenderableText` param (includes null), not just `number`
 
 ### Completion Notes List
+- Created response-times-chart.tsx with Recharts BarChart, color-coded bars per bucket, LabelList percentages, custom tooltip, P50/P95/P99 badges
+- Replaced ChartPlaceholder in analytics-page-client.tsx with real component
+- All AC 1-8 satisfied
 
 ### File List
+- apps/web/components/features/analytics/response-times-chart.tsx (new)
+- apps/web/components/features/analytics/analytics-page-client.tsx (modified)
+
+## Senior Developer Review (AI)
+
+**Reviewer:** Code Review Workflow — 2026-03-04
+
+### Issues Found & Fixed
+1. **[MEDIUM] Missing staleTime on analytics queries** — Fixed in shared use-analytics.ts (see story 8-7 review). Added `staleTime: 5 * 60 * 1000` to match backend 5-min cache.
+
+### Notes
+- Implementation is clean. All 8 ACs verified against actual code. Color coding, labels, tooltips, P50/P95/P99 badges, empty/loading/error states all present and correct.

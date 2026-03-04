@@ -92,6 +92,9 @@ export interface PaginatedAgentAnalytics {
   };
 }
 
+// Match backend Cache-Control: private, max-age=300
+const ANALYTICS_STALE_TIME = 5 * 60 * 1000;
+
 function buildQueryString(params: AnalyticsParams, extra?: Record<string, string | number | undefined>): string {
   const qp = new URLSearchParams();
   qp.set('startDate', params.startDate);
@@ -114,6 +117,7 @@ export function useAnalyticsSummary(params: AnalyticsParams) {
     queryKey: ['analytics', 'summary', params],
     queryFn: () => api.get(`/analytics/summary?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
+    staleTime: ANALYTICS_STALE_TIME,
   });
 }
 
@@ -125,6 +129,7 @@ export function useConversationsChart(params: AnalyticsParams) {
     queryKey: ['analytics', 'conversations', params],
     queryFn: () => api.get(`/analytics/charts/conversations?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
+    staleTime: ANALYTICS_STALE_TIME,
   });
 }
 
@@ -136,6 +141,7 @@ export function useResponseTimesChart(params: AnalyticsParams) {
     queryKey: ['analytics', 'response-times', params],
     queryFn: () => api.get(`/analytics/charts/response-times?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
+    staleTime: ANALYTICS_STALE_TIME,
   });
 }
 
@@ -147,6 +153,7 @@ export function useMessageVolumeChart(params: AnalyticsParams) {
     queryKey: ['analytics', 'message-volume', params],
     queryFn: () => api.get(`/analytics/charts/message-volume?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
+    staleTime: ANALYTICS_STALE_TIME,
   });
 }
 
@@ -168,5 +175,6 @@ export function useAgentAnalytics(params: AgentAnalyticsParams) {
     queryFn: () =>
       api.get(`/analytics/agents?${buildQueryString(baseParams, { page, limit, sortBy, sortOrder })}`),
     enabled: isAuthenticated && !authLoading,
+    staleTime: ANALYTICS_STALE_TIME,
   });
 }

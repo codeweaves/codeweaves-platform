@@ -1,6 +1,6 @@
 # Story 8.8: Per-Agent Analytics Table
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -20,14 +20,14 @@ So that I can identify which agents need improvement.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create agent analytics table component (AC: 1-7)
-  - [ ] 1.1 Create `apps/web/components/features/analytics/agent-analytics-table.tsx`
-  - [ ] 1.2 Use existing `DataTable` component from `apps/web/components/ui/data-table/`
-  - [ ] 1.3 Define columns with `ColumnDef` from @tanstack/react-table
-  - [ ] 1.4 Use `onFetch` callback pattern for server-side pagination/sorting
-  - [ ] 1.5 Agent name column as clickable link to `/dashboard/agents/{agentId}`
-  - [ ] 1.6 Format Avg Response Time with `formatDuration()` from `apps/web/lib/format-utils.ts`
-  - [ ] 1.7 Format number columns with `formatNumber()`
+- [x] Task 1: Create agent analytics table component (AC: 1-7)
+  - [x] 1.1 Create `apps/web/components/features/analytics/agent-analytics-table.tsx`
+  - [x] 1.2 Use existing `DataTable` component from `apps/web/components/ui/data-table/`
+  - [x] 1.3 Define columns with `ColumnDef` from @tanstack/react-table
+  - [x] 1.4 Use `onFetch` callback pattern for server-side pagination/sorting
+  - [x] 1.5 Agent name column as clickable link to `/dashboard/agents/{agentId}`
+  - [x] 1.6 Format Avg Response Time with `formatDuration()` from `apps/web/lib/format-utils.ts`
+  - [x] 1.7 Format number columns with `formatNumber()`
 
 ## Dev Notes
 
@@ -137,9 +137,27 @@ export function AgentAnalyticsTable({ params }: { params: AnalyticsParams }) {
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+None
 
 ### Completion Notes List
+- Created agent-analytics-table.tsx using existing DataTable with onFetch pattern
+- 5 columns: Agent (link), Conversations, Messages, Avg Response, Queries — all sortable via DataTableColumnHeader
+- Server-side pagination with page sizes [5, 10, 50]
+- Replaced placeholder in analytics-page-client.tsx; removed unused useAgentAnalytics import from page
+- All AC 1-7 satisfied
 
 ### File List
+- apps/web/components/features/analytics/agent-analytics-table.tsx (new)
+- apps/web/components/features/analytics/analytics-page-client.tsx (modified)
+
+## Senior Developer Review (AI)
+
+**Reviewer:** Code Review Workflow — 2026-03-04
+
+### Issues Found & Fixed
+1. **[HIGH] No page reset on filter change** — When parent params (date range, agentId, orgId) changed, the table stayed on the current page instead of resetting to page 0. Fixed: added useEffect with ref to detect param changes and reset page.
+2. **[HIGH] No error state handling** — The component only passed `isLoading` to DataTable but silently swallowed API errors. Fixed: added `isError` destructure from useAgentAnalytics and error UI with AlertCircle icon.
+3. **[MEDIUM] Missing staleTime** — Fixed in shared use-analytics.ts (see story 8-7 review).
