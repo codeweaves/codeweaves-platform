@@ -1,6 +1,6 @@
 # Story 8.3: KPI Summary Cards Component
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -21,19 +21,19 @@ So that I quickly understand my overall performance.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create KPI card component (AC: 2-5, 8)
-  - [ ] 1.1 Create `apps/web/components/features/analytics/kpi-card.tsx`
-  - [ ] 1.2 Props: `title`, `value`, `formattedValue`, `trend` (% number), `trendInverted` (for response time), `icon`, `isLoading`
-  - [ ] 1.3 Display trend with `TrendingUp`/`TrendingDown` icons from lucide-react
-  - [ ] 1.4 Color logic: positive trend = green, negative = red, handle `trendInverted` for response time
-  - [ ] 1.5 Format values: `formatNumber()`, `formatPercentage()`, `formatDuration()`
+- [x] Task 1: Create KPI card component (AC: 2-5, 8)
+  - [x] 1.1 Create `apps/web/components/features/analytics/kpi-card.tsx`
+  - [x] 1.2 Props: `title`, `value`, `formattedValue`, `trend` (% number), `trendInverted` (for response time), `icon`, `isLoading`
+  - [x] 1.3 Display trend with `TrendingUp`/`TrendingDown` icons from lucide-react
+  - [x] 1.4 Color logic: positive trend = green, negative = red, handle `trendInverted` for response time
+  - [x] 1.5 Format values: `formatNumber()`, `formatPercentage()`, `formatDuration()`
 
-- [ ] Task 2: Create KPI summary cards container (AC: 1, 6-7)
-  - [ ] 2.1 Create `apps/web/components/features/analytics/kpi-summary-cards.tsx`
-  - [ ] 2.2 Consume `useAnalyticsSummary(params)` hook from story 8-2
-  - [ ] 2.3 Map API response to 6 KPI cards with correct formatting
-  - [ ] 2.4 Implement responsive grid: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`
-  - [ ] 2.5 Show skeleton grid when loading
+- [x] Task 2: Create KPI summary cards container (AC: 1, 6-7)
+  - [x] 2.1 Create `apps/web/components/features/analytics/kpi-summary-cards.tsx`
+  - [x] 2.2 Consume `useAnalyticsSummary(params)` hook from story 8-2
+  - [x] 2.3 Map API response to 6 KPI cards with correct formatting
+  - [x] 2.4 Implement responsive grid: `grid-cols-1 sm:grid-cols-2 lg:grid-cols-3`
+  - [x] 2.5 Show skeleton grid when loading
 
 ## Dev Notes
 
@@ -102,9 +102,20 @@ export function formatDuration(ms: number): string {
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+N/A
 
 ### Completion Notes List
+- Created `format-utils.ts` with `formatNumber`, `formatPercentage`, `formatDuration`
+- Created `kpi-card.tsx` with trend indicators (green/red/neutral), `trendInverted` support, loading skeleton
+- Created `kpi-summary-cards.tsx` mapping 6 KPIs with responsive 1/2/3 column grid
+- Replaced inline KpiCard placeholder in analytics-page-client.tsx with KpiSummaryCards component
+- Updated page skeleton to match new 6-card grid layout
 
 ### File List
+- New: `apps/web/lib/format-utils.ts`
+- New: `apps/web/components/features/analytics/kpi-card.tsx`
+- New: `apps/web/components/features/analytics/kpi-summary-cards.tsx`
+- Modified: `apps/web/components/features/analytics/analytics-page-client.tsx`

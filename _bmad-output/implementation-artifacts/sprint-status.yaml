@@ -209,9 +209,9 @@ development_status:
   8-0-analytics-schema-and-seed-data: done
   8-1-analytics-api-endpoints: done
   8-2-analytics-dashboard-page-layout: done
-  8-3-kpi-summary-cards-component: ready-for-dev
-  8-4-date-range-filter-component: ready-for-dev
-  8-5-conversations-over-time-chart: ready-for-dev
+  8-3-kpi-summary-cards-component: done
+  8-4-date-range-filter-component: done
+  8-5-conversations-over-time-chart: done
   8-6-response-time-distribution-chart: ready-for-dev
   8-7-message-volume-by-hour-heatmap: ready-for-dev
   8-8-per-agent-analytics-table: ready-for-dev
