@@ -10,7 +10,6 @@ import {
   useConversationsChart,
   useResponseTimesChart,
   useMessageVolumeChart,
-  useAgentAnalytics,
   type AnalyticsParams,
 } from '@/hooks/use-analytics';
 import {
@@ -20,12 +19,15 @@ import {
   SelectTrigger,
   SelectValue,
 } from '@/components/ui/select';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle } from 'lucide-react';
 import { KpiSummaryCards } from './kpi-summary-cards';
 import { DateRangeFilter, type DatePreset } from './date-range-filter';
 import { ConversationsChart } from './conversations-chart';
+import { ResponseTimesChart } from './response-times-chart';
+import { MessageVolumeHeatmap } from './message-volume-heatmap';
+import { AgentAnalyticsTable } from './agent-analytics-table';
 
 // --- Date helpers (M3 fix: use local date, not UTC) ---
 function formatDateLocal(date: Date): string {
@@ -115,7 +117,6 @@ export function AnalyticsPageClient() {
   const conversationsQuery = useConversationsChart(analyticsParams);
   const responseTimesQuery = useResponseTimesChart(analyticsParams);
   const messageVolumeQuery = useMessageVolumeChart(analyticsParams);
-  const agentMetricsQuery = useAgentAnalytics(analyticsParams);
 
   // Agent list for filter dropdown (Task 3.3)
   const { data: agentsData } = useAgents({ limit: 100 });
@@ -128,7 +129,7 @@ export function AnalyticsPageClient() {
 
   // M2: aggregate error state
   const hasError = summaryQuery.isError || conversationsQuery.isError ||
-    responseTimesQuery.isError || messageVolumeQuery.isError || agentMetricsQuery.isError;
+    responseTimesQuery.isError || messageVolumeQuery.isError;
 
   if (profileLoading) {
     return <AnalyticsPageSkeleton />;
@@ -210,74 +211,21 @@ export function AnalyticsPageClient() {
           isLoading={conversationsQuery.isLoading}
           isError={conversationsQuery.isError}
         />
-        <ChartPlaceholder
-          title="Response Time Distribution"
-          subtitle="Story 8-6"
+        <ResponseTimesChart
+          data={responseTimesQuery.data}
           isLoading={responseTimesQuery.isLoading}
+          isError={responseTimesQuery.isError}
         />
-        <ChartPlaceholder
-          title="Message Volume by Hour"
-          subtitle="Story 8-7"
+        <MessageVolumeHeatmap
+          data={messageVolumeQuery.data}
           isLoading={messageVolumeQuery.isLoading}
-          className="lg:col-span-2"
+          isError={messageVolumeQuery.isError}
         />
       </div>
 
-      {/* Agent Analytics Table — placeholder for story 8-8 (Task 1.7, AC 5) */}
-      <section>
-        <Card>
-          <CardHeader>
-            <CardTitle>Agent Breakdown</CardTitle>
-          </CardHeader>
-          <CardContent>
-            {agentMetricsQuery.isLoading ? (
-              <div className="space-y-3">
-                {Array.from({ length: 5 }).map((_, i) => (
-                  <Skeleton key={i} className="h-10 w-full" />
-                ))}
-              </div>
-            ) : (
-              <p className="text-muted-foreground text-sm">
-                Per-agent analytics table will be implemented in story 8-8.
-              </p>
-            )}
-          </CardContent>
-        </Card>
-      </section>
+      {/* Agent Analytics Table (Story 8-8) */}
+      <AgentAnalyticsTable params={analyticsParams} />
     </div>
-  );
-}
-
-// --- Sub-components ---
-
-function ChartPlaceholder({
-  title,
-  subtitle,
-  isLoading,
-  className,
-}: {
-  title: string;
-  subtitle: string;
-  isLoading: boolean;
-  className?: string;
-}) {
-  return (
-    <Card className={className}>
-      <CardHeader>
-        <CardTitle>{title}</CardTitle>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <Skeleton className="h-50 w-full" />
-        ) : (
-          <div className="flex h-50 items-center justify-center rounded-md border border-dashed">
-            <p className="text-muted-foreground text-sm">
-              Chart placeholder ({subtitle})
-            </p>
-          </div>
-        )}
-      </CardContent>
-    </Card>
   );
 }
 

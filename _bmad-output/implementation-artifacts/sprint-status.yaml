@@ -212,9 +212,9 @@ development_status:
   8-3-kpi-summary-cards-component: done
   8-4-date-range-filter-component: done
   8-5-conversations-over-time-chart: done
-  8-6-response-time-distribution-chart: ready-for-dev
-  8-7-message-volume-by-hour-heatmap: ready-for-dev
-  8-8-per-agent-analytics-table: ready-for-dev
+  8-6-response-time-distribution-chart: done
+  8-7-message-volume-by-hour-heatmap: done
+  8-8-per-agent-analytics-table: done
   8-9-real-time-kpi-polling: ready-for-dev
   8-10-analytics-empty-state: ready-for-dev
   8-11-export-analytics-data: ready-for-dev
