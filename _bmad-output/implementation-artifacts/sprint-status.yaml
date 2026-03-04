@@ -208,7 +208,7 @@ development_status:
   epic-8: in-progress
   8-0-analytics-schema-and-seed-data: done
   8-1-analytics-api-endpoints: done
-  8-2-analytics-dashboard-page-layout: ready-for-dev
+  8-2-analytics-dashboard-page-layout: done
   8-3-kpi-summary-cards-component: ready-for-dev
   8-4-date-range-filter-component: ready-for-dev
   8-5-conversations-over-time-chart: ready-for-dev
