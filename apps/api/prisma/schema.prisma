@@ -175,6 +175,7 @@ model ChatMessage {
   createdAt     DateTime    @default(now())
 
   @@index([chatSessionId])
+  @@index([chatSessionId, role])
   @@index([createdAt])
   @@map("chat_messages")
 }

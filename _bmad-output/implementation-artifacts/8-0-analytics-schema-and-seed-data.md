@@ -1,6 +1,6 @@
 # Story 8.0: Analytics Schema Changes & Seed Data Script
 
-Status: review
+Status: done
 
 ## Story
 
