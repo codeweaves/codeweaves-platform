@@ -36,6 +36,7 @@ enum MessageRole {
 enum ChatSource {
   DEMO
   WIDGET
+  WHATSAPP
 }
 
 enum InvitationStatus {
@@ -151,6 +152,7 @@ model ChatSession {
   agent         Agent         @relation(fields: [agentId], references: [id]) // RESTRICT: sessions are analytics data, must not cascade-delete with agent
   sessionId     String        @unique
   source        ChatSource    @default(DEMO)
+  visitorId     String?       // IP address (web/widget) or phone number (WhatsApp)
   status        SessionStatus @default(ACTIVE)
   messages      ChatMessage[]
   createdAt     DateTime      @default(now())
@@ -159,6 +161,7 @@ model ChatSession {
 
   @@index([agentId])
   @@index([source])
+  @@index([visitorId])
   @@map("chat_sessions")
 }
 
