@@ -23,6 +23,9 @@ import {
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle } from 'lucide-react';
+import { KpiSummaryCards } from './kpi-summary-cards';
+import { DateRangeFilter, type DatePreset } from './date-range-filter';
+import { ConversationsChart } from './conversations-chart';
 
 // --- Date helpers (M3 fix: use local date, not UTC) ---
 function formatDateLocal(date: Date): string {
@@ -37,8 +40,6 @@ function subDays(date: Date, days: number): Date {
   d.setDate(d.getDate() - days);
   return d;
 }
-
-type DatePreset = '7' | '14' | '30' | 'custom';
 
 // --- Main Component ---
 export function AnalyticsPageClient() {
@@ -143,45 +144,23 @@ export function AnalyticsPageClient() {
         </p>
       </div>
 
-      {/* Filters Bar (Task 1.4) */}
+      {/* Filters Bar */}
       <div className="flex flex-wrap items-center gap-4">
-        {/* Date Range Selector (AC 2) */}
-        <Select value={datePreset} onValueChange={(v) => handlePresetChange(v as DatePreset)}>
-          <SelectTrigger className="w-[140px]">
-            <SelectValue placeholder="Date range" />
-          </SelectTrigger>
-          <SelectContent>
-            <SelectItem value="7">Last 7 days</SelectItem>
-            <SelectItem value="14">Last 14 days</SelectItem>
-            <SelectItem value="30">Last 30 days</SelectItem>
-            <SelectItem value="custom">Custom</SelectItem>
-          </SelectContent>
-        </Select>
+        <DateRangeFilter
+          preset={datePreset}
+          startDate={startDate}
+          endDate={endDate}
+          onPresetChange={handlePresetChange}
+          onStartDateChange={setStartDate}
+          onEndDateChange={setEndDate}
+        />
 
-        {datePreset === 'custom' && (
-          <div className="flex items-center gap-2">
-            <input
-              type="date"
-              value={formatDateLocal(startDate)}
-              onChange={(e) => setStartDate(new Date(e.target.value + 'T00:00:00'))}
-              className="border-input bg-transparent h-9 rounded-md border px-3 py-1 text-sm shadow-xs"
-            />
-            <span className="text-muted-foreground text-sm">to</span>
-            <input
-              type="date"
-              value={formatDateLocal(endDate)}
-              onChange={(e) => setEndDate(new Date(e.target.value + 'T00:00:00'))}
-              className="border-input bg-transparent h-9 rounded-md border px-3 py-1 text-sm shadow-xs"
-            />
-          </div>
-        )}
-
-        {/* Agent Filter (AC 3) */}
+        {/* Agent Filter */}
         <Select
           value={agentId ?? ''}
           onValueChange={(v) => setAgentId(v || undefined)}
         >
-          <SelectTrigger className="w-[180px]">
+          <SelectTrigger className="w-45">
             <SelectValue placeholder="All agents" />
           </SelectTrigger>
           <SelectContent allowClear clearLabel="All agents">
@@ -193,13 +172,13 @@ export function AnalyticsPageClient() {
           </SelectContent>
         </Select>
 
-        {/* Org Filter — admin only (AC 7, AC 8) */}
+        {/* Org Filter — admin only */}
         {isAdmin && (
           <Select
             value={orgId ?? ''}
             onValueChange={(v) => setOrgId(v || undefined)}
           >
-            <SelectTrigger className="w-[180px]">
+            <SelectTrigger className="w-45">
               <SelectValue placeholder="All organizations" />
             </SelectTrigger>
             <SelectContent allowClear clearLabel="All organizations">
@@ -221,51 +200,15 @@ export function AnalyticsPageClient() {
         </div>
       )}
 
-      {/* KPI Summary Cards — placeholder grid for story 8-3 (Task 1.5, AC 1) */}
-      <section>
-        <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-          {summaryQuery.isLoading ? (
-            Array.from({ length: 4 }).map((_, i) => (
-              <Card key={i}>
-                <CardHeader className="pb-2">
-                  <Skeleton className="h-4 w-24" />
-                </CardHeader>
-                <CardContent>
-                  <Skeleton className="h-8 w-16" />
-                </CardContent>
-              </Card>
-            ))
-          ) : (
-            <>
-              <KpiCard
-                title="Total Conversations"
-                value={summaryQuery.data?.kpis.totalConversations.value}
-              />
-              <KpiCard
-                title="Total Messages"
-                value={summaryQuery.data?.kpis.totalMessagesExchanged.value}
-              />
-              <KpiCard
-                title="Avg Response Time"
-                value={summaryQuery.data?.kpis.avgResponseTimeMs.value != null
-                  ? `${(summaryQuery.data.kpis.avgResponseTimeMs.value / 1000).toFixed(1)}s`
-                  : undefined}
-              />
-              <KpiCard
-                title="Total Users"
-                value={summaryQuery.data?.kpis.totalUsers.value}
-              />
-            </>
-          )}
-        </div>
-      </section>
+      {/* KPI Summary Cards (Story 8-3) */}
+      <KpiSummaryCards data={summaryQuery.data} isLoading={summaryQuery.isLoading} />
 
-      {/* Charts Grid — placeholders for stories 8-5, 8-6, 8-7 (Task 1.6, AC 4) */}
+      {/* Charts Grid */}
       <div className="grid gap-6 lg:grid-cols-2">
-        <ChartPlaceholder
-          title="Conversations Over Time"
-          subtitle="Story 8-5"
+        <ConversationsChart
+          data={conversationsQuery.data}
           isLoading={conversationsQuery.isLoading}
+          isError={conversationsQuery.isError}
         />
         <ChartPlaceholder
           title="Response Time Distribution"
@@ -307,23 +250,6 @@ export function AnalyticsPageClient() {
 
 // --- Sub-components ---
 
-function KpiCard({ title, value }: { title: string; value?: string | number | null }) {
-  return (
-    <Card>
-      <CardHeader className="pb-2">
-        <CardTitle className="text-sm font-medium text-muted-foreground">
-          {title}
-        </CardTitle>
-      </CardHeader>
-      <CardContent>
-        <p className="text-2xl font-bold">
-          {value != null ? String(value) : '-'}
-        </p>
-      </CardContent>
-    </Card>
-  );
-}
-
 function ChartPlaceholder({
   title,
   subtitle,
@@ -342,9 +268,9 @@ function ChartPlaceholder({
       </CardHeader>
       <CardContent>
         {isLoading ? (
-          <Skeleton className="h-[200px] w-full" />
+          <Skeleton className="h-50 w-full" />
         ) : (
-          <div className="flex h-[200px] items-center justify-center rounded-md border border-dashed">
+          <div className="flex h-50 items-center justify-center rounded-md border border-dashed">
             <p className="text-muted-foreground text-sm">
               Chart placeholder ({subtitle})
             </p>
@@ -365,13 +291,13 @@ function AnalyticsPageSkeleton() {
       </div>
 
       <div className="flex flex-wrap items-center gap-4">
-        <Skeleton className="h-9 w-[140px]" />
-        <Skeleton className="h-9 w-[180px]" />
-        <Skeleton className="h-9 w-[180px]" />
+        <Skeleton className="h-9 w-35" />
+        <Skeleton className="h-9 w-45" />
+        <Skeleton className="h-9 w-45" />
       </div>
 
-      <div className="grid gap-4 sm:grid-cols-2 lg:grid-cols-4">
-        {Array.from({ length: 4 }).map((_, i) => (
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        {Array.from({ length: 6 }).map((_, i) => (
           <Card key={i}>
             <CardHeader className="pb-2">
               <Skeleton className="h-4 w-24" />
@@ -390,7 +316,7 @@ function AnalyticsPageSkeleton() {
               <Skeleton className="h-5 w-40" />
             </CardHeader>
             <CardContent>
-              <Skeleton className="h-[200px] w-full" />
+              <Skeleton className="h-50 w-full" />
             </CardContent>
           </Card>
         ))}
@@ -399,7 +325,7 @@ function AnalyticsPageSkeleton() {
             <Skeleton className="h-5 w-48" />
           </CardHeader>
           <CardContent>
-            <Skeleton className="h-[200px] w-full" />
+            <Skeleton className="h-50 w-full" />
           </CardContent>
         </Card>
       </div>

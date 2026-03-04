@@ -1,6 +1,6 @@
 # Story 8.4: Date Range Filter Component
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -21,22 +21,22 @@ So that I can analyze specific time periods.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create date range filter component (AC: 1-8)
-  - [ ] 1.1 Create `apps/web/components/features/analytics/date-range-filter.tsx`
-  - [ ] 1.2 Implement preset buttons (7D, 14D, 30D) as toggle group
-  - [ ] 1.3 Implement "Custom" option that reveals a date picker popover
-  - [ ] 1.4 Use shadcn `Popover` + calendar for custom date picking (install `calendar` component if not present)
-  - [ ] 1.5 Validate: no future dates, max 365-day range
-  - [ ] 1.6 Call `onChange` callback with `{ start: Date, end: Date }` on selection
+- [x] Task 1: Create date range filter component (AC: 1-8)
+  - [x] 1.1 Create `apps/web/components/features/analytics/date-range-filter.tsx`
+  - [x] 1.2 Implement preset buttons (7D, 14D, 30D) as toggle group
+  - [x] 1.3 Implement "Custom" option that reveals a date picker popover
+  - [x] 1.4 Use shadcn `Popover` + calendar for custom date picking (install `calendar` component if not present)
+  - [x] 1.5 Validate: no future dates, max 365-day range
+  - [x] 1.6 Call `onChange` callback with `{ start: Date, end: Date }` on selection
 
-- [ ] Task 2: Install required shadcn components (AC: 4)
-  - [ ] 2.1 Check if `calendar` and `popover` components exist
-  - [ ] 2.2 Install missing: `BUN_CONFIG_IGNORE_SCRIPTS=true bunx shadcn@latest add calendar --yes` (if needed)
-  - [ ] 2.3 Install `date-fns` if not already a dependency (for date math: subDays, format, etc.)
+- [x] Task 2: Install required shadcn components (AC: 4)
+  - [x] 2.1 Check if `calendar` and `popover` components exist
+  - [x] 2.2 Install missing: `BUN_CONFIG_IGNORE_SCRIPTS=true bunx shadcn@latest add calendar --yes` (if needed)
+  - [x] 2.3 Install `date-fns` if not already a dependency (for date math: subDays, format, etc.) — skipped, used native Date methods instead
 
-- [ ] Task 3: URL sync (AC: 6)
-  - [ ] 3.1 Sync date range state to URL search params using `useSearchParams()` from Next.js
-  - [ ] 3.2 On page load, read `startDate`/`endDate` from URL if present, otherwise default to 7 days
+- [x] Task 3: URL sync (AC: 6)
+  - [x] 3.1 Sync date range state to URL search params using `useSearchParams()` from Next.js
+  - [x] 3.2 On page load, read `startDate`/`endDate` from URL if present, otherwise default to 7 days
 
 ## Dev Notes
 
@@ -94,9 +94,22 @@ Key functions: `subDays`, `startOfDay`, `endOfDay`, `format`, `isAfter`, `isBefo
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+N/A
 
 ### Completion Notes List
+- Installed shadcn `calendar` component (uses `react-day-picker` under the hood)
+- Created `date-range-filter.tsx` with 7D/14D/30D preset buttons and Custom popover with dual-month calendar
+- Calendar uses `mode="range"` for start/end date selection
+- Disabled future dates and dates older than 365 days
+- Custom button shows formatted date range when active
+- Replaced inline HTML date inputs + Select dropdown in analytics-page-client.tsx
+- URL sync already handled by parent component (analytics-page-client.tsx) — kept existing pattern
+- Skipped `date-fns` install — used native `Date` and `toLocaleDateString()` instead
 
 ### File List
+- New: `apps/web/components/features/analytics/date-range-filter.tsx`
+- New: `apps/web/components/ui/calendar.tsx` (shadcn generated)
+- Modified: `apps/web/components/features/analytics/analytics-page-client.tsx`

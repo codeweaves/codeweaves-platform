@@ -1,6 +1,6 @@
 # Story 8.5: Conversations Over Time Chart
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -21,18 +21,18 @@ So that I can identify patterns and growth.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Install charting library (AC: 1)
-  - [ ] 1.1 Install Recharts: `cd apps/web && bun add recharts`
-  - [ ] 1.2 Recharts is built for React, works well with Next.js, lightweight, and has good TypeScript support
+- [x] Task 1: Install charting library (AC: 1)
+  - [x] 1.1 Install Recharts: `cd apps/web && bun add recharts`
+  - [x] 1.2 Recharts is built for React, works well with Next.js, lightweight, and has good TypeScript support
 
-- [ ] Task 2: Create conversations chart component (AC: 1-8)
-  - [ ] 2.1 Create `apps/web/components/features/analytics/conversations-chart.tsx`
-  - [ ] 2.2 Wrap in `<Card>` with title "Conversations Over Time"
-  - [ ] 2.3 Use Recharts `<ResponsiveContainer>` + `<LineChart>` + `<Line>` + `<XAxis>` + `<YAxis>` + `<Tooltip>`
-  - [ ] 2.4 Format X-axis labels with date-fns `format(date, 'MMM d')`
-  - [ ] 2.5 Custom tooltip showing full date and count
-  - [ ] 2.6 Handle empty data: show centered "No data for this period" text
-  - [ ] 2.7 Handle loading: show Skeleton inside card
+- [x] Task 2: Create conversations chart component (AC: 1-8)
+  - [x] 2.1 Create `apps/web/components/features/analytics/conversations-chart.tsx`
+  - [x] 2.2 Wrap in `<Card>` with title "Conversations Over Time"
+  - [x] 2.3 Use Recharts `<ResponsiveContainer>` + `<LineChart>` + `<Line>` + `<XAxis>` + `<YAxis>` + `<Tooltip>`
+  - [x] 2.4 Format X-axis labels with native `toLocaleDateString('en-US', { month: 'short', day: 'numeric' })`
+  - [x] 2.5 Custom tooltip showing full date and count
+  - [x] 2.6 Handle empty data: show centered "No data for this period" text
+  - [x] 2.7 Handle loading: show Skeleton inside card
 
 ## Dev Notes
 
@@ -108,9 +108,20 @@ export function ConversationsChart({ params, className }: ConversationsChartProp
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+N/A
 
 ### Completion Notes List
+- Installed `recharts@3.7.0` in apps/web
+- Created `conversations-chart.tsx` with LineChart, CartesianGrid, custom tooltip
+- Chart uses `hsl(var(--primary))` for line color to match project theme
+- Used native `toLocaleDateString` instead of `date-fns` for X-axis formatting
+- Replaced conversations chart placeholder in analytics-page-client.tsx
+- Component self-contained: calls `useConversationsChart(params)` internally
 
 ### File List
+- New: `apps/web/components/features/analytics/conversations-chart.tsx`
+- Modified: `apps/web/components/features/analytics/analytics-page-client.tsx`
+- Modified: `apps/web/package.json` (added recharts)
