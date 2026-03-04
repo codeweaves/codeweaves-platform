@@ -1,6 +1,6 @@
 # Story 8.1: Analytics API Endpoints
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -39,20 +39,20 @@ So that I can fetch and display metrics.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create analytics module structure (AC: 12-14)
-  - [ ] 1.1 Create `apps/api/src/modules/analytics.module.ts`
-  - [ ] 1.2 Create `apps/api/src/controllers/analytics/analytics.controller.ts`
-  - [ ] 1.3 Create `apps/api/src/services/analytics.service.ts`
-  - [ ] 1.4 Register module in `apps/api/src/modules/app.module.ts`
+- [x] Task 1: Create analytics module structure (AC: 12-14)
+  - [x] 1.1 Create `apps/api/src/modules/analytics.module.ts`
+  - [x] 1.2 Create `apps/api/src/controllers/analytics/analytics.controller.ts`
+  - [x] 1.3 Create `apps/api/src/services/analytics.service.ts`
+  - [x] 1.4 Register module in `apps/api/src/modules/app.module.ts`
 
-- [ ] Task 2: Create validation schemas (AC: 4-5, 12)
-  - [ ] 2.1 Create `packages/validation/src/analytics.ts` with:
+- [x] Task 2: Create validation schemas (AC: 4-5, 12)
+  - [x] 2.1 Create `packages/validation/src/analytics.ts` with:
     - `analyticsQuerySchema` (startDate, endDate, agentId?, orgId?)
     - `agentAnalyticsQuerySchema` (extends paginationSchema + analyticsQuerySchema + sortBy, sortOrder)
-  - [ ] 2.2 Export from `packages/validation/src/index.ts`
+  - [x] 2.2 Export from `packages/validation/src/index.ts`
 
-- [ ] Task 3: Implement analytics service (AC: 1-11)
-  - [ ] 3.1 Implement `getSummary()` — query ChatSession + ChatMessage for 10 KPIs:
+- [x] Task 3: Implement analytics service (AC: 1-11)
+  - [x] 3.1 Implement `getSummary()` — query ChatSession + ChatMessage for 10 KPIs:
     - Total Users: `COUNT(DISTINCT visitorId)` on ChatSession, split new vs returning (first session vs subsequent)
     - Total Conversations: `COUNT(*)` on ChatSession
     - Total Messages Sent: `COUNT(*)` on ChatMessage where role = USER
@@ -63,29 +63,29 @@ So that I can fetch and display metrics.
     - % Change in New Users: delta of new users period-over-period
     - Avg Response Time: `AVG(metadata->>'responseLatencyMs')` on assistant messages, plus P50/P95/P99
     - Queries Raised: same as total messages sent (user messages)
-  - [ ] 3.2 Implement `getConversationsChart()` — daily session counts grouped by date
-  - [ ] 3.3 Implement `getResponseTimeDistribution()` — bucket assistant messages by responseLatencyMs
-  - [ ] 3.4 Implement `getMessageVolumeHeatmap()` — group messages by day-of-week and hour
-  - [ ] 3.5 Implement `getAgentMetrics()` — per-agent aggregation with pagination and sorting
-  - [ ] 3.6 Implement trend calculation — run same queries for previous period and compute % change
+  - [x] 3.2 Implement `getConversationsChart()` — daily session counts grouped by date
+  - [x] 3.3 Implement `getResponseTimeDistribution()` — bucket assistant messages by responseLatencyMs
+  - [x] 3.4 Implement `getMessageVolumeHeatmap()` — group messages by day-of-week and hour
+  - [x] 3.5 Implement `getAgentMetrics()` — per-agent aggregation with pagination and sorting
+  - [x] 3.6 Implement trend calculation — run same queries for previous period and compute % change
 
-- [ ] Task 4: Implement analytics controller (AC: 1-11, 14)
-  - [ ] 4.1 `GET /analytics/summary` — calls `getSummary()`, sets cache headers
-  - [ ] 4.2 `GET /analytics/charts/conversations` — calls `getConversationsChart()`
-  - [ ] 4.3 `GET /analytics/charts/response-times` — calls `getResponseTimeDistribution()`
-  - [ ] 4.4 `GET /analytics/charts/message-volume` — calls `getMessageVolumeHeatmap()`
-  - [ ] 4.5 `GET /analytics/agents` — calls `getAgentMetrics()`
-  - [ ] 4.6 Apply `@UseGuards(RolesGuard)` and `@Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)` on controller
-  - [ ] 4.7 Set `Cache-Control: private, max-age=300` response header on all endpoints
+- [x] Task 4: Implement analytics controller (AC: 1-11, 14)
+  - [x] 4.1 `GET /analytics/summary` — calls `getSummary()`, sets cache headers
+  - [x] 4.2 `GET /analytics/charts/conversations` — calls `getConversationsChart()`
+  - [x] 4.3 `GET /analytics/charts/response-times` — calls `getResponseTimeDistribution()`
+  - [x] 4.4 `GET /analytics/charts/message-volume` — calls `getMessageVolumeHeatmap()`
+  - [x] 4.5 `GET /analytics/agents` — calls `getAgentMetrics()`
+  - [x] 4.6 Apply `@UseGuards(RolesGuard)` and `@Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)` on controller
+  - [x] 4.7 Set `Cache-Control: private, max-age=300` response header on all endpoints
 
-- [ ] Task 5: Unit tests (AC: 15)
-  - [ ] 5.1 Create `apps/api/test/controllers/analytics/analytics.controller.spec.ts`
-  - [ ] 5.2 Create `apps/api/test/services/analytics/analytics.service.spec.ts`
-  - [ ] 5.3 Test tenant isolation: CLIENT user only sees own org data
-  - [ ] 5.4 Test ADMIN/SUPER_ADMIN sees all data, can filter by orgId
-  - [ ] 5.5 Test date range filtering
-  - [ ] 5.6 Test agentId filtering
-  - [ ] 5.7 Test error cases (invalid dates, missing auth)
+- [x] Task 5: Unit tests (AC: 15)
+  - [x] 5.1 Create `apps/api/test/controllers/analytics/analytics.controller.spec.ts`
+  - [x] 5.2 Create `apps/api/test/services/analytics/analytics.service.spec.ts`
+  - [x] 5.3 Test tenant isolation: CLIENT user only sees own org data
+  - [x] 5.4 Test ADMIN/SUPER_ADMIN sees all data, can filter by orgId
+  - [x] 5.5 Test date range filtering
+  - [x] 5.6 Test agentId filtering
+  - [x] 5.7 Test error cases (invalid dates, missing auth)
 
 ## Dev Notes
 
@@ -210,9 +210,43 @@ const result = await this.prisma.$queryRaw`
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Fixed circular import in `packages/validation/src/analytics.ts` — inlined pagination fields instead of importing from `./index.js`
+- Fixed `import { Response }` → `import type { Response }` for express (jest module resolution)
+- Fixed lint warnings: removed unused `clientUser`, `orderSql`, replaced `as any` with `as unknown as Response`
+- Fixed strict TS array access (`data[0]` → `data[0]!`) for possibly undefined checks
+
+### Code Review Fixes (Adversarial Review)
+- **#1 HIGH**: Removed redundant `new Date()` wrapping — query params are already Date objects from Zod
+- **#2 HIGH**: Parallelized all getSummary queries into single `Promise.all` (7→1 sequential round-trips)
+- **#3 MEDIUM**: Replaced in-memory session/message loading with SQL aggregation (`$queryRaw` with COUNT/DISTINCT/FILTER)
+- **#4 MEDIUM**: Combined response time distribution + percentiles into single CTE-based query
+- **#5 MEDIUM**: Added real trend calculation for `userRetentionRate` (scoped by endDate, compares periods)
+- **#6 MEDIUM**: Added composite index `@@index([chatSessionId, role])` on chat_messages for analytics queries
+- **#7 LOW**: Replaced `Infinity` with `null` in last bucket max to avoid JSON serialization issue
+- **#8 LOW**: Inline tenant filter accepted — matches AgentsService pattern per story dev notes
+- Removed unused `Logger` import and field from analytics service
 
 ### Completion Notes List
+- All 5 analytics API endpoints implemented: summary, conversations chart, response-time distribution, message-volume heatmap, per-agent metrics
+- Tenant isolation follows exact pattern from AgentsService.findAll() — CLIENT scoped to org, ADMIN/SUPER_ADMIN see all
+- Trend calculation computes % change vs previous equivalent period for all KPIs including retention rate
+- Raw SQL used for all aggregation (session metrics, message metrics, JSONB responseLatencyMs, retention rate, agent metrics)
+- Zod validation schemas with date coercion, UUID validation, and startDate <= endDate refinement
+- Cache-Control: private, max-age=300 set on all endpoints
+- 45 unit tests (22 controller + 23 service) covering all ACs
+- 791 total tests pass, 0 regressions
 
 ### File List
+- `apps/api/src/modules/analytics.module.ts` (new)
+- `apps/api/src/controllers/analytics/analytics.controller.ts` (new)
+- `apps/api/src/services/analytics.service.ts` (new)
+- `apps/api/src/models/analytics.dto.ts` (new)
+- `apps/api/src/modules/app.module.ts` (modified — added AnalyticsModule import)
+- `apps/api/prisma/schema.prisma` (modified — added composite index on chat_messages)
+- `packages/validation/src/analytics.ts` (new)
+- `packages/validation/src/index.ts` (modified — added analytics re-export)
+- `apps/api/test/controllers/analytics/analytics.controller.spec.ts` (new)
+- `apps/api/test/services/analytics/analytics.service.spec.ts` (new)

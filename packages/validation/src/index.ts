@@ -13,6 +13,9 @@ export * from './theme.js';
 // Re-export chat schemas and types
 export * from './chat.js';
 
+// Re-export analytics schemas and types
+export * from './analytics.js';
+
 // ============================================
 // Common Schemas
 // ============================================
