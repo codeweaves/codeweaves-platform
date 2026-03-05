@@ -1,6 +1,6 @@
 # Story 8.9: Real-Time KPI Polling
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -19,20 +19,20 @@ So that I see current data while monitoring.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Configure React Query polling (AC: 1, 3, 6)
-  - [ ] 1.1 Update `useAnalyticsSummary()` hook to accept `refetchInterval` option
-  - [ ] 1.2 Set `refetchInterval: 60_000` (60 seconds) on all analytics hooks
-  - [ ] 1.3 React Query handles background refetching automatically — data updates in place without remount
+- [x] Task 1: Configure React Query polling (AC: 1, 3, 6)
+  - [x] 1.1 Update `useAnalyticsSummary()` hook to accept `refetchInterval` option
+  - [x] 1.2 Set `refetchInterval: 60_000` (60 seconds) on all analytics hooks
+  - [x] 1.3 React Query handles background refetching automatically — data updates in place without remount
 
-- [ ] Task 2: Tab visibility handling (AC: 4-5)
-  - [ ] 2.1 Create `apps/web/hooks/use-tab-visible.ts` — returns boolean `isTabVisible`
-  - [ ] 2.2 Use `document.visibilityState` and `visibilitychange` event
-  - [ ] 2.3 Pass `refetchInterval: isTabVisible ? 60_000 : false` to all analytics hooks
+- [x] Task 2: Tab visibility handling (AC: 4-5)
+  - [x] 2.1 Create `apps/web/hooks/use-tab-visible.ts` — returns boolean `isTabVisible`
+  - [x] 2.2 Use `document.visibilityState` and `visibilitychange` event
+  - [x] 2.3 Pass `refetchInterval: isTabVisible ? 60_000 : false` to all analytics hooks
 
-- [ ] Task 3: Value change animation (AC: 2)
-  - [ ] 3.1 In `KpiCard` component, detect when value changes (compare prev vs current via `useRef`)
-  - [ ] 3.2 Add brief CSS animation on value change: `animate-pulse` for 1 second or a green flash
-  - [ ] 3.3 Animation should be subtle — not distracting
+- [x] Task 3: Value change animation (AC: 2)
+  - [x] 3.1 In `KpiCard` component, detect when value changes (compare prev vs current via `useRef`)
+  - [x] 3.2 Add brief CSS animation on value change: `animate-pulse` for 1 second or a green flash
+  - [x] 3.3 Animation should be subtle — not distracting
 
 ## Dev Notes
 
@@ -124,9 +124,28 @@ useEffect(() => {
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Lint fix: moved React hooks above early return in KpiCard to satisfy rules-of-hooks
+- Type fix: explicit `number | false` annotation for refetchInterval ternary
 
 ### Completion Notes List
+- Added `AnalyticsQueryOptions` interface with `refetchInterval` to all 5 analytics hooks
+- Created `useTabVisible` hook using `document.visibilityState` API
+- Wired 60s polling to all hooks, pausing when tab is inactive
+- Added subtle green flash animation on KpiCard value changes via `transition-colors duration-700`
+- AgentAnalyticsTable updated to accept and forward `pollingOptions`
+
+### Code Review Fixes (2026-03-05)
+- [H1] Fixed staleTime conflict: added `resolveStaleTime()` — returns 0 when polling is active, ANALYTICS_STALE_TIME otherwise
+- [M1] Added `refetchIntervalInBackground: false` to all analytics hooks to prevent polling when window is blurred
+- [M2] Added `hasMountedRef` guard in KpiCard to skip animation on initial data load (only animate polling updates)
+- [M3] Added `aria-live="polite"` to KpiCard value element for screen reader accessibility
 
 ### File List
+- Modified: `apps/web/hooks/use-analytics.ts`
+- New: `apps/web/hooks/use-tab-visible.ts`
+- Modified: `apps/web/components/features/analytics/kpi-card.tsx`
+- Modified: `apps/web/components/features/analytics/analytics-page-client.tsx`
+- Modified: `apps/web/components/features/analytics/agent-analytics-table.tsx`

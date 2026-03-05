@@ -109,7 +109,16 @@ function buildQueryString(params: AnalyticsParams, extra?: Record<string, string
   return qp.toString();
 }
 
-export function useAnalyticsSummary(params: AnalyticsParams) {
+export interface AnalyticsQueryOptions {
+  refetchInterval?: number | false;
+}
+
+/** When polling is active, staleTime must be shorter than the interval so React Query actually refetches. */
+function resolveStaleTime(options?: AnalyticsQueryOptions): number {
+  return options?.refetchInterval ? 0 : ANALYTICS_STALE_TIME;
+}
+
+export function useAnalyticsSummary(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
@@ -117,11 +126,13 @@ export function useAnalyticsSummary(params: AnalyticsParams) {
     queryKey: ['analytics', 'summary', params],
     queryFn: () => api.get(`/analytics/summary?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
-    staleTime: ANALYTICS_STALE_TIME,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
   });
 }
 
-export function useConversationsChart(params: AnalyticsParams) {
+export function useConversationsChart(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
@@ -129,11 +140,13 @@ export function useConversationsChart(params: AnalyticsParams) {
     queryKey: ['analytics', 'conversations', params],
     queryFn: () => api.get(`/analytics/charts/conversations?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
-    staleTime: ANALYTICS_STALE_TIME,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
   });
 }
 
-export function useResponseTimesChart(params: AnalyticsParams) {
+export function useResponseTimesChart(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
@@ -141,11 +154,13 @@ export function useResponseTimesChart(params: AnalyticsParams) {
     queryKey: ['analytics', 'response-times', params],
     queryFn: () => api.get(`/analytics/charts/response-times?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
-    staleTime: ANALYTICS_STALE_TIME,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
   });
 }
 
-export function useMessageVolumeChart(params: AnalyticsParams) {
+export function useMessageVolumeChart(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
@@ -153,7 +168,9 @@ export function useMessageVolumeChart(params: AnalyticsParams) {
     queryKey: ['analytics', 'message-volume', params],
     queryFn: () => api.get(`/analytics/charts/message-volume?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
-    staleTime: ANALYTICS_STALE_TIME,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
   });
 }
 
@@ -164,7 +181,7 @@ export interface AgentAnalyticsParams extends AnalyticsParams {
   sortOrder?: 'asc' | 'desc';
 }
 
-export function useAgentAnalytics(params: AgentAnalyticsParams) {
+export function useAgentAnalytics(params: AgentAnalyticsParams, options?: AnalyticsQueryOptions) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
@@ -175,6 +192,8 @@ export function useAgentAnalytics(params: AgentAnalyticsParams) {
     queryFn: () =>
       api.get(`/analytics/agents?${buildQueryString(baseParams, { page, limit, sortBy, sortOrder })}`),
     enabled: isAuthenticated && !authLoading,
-    staleTime: ANALYTICS_STALE_TIME,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
   });
 }

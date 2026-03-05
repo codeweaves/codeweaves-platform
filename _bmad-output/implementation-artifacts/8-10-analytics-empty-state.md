@@ -1,6 +1,6 @@
 # Story 8.10: Analytics Empty State
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -19,18 +19,18 @@ So that I understand how to get started.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create analytics empty state component (AC: 1-6)
-  - [ ] 1.1 Create `apps/web/components/features/analytics/analytics-empty-state.tsx`
-  - [ ] 1.2 Use lucide-react `BarChart3` or `LineChart` icon as illustration (large, muted)
-  - [ ] 1.3 Implement two variants:
+- [x] Task 1: Create analytics empty state component (AC: 1-6)
+  - [x] 1.1 Create `apps/web/components/features/analytics/analytics-empty-state.tsx`
+  - [x] 1.2 Use lucide-react `BarChart3` or `LineChart` icon as illustration (large, muted)
+  - [x] 1.3 Implement two variants:
     - No agents: "Create your first agent to start collecting analytics" + CTA button
     - No data in range: "No data for the selected period" + suggestion to expand range
-  - [ ] 1.4 CTA button links to `/dashboard/agents` (create agent page)
+  - [x] 1.4 CTA button links to `/dashboard/agents` (create agent page)
 
-- [ ] Task 2: Integrate empty state into analytics page (AC: 6)
-  - [ ] 2.1 In `analytics-page-client.tsx`, check if summary data is empty (all KPIs are 0 or null)
-  - [ ] 2.2 If empty, render `<AnalyticsEmptyState />` instead of KPIs/charts/table
-  - [ ] 2.3 Keep the filter bar visible above the empty state (so user can change date range)
+- [x] Task 2: Integrate empty state into analytics page (AC: 6)
+  - [x] 2.1 In `analytics-page-client.tsx`, check if summary data is empty (all KPIs are 0 or null)
+  - [x] 2.2 If empty, render `<AnalyticsEmptyState />` instead of KPIs/charts/table
+  - [x] 2.3 Keep the filter bar visible above the empty state (so user can change date range)
 
 ## Dev Notes
 
@@ -110,9 +110,21 @@ return (
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+None
 
 ### Completion Notes List
+- Created `AnalyticsEmptyState` component with two variants: no-agents (CTA to create agent) and no-data-in-range (suggestion to expand date range)
+- Uses `BarChart3` icon from lucide-react as large muted illustration
+- Integrated into `analytics-page-client.tsx`: checks `totalConversations.value > 0` and agent count
+- Empty state replaces entire content area (KPIs, charts, table) per AC 6
+- Filter bar remains visible above empty state per AC 2.3
+
+### Code Review Fixes (2026-03-05)
+- [H2] Expanded empty state check to consider `totalUsers` and `totalMessagesSent` in addition to `totalConversations` — prevents hiding legitimate KPI data
 
 ### File List
+- New: `apps/web/components/features/analytics/analytics-empty-state.tsx`
+- Modified: `apps/web/components/features/analytics/analytics-page-client.tsx`

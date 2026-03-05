@@ -215,8 +215,8 @@ development_status:
   8-6-response-time-distribution-chart: done
   8-7-message-volume-by-hour-heatmap: done
   8-8-per-agent-analytics-table: done
-  8-9-real-time-kpi-polling: ready-for-dev
-  8-10-analytics-empty-state: ready-for-dev
+  8-9-real-time-kpi-polling: done
+  8-10-analytics-empty-state: done
   8-11-export-analytics-data: ready-for-dev
   epic-8-retrospective: optional
 
