@@ -183,7 +183,7 @@ export function AnalyticsPageClient() {
         {/* Agent Filter */}
         <Select
           value={agentId ?? ''}
-          onValueChange={(v) => setAgentId(v || undefined)}
+          onValueChange={(v) => setAgentId(v === '__select_clear__' || !v ? undefined : v)}
         >
           <SelectTrigger className="w-45">
             <SelectValue placeholder="All agents" />
@@ -201,7 +201,7 @@ export function AnalyticsPageClient() {
         {isAdmin && (
           <Select
             value={orgId ?? ''}
-            onValueChange={(v) => setOrgId(v || undefined)}
+            onValueChange={(v) => setOrgId(v === '__select_clear__' || !v ? undefined : v)}
           >
             <SelectTrigger className="w-45">
               <SelectValue placeholder="All organizations" />

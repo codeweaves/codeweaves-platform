@@ -67,20 +67,20 @@ export class AnalyticsService {
     >`
       SELECT
         COUNT(*) as total_conversations,
-        COUNT(DISTINCT visitor_id) FILTER (WHERE visitor_id IS NOT NULL) as total_users,
-        COUNT(DISTINCT visitor_id) FILTER (
-          WHERE visitor_id IS NOT NULL
-          AND visitor_id IN (
-            SELECT DISTINCT visitor_id FROM chat_sessions
-            WHERE agent_id = ANY(${agentIds}::uuid[])
-              AND created_at < ${startDate}
-              AND visitor_id IS NOT NULL
+        COUNT(DISTINCT "visitorId") FILTER (WHERE "visitorId" IS NOT NULL) as total_users,
+        COUNT(DISTINCT "visitorId") FILTER (
+          WHERE "visitorId" IS NOT NULL
+          AND "visitorId" IN (
+            SELECT DISTINCT "visitorId" FROM chat_sessions
+            WHERE "agentId" = ANY(${agentIds}::text[])
+              AND "createdAt" < ${startDate}
+              AND "visitorId" IS NOT NULL
           )
         ) as returning_users
       FROM chat_sessions
-      WHERE agent_id = ANY(${agentIds}::uuid[])
-        AND created_at >= ${startDate}
-        AND created_at <= ${endDate}
+      WHERE "agentId" = ANY(${agentIds}::text[])
+        AND "createdAt" >= ${startDate}
+        AND "createdAt" <= ${endDate}
     `;
 
     const row = result[0];
@@ -108,11 +108,11 @@ export class AnalyticsService {
         COUNT(*) FILTER (WHERE cm.role = 'USER') as user_count,
         COUNT(*) FILTER (WHERE cm.role = 'ASSISTANT') as assistant_count
       FROM chat_messages cm
-      WHERE cm.chat_session_id IN (
+      WHERE cm."chatSessionId" IN (
         SELECT id FROM chat_sessions
-        WHERE agent_id = ANY(${agentIds}::uuid[])
-          AND created_at >= ${startDate}
-          AND created_at <= ${endDate}
+        WHERE "agentId" = ANY(${agentIds}::text[])
+          AND "createdAt" >= ${startDate}
+          AND "createdAt" <= ${endDate}
       )
     `;
 
@@ -135,12 +135,12 @@ export class AnalyticsService {
         COUNT(DISTINCT CASE WHEN date_range > INTERVAL '60 days' THEN visitor_id END) as retained,
         COUNT(DISTINCT visitor_id) as total
       FROM (
-        SELECT visitor_id, MAX(created_at) - MIN(created_at) as date_range
+        SELECT "visitorId" as visitor_id, MAX("createdAt") - MIN("createdAt") as date_range
         FROM chat_sessions
-        WHERE agent_id = ANY(${agentIds}::uuid[])
-          AND visitor_id IS NOT NULL
-          AND created_at <= ${endDate}
-        GROUP BY visitor_id
+        WHERE "agentId" = ANY(${agentIds}::text[])
+          AND "visitorId" IS NOT NULL
+          AND "createdAt" <= ${endDate}
+        GROUP BY "visitorId"
       ) sub
     `;
 
@@ -168,11 +168,11 @@ export class AnalyticsService {
       FROM chat_messages
       WHERE role = 'ASSISTANT'
         AND metadata->>'responseLatencyMs' IS NOT NULL
-        AND chat_session_id IN (
+        AND "chatSessionId" IN (
           SELECT id FROM chat_sessions
-          WHERE agent_id = ANY(${agentIds}::uuid[])
-            AND created_at >= ${startDate}
-            AND created_at <= ${endDate}
+          WHERE "agentId" = ANY(${agentIds}::text[])
+            AND "createdAt" >= ${startDate}
+            AND "createdAt" <= ${endDate}
         )
     `;
 
@@ -240,12 +240,12 @@ export class AnalyticsService {
     if (agentIds.length === 0) return { data: [] };
 
     const result = await this.prisma.$queryRaw<{ date: Date; count: bigint }[]>`
-      SELECT DATE(created_at) as date, COUNT(*) as count
+      SELECT DATE("createdAt") as date, COUNT(*) as count
       FROM chat_sessions
-      WHERE agent_id = ANY(${agentIds}::uuid[])
-        AND created_at >= ${startDate}
-        AND created_at <= ${endDate}
-      GROUP BY DATE(created_at)
+      WHERE "agentId" = ANY(${agentIds}::text[])
+        AND "createdAt" >= ${startDate}
+        AND "createdAt" <= ${endDate}
+      GROUP BY DATE("createdAt")
       ORDER BY date ASC
     `;
 
@@ -286,11 +286,11 @@ export class AnalyticsService {
         FROM chat_messages
         WHERE role = 'ASSISTANT'
           AND metadata->>'responseLatencyMs' IS NOT NULL
-          AND chat_session_id IN (
+          AND "chatSessionId" IN (
             SELECT id FROM chat_sessions
-            WHERE agent_id = ANY(${agentIds}::uuid[])
-              AND created_at >= ${startDate}
-              AND created_at <= ${endDate}
+            WHERE "agentId" = ANY(${agentIds}::text[])
+              AND "createdAt" >= ${startDate}
+              AND "createdAt" <= ${endDate}
           )
       ),
       percentiles AS (
@@ -353,14 +353,14 @@ export class AnalyticsService {
 
     const result = await this.prisma.$queryRaw<{ day: number; hour: number; count: bigint }[]>`
       SELECT
-        EXTRACT(DOW FROM cm.created_at) as day,
-        EXTRACT(HOUR FROM cm.created_at) as hour,
+        EXTRACT(DOW FROM cm."createdAt") as day,
+        EXTRACT(HOUR FROM cm."createdAt") as hour,
         COUNT(*) as count
       FROM chat_messages cm
-      INNER JOIN chat_sessions cs ON cm.chat_session_id = cs.id
-      WHERE cs.agent_id = ANY(${agentIds}::uuid[])
-        AND cs.created_at >= ${startDate}
-        AND cs.created_at <= ${endDate}
+      INNER JOIN chat_sessions cs ON cm."chatSessionId" = cs.id
+      WHERE cs."agentId" = ANY(${agentIds}::text[])
+        AND cs."createdAt" >= ${startDate}
+        AND cs."createdAt" <= ${endDate}
       GROUP BY day, hour
       ORDER BY day, hour
     `;
@@ -385,10 +385,10 @@ export class AnalyticsService {
     const countResult = await this.prisma.$queryRaw<{ total: bigint }[]>`
       SELECT COUNT(DISTINCT a.id) as total
       FROM agents a
-      INNER JOIN chat_sessions cs ON cs.agent_id = a.id
-      WHERE a.id = ANY(${agentIds}::uuid[])
-        AND cs.created_at >= ${startDate}
-        AND cs.created_at <= ${endDate}
+      INNER JOIN chat_sessions cs ON cs."agentId" = a.id
+      WHERE a.id = ANY(${agentIds}::text[])
+        AND cs."createdAt" >= ${startDate}
+        AND cs."createdAt" <= ${endDate}
     `;
 
     const total = Number(countResult[0]?.total ?? 0);
@@ -446,11 +446,11 @@ export class AnalyticsService {
             THEN (cm.metadata->>'responseLatencyMs')::numeric END) as avg_response_time_ms,
         COUNT(CASE WHEN cm.role = 'USER' THEN 1 END) as queries_raised
       FROM agents a
-      INNER JOIN chat_sessions cs ON cs.agent_id = a.id
-      LEFT JOIN chat_messages cm ON cm.chat_session_id = cs.id
-      WHERE a.id = ANY(${agentIds}::uuid[])
-        AND cs.created_at >= ${startDate}
-        AND cs.created_at <= ${endDate}
+      INNER JOIN chat_sessions cs ON cs."agentId" = a.id
+      LEFT JOIN chat_messages cm ON cm."chatSessionId" = cs.id
+      WHERE a.id = ANY(${agentIds}::text[])
+        AND cs."createdAt" >= ${startDate}
+        AND cs."createdAt" <= ${endDate}
       GROUP BY a.id, a.name
       ${orderByClause}
       LIMIT ${limit}

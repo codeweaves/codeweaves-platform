@@ -5,11 +5,9 @@ import {
   Body,
   Query,
   UseGuards,
-  Res,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
-import type { Response } from 'express';
 import { AnalyticsService } from '../../services/analytics.service';
 import { Roles } from '../../decorators/roles.decorator';
 import { RolesGuard } from '../../guards/roles.guard';
@@ -46,9 +44,7 @@ export class AnalyticsController {
   async getSummary(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
-    @Res({ passthrough: true }) res: Response,
   ) {
-    res.set('Cache-Control', 'private, max-age=300');
     return this.analyticsService.getSummary(query, user);
   }
 
@@ -62,9 +58,7 @@ export class AnalyticsController {
   async getConversationsChart(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
-    @Res({ passthrough: true }) res: Response,
   ) {
-    res.set('Cache-Control', 'private, max-age=300');
     return this.analyticsService.getConversationsChart(query, user);
   }
 
@@ -78,9 +72,7 @@ export class AnalyticsController {
   async getResponseTimeDistribution(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
-    @Res({ passthrough: true }) res: Response,
   ) {
-    res.set('Cache-Control', 'private, max-age=300');
     return this.analyticsService.getResponseTimeDistribution(query, user);
   }
 
@@ -94,9 +86,7 @@ export class AnalyticsController {
   async getMessageVolumeHeatmap(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
-    @Res({ passthrough: true }) res: Response,
   ) {
-    res.set('Cache-Control', 'private, max-age=300');
     return this.analyticsService.getMessageVolumeHeatmap(query, user);
   }
 
@@ -114,9 +104,7 @@ export class AnalyticsController {
   async getAgentMetrics(
     @Query(new ZodValidationPipe(agentAnalyticsQuerySchema)) query: AgentAnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
-    @Res({ passthrough: true }) res: Response,
   ) {
-    res.set('Cache-Control', 'private, max-age=300');
     return this.analyticsService.getAgentMetrics(query, user);
   }
 
