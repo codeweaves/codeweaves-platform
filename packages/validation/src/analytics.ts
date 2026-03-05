@@ -31,3 +31,11 @@ export const agentAnalyticsQuerySchema = z.object({
 });
 
 export type AgentAnalyticsQuery = z.infer<typeof agentAnalyticsQuerySchema>;
+
+export const exportLogBodySchema = z.object({
+  format: z.enum(['csv', 'json']),
+  startDate: z.string().min(1),
+  endDate: z.string().min(1),
+});
+
+export type ExportLogBody = z.infer<typeof exportLogBodySchema>;
