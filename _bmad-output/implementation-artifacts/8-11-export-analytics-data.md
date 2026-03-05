@@ -1,6 +1,6 @@
 # Story 8.11: Export Analytics Data
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -20,23 +20,23 @@ So that I can analyze it in external tools.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create export button component (AC: 1, 7)
-  - [ ] 1.1 Create `apps/web/components/features/analytics/analytics-export-button.tsx`
-  - [ ] 1.2 Use shadcn `DropdownMenu` with two options: "Export CSV" and "Export JSON"
-  - [ ] 1.3 Place in the analytics page header/filters bar
+- [x] Task 1: Create export button component (AC: 1, 7)
+  - [x] 1.1 Create `apps/web/components/features/analytics/analytics-export-button.tsx`
+  - [x] 1.2 Use shadcn `DropdownMenu` with two options: "Export CSV" and "Export JSON"
+  - [x] 1.3 Place in the analytics page header/filters bar
 
-- [ ] Task 2: Implement client-side export logic (AC: 2-5)
-  - [ ] 2.1 Create `apps/web/lib/export-utils.ts` with:
+- [x] Task 2: Implement client-side export logic (AC: 2-5)
+  - [x] 2.1 Create `apps/web/lib/export-utils.ts` with:
     - `exportToCsv(data, filename)` — converts analytics data to CSV string and triggers download
     - `exportToJson(data, filename)` — stringifies data and triggers download
-  - [ ] 2.2 CSV format: headers row + data rows for KPIs, then blank row, then agent metrics table
-  - [ ] 2.3 Generate filename: `analytics-{orgName}-{YYYY-MM-DD}-{YYYY-MM-DD}.csv`
-  - [ ] 2.4 Trigger browser download via `Blob` + `URL.createObjectURL` + programmatic `<a>` click
+  - [x] 2.2 CSV format: headers row + data rows for KPIs, then blank row, then agent metrics table
+  - [x] 2.3 Generate filename: `analytics-{orgName}-{YYYY-MM-DD}-{YYYY-MM-DD}.csv`
+  - [x] 2.4 Trigger browser download via `Blob` + `URL.createObjectURL` + programmatic `<a>` click
 
-- [ ] Task 3: Backend audit logging (AC: 6)
-  - [ ] 3.1 Add `POST /api/analytics/export-log` endpoint to analytics controller
-  - [ ] 3.2 Logs: userId, exportFormat, dateRange, timestamp to AuditLog table
-  - [ ] 3.3 Frontend calls this endpoint after successful export
+- [x] Task 3: Backend audit logging (AC: 6)
+  - [x] 3.1 Add `POST /api/analytics/export-log` endpoint to analytics controller
+  - [x] 3.2 Logs: userId, exportFormat, dateRange, timestamp to AuditLog table
+  - [x] 3.3 Frontend calls this endpoint after successful export
 
 ## Dev Notes
 
@@ -162,9 +162,31 @@ async logExport(
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+None
 
 ### Completion Notes List
+- Task 1: Created AnalyticsExportButton component using shadcn DropdownMenu with CSV/JSON options. Placed in analytics page filter bar with ml-auto alignment (right side). Button disabled when no data or empty state.
+- Task 2: Created export-utils.ts with exportToCsv (KPI summary + per-agent metrics sections), exportToJson (full data), and downloadFile helper using Blob + createObjectURL. CSV fields properly escaped. Filenames sanitized (non-alphanumeric chars replaced).
+- Task 3: Added POST /analytics/export-log endpoint to AnalyticsController, delegating to AnalyticsService.logExport which creates an AuditLog entry with ANALYTICS_EXPORT event. Added useAgentAnalytics query to page client to supply agent data for export. 7 new unit tests (4 service + 3 controller) all passing.
+- All 798 backend tests passing. Lint, type-check, and build all green.
+- Code review fixes applied (6 issues resolved):
+  - [HIGH] Added Zod validation (exportLogBodySchema) to POST /analytics/export-log — rejects invalid format, missing fields, strips extra fields
+  - [HIGH] Removed polling from exportAgentsQuery — data only used on export click, no need for 60s refetch
+  - [MEDIUM] Added date range metadata row to CSV export header
+  - [MEDIUM] AnalyticsExportData type import is valid (used as type annotation) — false positive, no change needed
+  - [LOW] Added UTF-8 BOM (\uFEFF) to CSV for Excel compatibility
+  - Added 7 new validation tests for exportLogBodySchema (805 total tests passing)
 
 ### File List
+- New: `apps/web/components/features/analytics/analytics-export-button.tsx`
+- New: `apps/web/lib/export-utils.ts`
+- Modified: `apps/web/components/features/analytics/analytics-page-client.tsx`
+- Modified: `apps/api/src/controllers/analytics/analytics.controller.ts`
+- Modified: `apps/api/src/services/analytics.service.ts`
+- Modified: `apps/api/src/models/analytics.dto.ts`
+- Modified: `apps/api/test/controllers/analytics/analytics.controller.spec.ts`
+- Modified: `apps/api/test/services/analytics/analytics.service.spec.ts`
+- Modified: `packages/validation/src/analytics.ts`

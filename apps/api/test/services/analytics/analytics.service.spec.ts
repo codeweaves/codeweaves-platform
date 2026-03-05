@@ -12,6 +12,9 @@ describe('AnalyticsService', () => {
     agent: {
       findMany: jest.fn(),
     },
+    auditLog: {
+      create: jest.fn(),
+    },
     $queryRaw: jest.fn(),
   };
 
@@ -497,6 +500,85 @@ describe('AnalyticsService', () => {
   });
 
   // ==========================================
+  // ==========================================
+  // Export Log (Story 8-11, AC: 6)
+  // ==========================================
+
+  describe('logExport', () => {
+    const exportBody = {
+      format: 'csv' as const,
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+    };
+
+    it('should create audit log entry with correct data for admin user', async () => {
+      mockPrismaService.auditLog.create.mockResolvedValue({ id: 'log-1' });
+
+      const result = await service.logExport(exportBody, adminUser);
+
+      expect(result).toEqual({ success: true });
+      expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith({
+        data: {
+          userId: adminUser.id,
+          auth0Id: adminUser.auth0Id,
+          contextId: adminUser.organizationId,
+          event: 'ANALYTICS_EXPORT',
+          data: {
+            format: 'csv',
+            startDate: '2026-01-01',
+            endDate: '2026-01-31',
+          },
+        },
+      });
+    });
+
+    it('should create audit log entry for client user', async () => {
+      mockPrismaService.auditLog.create.mockResolvedValue({ id: 'log-2' });
+
+      const result = await service.logExport(exportBody, clientUser);
+
+      expect(result).toEqual({ success: true });
+      expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith({
+        data: {
+          userId: clientUser.id,
+          auth0Id: clientUser.auth0Id,
+          contextId: clientUser.organizationId,
+          event: 'ANALYTICS_EXPORT',
+          data: {
+            format: 'csv',
+            startDate: '2026-01-01',
+            endDate: '2026-01-31',
+          },
+        },
+      });
+    });
+
+    it('should use userId as contextId when organizationId is null', async () => {
+      mockPrismaService.auditLog.create.mockResolvedValue({ id: 'log-3' });
+
+      await service.logExport(exportBody, superAdminUser);
+
+      expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          contextId: superAdminUser.id,
+        }),
+      });
+    });
+
+    it('should log json format correctly', async () => {
+      const jsonBody = { ...exportBody, format: 'json' as const };
+      mockPrismaService.auditLog.create.mockResolvedValue({ id: 'log-4' });
+
+      await service.logExport(jsonBody, adminUser);
+
+      expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          data: expect.objectContaining({ format: 'json' }),
+        }),
+      });
+    });
+  });
+
   // Error Cases (AC: 14)
   // ==========================================
 

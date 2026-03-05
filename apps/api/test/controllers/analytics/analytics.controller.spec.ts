@@ -8,6 +8,7 @@ import { ZodValidationPipe } from '../../../src/pipes/zod-validation.pipe';
 import {
   analyticsQuerySchema,
   agentAnalyticsQuerySchema,
+  exportLogBodySchema,
 } from '../../../src/models/analytics.dto';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 import { Role } from '@prisma/client';
@@ -21,6 +22,7 @@ describe('AnalyticsController', () => {
     getResponseTimeDistribution: jest.fn(),
     getMessageVolumeHeatmap: jest.fn(),
     getAgentMetrics: jest.fn(),
+    logExport: jest.fn(),
   };
 
   const orgId = '123e4567-e89b-12d3-a456-426614174000';
@@ -242,6 +244,54 @@ describe('AnalyticsController', () => {
   });
 
   // ==========================================
+  // Export Log Endpoint (Story 8-11, AC: 6)
+  // ==========================================
+
+  describe('logExport', () => {
+    const exportBody = {
+      format: 'csv' as const,
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+    };
+
+    it('should call analyticsService.logExport with body and user', async () => {
+      mockAnalyticsService.logExport.mockResolvedValue({ success: true });
+
+      const result = await controller.logExport(exportBody, adminUser);
+
+      expect(result).toEqual({ success: true });
+      expect(mockAnalyticsService.logExport).toHaveBeenCalledWith(exportBody, adminUser);
+    });
+
+    it('should work for CLIENT role users', async () => {
+      const clientUser: CurrentUserData = {
+        auth0Id: 'auth0|client',
+        email: 'client@test.com',
+        roles: ['CLIENT'],
+        id: 'client-user-id',
+        role: Role.CLIENT,
+        organizationId: orgId,
+        organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
+      };
+      mockAnalyticsService.logExport.mockResolvedValue({ success: true });
+
+      const result = await controller.logExport(exportBody, clientUser);
+
+      expect(result).toEqual({ success: true });
+      expect(mockAnalyticsService.logExport).toHaveBeenCalledWith(exportBody, clientUser);
+    });
+
+    it('should accept json format', async () => {
+      const jsonBody = { ...exportBody, format: 'json' as const };
+      mockAnalyticsService.logExport.mockResolvedValue({ success: true });
+
+      await controller.logExport(jsonBody, adminUser);
+
+      expect(mockAnalyticsService.logExport).toHaveBeenCalledWith(jsonBody, adminUser);
+    });
+  });
+
+  // ==========================================
   // Validation Tests (AC: 12)
   // ==========================================
 
@@ -336,6 +386,52 @@ describe('AnalyticsController', () => {
       });
       expect(result.startDate).toBeInstanceOf(Date);
       expect(result.endDate).toBeInstanceOf(Date);
+    });
+
+    // Export log body validation (Story 8-11)
+    describe('exportLogBody', () => {
+      const exportPipe = new ZodValidationPipe(exportLogBodySchema);
+
+      it('should accept valid csv export body', () => {
+        const result = exportPipe.transform({ format: 'csv', startDate: '2026-01-01', endDate: '2026-01-31' });
+        expect(result.format).toBe('csv');
+      });
+
+      it('should accept valid json export body', () => {
+        const result = exportPipe.transform({ format: 'json', startDate: '2026-01-01', endDate: '2026-01-31' });
+        expect(result.format).toBe('json');
+      });
+
+      it('should reject invalid format', () => {
+        expect(() =>
+          exportPipe.transform({ format: 'xml', startDate: '2026-01-01', endDate: '2026-01-31' }),
+        ).toThrow(BadRequestException);
+      });
+
+      it('should reject missing format', () => {
+        expect(() =>
+          exportPipe.transform({ startDate: '2026-01-01', endDate: '2026-01-31' }),
+        ).toThrow(BadRequestException);
+      });
+
+      it('should reject missing startDate', () => {
+        expect(() =>
+          exportPipe.transform({ format: 'csv', endDate: '2026-01-31' }),
+        ).toThrow(BadRequestException);
+      });
+
+      it('should reject empty startDate', () => {
+        expect(() =>
+          exportPipe.transform({ format: 'csv', startDate: '', endDate: '2026-01-31' }),
+        ).toThrow(BadRequestException);
+      });
+
+      it('should strip extra fields', () => {
+        const result = exportPipe.transform({
+          format: 'csv', startDate: '2026-01-01', endDate: '2026-01-31', malicious: 'payload',
+        });
+        expect((result as Record<string, unknown>).malicious).toBeUndefined();
+      });
     });
   });
 });

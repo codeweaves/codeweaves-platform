@@ -11,6 +11,7 @@ import {
   useConversationsChart,
   useResponseTimesChart,
   useMessageVolumeChart,
+  useAgentAnalytics,
   type AnalyticsParams,
 } from '@/hooks/use-analytics';
 import {
@@ -30,6 +31,7 @@ import { ResponseTimesChart } from './response-times-chart';
 import { MessageVolumeHeatmap } from './message-volume-heatmap';
 import { AgentAnalyticsTable } from './agent-analytics-table';
 import { AnalyticsEmptyState } from './analytics-empty-state';
+import { AnalyticsExportButton } from './analytics-export-button';
 
 // --- Date helpers (M3 fix: use local date, not UTC) ---
 function formatDateLocal(date: Date): string {
@@ -125,6 +127,11 @@ export function AnalyticsPageClient() {
   const responseTimesQuery = useResponseTimesChart(analyticsParams, pollingOptions);
   const messageVolumeQuery = useMessageVolumeChart(analyticsParams, pollingOptions);
 
+  // 8-11: Fetch all agent metrics for export (high limit, no polling — only used on export click)
+  const exportAgentsQuery = useAgentAnalytics(
+    { ...analyticsParams, limit: 100, sortBy: 'conversations', sortOrder: 'desc' },
+  );
+
   // Agent list for filter dropdown (Task 3.3)
   const { data: agentsData } = useAgents({ limit: 100 });
   const agents: Agent[] = agentsData?.data ?? [];
@@ -208,6 +215,18 @@ export function AnalyticsPageClient() {
             </SelectContent>
           </Select>
         )}
+
+        {/* 8-11: Export button */}
+        <div className="ml-auto">
+          <AnalyticsExportButton
+            summaryData={summaryQuery.data}
+            agentData={exportAgentsQuery.data?.data ?? []}
+            startDate={analyticsParams.startDate}
+            endDate={analyticsParams.endDate}
+            orgName={profile?.organization?.name ?? 'all'}
+            disabled={showEmptyState}
+          />
+        </div>
       </div>
 
       {/* M2: Error banner */}

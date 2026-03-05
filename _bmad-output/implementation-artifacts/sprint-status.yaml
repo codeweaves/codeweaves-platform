@@ -205,7 +205,7 @@ development_status:
   # Deferred KPIs documented in: _bmad-output/implementation-artifacts/epic-8-deferred-kpis.md
   # Role-based access: Super Admin/Admin = all orgs | Client = own org only
   # ============================================
-  epic-8: in-progress
+  epic-8: done
   8-0-analytics-schema-and-seed-data: done
   8-1-analytics-api-endpoints: done
   8-2-analytics-dashboard-page-layout: done
@@ -217,7 +217,7 @@ development_status:
   8-8-per-agent-analytics-table: done
   8-9-real-time-kpi-polling: done
   8-10-analytics-empty-state: done
-  8-11-export-analytics-data: ready-for-dev
+  8-11-export-analytics-data: done
   epic-8-retrospective: optional
 
   # ============================================

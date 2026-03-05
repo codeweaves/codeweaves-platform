@@ -2,7 +2,7 @@ import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { Prisma, Role } from '@prisma/client';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
-import type { AnalyticsQuery, AgentAnalyticsQuery } from '../models/analytics.dto';
+import type { AnalyticsQuery, AgentAnalyticsQuery, ExportLogBody } from '../models/analytics.dto';
 
 @Injectable()
 export class AnalyticsService {
@@ -468,5 +468,25 @@ export class AnalyticsService {
       })),
       meta: { page, limit, total, totalPages },
     };
+  }
+
+  async logExport(
+    body: ExportLogBody,
+    user: CurrentUserData,
+  ) {
+    await this.prisma.auditLog.create({
+      data: {
+        userId: user.id,
+        auth0Id: user.auth0Id,
+        contextId: user.organizationId ?? user.id,
+        event: 'ANALYTICS_EXPORT',
+        data: {
+          format: body.format,
+          startDate: body.startDate,
+          endDate: body.endDate,
+        } as Prisma.JsonObject,
+      },
+    });
+    return { success: true };
   }
 }

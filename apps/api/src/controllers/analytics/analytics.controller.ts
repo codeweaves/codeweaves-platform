@@ -1,6 +1,8 @@
 import {
   Controller,
   Get,
+  Post,
+  Body,
   Query,
   UseGuards,
   Res,
@@ -16,10 +18,12 @@ import { CurrentUser, CurrentUserData } from '../../decorators/current-user.deco
 import {
   analyticsQuerySchema,
   agentAnalyticsQuerySchema,
+  exportLogBodySchema,
 } from '../../models/analytics.dto';
 import type {
   AnalyticsQuery,
   AgentAnalyticsQuery,
+  ExportLogBody,
 } from '../../models/analytics.dto';
 
 @ApiTags('Analytics')
@@ -114,5 +118,16 @@ export class AnalyticsController {
   ) {
     res.set('Cache-Control', 'private, max-age=300');
     return this.analyticsService.getAgentMetrics(query, user);
+  }
+
+  @Post('export-log')
+  @ApiOperation({ summary: 'Log an analytics data export action' })
+  @ApiResponse({ status: 201, description: 'Export logged successfully' })
+  @ApiResponse({ status: 400, description: 'Invalid request body' })
+  async logExport(
+    @Body(new ZodValidationPipe(exportLogBodySchema)) body: ExportLogBody,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.analyticsService.logExport(body, user);
   }
 }
