@@ -11,12 +11,14 @@ import { formatNumber, formatDuration } from '@/lib/format-utils';
 import {
   useAgentAnalytics,
   type AnalyticsParams,
+  type AnalyticsQueryOptions,
   type AgentAnalyticsRow,
 } from '@/hooks/use-analytics';
 import type { DataTableFetchParams } from '@/components/ui/data-table/types';
 
 interface AgentAnalyticsTableProps {
   params: AnalyticsParams;
+  pollingOptions?: AnalyticsQueryOptions;
   className?: string;
 }
 
@@ -55,7 +57,7 @@ const columns: ColumnDef<AgentAnalyticsRow>[] = [
   },
 ];
 
-export function AgentAnalyticsTable({ params, className }: AgentAnalyticsTableProps) {
+export function AgentAnalyticsTable({ params, pollingOptions, className }: AgentAnalyticsTableProps) {
   const [fetchParams, setFetchParams] = useState<DataTableFetchParams>({
     page: 0,
     pageSize: 10,
@@ -87,7 +89,7 @@ export function AgentAnalyticsTable({ params, className }: AgentAnalyticsTablePr
     sortOrder: (fetchParams.sorting[0]?.desc ? 'desc' : 'asc') as 'asc' | 'desc',
   };
 
-  const { data, isLoading, isError } = useAgentAnalytics(queryParams);
+  const { data, isLoading, isError } = useAgentAnalytics(queryParams, pollingOptions);
 
   const handleFetch = useCallback((newParams: DataTableFetchParams) => {
     setFetchParams(newParams);

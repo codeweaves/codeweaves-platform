@@ -1,5 +1,6 @@
 'use client';
 
+import { useRef, useState, useEffect } from 'react';
 import type { LucideIcon } from 'lucide-react';
 import { TrendingUp, TrendingDown, Minus } from 'lucide-react';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -23,6 +24,26 @@ export function KpiCard({
   icon: Icon,
   isLoading,
 }: KpiCardProps) {
+  // 8-9: Detect value changes for polling animation (hooks must be above early return)
+  const prevValueRef = useRef(value);
+  const hasMountedRef = useRef(false);
+  const [isChanged, setIsChanged] = useState(false);
+
+  useEffect(() => {
+    if (!hasMountedRef.current) {
+      // Skip animation on initial render — only animate polling updates
+      hasMountedRef.current = true;
+      prevValueRef.current = value;
+      return;
+    }
+    if (prevValueRef.current !== value) {
+      setIsChanged(true);
+      const timer = setTimeout(() => setIsChanged(false), 1000);
+      prevValueRef.current = value;
+      return () => clearTimeout(timer);
+    }
+  }, [value]);
+
   if (isLoading) {
     return (
       <Card>
@@ -55,7 +76,7 @@ export function KpiCard({
         <Icon className="h-4 w-4 text-muted-foreground" />
       </CardHeader>
       <CardContent>
-        <p className="text-2xl font-bold">{value}</p>
+        <p aria-live="polite" className={cn('text-2xl font-bold transition-colors duration-700', isChanged && 'text-green-600')}>{value}</p>
         {trend != null && (
           <div
             className={cn(

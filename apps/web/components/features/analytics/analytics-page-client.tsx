@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useProfile } from '@/hooks/use-profile';
+import { useTabVisible } from '@/hooks/use-tab-visible';
 import { useAgents, type Agent } from '@/hooks/use-agents';
 import { useOrganizations, type Organization } from '@/hooks/use-organizations';
 import {
@@ -28,6 +29,7 @@ import { ConversationsChart } from './conversations-chart';
 import { ResponseTimesChart } from './response-times-chart';
 import { MessageVolumeHeatmap } from './message-volume-heatmap';
 import { AgentAnalyticsTable } from './agent-analytics-table';
+import { AnalyticsEmptyState } from './analytics-empty-state';
 
 // --- Date helpers (M3 fix: use local date, not UTC) ---
 function formatDateLocal(date: Date): string {
@@ -53,6 +55,10 @@ export function AnalyticsPageClient() {
   const { profile, isLoading: profileLoading } = useProfile();
 
   const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+
+  // 8-9: Polling — pause when tab is inactive
+  const isTabVisible = useTabVisible();
+  const refetchInterval: number | false = isTabVisible ? 60_000 : false;
 
   // --- Filter State (Task 3) ---
   const [datePreset, setDatePreset] = useState<DatePreset>(() => {
@@ -113,10 +119,11 @@ export function AnalyticsPageClient() {
     orgId: isAdmin ? orgId : undefined,
   };
 
-  const summaryQuery = useAnalyticsSummary(analyticsParams);
-  const conversationsQuery = useConversationsChart(analyticsParams);
-  const responseTimesQuery = useResponseTimesChart(analyticsParams);
-  const messageVolumeQuery = useMessageVolumeChart(analyticsParams);
+  const pollingOptions = { refetchInterval };
+  const summaryQuery = useAnalyticsSummary(analyticsParams, pollingOptions);
+  const conversationsQuery = useConversationsChart(analyticsParams, pollingOptions);
+  const responseTimesQuery = useResponseTimesChart(analyticsParams, pollingOptions);
+  const messageVolumeQuery = useMessageVolumeChart(analyticsParams, pollingOptions);
 
   // Agent list for filter dropdown (Task 3.3)
   const { data: agentsData } = useAgents({ limit: 100 });
@@ -130,6 +137,16 @@ export function AnalyticsPageClient() {
   // M2: aggregate error state
   const hasError = summaryQuery.isError || conversationsQuery.isError ||
     responseTimesQuery.isError || messageVolumeQuery.isError;
+
+  // 8-10: Empty state detection — treat "no data" as all primary KPIs being zero
+  const hasAgents = (agentsData?.meta?.total ?? 0) > 0;
+  const kpis = summaryQuery.data?.kpis;
+  const hasData = kpis != null && (
+    kpis.totalConversations.value > 0 ||
+    kpis.totalUsers.value > 0 ||
+    kpis.totalMessagesSent.value > 0
+  );
+  const showEmptyState = !summaryQuery.isLoading && !hasData && !hasError;
 
   if (profileLoading) {
     return <AnalyticsPageSkeleton />;
@@ -201,30 +218,37 @@ export function AnalyticsPageClient() {
         </div>
       )}
 
-      {/* KPI Summary Cards (Story 8-3) */}
-      <KpiSummaryCards data={summaryQuery.data} isLoading={summaryQuery.isLoading} />
+      {/* 8-10: Empty state replaces entire content area */}
+      {showEmptyState ? (
+        <AnalyticsEmptyState hasAgents={hasAgents} />
+      ) : (
+        <>
+          {/* KPI Summary Cards (Story 8-3) */}
+          <KpiSummaryCards data={summaryQuery.data} isLoading={summaryQuery.isLoading} />
 
-      {/* Charts Grid */}
-      <div className="grid gap-6 lg:grid-cols-2">
-        <ConversationsChart
-          data={conversationsQuery.data}
-          isLoading={conversationsQuery.isLoading}
-          isError={conversationsQuery.isError}
-        />
-        <ResponseTimesChart
-          data={responseTimesQuery.data}
-          isLoading={responseTimesQuery.isLoading}
-          isError={responseTimesQuery.isError}
-        />
-        <MessageVolumeHeatmap
-          data={messageVolumeQuery.data}
-          isLoading={messageVolumeQuery.isLoading}
-          isError={messageVolumeQuery.isError}
-        />
-      </div>
+          {/* Charts Grid */}
+          <div className="grid gap-6 lg:grid-cols-2">
+            <ConversationsChart
+              data={conversationsQuery.data}
+              isLoading={conversationsQuery.isLoading}
+              isError={conversationsQuery.isError}
+            />
+            <ResponseTimesChart
+              data={responseTimesQuery.data}
+              isLoading={responseTimesQuery.isLoading}
+              isError={responseTimesQuery.isError}
+            />
+            <MessageVolumeHeatmap
+              data={messageVolumeQuery.data}
+              isLoading={messageVolumeQuery.isLoading}
+              isError={messageVolumeQuery.isError}
+            />
+          </div>
 
-      {/* Agent Analytics Table (Story 8-8) */}
-      <AgentAnalyticsTable params={analyticsParams} />
+          {/* Agent Analytics Table (Story 8-8) */}
+          <AgentAnalyticsTable params={analyticsParams} pollingOptions={pollingOptions} />
+        </>
+      )}
     </div>
   );
 }
