@@ -51,7 +51,7 @@ function SelectContent({
   side = 'bottom',
   allowClear = false,
   clearLabel = 'None',
-  clearValue = '',
+  clearValue = '__select_clear__',
   ...props
 }: React.ComponentProps<typeof SelectPrimitive.Content> & {
   allowClear?: boolean;

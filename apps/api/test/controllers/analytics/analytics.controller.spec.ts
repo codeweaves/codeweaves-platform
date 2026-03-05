@@ -48,10 +48,6 @@ describe('AnalyticsController', () => {
     organization: null,
   };
 
-  const mockRes = {
-    set: jest.fn(),
-  } as unknown as import('express').Response;
-
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       controllers: [AnalyticsController],
@@ -116,25 +112,17 @@ describe('AnalyticsController', () => {
     it('should return summary data', async () => {
       mockAnalyticsService.getSummary.mockResolvedValue(mockSummary);
 
-      const result = await controller.getSummary(query, adminUser, mockRes);
+      const result = await controller.getSummary(query, adminUser);
 
       expect(result).toEqual(mockSummary);
       expect(mockAnalyticsService.getSummary).toHaveBeenCalledWith(query, adminUser);
-    });
-
-    it('should set Cache-Control header', async () => {
-      mockAnalyticsService.getSummary.mockResolvedValue(mockSummary);
-
-      await controller.getSummary(query, adminUser, mockRes);
-
-      expect(mockRes.set).toHaveBeenCalledWith('Cache-Control', 'private, max-age=300');
     });
 
     it('should pass agentId filter to service', async () => {
       const queryWithAgent = { ...query, agentId };
       mockAnalyticsService.getSummary.mockResolvedValue(mockSummary);
 
-      await controller.getSummary(queryWithAgent, adminUser, mockRes);
+      await controller.getSummary(queryWithAgent, adminUser);
 
       expect(mockAnalyticsService.getSummary).toHaveBeenCalledWith(queryWithAgent, adminUser);
     });
@@ -143,7 +131,7 @@ describe('AnalyticsController', () => {
       const queryWithOrg = { ...query, orgId };
       mockAnalyticsService.getSummary.mockResolvedValue(mockSummary);
 
-      await controller.getSummary(queryWithOrg, superAdminUser, mockRes);
+      await controller.getSummary(queryWithOrg, superAdminUser);
 
       expect(mockAnalyticsService.getSummary).toHaveBeenCalledWith(queryWithOrg, superAdminUser);
     });
@@ -160,10 +148,9 @@ describe('AnalyticsController', () => {
     it('should return conversations chart data', async () => {
       mockAnalyticsService.getConversationsChart.mockResolvedValue(mockChart);
 
-      const result = await controller.getConversationsChart(query, adminUser, mockRes);
+      const result = await controller.getConversationsChart(query, adminUser);
 
       expect(result).toEqual(mockChart);
-      expect(mockRes.set).toHaveBeenCalledWith('Cache-Control', 'private, max-age=300');
     });
   });
 
@@ -177,10 +164,9 @@ describe('AnalyticsController', () => {
     it('should return response time distribution', async () => {
       mockAnalyticsService.getResponseTimeDistribution.mockResolvedValue(mockDistribution);
 
-      const result = await controller.getResponseTimeDistribution(query, adminUser, mockRes);
+      const result = await controller.getResponseTimeDistribution(query, adminUser);
 
       expect(result).toEqual(mockDistribution);
-      expect(mockRes.set).toHaveBeenCalledWith('Cache-Control', 'private, max-age=300');
     });
   });
 
@@ -191,10 +177,9 @@ describe('AnalyticsController', () => {
     it('should return message volume heatmap data', async () => {
       mockAnalyticsService.getMessageVolumeHeatmap.mockResolvedValue(mockHeatmap);
 
-      const result = await controller.getMessageVolumeHeatmap(query, adminUser, mockRes);
+      const result = await controller.getMessageVolumeHeatmap(query, adminUser);
 
       expect(result).toEqual(mockHeatmap);
-      expect(mockRes.set).toHaveBeenCalledWith('Cache-Control', 'private, max-age=300');
     });
   });
 
@@ -227,17 +212,16 @@ describe('AnalyticsController', () => {
     it('should return paginated agent metrics', async () => {
       mockAnalyticsService.getAgentMetrics.mockResolvedValue(mockMetrics);
 
-      const result = await controller.getAgentMetrics(query, adminUser, mockRes);
+      const result = await controller.getAgentMetrics(query, adminUser);
 
       expect(result).toEqual(mockMetrics);
-      expect(mockRes.set).toHaveBeenCalledWith('Cache-Control', 'private, max-age=300');
     });
 
     it('should pass pagination and sort params to service', async () => {
       const customQuery = { ...query, page: 2, limit: 10, sortBy: 'messages' as const, sortOrder: 'asc' as const };
       mockAnalyticsService.getAgentMetrics.mockResolvedValue(mockMetrics);
 
-      await controller.getAgentMetrics(customQuery, adminUser, mockRes);
+      await controller.getAgentMetrics(customQuery, adminUser);
 
       expect(mockAnalyticsService.getAgentMetrics).toHaveBeenCalledWith(customQuery, adminUser);
     });
