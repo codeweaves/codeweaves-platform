@@ -1,6 +1,6 @@
 # Story 11.2: API Rate Limit Guard
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -21,17 +21,17 @@ so that no single client can overwhelm the system and all consumers receive fair
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Create rate limit decorators** (AC: #6, #7)
-  - [ ] Create `apps/api/src/decorators/rate-limit.decorator.ts`
-  - [ ] Implement `@SkipRateLimit()` decorator using `SetMetadata('skipRateLimit', true)`
-  - [ ] Implement `@RateLimit({ limit, windowMs })` decorator using `SetMetadata('rateLimit', { limit, windowMs })`
-  - [ ] Export both from `apps/api/src/decorators/index.ts`
+- [x] **Task 1: Create rate limit decorators** (AC: #6, #7)
+  - [x] Create `apps/api/src/decorators/rate-limit.decorator.ts`
+  - [x] Implement `@SkipRateLimit()` decorator using `SetMetadata('skipRateLimit', true)`
+  - [x] Implement `@RateLimit({ limit, windowMs })` decorator using `SetMetadata('rateLimit', { limit, windowMs })`
+  - [x] Export both from `apps/api/src/decorators/index.ts`
 
-- [ ] **Task 2: Create RateLimitGuard** (AC: #1, #2, #3, #4, #5, #6, #7)
-  - [ ] Create `apps/api/src/guards/rate-limit.guard.ts`
-  - [ ] Implement `CanActivate` interface
-  - [ ] Inject `Reflector`, `RateLimiterService`
-  - [ ] Guard logic flow:
+- [x] **Task 2: Create RateLimitGuard** (AC: #1, #2, #3, #4, #5, #6, #7)
+  - [x] Create `apps/api/src/guards/rate-limit.guard.ts`
+  - [x] Implement `CanActivate` interface
+  - [x] Inject `Reflector`, `RateLimiterService`
+  - [x] Guard logic flow:
     1. Check `@SkipRateLimit()` metadata via Reflector — if true, return `true` immediately
     2. Check `@RateLimit()` metadata for custom config — if present, use it; otherwise use defaults
     3. Check `@Public()` metadata (`IS_PUBLIC_KEY`) — determines keying strategy
@@ -42,28 +42,28 @@ so that no single client can overwhelm the system and all consumers receive fair
     6. Set response headers: `X-RateLimit-Limit`, `X-RateLimit-Remaining`, `X-RateLimit-Reset`
     7. If `allowed: false`, throw `HttpException(429)` with `Retry-After` header
     8. If `allowed: true`, return `true`
-  - [ ] Extract client IP from `request.ip` with `x-forwarded-for` header fallback
-  - [ ] Build endpoint identifier from `request.method` + `request.route.path` (use route pattern, not actual URL, to avoid per-ID key explosion)
-  - [ ] Export from `apps/api/src/guards/index.ts`
+  - [x] Extract client IP from `request.ip` with `x-forwarded-for` header fallback
+  - [x] Build endpoint identifier from `request.method` + `request.route.path` (use route pattern, not actual URL, to avoid per-ID key explosion)
+  - [x] Export from `apps/api/src/guards/index.ts`
 
-- [ ] **Task 3: Register RateLimitGuard as APP_GUARD** (AC: #1)
-  - [ ] Add to `apps/api/src/modules/app.module.ts` providers array as 3rd `APP_GUARD` (after `UserSyncGuard`, before any future `RolesGuard` global registration)
-  - [ ] Import `RateLimitGuard` from guards
-  - [ ] Ensure `RedisModule` is imported in `AppModule` (may already be done by Story 11-1)
+- [x] **Task 3: Register RateLimitGuard as APP_GUARD** (AC: #1)
+  - [x] Add to `apps/api/src/modules/app.module.ts` providers array as 3rd `APP_GUARD` (after `UserSyncGuard`, before any future `RolesGuard` global registration)
+  - [x] Import `RateLimitGuard` from guards
+  - [x] Ensure `RedisModule` is imported in `AppModule` (may already be done by Story 11-1)
 
-- [ ] **Task 4: Apply @SkipRateLimit() to health endpoints** (AC: #6)
-  - [ ] Add `@SkipRateLimit()` to `HealthController` (apps/api/src/controllers/public/health.controller.ts)
+- [x] **Task 4: Apply @SkipRateLimit() to health endpoints** (AC: #6)
+  - [x] Add `@SkipRateLimit()` to `HealthController` (apps/api/src/controllers/public/health.controller.ts)
 
-- [ ] **Task 5: Unit tests** (AC: #8)
-  - [ ] Create `apps/api/test/guards/rate-limit.guard.spec.ts`
-  - [ ] Test: authenticated request uses `rate_limit:user:{userId}:{endpoint}` key
-  - [ ] Test: public/unauthenticated request uses `rate_limit:ip:{ip}:{endpoint}` key
-  - [ ] Test: request within limit — guard returns `true`, response headers are set
-  - [ ] Test: request exceeds limit — `HttpException` with status 429, `Retry-After` header set
-  - [ ] Test: `@SkipRateLimit()` — guard returns `true` without calling `RateLimiterService`
-  - [ ] Test: `@RateLimit({ limit: 5, windowMs: 10000 })` — custom config is used instead of defaults
-  - [ ] Test: IP extraction from `x-forwarded-for` header when `request.ip` is not available
-  - [ ] Mock `RateLimiterService`, `Reflector`, and `ExecutionContext`
+- [x] **Task 5: Unit tests** (AC: #8)
+  - [x] Create `apps/api/test/guards/rate-limit.guard.spec.ts`
+  - [x] Test: authenticated request uses `rate_limit:user:{userId}:{endpoint}` key
+  - [x] Test: public/unauthenticated request uses `rate_limit:ip:{ip}:{endpoint}` key
+  - [x] Test: request within limit — guard returns `true`, response headers are set
+  - [x] Test: request exceeds limit — `HttpException` with status 429, `Retry-After` header set
+  - [x] Test: `@SkipRateLimit()` — guard returns `true` without calling `RateLimiterService`
+  - [x] Test: `@RateLimit({ limit: 5, windowMs: 10000 })` — custom config is used instead of defaults
+  - [x] Test: IP extraction from `x-forwarded-for` header when `request.ip` is not available
+  - [x] Mock `RateLimiterService`, `Reflector`, and `ExecutionContext`
 
 ## Dev Notes
 
@@ -182,9 +182,29 @@ Follow existing test patterns from `apps/api/test/guards/` (if any) or `apps/api
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+None — all tests passed on first run.
 
 ### Completion Notes List
+- Task 1: Created `@SkipRateLimit()` and `@RateLimit()` decorators using `SetMetadata` pattern matching existing `@Public()` and `@Roles()` decorators. Exported from barrel index.
+- Task 2: Implemented `RateLimitGuard` as `CanActivate` guard. Logic: skip → custom config → public check → key building (user vs IP) → `checkRateLimit()` → set headers → throw 429 or allow. Uses `x-forwarded-for` fallback for IP extraction. Uses `request.route.path` (not URL) to avoid per-ID key explosion.
+- Task 3: Registered as 3rd `APP_GUARD` in `app.module.ts` after `JwtAuthGuard` and `UserSyncGuard`. `RedisModule` already globally imported by Story 11-1.
+- Task 4: Applied `@SkipRateLimit()` at controller level on `HealthController` — both `/public/health` and `/public/ping` skip rate limiting.
+- Task 5: 11 unit tests covering all AC #8 scenarios + endpoint identifier and route fallback. All mocked — no Redis or HTTP dependencies.
+- All 899 tests pass (48 suites), lint clean, types clean, build clean.
+- Code review fixes applied: rewrote 429 test to single invocation, added route pattern vs URL test, added route undefined fallback test, added warning log on 0.0.0.0 IP fallback.
 
 ### File List
+- `apps/api/src/decorators/rate-limit.decorator.ts` (new)
+- `apps/api/src/decorators/index.ts` (modified — added rate-limit export)
+- `apps/api/src/guards/rate-limit.guard.ts` (new)
+- `apps/api/src/guards/index.ts` (modified — added rate-limit guard export)
+- `apps/api/src/modules/app.module.ts` (modified — added RateLimitGuard as APP_GUARD)
+- `apps/api/src/controllers/public/health.controller.ts` (modified — added @SkipRateLimit())
+- `apps/api/test/guards/rate-limit.guard.spec.ts` (new)
+
+### Change Log
+- 2026-03-10: Implemented API rate limit guard (Story 11-2) — global NestJS guard with user/IP keying, custom decorator overrides, and 9 unit tests.
+- 2026-03-10: Code review fixes — M1: fixed 429 test double-invocation, M2: added route fallback + route pattern tests (+2 tests), M3: added warning log on 0.0.0.0 IP fallback.
