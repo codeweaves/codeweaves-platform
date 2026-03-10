@@ -18,6 +18,7 @@ import { RbacModule } from '../common/rbac/rbac.module';
 import { SupabaseStorageModule } from './supabase-storage.module';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { UserSyncGuard } from '../guards/user-sync.guard';
+import { RateLimitGuard } from '../guards/rate-limit.guard';
 import { CorrelationIdMiddleware } from '../middleware/correlation-id.middleware';
 import { LoggingInterceptor } from '../interceptors/logging.interceptor';
 import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
@@ -52,6 +53,10 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     {
       provide: APP_GUARD,
       useClass: UserSyncGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RateLimitGuard,
     },
     {
       provide: APP_INTERCEPTOR,
