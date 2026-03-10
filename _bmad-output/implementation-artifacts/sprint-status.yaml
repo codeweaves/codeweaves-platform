@@ -269,7 +269,7 @@ development_status:
   # Each phase depends on the previous phase being complete.
   #
   # Phase 1 (Foundations):      11-1, 12-1, 11-10
-  # Phase 2 (Core Enforcement): 11-2, 11-15, 11-11, 12-2, 12-3
+  # Phase 2 (Core Enforcement): 11-2, 11-15, 11-11, 12-2, 12-3, 12-15
   # Phase 3 (Extended):         11-3, 11-4, 12-4, 12-7
   # Phase 4 (Security+Audit):   11-5, 11-8, 12-10, 12-11
   # Phase 5 (Dashboards+Alerts):11-9, 12-8, 12-9, 12-12
@@ -309,7 +309,7 @@ development_status:
   # Dependencies: Epic 0
   # ============================================
   epic-12: in-progress
-  12-1-sentry-sdk-integration: ready-for-dev
+  12-1-sentry-sdk-integration: done
   12-2-error-capture-and-context: ready-for-dev
   12-3-health-check-endpoint-liveness: ready-for-dev
   12-4-readiness-check-endpoint: ready-for-dev

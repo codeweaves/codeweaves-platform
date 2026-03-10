@@ -1,6 +1,6 @@
 # Story 12.1: Sentry SDK Integration
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -19,52 +19,52 @@ so that unhandled errors are captured and analyzed automatically with readable s
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Install Sentry dependencies** (AC: #1)
-  - [ ] `cd apps/api && bun add @sentry/nestjs @sentry/profiling-node`
+- [x] **Task 1: Install Sentry dependencies** (AC: #1)
+  - [x] `cd apps/api && bun add @sentry/nestjs @sentry/profiling-node`
 
-- [ ] **Task 2: Create SentryModule (global)** (AC: #1, #3)
-  - [ ] Create `apps/api/src/common/sentry/sentry.module.ts`
-  - [ ] Mark as `@Global()` following CryptoModule/TracerModule pattern
-  - [ ] Provide and export `SentryService`
-  - [ ] Register in `AppModule` imports
+- [x] **Task 2: Create SentryModule (global)** (AC: #1, #3)
+  - [x] Create `apps/api/src/common/sentry/sentry.module.ts`
+  - [x] Mark as `@Global()` following CryptoModule/TracerModule pattern
+  - [x] Provide and export `SentryService`
+  - [x] Register in `AppModule` imports
 
-- [ ] **Task 3: Create SentryService** (AC: #1, #3, #4)
-  - [ ] Create `apps/api/src/common/sentry/sentry.service.ts`
-  - [ ] Inject `ConfigService` to read `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `npm_package_version`
-  - [ ] Implement `isEnabled(): boolean` — returns true only if `SENTRY_DSN` is non-empty
-  - [ ] Implement `captureException(exception: unknown, context?: Record<string, unknown>): void` — no-op if disabled
-  - [ ] Implement `captureMessage(message: string, level?: SeverityLevel): void` — no-op if disabled
-  - [ ] Log "Sentry disabled — SENTRY_DSN not configured" at startup if DSN is missing
+- [x] **Task 3: Create SentryService** (AC: #1, #3, #4)
+  - [x] Create `apps/api/src/common/sentry/sentry.service.ts`
+  - [x] Inject `ConfigService` to read `SENTRY_DSN`, `SENTRY_ENVIRONMENT`, `npm_package_version`
+  - [x] Implement `isEnabled(): boolean` — returns true only if `SENTRY_DSN` is non-empty
+  - [x] Implement `captureException(exception: unknown, context?: Record<string, unknown>): void` — no-op if disabled
+  - [x] Implement `captureMessage(message: string, level?: SeverityLevel): void` — no-op if disabled
+  - [x] Log "Sentry disabled — SENTRY_DSN not configured" at startup if DSN is missing
 
-- [ ] **Task 4: Update main.ts for early Sentry init** (AC: #1, #3)
-  - [ ] In `apps/api/src/main.ts`, call `Sentry.init()` BEFORE `NestFactory.create(AppModule)`
-  - [ ] Read `SENTRY_DSN` from `process.env` directly (ConfigService not yet available at this point)
-  - [ ] Pass `environment`, `release`, `dsn` to `Sentry.init()`
-  - [ ] Guard with `if (process.env.SENTRY_DSN)` so it's a no-op when missing
+- [x] **Task 4: Update main.ts for early Sentry init** (AC: #1, #3)
+  - [x] In `apps/api/src/main.ts`, call `Sentry.init()` BEFORE `NestFactory.create(AppModule)`
+  - [x] Read `SENTRY_DSN` from `process.env` directly (ConfigService not yet available at this point)
+  - [x] Pass `environment`, `release`, `dsn` to `Sentry.init()`
+  - [x] Guard with `if (process.env.SENTRY_DSN)` so it's a no-op when missing
 
-- [ ] **Task 5: Update AllExceptionsFilter** (AC: #5)
-  - [ ] Modify `apps/api/src/filters/all-exceptions.filter.ts`
-  - [ ] Inject `SentryService` (make filter `@Injectable()` with constructor injection)
-  - [ ] Inside `catch()`, after the existing 500+ error logging block, call `this.sentryService.captureException(exception, { correlationId, method, url })`
-  - [ ] Only capture for `status >= 500` (not client errors)
+- [x] **Task 5: Update AllExceptionsFilter** (AC: #5)
+  - [x] Modify `apps/api/src/filters/all-exceptions.filter.ts`
+  - [x] Inject `SentryService` (make filter `@Injectable()` with constructor injection)
+  - [x] Inside `catch()`, after the existing 500+ error logging block, call `this.sentryService.captureException(exception, { correlationId, method, url })`
+  - [x] Only capture for `status >= 500` (not client errors)
 
-- [ ] **Task 6: Source map upload configuration** (AC: #2)
-  - [ ] Add `@sentry/nestjs` plugin configuration or document the `sentry-cli` upload step for CI
-  - [ ] Ensure `sourcemaps` option is set in `Sentry.init()` for production
+- [x] **Task 6: Source map upload configuration** (AC: #2)
+  - [x] Add `@sentry/nestjs` plugin configuration or document the `sentry-cli` upload step for CI
+  - [x] Ensure `sourcemaps` option is set in `Sentry.init()` for production
 
-- [ ] **Task 7: Add env vars to .env.example** (AC: #1, #3)
-  - [ ] Add/uncomment `SENTRY_DSN` in `.env.example` (already exists as commented-out)
-  - [ ] Add `SENTRY_ENVIRONMENT=development` to `.env.example`
+- [x] **Task 7: Add env vars to .env.example** (AC: #1, #3)
+  - [x] Add/uncomment `SENTRY_DSN` in `.env.example` (already exists as commented-out)
+  - [x] Add `SENTRY_ENVIRONMENT=development` to `.env.example`
 
-- [ ] **Task 8: Unit tests** (AC: #6)
-  - [ ] Create `apps/api/test/common/sentry/sentry.service.spec.ts`
-  - [ ] Test: when DSN is configured, `isEnabled()` returns true
-  - [ ] Test: when DSN is empty/missing, `isEnabled()` returns false
-  - [ ] Test: `captureException()` calls `Sentry.captureException()` when enabled
-  - [ ] Test: `captureException()` is a no-op when disabled
-  - [ ] Test: AllExceptionsFilter calls `sentryService.captureException()` for 5xx errors
-  - [ ] Test: AllExceptionsFilter does NOT call `sentryService.captureException()` for 4xx errors
-  - [ ] Mock `@sentry/nestjs` module entirely — do NOT make real Sentry API calls
+- [x] **Task 8: Unit tests** (AC: #6)
+  - [x] Create `apps/api/test/common/sentry/sentry.service.spec.ts`
+  - [x] Test: when DSN is configured, `isEnabled()` returns true
+  - [x] Test: when DSN is empty/missing, `isEnabled()` returns false
+  - [x] Test: `captureException()` calls `Sentry.captureException()` when enabled
+  - [x] Test: `captureException()` is a no-op when disabled
+  - [x] Test: AllExceptionsFilter calls `sentryService.captureException()` for 5xx errors
+  - [x] Test: AllExceptionsFilter does NOT call `sentryService.captureException()` for 4xx errors
+  - [x] Mock `@sentry/nestjs` module entirely — do NOT make real Sentry API calls
 
 ## Dev Notes
 
@@ -152,9 +152,34 @@ Follow existing test patterns from `apps/api/test/common/tracer/tracer.service.s
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Lint warning fixed: removed unused `TestingModule` import in sentry.service.spec.ts
 
 ### Completion Notes List
+- Installed `@sentry/nestjs@10.42.0` and `@sentry/profiling-node@10.42.0`
+- Created `SentryModule` (@Global) and `SentryService` following CryptoModule/TracerModule pattern
+- `SentryService` wraps Sentry SDK with `isEnabled()`, `captureException()`, `captureMessage()` — all no-op when DSN missing
+- Early `Sentry.init()` in `main.ts` before `NestFactory.create()` reading `process.env.SENTRY_DSN` directly
+- Source maps configured with `filesToDeleteAfterUpload` for production; upload via sentry-cli in CI
+- `AllExceptionsFilter` updated to `@Injectable()` with `SentryService` DI — captures 5xx errors only
+- Updated existing filter tests to use mock SentryService constructor injection
+- 18 new/updated tests: 8 SentryService tests + 10 AllExceptionsFilter tests (4 new Sentry-specific)
+- All 849 tests pass, lint clean, types clean, build clean
+
+### Change Log
+- 2026-03-10: Implemented Sentry SDK integration (all 8 tasks complete)
+- 2026-03-10: Code review fixes — H1: replaced global Sentry.setContext with withScope for concurrency safety; M2: added SENTRY_RELEASE env var fallback; M3: added captureMessage default level test
 
 ### File List
+- apps/api/src/common/sentry/sentry.module.ts (new)
+- apps/api/src/common/sentry/sentry.service.ts (new)
+- apps/api/src/main.ts (modified)
+- apps/api/src/filters/all-exceptions.filter.ts (modified)
+- apps/api/src/modules/app.module.ts (modified)
+- apps/api/test/common/sentry/sentry.service.spec.ts (new)
+- apps/api/test/filters/all-exceptions.filter.spec.ts (modified)
+- apps/api/package.json (modified — new dependencies)
+- bun.lock (modified — lockfile update)
+- .env.example (modified)

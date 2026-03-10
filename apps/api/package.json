@@ -30,6 +30,8 @@
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
     "@repo/validation": "workspace:*",
+    "@sentry/nestjs": "^10.42.0",
+    "@sentry/profiling-node": "^10.42.0",
     "@supabase/supabase-js": "^2.97.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
