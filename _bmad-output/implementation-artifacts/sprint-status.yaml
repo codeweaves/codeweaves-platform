@@ -189,13 +189,13 @@ development_status:
 
   # ============================================
   # Epic 7: AI Provider Integration & Abstraction
-  # NOTE: Merged into Epic 6 for demo-first approach.
-  # n8n webhook integration, response parsing, SSE streaming,
-  # error handling, and timeout handling are all covered in Epic 6.
-  # Remaining Epic 7 items (health checks, circuit breakers,
-  # provider abstraction) deferred to post-demo.
+  # NOTE: Closed — webhook-per-agent pattern IS the abstraction layer.
+  # Core functionality (n8n webhook, response parsing, SSE streaming,
+  # error handling, timeout handling) all delivered in Epic 6.
+  # Provider abstraction unnecessary — any service (n8n, custom Python, etc.)
+  # is plug-and-play via webhook URL. Circuit breakers moved to Epic 12.
   # ============================================
-  epic-7: backlog
+  epic-7: done
 
   # ============================================
   # Epic 8: Analytics Dashboard & KPIs (REFINED 2026-03-03)
@@ -264,6 +264,20 @@ development_status:
   epic-10-retrospective: optional
 
   # ============================================
+  # IMPLEMENTATION PHASE ORDER (Epic 11 + 12 combined)
+  # Stories in the same phase can be built in parallel.
+  # Each phase depends on the previous phase being complete.
+  #
+  # Phase 1 (Foundations):      11-1, 12-1, 11-10
+  # Phase 2 (Core Enforcement): 11-2, 11-15, 11-11, 12-2, 12-3
+  # Phase 3 (Extended):         11-3, 11-4, 12-4, 12-7
+  # Phase 4 (Security+Audit):   11-5, 11-8, 12-10, 12-11
+  # Phase 5 (Dashboards+Alerts):11-9, 12-8, 12-9, 12-12
+  # Phase 6 (Compliance+Polish):11-12, 11-14, 12-14
+  # Phase 7 (Final):            11-13
+  # ============================================
+
+  # ============================================
   # Epic 11: Security, Audit & Compliance
   # Priority: P0
   # Stories: 15
@@ -271,21 +285,21 @@ development_status:
   # Test Priority: P0 (RBAC suite - 30 test cases)
   # ============================================
   epic-11: in-progress
-  11-1-rate-limiting-infrastructure-redis: backlog
-  11-2-api-rate-limit-guard: backlog
-  11-3-widget-message-rate-limiting: backlog
-  11-4-hmac-signature-verification-webhook-security: backlog
-  11-5-replay-attack-prevention-nonce-cache: backlog
+  11-1-rate-limiting-infrastructure-redis: done
+  11-2-api-rate-limit-guard: ready-for-dev
+  11-3-widget-message-rate-limiting: ready-for-dev
+  11-4-hmac-signature-verification-webhook-security: ready-for-dev
+  11-5-replay-attack-prevention-nonce-cache: ready-for-dev
   11-6-audit-log-database-model: done
   11-7-audit-logging-interceptor: done
-  11-8-audit-log-query-api: backlog
-  11-9-audit-log-dashboard-view: backlog
-  11-10-rbac-permission-matrix: backlog
-  11-11-rolesguard-implementation: backlog
-  11-12-gdpr-data-export: backlog
-  11-13-gdpr-data-deletion: backlog
-  11-14-password-policy-enforcement: backlog
-  11-15-security-headers-middleware: backlog
+  11-8-audit-log-query-api: ready-for-dev
+  11-9-audit-log-dashboard-view: ready-for-dev
+  11-10-rbac-permission-matrix: ready-for-dev
+  11-11-rolesguard-implementation: ready-for-dev
+  11-12-gdpr-data-export: ready-for-dev
+  11-13-gdpr-data-deletion: ready-for-dev
+  11-14-password-policy-enforcement: ready-for-dev
+  11-15-security-headers-middleware: ready-for-dev
   epic-11-retrospective: optional
 
   # ============================================
@@ -295,18 +309,18 @@ development_status:
   # Dependencies: Epic 0
   # ============================================
   epic-12: in-progress
-  12-1-sentry-sdk-integration: backlog
-  12-2-error-capture-and-context: backlog
-  12-3-health-check-endpoint-liveness: backlog
-  12-4-readiness-check-endpoint: backlog
+  12-1-sentry-sdk-integration: ready-for-dev
+  12-2-error-capture-and-context: ready-for-dev
+  12-3-health-check-endpoint-liveness: ready-for-dev
+  12-4-readiness-check-endpoint: ready-for-dev
   12-5-request-correlation-ids: done
   12-6-structured-logging: done
-  12-7-performance-monitoring-apm: backlog
-  12-8-response-time-alerting: backlog
-  12-9-error-rate-alerting: backlog
-  12-10-graceful-degradation-ai-service: backlog
-  12-11-graceful-degradation-database: backlog
-  12-12-uptime-monitoring: backlog
+  12-7-performance-monitoring-apm: ready-for-dev
+  12-8-response-time-alerting: ready-for-dev
+  12-9-error-rate-alerting: ready-for-dev
+  12-10-graceful-degradation-ai-service: ready-for-dev
+  12-11-graceful-degradation-database: ready-for-dev
+  12-12-uptime-monitoring: ready-for-dev
   12-13-request-response-logging: done
-  12-14-dashboard-system-status-indicator: backlog
+  12-14-dashboard-system-status-indicator: ready-for-dev
   epic-12-retrospective: optional
