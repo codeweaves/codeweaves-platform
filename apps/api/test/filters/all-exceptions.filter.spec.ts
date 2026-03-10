@@ -4,12 +4,19 @@ import {
   requestContextStorage,
   RequestContext,
 } from '../../src/common/tracer/correlation.storage';
+import { SentryService } from '../../src/common/sentry/sentry.service';
 
 describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
+  let mockSentryService: jest.Mocked<Pick<SentryService, 'captureException'>>;
 
   beforeEach(() => {
-    filter = new AllExceptionsFilter();
+    mockSentryService = {
+      captureException: jest.fn(),
+    };
+    filter = new AllExceptionsFilter(
+      mockSentryService as unknown as SentryService,
+    );
   });
 
   function createMockHost() {
@@ -118,5 +125,50 @@ describe('AllExceptionsFilter', () => {
         reissueToken: 'abc-123',
       }),
     );
+  });
+
+  it('should call sentryService.captureException for 5xx errors', () => {
+    const { host } = createMockHost();
+    const error = new Error('internal failure');
+
+    const context: RequestContext = { correlationId: 'corr-5xx' };
+
+    requestContextStorage.run(context, () => {
+      filter.catch(error, host);
+    });
+
+    expect(mockSentryService.captureException).toHaveBeenCalledWith(error, {
+      correlationId: 'corr-5xx',
+      method: 'GET',
+      url: '/api/codeweaves/v1/test',
+    });
+  });
+
+  it('should call sentryService.captureException for HttpException with status >= 500', () => {
+    const { host } = createMockHost();
+    const error = new HttpException('Service Unavailable', 503);
+
+    filter.catch(error, host);
+
+    expect(mockSentryService.captureException).toHaveBeenCalledWith(
+      error,
+      expect.objectContaining({ method: 'GET' }),
+    );
+  });
+
+  it('should NOT call sentryService.captureException for 4xx errors', () => {
+    const { host } = createMockHost();
+
+    filter.catch(new HttpException('Bad Request', 400), host);
+
+    expect(mockSentryService.captureException).not.toHaveBeenCalled();
+  });
+
+  it('should NOT call sentryService.captureException for 404 errors', () => {
+    const { host } = createMockHost();
+
+    filter.catch(new HttpException('Not Found', 404), host);
+
+    expect(mockSentryService.captureException).not.toHaveBeenCalled();
   });
 });

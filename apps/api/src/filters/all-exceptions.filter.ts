@@ -3,14 +3,19 @@ import {
   ExceptionFilter,
   ArgumentsHost,
   HttpException,
+  Injectable,
   Logger,
 } from '@nestjs/common';
 import { Response, Request } from 'express';
 import { getRequestContext } from '../common/tracer/correlation.storage';
+import { SentryService } from '../common/sentry/sentry.service';
 
+@Injectable()
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
+
+  constructor(private readonly sentryService: SentryService) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -26,6 +31,12 @@ export class AllExceptionsFilter implements ExceptionFilter {
         `[${context?.correlationId?.slice(0, 8) ?? 'no-ctx'}] ${request.method} ${request.originalUrl} — ${exception}`,
         exception instanceof Error ? exception.stack : undefined,
       );
+
+      this.sentryService.captureException(exception, {
+        correlationId: context?.correlationId,
+        method: request.method,
+        url: request.originalUrl,
+      });
     }
 
     // Preserve structured HttpException responses (e.g. { message, reissueToken })

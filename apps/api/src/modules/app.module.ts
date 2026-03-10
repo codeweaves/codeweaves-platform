@@ -13,6 +13,7 @@ import { AnalyticsModule } from './analytics.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
 import { RedisModule } from '../common/redis/redis.module';
+import { SentryModule } from '../common/sentry/sentry.module';
 import { SupabaseStorageModule } from './supabase-storage.module';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { UserSyncGuard } from '../guards/user-sync.guard';
@@ -37,6 +38,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     TracerModule,
     CryptoModule,
     RedisModule,
+    SentryModule,
     SupabaseStorageModule,
   ],
   controllers: [HealthController],
