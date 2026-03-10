@@ -294,7 +294,7 @@ development_status:
   11-7-audit-logging-interceptor: done
   11-8-audit-log-query-api: ready-for-dev
   11-9-audit-log-dashboard-view: ready-for-dev
-  11-10-rbac-permission-matrix: ready-for-dev
+  11-10-rbac-permission-matrix: done
   11-11-rolesguard-implementation: ready-for-dev
   11-12-gdpr-data-export: ready-for-dev
   11-13-gdpr-data-deletion: ready-for-dev

@@ -1,6 +1,6 @@
 # Story 11.10: RBAC Permission Matrix
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -17,17 +17,17 @@ so that role-based access is consistently enforced across the platform.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Create RBAC types** (AC: #1, #4)
-  - [ ] Create `apps/api/src/common/rbac/rbac.types.ts`
-  - [ ] Define `Resource` enum: `User`, `Organization`, `Agent`, `AgentTheme`, `AgentSecret`, `ChatSession`, `ChatMessage`, `Analytics`, `AuditLog`, `Invitation`, `File`
-  - [ ] Define `Action` enum: `Create`, `Read`, `ReadAll`, `Update`, `Delete`, `Export`
-  - [ ] Define `PermissionEntry` type: `{ resource: Resource; action: Action; roles: Role[] }`
-  - [ ] Define `PermissionKey` type: `` `${Resource}:${Action}` ``
+- [x] **Task 1: Create RBAC types** (AC: #1, #4)
+  - [x] Create `apps/api/src/common/rbac/rbac.types.ts`
+  - [x] Define `Resource` enum: `User`, `Organization`, `Agent`, `AgentTheme`, `AgentSecret`, `ChatSession`, `ChatMessage`, `Analytics`, `AuditLog`, `Invitation`, `File`
+  - [x] Define `Action` enum: `Create`, `Read`, `ReadAll`, `Update`, `Delete`, `Export`
+  - [x] Define `PermissionEntry` type: `{ resource: Resource; action: Action; roles: Role[] }`
+  - [x] Define `PermissionKey` type: `` `${Resource}:${Action}` ``
 
-- [ ] **Task 2: Create permission matrix constant** (AC: #1, #2)
-  - [ ] Create `apps/api/src/common/rbac/permissions.ts`
-  - [ ] Define `PERMISSION_MATRIX: Record<PermissionKey, Role[]>` constant
-  - [ ] Matrix rules:
+- [x] **Task 2: Create permission matrix constant** (AC: #1, #2)
+  - [x] Create `apps/api/src/common/rbac/permissions.ts`
+  - [x] Define `PERMISSION_MATRIX: Record<PermissionKey, Role[]>` constant
+  - [x] Matrix rules:
     - **SUPER_ADMIN**: all permissions on all resources (platform-wide)
     - **ADMIN**: all permissions on all resources (org-scoped — enforcement is in TenantGuard, not here)
     - **CLIENT**:
@@ -39,33 +39,33 @@ so that role-based access is consistently enforced across the platform.
       - `ChatMessage:Read` (own)
       - `Analytics:Read` (own org)
       - `AuditLog:Read` (own)
-  - [ ] Export helper function `hasPermission(role: Role, resource: Resource, action: Action): boolean`
-  - [ ] Export helper function `getPermissionsForRole(role: Role): PermissionKey[]`
+  - [x] Export helper function `hasPermission(role: Role, resource: Resource, action: Action): boolean`
+  - [x] Export helper function `getPermissionsForRole(role: Role): PermissionKey[]`
 
-- [ ] **Task 3: Create RbacModule** (AC: #4)
-  - [ ] Create `apps/api/src/common/rbac/rbac.module.ts`
-  - [ ] Mark as `@Global()` following CryptoModule pattern
-  - [ ] Provide and export an `RbacService` that wraps the permission matrix lookup
-  - [ ] `RbacService.checkPermission(role: Role, resource: Resource, action: Action): boolean`
-  - [ ] Register in `AppModule` imports
+- [x] **Task 3: Create RbacModule** (AC: #4)
+  - [x] Create `apps/api/src/common/rbac/rbac.module.ts`
+  - [x] Mark as `@Global()` following CryptoModule pattern
+  - [x] Provide and export an `RbacService` that wraps the permission matrix lookup
+  - [x] `RbacService.checkPermission(role: Role, resource: Resource, action: Action): boolean`
+  - [x] Register in `AppModule` imports
 
-- [ ] **Task 4: Create barrel export** (AC: #4)
-  - [ ] Create `apps/api/src/common/rbac/index.ts`
-  - [ ] Export `Resource`, `Action`, `PermissionKey`, `PERMISSION_MATRIX`, `hasPermission`, `getPermissionsForRole`
-  - [ ] Export `RbacModule` and `RbacService`
+- [x] **Task 4: Create barrel export** (AC: #4)
+  - [x] Create `apps/api/src/common/rbac/index.ts`
+  - [x] Export `Resource`, `Action`, `PermissionKey`, `PERMISSION_MATRIX`, `hasPermission`, `getPermissionsForRole`
+  - [x] Export `RbacModule` and `RbacService`
 
-- [ ] **Task 5: Unit tests** (AC: #3)
-  - [ ] Create `apps/api/test/common/rbac/permissions.spec.ts`
-  - [ ] Test: matrix completeness — every `Resource x Action` combination has an entry
-  - [ ] Test: SUPER_ADMIN has all permissions
-  - [ ] Test: ADMIN has all permissions
-  - [ ] Test: CLIENT has only the explicitly listed permissions
-  - [ ] Test: CLIENT does NOT have `Delete` on any resource
-  - [ ] Test: CLIENT does NOT have `Create` on Agent, Organization, etc.
-  - [ ] Test: `hasPermission()` returns correct boolean for known role/resource/action
-  - [ ] Test: `getPermissionsForRole()` returns correct list for each role
-  - [ ] Create `apps/api/test/common/rbac/rbac.service.spec.ts`
-  - [ ] Test: `RbacService.checkPermission()` delegates to matrix correctly
+- [x] **Task 5: Unit tests** (AC: #3)
+  - [x] Create `apps/api/test/common/rbac/permissions.spec.ts`
+  - [x] Test: matrix completeness — every `Resource x Action` combination has an entry
+  - [x] Test: SUPER_ADMIN has all permissions
+  - [x] Test: ADMIN has all permissions
+  - [x] Test: CLIENT has only the explicitly listed permissions
+  - [x] Test: CLIENT does NOT have `Delete` on any resource
+  - [x] Test: CLIENT does NOT have `Create` on Agent, Organization, etc.
+  - [x] Test: `hasPermission()` returns correct boolean for known role/resource/action
+  - [x] Test: `getPermissionsForRole()` returns correct list for each role
+  - [x] Create `apps/api/test/common/rbac/rbac.service.spec.ts`
+  - [x] Test: `RbacService.checkPermission()` delegates to matrix correctly
 
 ## Dev Notes
 
@@ -161,9 +161,26 @@ Use `@nestjs/testing` `Test.createTestingModule()` for `RbacService` tests. No m
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Fixed `isolatedModules` TS error in barrel export — used `export type` for PermissionKey and PermissionEntry
 
 ### Completion Notes List
+- Task 1: Created Resource (11 values) and Action (6 values) enums, PermissionKey template literal type, PermissionEntry interface
+- Task 2: Created PERMISSION_MATRIX with 66 entries (11 resources x 6 actions). SUPER_ADMIN and ADMIN get all permissions. CLIENT gets 11 specific read/update permissions. Exported `hasPermission()` and `getPermissionsForRole()` helpers.
+- Task 3: Created @Global() RbacModule with RbacService wrapping matrix lookups. Registered in AppModule.
+- Task 4: Created barrel export with proper `export type` for type-only re-exports (isolatedModules compliance).
+- Task 5: 38 unit tests covering matrix completeness, role-specific permissions, CLIENT restrictions (no Delete/Create/Export), helper functions, and RbacService delegation.
+- All 888 tests pass. Lint, type-check, build all green.
+- Code review fixes: Object.freeze() on PERMISSION_MATRIX and role arrays, import type for Role in rbac.types.ts, pre-computed ROLE_PERMISSIONS_MAP for O(1) lookups, tests import from barrel export.
 
 ### File List
+- apps/api/src/common/rbac/rbac.types.ts (new)
+- apps/api/src/common/rbac/permissions.ts (new)
+- apps/api/src/common/rbac/rbac.service.ts (new)
+- apps/api/src/common/rbac/rbac.module.ts (new)
+- apps/api/src/common/rbac/index.ts (new)
+- apps/api/src/modules/app.module.ts (modified — added RbacModule import)
+- apps/api/test/common/rbac/permissions.spec.ts (new)
+- apps/api/test/common/rbac/rbac.service.spec.ts (new)
