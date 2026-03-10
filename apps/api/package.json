@@ -33,6 +33,7 @@
     "@supabase/supabase-js": "^2.97.0",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
+    "ioredis": "^5.10.0",
     "jsonwebtoken": "^9.0.3",
     "jwks-rsa": "^3.2.2",
     "nanoid": "^5.1.6",

@@ -12,6 +12,7 @@ import { ChatModule } from './chat.module';
 import { AnalyticsModule } from './analytics.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
+import { RedisModule } from '../common/redis/redis.module';
 import { SupabaseStorageModule } from './supabase-storage.module';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { UserSyncGuard } from '../guards/user-sync.guard';
@@ -35,6 +36,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     AnalyticsModule,
     TracerModule,
     CryptoModule,
+    RedisModule,
     SupabaseStorageModule,
   ],
   controllers: [HealthController],
