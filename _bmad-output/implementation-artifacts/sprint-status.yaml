@@ -299,7 +299,7 @@ development_status:
   11-12-gdpr-data-export: ready-for-dev
   11-13-gdpr-data-deletion: ready-for-dev
   11-14-password-policy-enforcement: ready-for-dev
-  11-15-security-headers-middleware: ready-for-dev
+  11-15-security-headers-middleware: done
   epic-11-retrospective: optional
 
   # ============================================
