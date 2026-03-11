@@ -5,6 +5,7 @@ import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './modules/app.module';
 import { getHelmetOptions } from './config/security-headers.config';
+import { scrubSentryEvent } from './common/sentry/sentry.scrubber';
 
 // Sentry must be initialized before NestFactory.create() to hook into Node.js error handlers
 if (process.env.SENTRY_DSN) {
@@ -12,6 +13,8 @@ if (process.env.SENTRY_DSN) {
     dsn: process.env.SENTRY_DSN,
     environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
     release: process.env.SENTRY_RELEASE || process.env.npm_package_version,
+    maxBreadcrumbs: 25,
+    beforeSend: scrubSentryEvent,
     // Source maps are uploaded via sentry-cli in CI (see SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT env vars)
     // This tells the SDK to look for them when symbolizing stack traces
     ...(process.env.NODE_ENV === 'production' && {
