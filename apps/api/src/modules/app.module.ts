@@ -21,6 +21,7 @@ import { UserSyncGuard } from '../guards/user-sync.guard';
 import { RateLimitGuard } from '../guards/rate-limit.guard';
 import { CorrelationIdMiddleware } from '../middleware/correlation-id.middleware';
 import { LoggingInterceptor } from '../interceptors/logging.interceptor';
+import { SentryInterceptor } from '../common/sentry/sentry.interceptor';
 import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
 
 @Module({
@@ -61,6 +62,10 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     {
       provide: APP_INTERCEPTOR,
       useClass: LoggingInterceptor,
+    },
+    {
+      provide: APP_INTERCEPTOR,
+      useClass: SentryInterceptor,
     },
     {
       provide: APP_FILTER,
