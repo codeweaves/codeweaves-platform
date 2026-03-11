@@ -1,8 +1,9 @@
-import { Controller, Post, Body, Res, HttpException } from '@nestjs/common';
+import { Controller, Post, Body, Res, Req, HttpException } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import type { Response } from 'express';
+import type { Request, Response } from 'express';
 import { Public } from '../../decorators/public.decorator';
 import { ChatService } from '../../services/chat.service';
+import { MessageRateLimitService } from '../../services/message-rate-limit.service';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { sendMessageSchema, type SendMessageDto } from '@repo/validation';
 
@@ -13,7 +14,10 @@ const CHUNK_DELAY_MS = 30;
 @Public()
 @Controller('public/chat')
 export class PublicChatController {
-  constructor(private readonly chatService: ChatService) {}
+  constructor(
+    private readonly chatService: ChatService,
+    private readonly messageRateLimitService: MessageRateLimitService,
+  ) {}
 
   @Post('send')
   @ApiOperation({ summary: 'Send a chat message to an agent' })
@@ -23,7 +27,18 @@ export class PublicChatController {
   @ApiResponse({ status: 502, description: 'AI service error (timeout, network, or unexpected response)' })
   async sendMessage(
     @Body(new ZodValidationPipe(sendMessageSchema)) dto: SendMessageDto,
+    @Req() req: Request,
   ) {
+    const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
+      deviceId,
+      dto.agentId,
+    );
+
+    if (!rateLimitResult.allowed) {
+      return { error: true, message: rateLimitResult.message, retryAfterSeconds: rateLimitResult.retryAfterSeconds };
+    }
+
     return this.chatService.sendMessage(dto);
   }
 
@@ -33,12 +48,25 @@ export class PublicChatController {
   @ApiResponse({ status: 400, description: 'Invalid input (only error returned as HTTP status; all other errors are SSE events)' })
   async stream(
     @Body(new ZodValidationPipe(sendMessageSchema)) dto: SendMessageDto,
+    @Req() req: Request,
     @Res() res: Response,
   ) {
     res.setHeader('Content-Type', 'text/event-stream');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+
+    const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
+      deviceId,
+      dto.agentId,
+    );
+
+    if (!rateLimitResult.allowed) {
+      res.write(`data: ${JSON.stringify({ type: 'error', message: rateLimitResult.message })}\n\n`);
+      res.end();
+      return;
+    }
 
     let closed = false;
     res.on('close', () => {

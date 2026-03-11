@@ -1,6 +1,6 @@
 # Story 11.3: Widget Message Rate Limiting
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -20,49 +20,49 @@ so that widget abuse is prevented and the AI backend is protected from excessive
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Create MessageRateLimitService** (AC: #1, #2, #3, #4)
-  - [ ] Create `apps/api/src/services/message-rate-limit.service.ts`
-  - [ ] Inject `RateLimiterService` from RedisModule
-  - [ ] Implement `checkMessageRateLimit(deviceId: string, agentPublicId: string): Promise<MessageRateLimitResult>`
-  - [ ] Two-tier check logic:
+- [x] **Task 1: Create MessageRateLimitService** (AC: #1, #2, #3, #4)
+  - [x] Create `apps/api/src/services/message-rate-limit.service.ts`
+  - [x] Inject `RateLimiterService` from RedisModule
+  - [x] Implement `checkMessageRateLimit(deviceId: string, agentPublicId: string): Promise<MessageRateLimitResult>`
+  - [x] Two-tier check logic:
     1. Check minute limit: key `msg_rate:{deviceId}:{agentPublicId}:minute`, limit 10, window 60000ms
     2. Check hour limit: key `msg_rate:{deviceId}:{agentPublicId}:hour`, limit 100, window 3600000ms
     3. Both must pass — if either fails, return the rejection result
-  - [ ] Return type: `{ allowed: boolean; message?: string; retryAfterSeconds?: number }`
-  - [ ] Friendly messages:
+  - [x] Return type: `{ allowed: boolean; message?: string; retryAfterSeconds?: number }`
+  - [x] Friendly messages:
     - Per-minute exceeded: `"You're sending messages too quickly. Please wait a moment."`
     - Per-hour exceeded: `"You've sent too many messages. Please try again later."`
 
-- [ ] **Task 2: Create helper to extract device identifier** (AC: #3)
-  - [ ] Add a `getDeviceIdentifier(request: Request): string` utility method (in the service or as a helper)
-  - [ ] Priority: `X-Device-ID` header > `request.ip` > `x-forwarded-for` header > `'unknown'`
+- [x] **Task 2: Create helper to extract device identifier** (AC: #3)
+  - [x] Add a `getDeviceIdentifier(request: Request): string` utility method (in the service or as a helper)
+  - [x] Priority: `X-Device-ID` header > `request.ip` > `x-forwarded-for` header > `'unknown'`
 
-- [ ] **Task 3: Integrate rate limiting into PublicChatController** (AC: #1, #2, #5, #6)
-  - [ ] Modify `apps/api/src/controllers/public/public-chat.controller.ts`
-  - [ ] Inject `MessageRateLimitService` into the controller
-  - [ ] **`sendMessage` endpoint:** Before calling `chatService.sendMessage()`, check rate limit. If rejected, return a 200 response (not 429) with the friendly error in chat response format: `{ error: true, message: "..." }`
-  - [ ] **`stream` endpoint:** Before calling `chatService.streamMessage()`, check rate limit. If rejected, write an SSE error event and close the stream:
+- [x] **Task 3: Integrate rate limiting into PublicChatController** (AC: #1, #2, #5, #6)
+  - [x] Modify `apps/api/src/controllers/public/public-chat.controller.ts`
+  - [x] Inject `MessageRateLimitService` into the controller
+  - [x] **`sendMessage` endpoint:** Before calling `chatService.sendMessage()`, check rate limit. If rejected, return a 200 response (not 429) with the friendly error in chat response format: `{ error: true, message: "..." }`
+  - [x] **`stream` endpoint:** Before calling `chatService.streamMessage()`, check rate limit. If rejected, write an SSE error event and close the stream:
     ```
     data: {"type":"error","message":"You're sending messages too quickly. Please wait a moment."}
     ```
-  - [ ] Extract `deviceId` from `X-Device-ID` header, extract `agentPublicId` from the request body DTO
-  - [ ] This is an additional check on top of the general API rate limit (Story 11-2) — both apply
+  - [x] Extract `deviceId` from `X-Device-ID` header, extract `agentPublicId` from the request body DTO
+  - [x] This is an additional check on top of the general API rate limit (Story 11-2) — both apply
 
-- [ ] **Task 4: Register MessageRateLimitService** (AC: #1)
-  - [ ] Add `MessageRateLimitService` as a provider in `ChatModule` (`apps/api/src/modules/chat.module.ts`)
-  - [ ] Ensure `RedisModule` is available (it's global from Story 11-1)
+- [x] **Task 4: Register MessageRateLimitService** (AC: #1)
+  - [x] Add `MessageRateLimitService` as a provider in `ChatModule` (`apps/api/src/modules/chat.module.ts`)
+  - [x] Ensure `RedisModule` is available (it's global from Story 11-1)
 
-- [ ] **Task 5: Unit tests** (AC: #7)
-  - [ ] Create `apps/api/test/services/chat/message-rate-limit.service.spec.ts`
-  - [ ] Test: messages within minute limit — `allowed: true`
-  - [ ] Test: messages exceeding minute limit — `allowed: false` with per-minute friendly message
-  - [ ] Test: messages within minute limit but exceeding hour limit — `allowed: false` with per-hour friendly message
-  - [ ] Test: compound key uses `deviceId` + `agentPublicId`
-  - [ ] Test: IP fallback when `X-Device-ID` header is absent
-  - [ ] Create `apps/api/test/controllers/public/public-chat.controller.spec.ts` (or update if exists)
-  - [ ] Test: `sendMessage` returns friendly error JSON when rate limited (not 429)
-  - [ ] Test: `stream` sends SSE error event when rate limited
-  - [ ] Mock `RateLimiterService` — do NOT connect to real Redis
+- [x] **Task 5: Unit tests** (AC: #7)
+  - [x] Create `apps/api/test/services/chat/message-rate-limit.service.spec.ts`
+  - [x] Test: messages within minute limit — `allowed: true`
+  - [x] Test: messages exceeding minute limit — `allowed: false` with per-minute friendly message
+  - [x] Test: messages within minute limit but exceeding hour limit — `allowed: false` with per-hour friendly message
+  - [x] Test: compound key uses `deviceId` + `agentPublicId`
+  - [x] Test: IP fallback when `X-Device-ID` header is absent
+  - [x] Create `apps/api/test/controllers/public/public-chat.controller.spec.ts` (or update if exists)
+  - [x] Test: `sendMessage` returns friendly error JSON when rate limited (not 429)
+  - [x] Test: `stream` sends SSE error event when rate limited
+  - [x] Mock `RateLimiterService` — do NOT connect to real Redis
 
 ## Dev Notes
 
@@ -160,9 +160,23 @@ const mockResponse = {
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Fixed existing test file `test/controllers/chat/public-chat.controller.spec.ts` — added `MessageRateLimitService` mock provider and updated `sendMessage`/`stream` call signatures to include `req` parameter
+- Fixed timeout test with fake timers — needed `await Promise.resolve()` to let rate limit mock resolve before advancing timers
 
 ### Completion Notes List
+- Task 1+2: Created `MessageRateLimitService` with two-tier rate limiting (10/min, 100/hr) and `getDeviceIdentifier()` helper in a single service file. Uses compound key `msg_rate:{deviceId}:{agentId}:{window}` for per-device-per-agent granularity.
+- Task 3: Integrated rate limit checks into both `sendMessage` (returns `{ error: true, message }` on rejection) and `stream` (sends SSE error event on rejection) endpoints. Added `@Req()` decorator to extract device identifier.
+- Task 4: Registered `MessageRateLimitService` as provider in `ChatModule`. `RateLimiterService` available globally via `RedisModule`.
+- Task 5: Created 11 service tests (checkMessageRateLimit + getDeviceIdentifier) and 17 controller tests (consolidated). 53 suites, 973 total passes, 0 failures.
+- Code review fixes: [M1] Reversed check order (hour first) to minimize phantom ZADD on minute counter. [M2] Added empty-string IP fallback test. [M3] Consolidated duplicate controller test files into `test/controllers/public/`. [L1] Surfaced `retryAfterSeconds` in send endpoint response. [L2] Added Logger with warn-level logging on rate limit hits.
 
 ### File List
+- `apps/api/src/services/message-rate-limit.service.ts` (new)
+- `apps/api/src/controllers/public/public-chat.controller.ts` (modified)
+- `apps/api/src/modules/chat.module.ts` (modified)
+- `apps/api/test/services/chat/message-rate-limit.service.spec.ts` (new)
+- `apps/api/test/controllers/public/public-chat.controller.spec.ts` (new — consolidated from legacy + new)
+- `apps/api/test/controllers/chat/public-chat.controller.spec.ts` (deleted — consolidated into public/)
