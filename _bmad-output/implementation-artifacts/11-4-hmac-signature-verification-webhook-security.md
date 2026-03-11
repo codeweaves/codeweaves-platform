@@ -1,6 +1,6 @@
 # Story 11.4: HMAC Signature Verification (Webhook Security)
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -19,47 +19,47 @@ so that responses from n8n can be validated as authentic and untampered.
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Add `hmacEnabled` field to Agent model** (AC: #1, #2)
-  - [ ] 1.1 Add `hmacEnabled Boolean @default(false)` to the `Agent` model in `apps/api/prisma/schema.prisma`
-  - [ ] 1.2 Run `bunx prisma migrate dev --name add-hmac-enabled-to-agent`
-  - [ ] 1.3 Run `bunx prisma generate` to regenerate client
+- [x] **Task 1: Add `hmacEnabled` field to Agent model** (AC: #1, #2)
+  - [x] 1.1 Add `hmacEnabled Boolean @default(false)` to the `Agent` model in `apps/api/prisma/schema.prisma`
+  - [x] 1.2 Run `bunx prisma migrate dev --name add-hmac-enabled-to-agent`
+  - [x] 1.3 Run `bunx prisma generate` to regenerate client
 
-- [ ] **Task 2: Create HmacService** (AC: #1, #3, #4)
-  - [ ] 2.1 Create `apps/api/src/common/security/hmac.service.ts`
-  - [ ] 2.2 Implement `verifySignature(payload: string, signature: string, secret: string): boolean`
-  - [ ] 2.3 Use `crypto.createHmac('sha256', secret).update(payload).digest('hex')`
-  - [ ] 2.4 Use timing-safe comparison (`crypto.timingSafeEqual`) to prevent timing attacks
+- [x] **Task 2: Create HmacService** (AC: #1, #3, #4)
+  - [x] 2.1 Create `apps/api/src/common/security/hmac.service.ts`
+  - [x] 2.2 Implement `verifySignature(payload: string, signature: string, secret: string): boolean`
+  - [x] 2.3 Use `crypto.createHmac('sha256', secret).update(payload).digest('hex')`
+  - [x] 2.4 Use timing-safe comparison (`crypto.timingSafeEqual`) to prevent timing attacks
 
-- [ ] **Task 3: Create SecurityModule** (AC: #1)
-  - [ ] 3.1 Create `apps/api/src/common/security/security.module.ts`
-  - [ ] 3.2 Export `HmacService`
-  - [ ] 3.3 Register `SecurityModule` in `AppModule` imports (as a global module)
+- [x] **Task 3: Create SecurityModule** (AC: #1)
+  - [x] 3.1 Create `apps/api/src/common/security/security.module.ts`
+  - [x] 3.2 Export `HmacService`
+  - [x] 3.3 Register `SecurityModule` in `AppModule` imports (as a global module)
 
-- [ ] **Task 4: Update ChatService to verify HMAC on n8n responses** (AC: #1, #2, #3, #4, #5)
-  - [ ] 4.1 Inject `HmacService`, `CryptoService`, `PrismaService`, and `TracerService` into `ChatService`
-  - [ ] 4.2 In `callN8nWebhook`, after receiving the response, check if the agent has `hmacEnabled=true`
-  - [ ] 4.3 If HMAC is enabled, read the `X-Signature` header from the response
-  - [ ] 4.4 Fetch the agent's secret from `AgentSecret`, decrypt the `apiKey` field via `CryptoService`
-  - [ ] 4.5 Call `HmacService.verifySignature(responseBody, signature, decryptedSecret)`
-  - [ ] 4.6 If verification fails or header is missing, log security audit event via TracerService and throw `BadGatewayException` with fallback message
-  - [ ] 4.7 If `hmacEnabled=false` or no secret exists, skip verification entirely
-  - [ ] 4.8 Update `resolveAgent` or add a helper to fetch `hmacEnabled` and the agent's secret when needed
+- [x] **Task 4: Update ChatService to verify HMAC on n8n responses** (AC: #1, #2, #3, #4, #5)
+  - [x] 4.1 Inject `HmacService`, `CryptoService`, `PrismaService`, and `TracerService` into `ChatService`
+  - [x] 4.2 In `callN8nWebhook`, after receiving the response, check if the agent has `hmacEnabled=true`
+  - [x] 4.3 If HMAC is enabled, read the `X-Signature` header from the response
+  - [x] 4.4 Fetch the agent's secret from `AgentSecret`, decrypt the `apiKey` field via `CryptoService`
+  - [x] 4.5 Call `HmacService.verifySignature(responseBody, signature, decryptedSecret)`
+  - [x] 4.6 If verification fails or header is missing, log security audit event via TracerService and throw `BadGatewayException` with fallback message
+  - [x] 4.7 If `hmacEnabled=false` or no secret exists, skip verification entirely
+  - [x] 4.8 Update `resolveAgent` or add a helper to fetch `hmacEnabled` and the agent's secret when needed
 
-- [ ] **Task 5: Log verification failures** (AC: #4)
-  - [ ] 5.1 Use `TracerService.logAuditEvent()` with event `HMAC_VERIFICATION_FAILED`
-  - [ ] 5.2 Include `agentId`, `sessionId`, and failure reason in the audit data (never log the secret or signature)
+- [x] **Task 5: Log verification failures** (AC: #4)
+  - [x] 5.1 Use `TracerService.logAuditEvent()` with event `HMAC_VERIFICATION_FAILED`
+  - [x] 5.2 Include `agentId`, `sessionId`, and failure reason in the audit data (never log the secret or signature)
 
-- [ ] **Task 6: Unit tests** (AC: #6)
-  - [ ] 6.1 Create `apps/api/test/common/security/hmac.service.spec.ts`
-  - [ ] 6.2 Test valid signature returns `true`
-  - [ ] 6.3 Test invalid signature returns `false`
-  - [ ] 6.4 Test empty/missing signature returns `false`
-  - [ ] 6.5 Test HMAC computation matches expected value for known input
-  - [ ] 6.6 Test ChatService HMAC integration: hmacEnabled=true with valid signature passes
-  - [ ] 6.7 Test ChatService HMAC integration: hmacEnabled=true with invalid signature rejects and logs audit event
-  - [ ] 6.8 Test ChatService HMAC integration: hmacEnabled=true with missing X-Signature header rejects
-  - [ ] 6.9 Test ChatService HMAC integration: hmacEnabled=false skips verification
-  - [ ] 6.10 Test that CryptoService.decrypt is called to retrieve the secret
+- [x] **Task 6: Unit tests** (AC: #6)
+  - [x] 6.1 Create `apps/api/test/common/security/hmac.service.spec.ts`
+  - [x] 6.2 Test valid signature returns `true`
+  - [x] 6.3 Test invalid signature returns `false`
+  - [x] 6.4 Test empty/missing signature returns `false`
+  - [x] 6.5 Test HMAC computation matches expected value for known input
+  - [x] 6.6 Test ChatService HMAC integration: hmacEnabled=true with valid signature passes
+  - [x] 6.7 Test ChatService HMAC integration: hmacEnabled=true with invalid signature rejects and logs audit event
+  - [x] 6.8 Test ChatService HMAC integration: hmacEnabled=true with missing X-Signature header rejects
+  - [x] 6.9 Test ChatService HMAC integration: hmacEnabled=false skips verification
+  - [x] 6.10 Test that CryptoService.decrypt is called to retrieve the secret
 
 ## Dev Notes
 
@@ -202,9 +202,32 @@ Follow existing test patterns from `apps/api/test/` directory.
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- All 1005 tests passing (54 suites), zero regressions
+- chat.service.ts at 100% statement coverage
+- Lint, type-check, and build all pass clean
 
 ### Completion Notes List
+- Task 1: Added `hmacEnabled Boolean @default(false)` to Agent model. Migration `20260311045307_add_hmac_enabled_to_agent` applied.
+- Task 2: Created HmacService with `verifySignature` (timing-safe comparison via `crypto.timingSafeEqual`) and `computeSignature` methods.
+- Task 3: Created SecurityModule as @Global() module, registered in AppModule.
+- Task 4: Updated ChatService — injected HmacService, CryptoService, TracerService. Modified `callN8nWebhook` to read response as text first (for HMAC computation), verify X-Signature header when hmacEnabled=true, then parse JSON. Added `verifyHmacSignature` and `getAgentHmacSecret` private methods. Updated `resolveAgent` select to include `hmacEnabled`.
+- Task 5: HMAC verification failures logged via `TracerService.logAuditEvent` with event `HMAC_VERIFICATION_FAILED` and reasons: `invalid_signature`, `missing_signature_header`. Secrets/signatures never logged.
+- Task 6: 17 HmacService unit tests (pure, no mocks) + 15 new HMAC ChatService integration tests added to existing spec. All 81 tests in chat.service.spec.ts pass.
+- Code Review Fixes: (H1) AC#2 compliance — no secret → passthrough instead of reject. (M1) try/catch in `timingSafeEqual` for malformed hex signatures. (M2) Added malformed hex signature tests. (L2) Refactored `verifyHmacSignature` to accept signature string instead of full Response.
+
+### Change Log
+- 2026-03-11: Implemented HMAC signature verification for webhook security (story 11-4)
+- 2026-03-11: Fixed code review findings — AC#2 compliance, malformed hex handling, reduced coupling
 
 ### File List
+- `apps/api/prisma/schema.prisma` — MODIFIED (added hmacEnabled to Agent model)
+- `apps/api/prisma/migrations/20260311045307_add_hmac_enabled_to_agent/migration.sql` — NEW
+- `apps/api/src/common/security/hmac.service.ts` — NEW
+- `apps/api/src/common/security/security.module.ts` — NEW
+- `apps/api/src/modules/app.module.ts` — MODIFIED (added SecurityModule import)
+- `apps/api/src/services/chat.service.ts` — MODIFIED (HMAC verification in callN8nWebhook)
+- `apps/api/test/common/security/hmac.service.spec.ts` — NEW
+- `apps/api/test/services/chat/chat.service.spec.ts` — MODIFIED (added HMAC test cases, updated mocks)
