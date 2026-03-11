@@ -3,6 +3,9 @@ import { NotFoundException, BadGatewayException } from '@nestjs/common';
 import { ChatService } from '../../../src/services/chat.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentsService } from '../../../src/services/agents.service';
+import { HmacService } from '../../../src/common/security/hmac.service';
+import { CryptoService } from '../../../src/common/crypto/crypto.service';
+import { TracerService } from '../../../src/common/tracer/tracer.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -10,6 +13,9 @@ describe('ChatService', () => {
   const mockPrismaService = {
     agent: {
       findFirst: jest.fn(),
+    },
+    agentSecret: {
+      findUnique: jest.fn(),
     },
     chatSession: {
       create: jest.fn(),
@@ -24,6 +30,19 @@ describe('ChatService', () => {
 
   const mockAgentsService = {
     getEffectiveWebhookUrl: jest.fn(),
+  };
+
+  const mockHmacService = {
+    verifySignature: jest.fn(),
+    computeSignature: jest.fn(),
+  };
+
+  const mockCryptoService = {
+    decrypt: jest.fn(),
+  };
+
+  const mockTracerService = {
+    logAuditEvent: jest.fn(),
   };
 
   const MOCK_AGENT_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
@@ -51,7 +70,24 @@ describe('ChatService', () => {
     agentRepliedAt: '2026-03-01T10:00:01.200Z',
   };
 
+  const mockN8nResponseText = JSON.stringify(mockN8nResponse);
+
   const originalFetch = global.fetch;
+
+  /**
+   * Helper to create a mock fetch Response with text() and headers.
+   */
+  function createMockResponse(body: unknown, options?: { ok?: boolean; status?: number; headers?: Record<string, string> }) {
+    const text = typeof body === 'string' ? body : JSON.stringify(body);
+    return {
+      ok: options?.ok ?? true,
+      status: options?.status ?? 200,
+      text: () => Promise.resolve(text),
+      headers: {
+        get: (name: string) => options?.headers?.[name.toLowerCase()] ?? null,
+      },
+    };
+  }
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -59,14 +95,17 @@ describe('ChatService', () => {
         ChatService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: AgentsService, useValue: mockAgentsService },
+        { provide: HmacService, useValue: mockHmacService },
+        { provide: CryptoService, useValue: mockCryptoService },
+        { provide: TracerService, useValue: mockTracerService },
       ],
     }).compile();
 
     service = module.get<ChatService>(ChatService);
     jest.clearAllMocks();
 
-    // Default mocks for a successful flow
-    mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID });
+    // Default mocks for a successful flow (hmacEnabled: false by default)
+    mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: false });
     mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue(MOCK_WEBHOOK_URL);
     mockPrismaService.chatSession.create.mockResolvedValue(mockSession);
     // $transaction returns an array of results: [userMessage, assistantMessage, updatedSession]
@@ -76,10 +115,7 @@ describe('ChatService', () => {
       mockSession,
     ]);
 
-    global.fetch = jest.fn().mockResolvedValue({
-      ok: true,
-      json: () => Promise.resolve(mockN8nResponse),
-    });
+    global.fetch = jest.fn().mockResolvedValue(createMockResponse(mockN8nResponse));
   });
 
   afterAll(() => {
@@ -228,7 +264,7 @@ describe('ChatService', () => {
 
         expect(mockPrismaService.agent.findFirst).toHaveBeenCalledWith({
           where: { id: MOCK_AGENT_ID, deletedAt: null, status: 'ACTIVE' },
-          select: { id: true },
+          select: { id: true, hmacEnabled: true },
         });
       });
     });
@@ -256,10 +292,9 @@ describe('ChatService', () => {
       });
 
       it('should throw BadGatewayException when n8n returns non-ok status', async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
-          ok: false,
-          status: 500,
-        });
+        (global.fetch as jest.Mock).mockResolvedValue(
+          createMockResponse('', { ok: false, status: 500 }),
+        );
 
         await expect(service.sendMessage(baseDto)).rejects.toThrow(BadGatewayException);
         await expect(service.sendMessage(baseDto)).rejects.toThrow(
@@ -286,58 +321,43 @@ describe('ChatService', () => {
 
     describe('response format parsing', () => {
       it('should parse object response with agentReply', async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({
-            agentReply: 'Object response',
-            n8nReceivedAt: '2026-03-01T10:00:00Z',
-            agentRepliedAt: '2026-03-01T10:00:01Z',
-          }),
-        });
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse({
+          agentReply: 'Object response',
+          n8nReceivedAt: '2026-03-01T10:00:00Z',
+          agentRepliedAt: '2026-03-01T10:00:01Z',
+        }));
 
         const result = await service.sendMessage(baseDto);
         expect(result.reply).toBe('Object response');
       });
 
       it('should parse array response with agentReply', async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve([{
-            agentReply: 'Array response',
-            n8nReceivedAt: '2026-03-01T10:00:00Z',
-            agentRepliedAt: '2026-03-01T10:00:01Z',
-          }]),
-        });
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse([{
+          agentReply: 'Array response',
+          n8nReceivedAt: '2026-03-01T10:00:00Z',
+          agentRepliedAt: '2026-03-01T10:00:01Z',
+        }]));
 
         const result = await service.sendMessage(baseDto);
         expect(result.reply).toBe('Array response');
       });
 
       it('should fallback to output field when agentReply is missing', async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({ output: 'Fallback output response' }),
-        });
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse({ output: 'Fallback output response' }));
 
         const result = await service.sendMessage(baseDto);
         expect(result.reply).toBe('Fallback output response');
       });
 
       it('should fallback to output field in array format', async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve([{ output: 'Array fallback output' }]),
-        });
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse([{ output: 'Array fallback output' }]));
 
         const result = await service.sendMessage(baseDto);
         expect(result.reply).toBe('Array fallback output');
       });
 
       it('should throw BadGatewayException when response has no agentReply or output', async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({ someOtherField: 'unexpected' }),
-        });
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse({ someOtherField: 'unexpected' }));
 
         await expect(service.sendMessage(baseDto)).rejects.toThrow(BadGatewayException);
         await expect(service.sendMessage(baseDto)).rejects.toThrow(
@@ -345,10 +365,11 @@ describe('ChatService', () => {
         );
       });
 
-      it('should throw BadGatewayException when response JSON is invalid', async () => {
+      it('should throw BadGatewayException when response text is invalid JSON', async () => {
         (global.fetch as jest.Mock).mockResolvedValue({
           ok: true,
-          json: () => Promise.reject(new SyntaxError('Unexpected token')),
+          text: () => Promise.resolve('not-valid-json'),
+          headers: { get: () => null },
         });
 
         await expect(service.sendMessage(baseDto)).rejects.toThrow(BadGatewayException);
@@ -358,10 +379,7 @@ describe('ChatService', () => {
       });
 
       it('should handle missing n8nReceivedAt and agentRepliedAt timestamps', async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
-          ok: true,
-          json: () => Promise.resolve({ agentReply: 'No timestamps' }),
-        });
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse({ agentReply: 'No timestamps' }));
 
         const result = await service.sendMessage(baseDto);
         expect(result.reply).toBe('No timestamps');
@@ -479,10 +497,7 @@ describe('ChatService', () => {
 
       (global.fetch as jest.Mock).mockImplementation(() => {
         callOrder.push('fetch');
-        return Promise.resolve({
-          ok: true,
-          json: () => Promise.resolve(mockN8nResponse),
-        });
+        return Promise.resolve(createMockResponse(mockN8nResponse));
       });
 
       await service.streamMessage(baseDto);
@@ -600,6 +615,215 @@ describe('ChatService', () => {
       // Assistant message was NOT stored (n8n failed before we got a reply)
       // Session was NOT updated
       expect(mockPrismaService.chatSession.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('HMAC verification', () => {
+    const baseDto = {
+      chatInput: 'Hello, AI!',
+      agentId: MOCK_AGENT_ID,
+    };
+
+    const MOCK_DECRYPTED_SECRET = 'decrypted-hmac-secret';
+    const MOCK_VALID_SIGNATURE = 'valid-hex-signature';
+    const MOCK_ENCRYPTED_API_KEY = 'encrypted:api:key';
+
+    describe('hmacEnabled=true with valid signature', () => {
+      beforeEach(() => {
+        mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: true });
+        mockPrismaService.agentSecret.findUnique.mockResolvedValue({ apiKey: MOCK_ENCRYPTED_API_KEY });
+        mockCryptoService.decrypt.mockReturnValue(MOCK_DECRYPTED_SECRET);
+        mockHmacService.verifySignature.mockReturnValue(true);
+
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse(
+          mockN8nResponse,
+          { headers: { 'x-signature': MOCK_VALID_SIGNATURE } },
+        ));
+      });
+
+      it('should process response normally when signature is valid', async () => {
+        const result = await service.sendMessage(baseDto);
+
+        expect(result.reply).toBe(mockN8nResponse.agentReply);
+        expect(mockHmacService.verifySignature).toHaveBeenCalledWith(
+          mockN8nResponseText,
+          MOCK_VALID_SIGNATURE,
+          MOCK_DECRYPTED_SECRET,
+        );
+      });
+
+      it('should decrypt the agent secret via CryptoService', async () => {
+        await service.sendMessage(baseDto);
+
+        expect(mockCryptoService.decrypt).toHaveBeenCalledWith(MOCK_ENCRYPTED_API_KEY);
+      });
+
+      it('should fetch agent secret from AgentSecret table', async () => {
+        await service.sendMessage(baseDto);
+
+        expect(mockPrismaService.agentSecret.findUnique).toHaveBeenCalledWith({
+          where: { agentId: MOCK_AGENT_ID },
+          select: { apiKey: true },
+        });
+      });
+
+      it('should not log audit event on successful verification', async () => {
+        await service.sendMessage(baseDto);
+
+        expect(mockTracerService.logAuditEvent).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('hmacEnabled=true with invalid signature', () => {
+      beforeEach(() => {
+        mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: true });
+        mockPrismaService.agentSecret.findUnique.mockResolvedValue({ apiKey: MOCK_ENCRYPTED_API_KEY });
+        mockCryptoService.decrypt.mockReturnValue(MOCK_DECRYPTED_SECRET);
+        mockHmacService.verifySignature.mockReturnValue(false);
+        mockTracerService.logAuditEvent.mockResolvedValue(undefined);
+      });
+
+      it('should reject and throw BadGatewayException', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse(
+          mockN8nResponse,
+          { headers: { 'x-signature': 'bad-signature' } },
+        ));
+
+        await expect(service.sendMessage(baseDto)).rejects.toThrow(BadGatewayException);
+        await expect(service.sendMessage(baseDto)).rejects.toThrow('Response verification failed');
+      });
+
+      it('should log HMAC_VERIFICATION_FAILED audit event with invalid_signature reason', async () => {
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse(
+          mockN8nResponse,
+          { headers: { 'x-signature': 'bad-signature' } },
+        ));
+
+        await expect(service.sendMessage(baseDto)).rejects.toThrow(BadGatewayException);
+
+        expect(mockTracerService.logAuditEvent).toHaveBeenCalledWith(
+          MOCK_AGENT_ID,
+          'HMAC_VERIFICATION_FAILED',
+          { sessionId: MOCK_SESSION_ID, reason: 'invalid_signature' },
+        );
+      });
+    });
+
+    describe('hmacEnabled=true with missing X-Signature header', () => {
+      beforeEach(() => {
+        mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: true });
+        mockPrismaService.agentSecret.findUnique.mockResolvedValue({ apiKey: MOCK_ENCRYPTED_API_KEY });
+        mockCryptoService.decrypt.mockReturnValue(MOCK_DECRYPTED_SECRET);
+        mockTracerService.logAuditEvent.mockResolvedValue(undefined);
+
+        // No x-signature header
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse(mockN8nResponse));
+      });
+
+      it('should reject and throw BadGatewayException', async () => {
+        await expect(service.sendMessage(baseDto)).rejects.toThrow(BadGatewayException);
+        await expect(service.sendMessage(baseDto)).rejects.toThrow('Response verification failed');
+      });
+
+      it('should log audit event with missing_signature_header reason', async () => {
+        await expect(service.sendMessage(baseDto)).rejects.toThrow(BadGatewayException);
+
+        expect(mockTracerService.logAuditEvent).toHaveBeenCalledWith(
+          MOCK_AGENT_ID,
+          'HMAC_VERIFICATION_FAILED',
+          { sessionId: MOCK_SESSION_ID, reason: 'missing_signature_header' },
+        );
+      });
+    });
+
+    describe('hmacEnabled=false skips verification', () => {
+      it('should not call HmacService.verifySignature', async () => {
+        mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: false });
+
+        await service.sendMessage(baseDto);
+
+        expect(mockHmacService.verifySignature).not.toHaveBeenCalled();
+        expect(mockPrismaService.agentSecret.findUnique).not.toHaveBeenCalled();
+        expect(mockCryptoService.decrypt).not.toHaveBeenCalled();
+      });
+
+      it('should process response normally without HMAC check', async () => {
+        mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: false });
+
+        const result = await service.sendMessage(baseDto);
+        expect(result.reply).toBe(mockN8nResponse.agentReply);
+      });
+    });
+
+    describe('hmacEnabled=true but no secret configured (AC#2: passthrough)', () => {
+      beforeEach(() => {
+        mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: true });
+      });
+
+      it('should skip verification and process normally when no AgentSecret record exists', async () => {
+        mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
+
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse(
+          mockN8nResponse,
+          { headers: { 'x-signature': 'some-sig' } },
+        ));
+
+        const result = await service.sendMessage(baseDto);
+        expect(result.reply).toBe(mockN8nResponse.agentReply);
+        expect(mockHmacService.verifySignature).not.toHaveBeenCalled();
+      });
+
+      it('should skip verification when apiKey is null', async () => {
+        mockPrismaService.agentSecret.findUnique.mockResolvedValue({ apiKey: null });
+
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse(mockN8nResponse));
+
+        const result = await service.sendMessage(baseDto);
+        expect(result.reply).toBe(mockN8nResponse.agentReply);
+        expect(mockHmacService.verifySignature).not.toHaveBeenCalled();
+      });
+
+      it('should not log audit event when no secret (passthrough per AC#2)', async () => {
+        mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
+
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse(mockN8nResponse));
+
+        await service.sendMessage(baseDto);
+        expect(mockTracerService.logAuditEvent).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('HMAC verification on streamMessage', () => {
+      beforeEach(() => {
+        mockPrismaService.chatMessage.create
+          .mockResolvedValueOnce({ id: MOCK_USER_MSG_ID })
+          .mockResolvedValueOnce({ id: MOCK_ASSISTANT_MSG_ID });
+        mockPrismaService.chatSession.update.mockResolvedValue(mockSession);
+      });
+
+      it('should verify HMAC when hmacEnabled=true in streamMessage', async () => {
+        mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: true });
+        mockPrismaService.agentSecret.findUnique.mockResolvedValue({ apiKey: MOCK_ENCRYPTED_API_KEY });
+        mockCryptoService.decrypt.mockReturnValue(MOCK_DECRYPTED_SECRET);
+        mockHmacService.verifySignature.mockReturnValue(true);
+
+        (global.fetch as jest.Mock).mockResolvedValue(createMockResponse(
+          mockN8nResponse,
+          { headers: { 'x-signature': MOCK_VALID_SIGNATURE } },
+        ));
+
+        const result = await service.streamMessage(baseDto);
+        expect(result.chunks.join('')).toBe(mockN8nResponse.agentReply);
+        expect(mockHmacService.verifySignature).toHaveBeenCalled();
+      });
+
+      it('should skip HMAC when hmacEnabled=false in streamMessage', async () => {
+        mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: false });
+
+        const result = await service.streamMessage(baseDto);
+        expect(result.chunks.join('')).toBe(mockN8nResponse.agentReply);
+        expect(mockHmacService.verifySignature).not.toHaveBeenCalled();
+      });
     });
   });
 });

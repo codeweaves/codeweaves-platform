@@ -1,6 +1,9 @@
 import { Injectable, Logger, NotFoundException, BadGatewayException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { AgentsService } from './agents.service';
+import { HmacService } from '../common/security/hmac.service';
+import { CryptoService } from '../common/crypto/crypto.service';
+import { TracerService } from '../common/tracer/tracer.service';
 import type { SendMessageDto } from '@repo/validation';
 import type { ChatSession } from '@prisma/client';
 import { randomUUID } from 'crypto';
@@ -15,6 +18,9 @@ export class ChatService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentsService: AgentsService,
+    private readonly hmacService: HmacService,
+    private readonly cryptoService: CryptoService,
+    private readonly tracerService: TracerService,
   ) {}
 
   private buildMetadata(
@@ -34,7 +40,7 @@ export class ChatService {
   private async resolveAgent(agentId: string) {
     const agent = await this.prisma.agent.findFirst({
       where: { id: agentId, deletedAt: null, status: 'ACTIVE' },
-      select: { id: true },
+      select: { id: true, hmacEnabled: true },
     });
     if (!agent) {
       throw new NotFoundException('Agent not found or inactive');
@@ -62,17 +68,36 @@ export class ChatService {
   }
 
   /**
+   * Fetch the agent's decrypted HMAC secret from AgentSecret.
+   * Returns null if no secret exists.
+   */
+  private async getAgentHmacSecret(agentId: string): Promise<string | null> {
+    const agentSecret = await this.prisma.agentSecret.findUnique({
+      where: { agentId },
+      select: { apiKey: true },
+    });
+    if (!agentSecret?.apiKey) return null;
+    return this.cryptoService.decrypt(agentSecret.apiKey);
+  }
+
+  /**
    * Send a message to an agent and get an AI response via n8n webhook.
    */
   async sendMessage(dto: SendMessageDto) {
     const backendReceivedAt = new Date();
 
-    await this.resolveAgent(dto.agentId);
+    const agent = await this.resolveAgent(dto.agentId);
     const session = await this.resolveOrCreateSession(dto.agentId, dto.sessionId);
 
     // Call n8n webhook BEFORE storing messages to avoid orphaned user messages on failure
     const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(dto.agentId);
-    const n8nResponse = await this.callN8nWebhook(webhookUrl, dto.chatInput, session.sessionId);
+    const n8nResponse = await this.callN8nWebhook(
+      webhookUrl,
+      dto.chatInput,
+      session.sessionId,
+      dto.agentId,
+      agent.hmacEnabled,
+    );
 
     const backendRespondedAt = new Date();
     const metadata = this.buildMetadata(backendReceivedAt, backendRespondedAt, n8nResponse);
@@ -135,7 +160,7 @@ export class ChatService {
   async streamMessage(dto: SendMessageDto) {
     const backendReceivedAt = new Date();
 
-    await this.resolveAgent(dto.agentId);
+    const agent = await this.resolveAgent(dto.agentId);
     const session = await this.resolveOrCreateSession(dto.agentId, dto.sessionId);
 
     // Store user message BEFORE calling n8n
@@ -149,7 +174,13 @@ export class ChatService {
 
     // Call n8n webhook to get full response
     const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(dto.agentId);
-    const n8nResponse = await this.callN8nWebhook(webhookUrl, dto.chatInput, session.sessionId);
+    const n8nResponse = await this.callN8nWebhook(
+      webhookUrl,
+      dto.chatInput,
+      session.sessionId,
+      dto.agentId,
+      agent.hmacEnabled,
+    );
 
     const backendRespondedAt = new Date();
     const metadata = this.buildMetadata(backendReceivedAt, backendRespondedAt, n8nResponse);
@@ -181,13 +212,49 @@ export class ChatService {
   }
 
   /**
+   * Verify the HMAC signature on an n8n webhook response.
+   * Skips verification if no secret is configured (AC#2: no secret → passthrough).
+   * Logs audit event and throws BadGatewayException on failure.
+   */
+  private async verifyHmacSignature(
+    responseText: string,
+    signature: string | null,
+    agentId: string,
+    sessionId: string,
+  ): Promise<void> {
+    const secret = await this.getAgentHmacSecret(agentId);
+    if (!secret) {
+      this.logger.warn(`HMAC enabled but no secret found for agent ${agentId}, skipping verification`);
+      return;
+    }
+
+    if (!signature) {
+      await this.tracerService.logAuditEvent(agentId, 'HMAC_VERIFICATION_FAILED', {
+        sessionId,
+        reason: 'missing_signature_header',
+      });
+      throw new BadGatewayException('Response verification failed');
+    }
+
+    if (!this.hmacService.verifySignature(responseText, signature, secret)) {
+      await this.tracerService.logAuditEvent(agentId, 'HMAC_VERIFICATION_FAILED', {
+        sessionId,
+        reason: 'invalid_signature',
+      });
+      throw new BadGatewayException('Response verification failed');
+    }
+  }
+
+  /**
    * Call n8n webhook with chat input and session ID.
-   * Handles timeout, network errors, and response parsing.
+   * Handles timeout, network errors, HMAC verification, and response parsing.
    */
   private async callN8nWebhook(
     webhookUrl: string,
     chatInput: string,
     sessionId: string,
+    agentId: string,
+    hmacEnabled: boolean,
   ): Promise<{ agentReply: string; n8nReceivedAt?: string; agentRepliedAt?: string }> {
     let response: Response;
     try {
@@ -214,7 +281,16 @@ export class ChatService {
     }
 
     try {
-      const data = await response.json();
+      // Read response as text first for HMAC verification
+      const responseText = await response.text();
+
+      // Verify HMAC signature if enabled for this agent
+      if (hmacEnabled) {
+        const signature = response.headers.get('x-signature');
+        await this.verifyHmacSignature(responseText, signature, agentId, sessionId);
+      }
+
+      const data = JSON.parse(responseText);
 
       // Handle both object and array response formats
       const payload = Array.isArray(data) ? data[0] : data;
