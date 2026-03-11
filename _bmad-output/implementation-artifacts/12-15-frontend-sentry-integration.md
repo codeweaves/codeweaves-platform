@@ -1,6 +1,6 @@
 # Story 12.15: Frontend Sentry Integration
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -19,83 +19,83 @@ As a **developer**, I want client-side error tracking integrated into the Next.j
 
 ## Tasks / Subtasks
 
-- [ ] **Task 1: Install @sentry/nextjs** (AC: #1)
-  - [ ] Run `cd apps/web && bun add @sentry/nextjs`
+- [x] **Task 1: Install @sentry/nextjs** (AC: #1)
+  - [x] Run `cd apps/web && bun add @sentry/nextjs`
 
-- [ ] **Task 2: Create sentry.client.config.ts** (AC: #1, #2, #6)
-  - [ ] Create `apps/web/sentry.client.config.ts`
-  - [ ] Call `Sentry.init()` with DSN from `process.env.NEXT_PUBLIC_SENTRY_DSN`
-  - [ ] Set `environment` from `process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT` (default to `process.env.NODE_ENV`)
-  - [ ] Set `release` from `process.env.NEXT_PUBLIC_SENTRY_RELEASE` or `npm_package_version`
-  - [ ] Set `tracesSampleRate: 0.1` (match backend from Story 12-1)
-  - [ ] Set `replaysSessionSampleRate: 0` (disabled, add later if needed)
-  - [ ] Set `replaysOnErrorSampleRate: 0` (disabled, add later if needed)
-  - [ ] Guard with `if (!process.env.NEXT_PUBLIC_SENTRY_DSN) return;` at the top for graceful disable
+- [x] **Task 2: Create sentry.client.config.ts** (AC: #1, #2, #6)
+  - [x] Create `apps/web/sentry.client.config.ts`
+  - [x] Call `Sentry.init()` with DSN from `process.env.NEXT_PUBLIC_SENTRY_DSN`
+  - [x] Set `environment` from `process.env.NEXT_PUBLIC_SENTRY_ENVIRONMENT` (default to `process.env.NODE_ENV`)
+  - [x] Set `release` from `process.env.NEXT_PUBLIC_SENTRY_RELEASE` or `npm_package_version`
+  - [x] Set `tracesSampleRate: 0.1` (match backend from Story 12-1)
+  - [x] Set `replaysSessionSampleRate: 0` (disabled, add later if needed)
+  - [x] Set `replaysOnErrorSampleRate: 0` (disabled, add later if needed)
+  - [x] Guard with `if (!process.env.NEXT_PUBLIC_SENTRY_DSN) return;` at the top for graceful disable
 
-- [ ] **Task 3: Create sentry.server.config.ts** (AC: #1, #3, #6)
-  - [ ] Create `apps/web/sentry.server.config.ts`
-  - [ ] Call `Sentry.init()` with DSN, environment, release (same pattern as client config)
-  - [ ] Set `tracesSampleRate: 0.1`
-  - [ ] Guard with `if (!process.env.NEXT_PUBLIC_SENTRY_DSN) return;`
+- [x] **Task 3: Create sentry.server.config.ts** (AC: #1, #3, #6)
+  - [x] Create `apps/web/sentry.server.config.ts`
+  - [x] Call `Sentry.init()` with DSN, environment, release (same pattern as client config)
+  - [x] Set `tracesSampleRate: 0.1`
+  - [x] Guard with `if (!process.env.NEXT_PUBLIC_SENTRY_DSN) return;`
 
-- [ ] **Task 4: Create sentry.edge.config.ts** (AC: #1, #3, #6)
-  - [ ] Create `apps/web/sentry.edge.config.ts`
-  - [ ] Call `Sentry.init()` with DSN, environment, release (same pattern, edge-compatible)
-  - [ ] Guard with `if (!process.env.NEXT_PUBLIC_SENTRY_DSN) return;`
+- [x] **Task 4: Create sentry.edge.config.ts** (AC: #1, #3, #6)
+  - [x] Create `apps/web/sentry.edge.config.ts`
+  - [x] Call `Sentry.init()` with DSN, environment, release (same pattern, edge-compatible)
+  - [x] Guard with `if (!process.env.NEXT_PUBLIC_SENTRY_DSN) return;`
 
-- [ ] **Task 5: Configure next.config.js with withSentryConfig** (AC: #1, #7)
-  - [ ] Modify `apps/web/next.config.js`
-  - [ ] Import `withSentryConfig` from `@sentry/nextjs`
-  - [ ] Wrap the existing `nextConfig` export with `withSentryConfig(nextConfig, sentryOptions)`
-  - [ ] Configure source map upload options: `org`, `project`, `authToken` from `process.env.SENTRY_AUTH_TOKEN`
-  - [ ] Set `silent: true` to suppress upload logs in local dev
-  - [ ] Set `hideSourceMaps: true` so source maps are uploaded but not publicly served
-  - [ ] Preserve existing config: `devIndicators: false`, `transpilePackages: ['@repo/validation']`
+- [x] **Task 5: Configure next.config.js with withSentryConfig** (AC: #1, #7)
+  - [x] Modify `apps/web/next.config.js`
+  - [x] Import `withSentryConfig` from `@sentry/nextjs`
+  - [x] Wrap the existing `nextConfig` export with `withSentryConfig(nextConfig, sentryOptions)`
+  - [x] Configure source map upload options: `org`, `project`, `authToken` from `process.env.SENTRY_AUTH_TOKEN`
+  - [x] Set `silent: true` to suppress upload logs in local dev
+  - [x] Set `hideSourceMaps: true` so source maps are uploaded but not publicly served
+  - [x] Preserve existing config: `devIndicators: false`, `transpilePackages: ['@repo/validation']`
 
-- [ ] **Task 6: Create global-error.tsx** (AC: #4)
-  - [ ] Create `apps/web/app/global-error.tsx`
-  - [ ] Mark as `'use client'`
-  - [ ] Call `Sentry.captureException(error)` in a `useEffect` when `error` prop changes
-  - [ ] Render a full-page fallback UI with a "Try again" button that calls `reset()`
-  - [ ] Must include its own `<html>` and `<body>` tags (Next.js requirement for global-error)
+- [x] **Task 6: Create global-error.tsx** (AC: #4)
+  - [x] Create `apps/web/app/global-error.tsx`
+  - [x] Mark as `'use client'`
+  - [x] Call `Sentry.captureException(error)` in a `useEffect` when `error` prop changes
+  - [x] Render a full-page fallback UI with a "Try again" button that calls `reset()`
+  - [x] Must include its own `<html>` and `<body>` tags (Next.js requirement for global-error)
 
-- [ ] **Task 7: Create route-level error.tsx** (AC: #4)
-  - [ ] Create `apps/web/app/error.tsx`
-  - [ ] Mark as `'use client'`
-  - [ ] Call `Sentry.captureException(error)` in a `useEffect`
-  - [ ] Render an in-page fallback UI with a "Try again" button that calls `reset()`
-  - [ ] Use existing Tailwind utility classes for consistent styling
+- [x] **Task 7: Create route-level error.tsx** (AC: #4)
+  - [x] Create `apps/web/app/error.tsx`
+  - [x] Mark as `'use client'`
+  - [x] Call `Sentry.captureException(error)` in a `useEffect`
+  - [x] Render an in-page fallback UI with a "Try again" button that calls `reset()`
+  - [x] Use existing Tailwind utility classes for consistent styling
 
-- [ ] **Task 8: Create SentryUserProvider** (AC: #5)
-  - [ ] Create `apps/web/providers/sentry-user-provider.tsx`
-  - [ ] Mark as `'use client'`
-  - [ ] Import `useAuth0` from `@auth0/auth0-react` to read current user
-  - [ ] In a `useEffect`, when `user` is available, call `Sentry.setUser({ id: user.sub, email: user.email })`
-  - [ ] When `user` is `undefined` (logged out), call `Sentry.setUser(null)` to clear context
-  - [ ] Render `{children}` pass-through (transparent wrapper)
+- [x] **Task 8: Create SentryUserProvider** (AC: #5)
+  - [x] Create `apps/web/providers/sentry-user-provider.tsx`
+  - [x] Mark as `'use client'`
+  - [x] Import `useAuth0` from `@auth0/auth0-react` to read current user
+  - [x] In a `useEffect`, when `user` is available, call `Sentry.setUser({ id: user.sub, email: user.email })`
+  - [x] When `user` is `undefined` (logged out), call `Sentry.setUser(null)` to clear context
+  - [x] Render `{children}` pass-through (transparent wrapper)
 
-- [ ] **Task 9: Add SentryUserProvider to root layout** (AC: #5)
-  - [ ] Modify `apps/web/app/layout.tsx`
-  - [ ] Add `<SentryUserProvider>` inside `<Auth0ProviderWrapper>` (must be inside Auth0 so `useAuth0` works)
-  - [ ] Wrap the existing children: `<Auth0ProviderWrapper><SentryUserProvider>...children...</SentryUserProvider></Auth0ProviderWrapper>`
+- [x] **Task 9: Add SentryUserProvider to root layout** (AC: #5)
+  - [x] Modify `apps/web/app/layout.tsx`
+  - [x] Add `<SentryUserProvider>` inside `<Auth0ProviderWrapper>` (must be inside Auth0 so `useAuth0` works)
+  - [x] Wrap the existing children: `<Auth0ProviderWrapper><SentryUserProvider>...children...</SentryUserProvider></Auth0ProviderWrapper>`
 
-- [ ] **Task 10: Configure data scrubbing** (AC: #8)
-  - [ ] Add `beforeSend` callback in `sentry.client.config.ts`
-  - [ ] Strip `Authorization` header from request breadcrumbs
-  - [ ] Strip `cookie` values from request data
-  - [ ] Strip `password`, `token`, `secret` fields from event extras/contexts
-  - [ ] Add `denyUrls` for common third-party scripts that generate noise (e.g., browser extensions)
+- [x] **Task 10: Configure data scrubbing** (AC: #8)
+  - [x] Add `beforeSend` callback in `sentry.client.config.ts`
+  - [x] Strip `Authorization` header from request breadcrumbs
+  - [x] Strip `cookie` values from request data
+  - [x] Strip `password`, `token`, `secret` fields from event extras/contexts
+  - [x] Add `denyUrls` for common third-party scripts that generate noise (e.g., browser extensions)
 
-- [ ] **Task 11: Add environment variables** (AC: #1, #6, #7)
-  - [ ] Add `NEXT_PUBLIC_SENTRY_DSN=` to `apps/web/.env.example`
-  - [ ] Add `NEXT_PUBLIC_SENTRY_ENVIRONMENT=development` to `apps/web/.env.example`
-  - [ ] Add `SENTRY_AUTH_TOKEN=` to `apps/web/.env.example` (for source map uploads in CI)
-  - [ ] Add the same vars to `apps/web/.env.local` with empty values (DSN left blank = disabled in local dev)
+- [x] **Task 11: Add environment variables** (AC: #1, #6, #7)
+  - [x] Add `NEXT_PUBLIC_SENTRY_DSN=` to `apps/web/.env.example`
+  - [x] Add `NEXT_PUBLIC_SENTRY_ENVIRONMENT=development` to `apps/web/.env.example`
+  - [x] Add `SENTRY_AUTH_TOKEN=` to `apps/web/.env.example` (for source map uploads in CI)
+  - [x] Add the same vars to `apps/web/.env.local` with empty values (DSN left blank = disabled in local dev)
 
-- [ ] **Task 12: Verify build and lint** (AC: #1)
-  - [ ] Run `bun run lint` — no new warnings/errors
-  - [ ] Run `bun run check-types` — all types pass
-  - [ ] Run `bun run build` — build succeeds with Sentry config (DSN empty = no upload attempted)
+- [x] **Task 12: Verify build and lint** (AC: #1)
+  - [x] Run `bun run lint` — no new warnings/errors
+  - [x] Run `bun run check-types` — all types pass
+  - [x] Run `bun run build` — build succeeds with Sentry config (DSN empty = no upload attempted)
 
 ## Dev Notes
 
@@ -195,9 +195,41 @@ apps/web/.env.local               # Add empty NEXT_PUBLIC_SENTRY_DSN (disabled l
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Lint initially failed with 9 warnings: `turbo/no-undeclared-env-vars` for SENTRY_ORG, SENTRY_PROJECT, SENTRY_AUTH_TOKEN, NODE_ENV and `no-undef` for `process` in next.config.js
+- Fixed by adding env vars to `turbo.json` globalEnv and adding `/* eslint-disable no-undef */` to next.config.js
 
 ### Completion Notes List
+- Installed `@sentry/nextjs@10.43.0`
+- Created three Sentry config files (client, server, edge) with DSN guard for graceful disable (AC #6)
+- All three Sentry configs include `beforeSend` data scrubbing (AC #8): strips Authorization headers, cookies, password/token/secret fields
+- Client config includes `denyUrls` for browser extension noise filtering
+- Wrapped `next.config.js` with `withSentryConfig` for source map upload support (AC #7)
+- Created `global-error.tsx` with own `<html>/<body>` tags and `error.tsx` with Tailwind styling — both capture exceptions via `Sentry.captureException` (AC #4)
+- Created `SentryUserProvider` using `useAuth0()` + `useProfile()` to set Sentry user context (id, email, role) on login/logout (AC #5)
+- Added `SentryUserProvider` inside `Auth0ProviderWrapper` in root layout (AC #5)
+- Added Sentry env vars to `.env.example` and `.env.local` (DSN empty = disabled locally) (AC #1, #6)
+- Added `NODE_ENV`, `SENTRY_ORG`, `SENTRY_PROJECT`, `SENTRY_AUTH_TOKEN` to `turbo.json` globalEnv
+- All validations pass: lint (0 warnings), check-types, build, test:cov (959/959 pass)
+- No frontend unit tests per project rules — manual testing only
 
 ### File List
+- `apps/web/sentry.client.config.ts` (new)
+- `apps/web/sentry.server.config.ts` (new)
+- `apps/web/sentry.edge.config.ts` (new)
+- `apps/web/app/global-error.tsx` (new)
+- `apps/web/app/error.tsx` (new)
+- `apps/web/providers/sentry-user-provider.tsx` (new)
+- `apps/web/next.config.js` (modified)
+- `apps/web/app/layout.tsx` (modified)
+- `apps/web/.env.example` (modified)
+- `apps/web/.env.local` (modified)
+- `turbo.json` (modified)
+- `apps/web/package.json` (modified — dependency added)
+- `bun.lock` (modified — lockfile updated)
+
+## Change Log
+- 2026-03-11: Implemented frontend Sentry integration — SDK init (client/server/edge), error boundaries, user context provider, data scrubbing, source map config, env vars
+- 2026-03-11: Code review fixes — added user.role to Sentry context (AC #5), added beforeSend scrubbing to server/edge configs (AC #8), documented missing env vars (SENTRY_RELEASE, SENTRY_ORG, SENTRY_PROJECT), targeted eslint-disable, added bun.lock to File List

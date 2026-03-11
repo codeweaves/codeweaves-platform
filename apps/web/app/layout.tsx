@@ -4,6 +4,7 @@ import "./globals.css";
 import { Auth0ProviderWrapper } from "@/providers/auth0-provider";
 import { QueryProvider } from "@/providers/query-provider";
 import { ApiGate } from "@/providers/api-gate";
+import { SentryUserProvider } from "@/providers/sentry-user-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { NavigationProgress } from "@/components/layout/navigation-progress";
 
@@ -32,9 +33,11 @@ export default function RootLayout({
         <QueryProvider>
           <ApiGate>
             <Auth0ProviderWrapper>
-              <NavigationProgress />
-              {children}
-              <Toaster />
+              <SentryUserProvider>
+                <NavigationProgress />
+                {children}
+                <Toaster />
+              </SentryUserProvider>
             </Auth0ProviderWrapper>
           </ApiGate>
         </QueryProvider>

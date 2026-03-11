@@ -312,6 +312,7 @@ development_status:
   12-1-sentry-sdk-integration: done
   12-2-error-capture-and-context: done
   12-3-health-check-endpoint-liveness: done
+  12-15-frontend-sentry-integration: done
   12-4-readiness-check-endpoint: ready-for-dev
   12-5-request-correlation-ids: done
   12-6-structured-logging: done
