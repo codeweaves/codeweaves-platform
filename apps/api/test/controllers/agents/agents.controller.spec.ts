@@ -161,9 +161,9 @@ describe('AgentsController', () => {
   });
 
   describe('role authorization', () => {
-    it('should have ADMIN and SUPER_ADMIN roles on create', () => {
-      const roles = Reflect.getMetadata('roles', AgentsController.prototype.create);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN']);
+    it('should have @RequirePermission(Agent, Create) on create', () => {
+      const permission = Reflect.getMetadata('permission', AgentsController.prototype.create);
+      expect(permission).toEqual({ resource: 'Agent', action: 'Create' });
     });
 
     it('should have ADMIN, SUPER_ADMIN, and CLIENT roles on findAll', () => {
