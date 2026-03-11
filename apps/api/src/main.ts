@@ -1,8 +1,10 @@
 import * as Sentry from '@sentry/nestjs';
+import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './modules/app.module';
+import { getHelmetOptions } from './config/security-headers.config';
 
 // Sentry must be initialized before NestFactory.create() to hook into Node.js error handlers
 if (process.env.SENTRY_DSN) {
@@ -20,6 +22,9 @@ if (process.env.SENTRY_DSN) {
 
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
+
+  // Security headers — must be first middleware applied (before CORS, prefix, pipes)
+  app.use(helmet(getHelmetOptions(process.env.NODE_ENV)));
 
   // Global API prefix
   app.setGlobalPrefix('api/codeweaves/v1');
