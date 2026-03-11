@@ -1,6 +1,6 @@
 # Story 11.11: RolesGuard Enhancement with RBAC Permission Matrix
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 As a **system**, I want role-based access control enhanced on all endpoints using the RBAC permission matrix, so that users only access resources and actions they are permitted based on fine-grained Resource x Action mappings.
@@ -14,13 +14,13 @@ As a **system**, I want role-based access control enhanced on all endpoints usin
 6. **Given** tests exist, **Then** unit tests cover: permission granted, permission denied, SUPER_ADMIN bypass, backward compatibility with `@Roles()`, no-decorator default, and missing user/role edge cases.
 
 ## Tasks / Subtasks
-- [ ] Create `apps/api/src/decorators/require-permission.decorator.ts` — defines `@RequirePermission(resource: Resource, action: Action)` using `SetMetadata` with a `PERMISSION_KEY` constant (AC: #1)
-- [ ] Update `apps/api/src/guards/roles.guard.ts` — enhance `canActivate` to check BOTH `@Roles()` metadata (via `ROLES_KEY`) AND `@RequirePermission()` metadata (via `PERMISSION_KEY`) (AC: #1, #4, #5)
-- [ ] Implement guard logic priority: (1) Check `@RequirePermission` — if present, lookup `PERMISSION_MATRIX[resource][action].includes(user.role)`, with SUPER_ADMIN always passing; (2) If no `@RequirePermission`, fall back to `@Roles()` check (existing behavior); (3) If neither decorator present, allow access (AC: #1, #3, #4, #5)
-- [ ] Throw `ForbiddenException` with descriptive message when permission denied via `@RequirePermission` (AC: #2)
-- [ ] Apply `@RequirePermission` to a subset of key endpoints across controllers (agents, organizations, users) as examples — do NOT migrate all `@Roles()` usages (AC: #1, #4)
-- [ ] Create `apps/api/test/guards/roles-guard-enhanced.spec.ts` — new test file for `@RequirePermission` behavior (AC: #6)
-- [ ] Update `apps/api/test/guards/roles.guard.spec.ts` — ensure existing tests still pass with the enhanced guard (AC: #6)
+- [x] Create `apps/api/src/decorators/require-permission.decorator.ts` — defines `@RequirePermission(resource: Resource, action: Action)` using `SetMetadata` with a `PERMISSION_KEY` constant (AC: #1)
+- [x] Update `apps/api/src/guards/roles.guard.ts` — enhance `canActivate` to check BOTH `@Roles()` metadata (via `ROLES_KEY`) AND `@RequirePermission()` metadata (via `PERMISSION_KEY`) (AC: #1, #4, #5)
+- [x] Implement guard logic priority: (1) Check `@RequirePermission` — if present, lookup `PERMISSION_MATRIX[resource][action].includes(user.role)`, with SUPER_ADMIN always passing; (2) If no `@RequirePermission`, fall back to `@Roles()` check (existing behavior); (3) If neither decorator present, allow access (AC: #1, #3, #4, #5)
+- [x] Throw `ForbiddenException` with descriptive message when permission denied via `@RequirePermission` (AC: #2)
+- [x] Apply `@RequirePermission` to a subset of key endpoints across controllers (agents, organizations, users) as examples — do NOT migrate all `@Roles()` usages (AC: #1, #4)
+- [x] Create `apps/api/test/guards/roles-guard-enhanced.spec.ts` — new test file for `@RequirePermission` behavior (AC: #6)
+- [x] Update `apps/api/test/guards/roles.guard.spec.ts` — ensure existing tests still pass with the enhanced guard (AC: #6)
 
 ## Dev Notes
 
@@ -80,6 +80,31 @@ apps/api/test/
 
 ## Dev Agent Record
 ### Agent Model Used
+Claude Opus 4.6
+
 ### Debug Log References
+None — all tests passed on first run after fixing the existing test mocks.
+
 ### Completion Notes List
+- Created `@RequirePermission(resource, action)` decorator following existing `@Roles()` pattern with `SetMetadata`
+- Enhanced `RolesGuard.canActivate()` with dual-path logic: checks `@RequirePermission` first (with SUPER_ADMIN bypass and ForbiddenException), falls back to `@Roles()`, then allows by default
+- Applied `@RequirePermission` to 2 example endpoints where matrix matches existing access: Agent create (`Agent:Create` = ADMIN_AND_ABOVE), Organization findAll (`Organization:ReadAll` = ADMIN_AND_ABOVE)
+- Created 16 new tests in `roles-guard-enhanced.spec.ts` covering all AC #6 scenarios
+- Updated existing `roles.guard.spec.ts` to work with the enhanced guard (mock now distinguishes PERMISSION_KEY vs ROLES_KEY calls) — all 20 existing tests pass
+- Updated controller specs to verify `@RequirePermission` metadata on migrated endpoints
+- Code review: fixed 2 HIGH (behavioral access changes on Agent Delete and Org Create), 3 MEDIUM (missing spec updates, unintended getProfile restriction), 2 LOW (type assertion, doc count)
+- All 930 tests pass, lint clean, types clean, build succeeds
+
+### Change Log
+- 2026-03-11: Implemented RolesGuard enhancement with RBAC permission matrix (Story 11-11)
+- 2026-03-11: Code review fixes — reverted behavioral access changes, updated controller specs, removed unintended permission on getProfile
+
 ### File List
+- `apps/api/src/decorators/require-permission.decorator.ts` (NEW)
+- `apps/api/src/guards/roles.guard.ts` (MODIFIED)
+- `apps/api/src/controllers/agents/agents.controller.ts` (MODIFIED)
+- `apps/api/src/controllers/organizations/organizations.controller.ts` (MODIFIED)
+- `apps/api/test/guards/roles-guard-enhanced.spec.ts` (NEW)
+- `apps/api/test/guards/roles.guard.spec.ts` (MODIFIED)
+- `apps/api/test/controllers/agents/agents.controller.spec.ts` (MODIFIED)
+- `apps/api/test/controllers/organizations/organizations.controller.spec.ts` (MODIFIED)

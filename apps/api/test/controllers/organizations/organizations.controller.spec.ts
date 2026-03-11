@@ -197,12 +197,12 @@ describe('OrganizationsController', () => {
       expect(roles).toEqual(['SUPER_ADMIN']);
     });
 
-    it('should allow SUPER_ADMIN and ADMIN for findAll', () => {
-      const roles = Reflect.getMetadata(
-        'roles',
+    it('should have @RequirePermission(Organization, ReadAll) on findAll', () => {
+      const permission = Reflect.getMetadata(
+        'permission',
         OrganizationsController.prototype.findAll,
       );
-      expect(roles).toEqual(['SUPER_ADMIN', 'ADMIN']);
+      expect(permission).toEqual({ resource: 'Organization', action: 'ReadAll' });
     });
 
     it('should allow SUPER_ADMIN and ADMIN for findById', () => {

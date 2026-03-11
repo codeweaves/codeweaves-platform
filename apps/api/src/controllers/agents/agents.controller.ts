@@ -16,7 +16,9 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery }
 import { Role } from '@prisma/client';
 import { AgentsService } from '../../services/agents.service';
 import { Roles } from '../../decorators/roles.decorator';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
 import { RolesGuard } from '../../guards/roles.guard';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import {
@@ -40,7 +42,7 @@ export class AgentsController {
   constructor(private readonly agentsService: AgentsService) {}
 
   @Post()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermission(Resource.Agent, Action.Create)
   @ApiOperation({ summary: 'Create a new agent' })
   @ApiResponse({ status: 201, description: 'Agent created' })
   @ApiResponse({ status: 400, description: 'Validation failed' })

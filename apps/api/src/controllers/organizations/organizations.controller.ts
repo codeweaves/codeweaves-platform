@@ -13,7 +13,9 @@ import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery }
 import { Role } from '@prisma/client';
 import { OrganizationsService } from '../../services/organizations.service';
 import { Roles } from '../../decorators/roles.decorator';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
 import { RolesGuard } from '../../guards/roles.guard';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import {
   createOrganizationSchema,
@@ -48,7 +50,7 @@ export class OrganizationsController {
   }
 
   @Get()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @RequirePermission(Resource.Organization, Action.ReadAll)
   @ApiOperation({ summary: 'List all organizations' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
