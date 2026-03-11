@@ -6,7 +6,8 @@
     "DIRECT_URL",
     "AUTH0_DOMAIN",
     "AUTH0_AUDIENCE",
-    "PORT"
+    "PORT",
+    "npm_package_version"
   ],
   "tasks": {
     "build": {
