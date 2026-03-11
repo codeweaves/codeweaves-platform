@@ -1,13 +1,13 @@
 'use client';
 
 import { useQuery } from '@tanstack/react-query';
-import { apiUrl } from '@/config/api';
+import { API_BASE_URL } from '@/config/api';
 
 export function useHealthCheck() {
   const { data, isLoading, error, isSuccess, refetch } = useQuery({
     queryKey: ['health'],
     queryFn: async () => {
-      const res = await fetch(apiUrl('/public/health'));
+      const res = await fetch(`${API_BASE_URL}/health`);
       if (!res.ok) throw new Error('API unavailable');
       return res.json();
     },

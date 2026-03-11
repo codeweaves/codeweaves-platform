@@ -30,7 +30,9 @@ async function bootstrap() {
   app.use(helmet(getHelmetOptions(process.env.NODE_ENV)));
 
   // Global API prefix
-  app.setGlobalPrefix('api/codeweaves/v1');
+  app.setGlobalPrefix('api/codeweaves/v1', {
+    exclude: ['health', 'health/ready'],
+  });
 
   app.useGlobalPipes(
     new ValidationPipe({

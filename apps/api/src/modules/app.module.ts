@@ -1,8 +1,8 @@
 import { Module, NestModule, MiddlewareConsumer } from '@nestjs/common';
 import { ConfigModule } from '@nestjs/config';
 import { APP_GUARD, APP_INTERCEPTOR, APP_FILTER } from '@nestjs/core';
-import { HealthController } from '../controllers/public/health.controller';
 import { PrismaModule } from './prisma.module';
+import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth.module';
 import { UsersModule } from './users.module';
 import { InvitationsModule } from './invitations.module';
@@ -44,8 +44,8 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     SentryModule,
     RbacModule,
     SupabaseStorageModule,
+    HealthModule,
   ],
-  controllers: [HealthController],
   providers: [
     {
       provide: APP_GUARD,
