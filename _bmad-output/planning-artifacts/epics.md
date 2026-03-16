@@ -635,21 +635,31 @@ This document provides the complete epic and story breakdown for CodeWeaves Plat
 ---
 
 ### Epic 10: Voice & Multi-Language Support
-**Goal:** End users can speak to the chat agent and receive voice responses in their preferred language (English, Hindi, Marathi, Hinglish).
+**Goal:** End users can speak to the chat agent and receive voice responses in their preferred language (English, Hindi, Marathi, Hinglish). Voice is a transport-layer concern — STT pre-processes audio to text, TTS post-processes text to audio. The AI/orchestration layer (n8n) remains unaware of voice.
 
 **Scope:**
-- Speech-to-text (STT) integration
-- Text-to-speech (TTS) integration
-- Language detection (automatic)
-- Voice button UI in widget
-- Language preference persistence
-- Language distribution analytics
-- Agent-level voice enable/disable
+- Voice provider adapter pattern (Sarvam AI, Deepgram, ElevenLabs)
+- Language-based provider routing (Indian languages → Sarvam, English → Deepgram/ElevenLabs)
+- Speech-to-text (STT) integration with provider abstraction
+- Text-to-speech (TTS) integration with provider abstraction
+- Full voice conversation endpoint (STT → n8n → TTS)
+- Voice configuration schema (per-agent, JSONB)
+- Widget voice UI state machine (idle → listening → processing → playing)
+- Dashboard voice configuration UI
+- Language detection and preference persistence
+- Voice error handling and fallbacks
 
+**Architecture Reference:** Section 20 of architecture.md (v1.1.0)
 **FRs:** FR135-FR149
 **NFRs:** NFR7 (<500ms STT), NFR8 (<300ms TTS)
 **Dependencies:** Epic 0, Epic 5, Epic 6
-**Note:** Can be deprioritized if timeline is tight
+**Stories:** 15
+**Note:** Non-streaming — n8n returns full response before TTS begins. Streaming improves when AI layer is replaced. Phase 2 (OpenAI Realtime API) deferred until AI orchestration replacement.
+
+**Deferred Items:**
+- **Bhashini Provider** — Indian government free STT/TTS API covering all 22 scheduled languages. Deferred because: (1) more complex integration requiring pipeline discovery step before each call, (2) government API reliability/latency less predictable, (3) three providers (Sarvam, Deepgram, ElevenLabs) cover all launch needs. Add as a future story when free-tier fallback is needed for cost-sensitive clients or provider outage resilience.
+- **OpenAI Realtime API** — Speech-to-speech, bypasses modular pipeline. Deferred until AI orchestration layer (n8n) is replaced with a custom/OSS solution that can manage Realtime API sessions with context injection (RAG, KB, conversation history).
+- **AI Orchestration Layer Replacement (n8n → Dify/Langflow/Custom)** — n8n does not support streaming, which bottlenecks both text chat and voice latency. Options evaluated: Dify (best fit but needs commercial license for multi-tenant SaaS), Langflow (MIT, more DIY), Flowise (TypeScript but uncertain future), custom build with LangChain/LlamaIndex (full control, most effort). Decision deferred — n8n works for current scale. Evaluate when streaming, RAG, or knowledge base features become hard requirements. See architecture.md Section 20.13 for full analysis.
 
 ---
 
@@ -3030,235 +3040,355 @@ So that I can diagnose user issues.
 
 ### Epic 10: Voice & Multi-Language Support
 
-#### Story 10.1: Voice Feature Toggle (Agent Config)
+> **Architecture Reference:** Section 20 of architecture.md (v1.1.0)
+> **Key Decision:** Voice is a transport-layer concern. STT pre-processes audio→text, n8n processes text→text (unchanged), TTS post-processes text→audio. The AI layer never knows voice is involved.
+> **Provider Strategy:** Sarvam AI (Indian languages/Hinglish), Deepgram (English STT), ElevenLabs (premium TTS). Language-based auto-routing with per-agent overrides.
+> **Constraint:** Non-streaming. n8n returns full response before TTS begins.
+
+#### Story 10.1: Voice Provider Interface & Adapter Foundation
+
+As a **developer**,
+I want a provider-agnostic voice interface with adapter implementations,
+So that STT/TTS providers can be swapped without changing business logic.
+
+**Acceptance Criteria:**
+
+**Given** the voice module is being scaffolded
+**When** I implement the provider pattern
+**Then** `VoiceProvider` interface is defined with `transcribe()`, `synthesize()`, and `detectLanguage()` methods
+**And** `STTRequest`, `STTResponse`, `TTSRequest`, `TTSResponse` types are defined in the interface
+**And** each response includes `latencyMs` and `provider` metadata
+**And** `VoiceModule` is created with proper NestJS module structure
+**And** provider implementations are injectable via NestJS DI
+**And** a provider registry (`Map<string, VoiceProvider>`) holds all registered providers
+**And** unit tests verify the interface contracts
+
+**Technical Notes:**
+- Mirror the existing AI provider pattern in `modules/ai/providers/`
+- Interface file: `modules/voice/providers/voice-provider.interface.ts`
+- Supported audio formats: `webm` (browser default), `wav`, `mp3`
+
+---
+
+#### Story 10.2: Sarvam AI Provider Implementation
+
+As a **developer**,
+I want a Sarvam AI adapter for STT and TTS,
+So that Indian languages and Hinglish are supported with native code-switching.
+
+**Acceptance Criteria:**
+
+**Given** the VoiceProvider interface exists
+**When** I implement the Sarvam adapter
+**Then** `SarvamProvider` implements `VoiceProvider` interface
+**And** STT calls Sarvam Saarika v2 API (`POST /speech-to-text`)
+**And** TTS calls Sarvam Bulbul v3 API (`POST /text-to-speech`)
+**And** `supportedLanguages` includes: hi, mr, bn, ta, te, gu, kn, ml, pa, or, en, hinglish
+**And** API key is stored in environment config (`SARVAM_API_KEY`)
+**And** error responses from Sarvam API are mapped to standard error types
+**And** latency is tracked per request
+**And** unit tests mock Sarvam API responses
+
+**Technical Notes:**
+- Sarvam pricing: ~₹30/hr STT, ~₹15/10K chars TTS
+- Best Hinglish/code-switching support of all providers
+- TTS P90 latency: ~0.4s
+
+---
+
+#### Story 10.3: Deepgram Provider Implementation
+
+As a **developer**,
+I want a Deepgram adapter for STT,
+So that English-dominant audio gets fast, accurate transcription.
+
+**Acceptance Criteria:**
+
+**Given** the VoiceProvider interface exists
+**When** I implement the Deepgram adapter
+**Then** `DeepgramProvider` implements `VoiceProvider` interface
+**And** STT calls Deepgram Nova-3 API (`POST /v1/listen`)
+**And** `supportedLanguages` for STT includes: en, hi, mr, ta, te, bn, gu, kn
+**And** TTS `synthesize()` throws `UnsupportedLanguageError` for non-English (Deepgram has no Indian language TTS)
+**And** API key is stored in environment config (`DEEPGRAM_API_KEY`)
+**And** unit tests mock Deepgram API responses
+
+**Technical Notes:**
+- Deepgram has no Indian language TTS — routing logic must fall back to another provider for TTS
+- STT latency: sub-300ms
+- Pricing: ~₹38/hr STT
+
+---
+
+#### Story 10.4: ElevenLabs Provider Implementation
+
+As a **developer**,
+I want an ElevenLabs adapter for premium TTS,
+So that English and supported Indian languages get high-quality voice synthesis.
+
+**Acceptance Criteria:**
+
+**Given** the VoiceProvider interface exists
+**When** I implement the ElevenLabs adapter
+**Then** `ElevenLabsProvider` implements `VoiceProvider` interface
+**And** TTS calls ElevenLabs Multilingual v2 API
+**And** STT calls ElevenLabs Scribe v2 API
+**And** `supportedLanguages` includes: en, hi, mr, bn, gu, ml, ta, te
+**And** voice ID is configurable per-agent via `voiceConfig.ttsVoiceId`
+**And** API key is stored in environment config (`ELEVENLABS_API_KEY`)
+**And** unit tests mock ElevenLabs API responses
+
+**Technical Notes:**
+- Premium option — highest voice quality, but ~5x more expensive than Sarvam
+- TTS latency: ~0.9s (slower than Sarvam)
+- Good Hinglish support but not as native as Sarvam
+
+---
+
+#### Story 10.5: Voice Service — Language-Based Provider Routing
+
+As a **developer**,
+I want a voice service that auto-routes to the best provider based on language,
+So that each language gets optimal transcription and synthesis quality.
+
+**Acceptance Criteria:**
+
+**Given** multiple voice providers are registered
+**When** a transcription or synthesis request comes in
+**Then** `VoiceService` resolves the correct provider using routing logic:
+  - Indian languages (hi, mr, bn, ta, te, gu, kn, ml, pa, or, hinglish) → Sarvam AI
+  - English-dominant → Deepgram (STT), ElevenLabs (TTS)
+**And** per-agent overrides from `voiceConfig.sttProvider` / `voiceConfig.ttsProvider` take precedence
+**And** if a provider doesn't support TTS for a language, it falls back (e.g., Deepgram STT → Sarvam TTS)
+**And** routing decisions are logged for observability
+**And** unit tests verify routing for each language + override combinations
+
+**Technical Notes:**
+- Route resolution: agent override > language-based routing > default provider
+- Voice config is fetched once per request, not per call
+
+---
+
+#### Story 10.6: Voice Configuration Schema & Database
+
+As a **developer**,
+I want a voice configuration schema stored per-agent,
+So that each agent can have independent voice settings.
+
+**Acceptance Criteria:**
+
+**Given** the Agent model exists
+**When** I add voice configuration
+**Then** `voiceConfig` JSONB column is added to Agent model via Prisma migration
+**And** Zod schema `voiceConfigSchema` validates the config (in `packages/validation`)
+**And** schema includes: `enabled`, `sttEnabled`, `ttsEnabled`, `sttProvider`, `ttsProvider`, `defaultLanguage`, `supportedLanguages`, `ttsVoiceId`, `ttsSpeed`, `autoDetectLanguage`
+**And** defaults are sensible: `enabled: false`, `sttEnabled: true`, `ttsEnabled: true`, `defaultLanguage: 'en'`, `autoDetectLanguage: true`
+**And** agent CRUD endpoints accept and return `voiceConfig`
+**And** widget config endpoint includes `voiceConfig` when voice is enabled
+**And** unit tests verify schema validation and defaults
+
+---
+
+#### Story 10.7: Voice Controller — Full Conversation Endpoint
+
+As a **developer**,
+I want a `/voice/conversation` endpoint that handles the complete voice flow,
+So that the widget can send audio and receive audio in one request.
+
+**Acceptance Criteria:**
+
+**Given** voice providers and routing are implemented
+**When** the widget sends audio to `POST /voice/conversation`
+**Then** the endpoint accepts multipart form data (audio file + metadata)
+**And** Step 1: STT transcribes audio to text (using routed provider)
+**And** Step 2: transcribed text is sent through existing chat flow (`chatService.processMessage`)
+**And** Step 3: AI response text is synthesized to audio via TTS (using routed provider)
+**And** response includes: transcription (text, detected language, confidence), response (text, base64 audio, format, duration), metrics (sttLatencyMs, aiLatencyMs, ttsLatencyMs, totalLatencyMs)
+**And** transcribed user message appears in conversation history (same as typed messages)
+**And** endpoint respects agent's `voiceConfig` (e.g., if TTS disabled, skip synthesis)
+**And** unit tests cover the full flow with mocked providers
+
+**Additional endpoints:**
+- `POST /voice/transcribe` — STT only
+- `POST /voice/synthesize` — TTS only
+- `GET /voice/providers` — list available providers and supported languages
+
+---
+
+#### Story 10.8: Widget Voice UI — State Machine & Mic Button
+
+As a **website visitor**,
+I want a microphone button that shows clear visual states,
+So that I know when the system is listening, processing, or playing.
+
+**Acceptance Criteria:**
+
+**Given** voice is enabled for the agent (`voiceConfig.enabled && voiceConfig.sttEnabled`)
+**When** the chat input renders
+**Then** a microphone icon button appears next to the send button
+**And** the widget implements a 4-state machine: `idle → listening → processing → playing`
+**And** in `idle` state: mic button visible, text input enabled, send button visible
+**And** in `listening` state: mic button shows stop icon, **text input is disabled**, waveform/pulse animation shows, recording duration displayed
+**And** in `processing` state: spinner/loading indicator shows, **text input is disabled**, "Processing..." label
+**And** in `playing` state: audio waveform shows, stop playback button visible, **text input is disabled**
+**And** clicking mic in `idle` → requests microphone permission → transitions to `listening`
+**And** clicking stop in `listening` → transitions to `processing`
+**And** `playing` → audio ends → transitions to `idle`
+**And** mic button uses theme colors (CSS variables)
+**And** mic button has aria-labels for accessibility
+
+**Technical Notes:**
+- Uses `useVoice` hook (architecture section 20.8)
+- Browser `MediaRecorder` API with `audio/webm` format
+- Max recording length: 60 seconds (auto-stop)
+
+---
+
+#### Story 10.9: Widget Voice — Audio Capture & Playback
+
+As a **website visitor**,
+I want my voice captured and AI responses played back as audio,
+So that I can have a hands-free conversation.
+
+**Acceptance Criteria:**
+
+**Given** the widget is in `listening` state
+**When** I speak and stop recording
+**Then** audio is captured via `MediaRecorder` as `audio/webm`
+**And** audio blob is sent to `POST /voice/conversation` as multipart form data
+**And** transcribed text appears as a user message bubble in chat
+**And** AI response appears as a bot message bubble in chat
+**And** if TTS is enabled, audio plays automatically after response arrives
+**And** user can stop playback mid-way (transitions back to `idle`)
+**And** if microphone permission is denied, a helpful message is shown with instructions
+**And** if browser doesn't support MediaRecorder, mic button is hidden and console warning logged
+
+---
+
+#### Story 10.10: Dashboard Voice Configuration UI
 
 As an **agent owner**,
-I want to enable/disable voice features per agent,
-So that I can control which agents support voice.
+I want to configure voice settings for my agent in the dashboard,
+So that I can control voice behavior per agent.
 
 **Acceptance Criteria:**
 
-**Given** I'm editing an agent's configuration
-**When** I toggle "Enable Voice Features"
-**Then** voice setting is saved to agent config
-**And** widget shows/hides voice button accordingly
-**And** disabled agents don't load voice libraries (saves bundle size)
-**And** setting persists across sessions
+**Given** I'm on the agent settings page
+**When** I navigate to the voice configuration section
+**Then** I see the following controls:
+  - **Enable Voice** — master toggle
+  - **Voice Input (STT)** — toggle (only visible when voice enabled)
+  - **Voice Output (TTS)** — toggle (only visible when voice enabled)
+  - **Default Language** — dropdown (en, hi, mr, hinglish, etc.)
+  - **Supported Languages** — multi-select
+  - **Auto-detect Language** — toggle
+  - **STT Provider** — dropdown (Auto / Sarvam / Deepgram / ElevenLabs)
+  - **TTS Provider** — dropdown (Auto / Sarvam / ElevenLabs)
+  - **TTS Voice** — dropdown (populated based on selected TTS provider)
+  - **TTS Speed** — slider (0.5x - 2.0x)
+**And** changes are saved via `PATCH /agents/:id` with `voiceConfig` payload
+**And** form validates using the `voiceConfigSchema` from shared validation package
+**And** disabled states cascade properly (voice off → all sub-options hidden)
 
 ---
 
-#### Story 10.2: Voice Input Button UI
+#### Story 10.11: Language Detection & Preference Persistence
 
 As a **website visitor**,
-I want a microphone button in the chat input,
-So that I can speak instead of typing.
+I want my language auto-detected from voice and my preference remembered,
+So that future conversations use the right language without me choosing.
 
 **Acceptance Criteria:**
 
-**Given** voice is enabled for the agent
-**When** the chat input area renders
-**Then** microphone icon appears next to send button
-**And** button indicates idle/listening/processing states
-**And** button uses theme colors
-**And** button is accessible (aria labels)
-**And** button is hidden if voice is disabled
+**Given** I send a voice message
+**When** STT processes the audio
+**Then** detected language is returned in the response (`detectedLanguage` field)
+**And** detected language is used for TTS synthesis of the response
+**And** language preference is stored in widget's localStorage (keyed per agent)
+**And** on next visit, stored language is sent as `languageHint` to the backend
+**And** if auto-detect is enabled on agent config, language hint is advisory (provider may override)
+**And** if auto-detect is disabled, language hint is forced
+**And** low-confidence detections (<0.6) fall back to agent's `defaultLanguage`
 
 ---
 
-#### Story 10.3: Browser Microphone Permission Request
+#### Story 10.12: Widget Language Selector UI
 
 As a **website visitor**,
-I want to grant microphone access when I use voice,
-So that my speech can be captured.
+I want to manually choose my language,
+So that I can override auto-detection when it's wrong.
 
 **Acceptance Criteria:**
 
-**Given** I click the voice button for the first time
-**When** microphone permission is requested
-**Then** browser permission prompt appears
-**And** granted permission is remembered
-**And** denied permission shows helpful message
-**And** user can retry after changing browser settings
-**And** permission state is checked before each use
+**Given** the agent has multiple `supportedLanguages` configured
+**When** I open the widget
+**Then** a language selector appears in the widget header (globe icon + dropdown)
+**And** dropdown shows only the agent's supported languages with display names (e.g., "English", "हिंदी", "मराठी", "Hinglish")
+**And** current language is highlighted
+**And** selecting a language updates localStorage preference
+**And** selected language is sent as `languageHint` on next voice/text message
+**And** if only one language is supported, the selector is hidden
+**And** selector uses theme colors
 
 ---
 
-#### Story 10.4: Speech-to-Text (STT) Integration
+#### Story 10.13: Voice Error Handling & Fallbacks
 
 As a **website visitor**,
-I want my speech converted to text,
-So that I can send messages by speaking.
+I want clear feedback when voice operations fail,
+So that I can still use the chatbot via text.
 
 **Acceptance Criteria:**
 
-**Given** microphone access is granted
-**When** I speak into the microphone
-**Then** audio is captured and sent for transcription
-**And** transcription returns within 500ms (NFR7)
-**And** text appears in input field
-**And** I can edit text before sending
-**And** continuous speech is supported (not just single phrases)
-
----
-
-#### Story 10.5: Voice Recording Indicator
-
-As a **website visitor**,
-I want to see when recording is active,
-So that I know the system is listening.
-
-**Acceptance Criteria:**
-
-**Given** recording is in progress
-**When** I'm speaking
-**Then** visual indicator shows recording state
-**And** audio waveform or level meter is displayed
-**And** recording duration is shown
-**And** I can stop recording by clicking button again
-**And** max recording length is 60 seconds
-
----
-
-#### Story 10.6: Text-to-Speech (TTS) Integration
-
-As a **website visitor**,
-I want AI responses read aloud,
-So that I can listen instead of reading.
-
-**Acceptance Criteria:**
-
-**Given** TTS is enabled for the agent
-**When** an AI response arrives
-**Then** audio is synthesized and played
-**And** synthesis starts within 300ms (NFR8)
-**And** audio uses selected voice/language
-**And** speaker icon indicates playing state
-**And** I can pause/stop playback
-
----
-
-#### Story 10.7: Language Detection (Automatic)
-
-As a **system**,
-I want to detect the user's language automatically,
-So that responses can be in their preferred language.
-
-**Acceptance Criteria:**
-
-**Given** a user sends a message
-**When** the message is analyzed
-**Then** language is detected (en, hi, mr, hinglish)
-**And** detection confidence score is recorded
-**And** low-confidence defaults to agent's primary language
-**And** detected language is passed to AI provider
-**And** language is stored for analytics
-
----
-
-#### Story 10.8: Language Preference Persistence
-
-As a **website visitor**,
-I want my language preference remembered,
-So that I don't have to set it each visit.
-
-**Acceptance Criteria:**
-
-**Given** I've used a specific language
-**When** I return to the widget
-**Then** my language preference is restored
-**And** preference is stored in localStorage
-**And** preference can be changed via language selector
-**And** preference persists per-agent (not global)
-
----
-
-#### Story 10.9: Language Selector UI
-
-As a **website visitor**,
-I want to choose my preferred language,
-So that I can override automatic detection.
-
-**Acceptance Criteria:**
-
-**Given** voice/language features are enabled
-**When** I open the language selector
-**Then** I see available languages (English, Hindi, Marathi, Hinglish)
-**And** current selection is highlighted
-**And** selecting a language updates preference
-**And** selector is in widget header or settings
-**And** language icons/flags are optional (text labels primary)
-
----
-
-#### Story 10.10: Multi-Language TTS Voice Selection
-
-As an **agent owner**,
-I want to configure TTS voice per language,
-So that spoken responses sound natural.
-
-**Acceptance Criteria:**
-
-**Given** I'm configuring agent voice settings
-**When** I select TTS voices
-**Then** I can choose a voice for each supported language
-**And** voice preview plays a sample
-**And** available voices depend on browser/service
-**And** fallback voice is set for unsupported languages
-**And** settings are saved to agent config
-
----
-
-#### Story 10.11: Voice Playback Controls
-
-As a **website visitor**,
-I want to control voice playback,
-So that I can pause, stop, or replay responses.
-
-**Acceptance Criteria:**
-
-**Given** TTS is playing a response
-**When** I interact with playback controls
-**Then** pause button stops playback temporarily
-**And** stop button ends playback completely
-**And** replay button restarts current message
-**And** volume is controllable
-**And** playback state is visible
-
----
-
-#### Story 10.12: Language Distribution Analytics
-
-As an **agent owner**,
-I want to see which languages my users speak,
-So that I can optimize for my audience.
-
-**Acceptance Criteria:**
-
-**Given** language data is being collected
-**When** I view analytics
-**Then** pie chart shows language distribution
-**And** counts are shown per language
-**And** trend over time is available
-**And** data is filterable by date range
-**And** analytics respect tenant isolation
-
----
-
-#### Story 10.13: Voice Error Handling
-
-As a **website visitor**,
-I want clear feedback when voice features fail,
-So that I can take appropriate action.
-
-**Acceptance Criteria:**
-
-**Given** a voice operation fails
+**Given** a voice operation fails at any stage
 **When** the error occurs
-**Then** user-friendly message is displayed
-**And** microphone permission errors explain how to fix
-**And** network errors suggest retrying
-**And** unsupported browser shows "Voice not supported"
-**And** fallback to text input is always available
+**Then** STT failure → user-friendly toast: "Couldn't understand audio. Please try again or type your message."
+**And** TTS failure → response text still shows in chat (graceful degradation), toast: "Voice playback unavailable"
+**And** microphone permission denied → message with instructions to enable in browser settings
+**And** unsupported browser → mic button hidden, no error shown
+**And** network error → toast: "Connection issue. Please try again."
+**And** provider timeout (>10s) → cancel request, show timeout message
+**And** all errors are reported to Sentry with provider name, language, and error type
+**And** text input is ALWAYS available as fallback — voice errors never block text chat
+**And** widget transitions back to `idle` state on any error
+
+---
+
+#### Story 10.14: Voice Analytics & Metrics Tracking
+
+As an **agent owner**,
+I want to see voice usage metrics,
+So that I can understand how visitors use voice features.
+
+**Acceptance Criteria:**
+
+**Given** voice conversations are happening
+**When** I view the analytics dashboard
+**Then** I can see: voice vs text message ratio, language distribution (pie chart), average STT/TTS latency, voice error rate by provider
+**And** voice messages are tagged with `inputType: 'voice'` in the message model
+**And** detected language is stored per message for analytics
+**And** metrics respect tenant isolation
+**And** data is filterable by date range
+**And** latency metrics are broken down by provider (Sarvam vs Deepgram vs ElevenLabs)
+
+---
+
+#### Story 10.15: Voice Integration Testing & Provider Health Checks
+
+As a **developer**,
+I want voice providers monitored and tested,
+So that failures are detected early and routing adapts.
+
+**Acceptance Criteria:**
+
+**Given** voice providers are configured
+**When** the system is running
+**Then** `GET /voice/providers` returns status of each provider (available languages, health status)
+**And** health check pings each provider's API on a schedule (every 5 minutes)
+**And** if a provider is unhealthy, routing falls back to the next available provider
+**And** provider health status is logged and available via health check endpoint
+**And** integration tests exist for each provider (can be run manually against real APIs with test keys)
+**And** unit tests cover all routing fallback scenarios
 
 ---
 

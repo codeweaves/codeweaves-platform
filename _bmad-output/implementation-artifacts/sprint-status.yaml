@@ -1,4 +1,4 @@
-# generated: 2026-02-19
+# generated: 2026-03-14
 # project: codeweaves-platform
 # project_key: NOKEY
 # tracking_system: file-system
@@ -33,7 +33,7 @@
 # - SM typically creates next story after previous one is 'done' to incorporate learnings
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
-generated: 2026-02-19
+generated: 2026-03-14
 project: codeweaves-platform
 project_key: NOKEY
 tracking_system: file-system
@@ -243,24 +243,29 @@ development_status:
 
   # ============================================
   # Epic 10: Voice & Multi-Language Support
-  # Priority: P3 (nice-to-have for MVP)
-  # Stories: 13
+  # Priority: P3
+  # Stories: 15
   # Dependencies: Epic 0, Epic 5, Epic 6
+  # Architecture: Section 20 of architecture.md (v1.1.0)
+  # Provider Strategy: Sarvam AI (Indian langs), Deepgram (English STT), ElevenLabs (premium TTS)
+  # Constraint: Non-streaming (n8n returns full response before TTS)
   # ============================================
-  epic-10: backlog
-  10-1-voice-feature-toggle-agent-config: backlog
-  10-2-voice-input-button-ui: backlog
-  10-3-browser-microphone-permission-request: backlog
-  10-4-speech-to-text-stt-integration: backlog
-  10-5-voice-recording-indicator: backlog
-  10-6-text-to-speech-tts-integration: backlog
-  10-7-language-detection-automatic: backlog
-  10-8-language-preference-persistence: backlog
-  10-9-language-selector-ui: backlog
-  10-10-multi-language-tts-voice-selection: backlog
-  10-11-voice-playback-controls: backlog
-  10-12-language-distribution-analytics: backlog
-  10-13-voice-error-handling: backlog
+  epic-10: in-progress
+  10-1-voice-provider-interface-adapter-foundation: ready-for-dev
+  10-2-sarvam-ai-provider-implementation: ready-for-dev
+  10-3-deepgram-provider-implementation: ready-for-dev
+  10-4-elevenlabs-provider-implementation: ready-for-dev
+  10-5-voice-service-language-based-provider-routing: ready-for-dev
+  10-6-voice-configuration-schema-database: ready-for-dev
+  10-7-voice-controller-full-conversation-endpoint: ready-for-dev
+  10-8-voice-ui-state-machine-mic-button: ready-for-dev
+  10-9-widget-voice-audio-capture-playback: backlog
+  10-10-dashboard-voice-configuration-ui: ready-for-dev
+  10-11-language-detection-preference-persistence: backlog
+  10-12-widget-language-selector-ui: backlog
+  10-13-voice-error-handling-fallbacks: ready-for-dev
+  10-14-voice-analytics-metrics-tracking: ready-for-dev
+  10-15-voice-integration-testing-provider-health-checks: ready-for-dev
   epic-10-retrospective: optional
 
   # ============================================

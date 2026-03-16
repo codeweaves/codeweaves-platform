@@ -1,8 +1,8 @@
 # Architecture Document - CodeWeaves Platform
 
-**Version:** 1.0.0
+**Version:** 1.1.0
 **Author:** Winston (Architect Agent)
-**Date:** 2026-02-02
+**Date:** 2026-03-14
 **Status:** Approved for Implementation
 
 ---
@@ -28,7 +28,8 @@
 17. [Observability & Monitoring](#17-observability--monitoring)
 18. [Performance Requirements](#18-performance-requirements)
 19. [Testing Strategy](#19-testing-strategy)
-20. [Appendix: File Structure Reference](#20-appendix-file-structure-reference)
+20. [Voice Architecture](#20-voice-architecture)
+21. [Appendix: File Structure Reference](#21-appendix-file-structure-reference)
 
 ---
 
@@ -164,7 +165,20 @@ CodeWeaves is a multi-tenant B2B SaaS platform for deploying customizable AI cha
 - No providers needed for Zustand
 - Redux DevTools compatible (Zustand middleware)
 
-### ADR-011: Resend for Transactional Email
+### ADR-011: Voice Provider Adapter Pattern with Multilingual Routing
+
+**Status:** Accepted
+**Context:** Need to support voice input/output (STT/TTS) for chat widgets with strong Indian regional language support (Hindi, Marathi, Hinglish). Different providers excel at different languages, and we need flexibility to swap providers without changing business logic.
+**Decision:** Implement a voice provider adapter pattern (mirroring the AI provider pattern) with language-based routing. Use Sarvam AI as primary provider for Indian languages/Hinglish, with Deepgram and ElevenLabs as alternatives. Bhashini as a free fallback.
+**Consequences:**
+- Common `VoiceProvider` interface for all STT/TTS providers
+- Language-based routing: Indian languages → Sarvam AI, English-dominant → Deepgram/ElevenLabs
+- Per-agent voice configuration (provider, language, enable/disable STT/TTS independently)
+- Voice is a pre-processor (STT) and post-processor (TTS) wrapping the existing text chat flow — n8n/AI layer remains unaware of voice
+- Non-streaming: full response from n8n before TTS begins (n8n limitation)
+- Future Realtime API path designed but deferred to Phase 2
+
+### ADR-012: Resend for Transactional Email
 
 **Status:** Accepted
 **Context:** Need a transactional email service for invitation emails, password resets, and notifications
@@ -2931,7 +2945,619 @@ export default {
 
 ---
 
-## 20. Appendix: File Structure Reference
+## 20. Voice Architecture
+
+### 20.1 Voice Flow Overview
+
+Voice is a **transport-layer concern**, not an AI concern. It wraps the existing text chat flow with STT (pre-processing) and TTS (post-processing). The AI/orchestration layer (n8n or future replacement) always receives text and returns text — it never knows voice is involved.
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│  VOICE FLOW (Phase 1 - Modular Pipeline)                                    │
+│                                                                             │
+│  Widget                    NestJS Backend                   External        │
+│  ┌──────────┐    audio    ┌──────────────┐                                  │
+│  │ Mic      │───────────→│ Voice        │    audio    ┌─────────────────┐  │
+│  │ Capture  │            │ Controller   │───────────→│ STT Provider    │  │
+│  └──────────┘            │              │←───────────│ (Sarvam/DG/etc) │  │
+│                          │              │    text     └─────────────────┘  │
+│                          │              │                                   │
+│                          │              │    text     ┌─────────────────┐  │
+│                          │              │───────────→│ n8n Webhook     │  │
+│                          │              │←───────────│ (AI response)   │  │
+│                          │              │    text     └─────────────────┘  │
+│                          │              │                                   │
+│  ┌──────────┐    audio   │              │    text     ┌─────────────────┐  │
+│  │ Audio    │←───────────│              │───────────→│ TTS Provider    │  │
+│  │ Playback │            │              │←───────────│ (Sarvam/11L/etc)│  │
+│  └──────────┘            └──────────────┘    audio    └─────────────────┘  │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Important constraint:** n8n does not support streaming. The full AI response must be received before TTS begins. This adds latency but is acceptable for Phase 1. When n8n is replaced with a streaming-capable AI layer, TTS can begin as tokens stream in.
+
+### 20.2 Voice Provider Adapter Pattern
+
+```typescript
+// apps/api/src/modules/voice/providers/voice-provider.interface.ts
+
+export interface STTRequest {
+  audio: Buffer;                    // Raw audio data
+  format: 'webm' | 'wav' | 'mp3';  // Audio format from browser
+  language?: string;                // Hint language (optional, auto-detect if omitted)
+  agentId: string;                  // For per-agent config lookup
+}
+
+export interface STTResponse {
+  text: string;                     // Transcribed text
+  detectedLanguage: string;         // e.g., 'hi', 'en', 'hinglish'
+  confidence: number;               // 0-1 confidence score
+  latencyMs: number;                // Processing time
+  provider: string;                 // Which provider was used
+}
+
+export interface TTSRequest {
+  text: string;                     // Text to synthesize
+  language: string;                 // Target language
+  voiceId?: string;                 // Specific voice (provider-dependent)
+  speed?: number;                   // Playback speed multiplier (0.5-2.0)
+  agentId: string;                  // For per-agent config lookup
+}
+
+export interface TTSResponse {
+  audio: Buffer;                    // Synthesized audio
+  format: 'mp3' | 'wav' | 'opus';  // Output audio format
+  durationMs: number;               // Audio duration
+  latencyMs: number;                // Processing time
+  provider: string;                 // Which provider was used
+}
+
+export interface VoiceProvider {
+  readonly name: string;
+  readonly supportedLanguages: string[];
+
+  transcribe(request: STTRequest): Promise<STTResponse>;
+  synthesize(request: TTSRequest): Promise<TTSResponse>;
+  detectLanguage(audio: Buffer): Promise<{ language: string; confidence: number }>;
+}
+```
+
+### 20.3 Provider Implementations
+
+```typescript
+// apps/api/src/modules/voice/providers/sarvam.provider.ts
+@Injectable()
+export class SarvamProvider implements VoiceProvider {
+  readonly name = 'sarvam';
+  readonly supportedLanguages = [
+    'hi', 'mr', 'bn', 'ta', 'te', 'gu', 'kn', 'ml',
+    'pa', 'or', 'en', 'hinglish',
+  ];
+
+  async transcribe(request: STTRequest): Promise<STTResponse> {
+    // Sarvam Saarika v2 API - native Hinglish/code-switching support
+    // POST https://api.sarvam.ai/speech-to-text
+  }
+
+  async synthesize(request: TTSRequest): Promise<TTSResponse> {
+    // Sarvam Bulbul v3 API - 35+ Indian voices
+    // POST https://api.sarvam.ai/text-to-speech
+  }
+}
+
+// apps/api/src/modules/voice/providers/deepgram.provider.ts
+@Injectable()
+export class DeepgramProvider implements VoiceProvider {
+  readonly name = 'deepgram';
+  readonly supportedLanguages = ['en', 'hi', 'mr', 'ta', 'te', 'bn', 'gu', 'kn'];
+
+  async transcribe(request: STTRequest): Promise<STTResponse> {
+    // Deepgram Nova-3 API - low latency, strong English
+    // POST https://api.deepgram.com/v1/listen
+  }
+
+  async synthesize(request: TTSRequest): Promise<TTSResponse> {
+    // Deepgram Aura - English only TTS
+    // Note: Falls back to another provider for non-English TTS
+  }
+}
+
+// apps/api/src/modules/voice/providers/elevenlabs.provider.ts
+@Injectable()
+export class ElevenLabsProvider implements VoiceProvider {
+  readonly name = 'elevenlabs';
+  readonly supportedLanguages = ['en', 'hi', 'mr', 'bn', 'gu', 'ml', 'ta', 'te'];
+
+  async transcribe(request: STTRequest): Promise<STTResponse> {
+    // ElevenLabs Scribe v2 - 90+ languages
+  }
+
+  async synthesize(request: TTSRequest): Promise<TTSResponse> {
+    // ElevenLabs Multilingual v2 - premium voice quality
+    // Higher latency (~0.9s) but most natural sounding
+  }
+}
+```
+
+### 20.4 Voice Service (Router + Orchestrator)
+
+```typescript
+// apps/api/src/modules/voice/voice.service.ts
+@Injectable()
+export class VoiceService {
+  private readonly sttProviders: Map<string, VoiceProvider>;
+  private readonly ttsProviders: Map<string, VoiceProvider>;
+
+  constructor(
+    private sarvamProvider: SarvamProvider,
+    private deepgramProvider: DeepgramProvider,
+    private elevenLabsProvider: ElevenLabsProvider,
+    private agentService: AgentsService,
+  ) {
+    this.sttProviders = new Map([
+      ['sarvam', sarvamProvider],
+      ['deepgram', deepgramProvider],
+      ['elevenlabs', elevenLabsProvider],
+    ]);
+    this.ttsProviders = new Map([
+      ['sarvam', sarvamProvider],
+      ['elevenlabs', elevenLabsProvider],
+    ]);
+  }
+
+  async transcribe(request: STTRequest): Promise<STTResponse> {
+    const config = await this.getVoiceConfig(request.agentId);
+    const provider = this.resolveSTTProvider(config, request.language);
+    return provider.transcribe(request);
+  }
+
+  async synthesize(request: TTSRequest): Promise<TTSResponse> {
+    const config = await this.getVoiceConfig(request.agentId);
+    const provider = this.resolveTTSProvider(config, request.language);
+    return provider.synthesize(request);
+  }
+
+  /**
+   * Language-based routing logic:
+   * - Indian languages / Hinglish → Sarvam AI (best code-switching)
+   * - English-dominant → agent's configured default (Deepgram/ElevenLabs)
+   * - Override: agent config can force a specific provider
+   */
+  private resolveSTTProvider(config: VoiceConfig, language?: string): VoiceProvider {
+    // If agent has a forced provider, use it
+    if (config.sttProvider) {
+      return this.sttProviders.get(config.sttProvider)!;
+    }
+
+    // Auto-route based on detected/hinted language
+    const indianLanguages = ['hi', 'mr', 'bn', 'ta', 'te', 'gu', 'kn', 'ml', 'pa', 'or', 'hinglish'];
+    if (language && indianLanguages.includes(language)) {
+      return this.sttProviders.get('sarvam')!;
+    }
+
+    // Default to deepgram for English
+    return this.sttProviders.get('deepgram')!;
+  }
+
+  private resolveTTSProvider(config: VoiceConfig, language: string): VoiceProvider {
+    if (config.ttsProvider) {
+      return this.ttsProviders.get(config.ttsProvider)!;
+    }
+
+    const indianLanguages = ['hi', 'mr', 'bn', 'ta', 'te', 'gu', 'kn', 'ml', 'pa', 'or', 'hinglish'];
+    if (indianLanguages.includes(language)) {
+      return this.ttsProviders.get('sarvam')!;
+    }
+
+    return this.ttsProviders.get('elevenlabs')!;
+  }
+}
+```
+
+### 20.5 Voice Controller
+
+```typescript
+// apps/api/src/modules/voice/voice.controller.ts
+@Controller('voice')
+export class VoiceController {
+  constructor(
+    private voiceService: VoiceService,
+    private chatService: ChatService,
+    private aiService: AIService,
+  ) {}
+
+  /**
+   * Full voice conversation endpoint:
+   * 1. Receive audio from widget
+   * 2. STT → transcribe to text
+   * 3. Send text through existing chat flow (n8n)
+   * 4. TTS → synthesize response to audio
+   * 5. Return audio to widget
+   */
+  @Post('conversation')
+  @UseInterceptors(FileInterceptor('audio'))
+  async voiceConversation(
+    @UploadedFile() audioFile: Express.Multer.File,
+    @Body() dto: VoiceConversationDto,
+  ) {
+    const { agentId, deviceId, sessionId, languageHint } = dto;
+
+    // Step 1: STT - Transcribe audio to text
+    const sttResult = await this.voiceService.transcribe({
+      audio: audioFile.buffer,
+      format: audioFile.mimetype.split('/')[1] as 'webm' | 'wav' | 'mp3',
+      language: languageHint,
+      agentId,
+    });
+
+    // Step 2: Send transcribed text through existing chat flow
+    const aiResponse = await this.chatService.processMessage({
+      agentId,
+      deviceId,
+      sessionId,
+      message: sttResult.text,
+    });
+
+    // Step 3: TTS - Synthesize AI response to audio
+    const ttsResult = await this.voiceService.synthesize({
+      text: aiResponse.content,
+      language: sttResult.detectedLanguage,
+      agentId,
+    });
+
+    // Step 4: Return both text and audio
+    return {
+      transcription: {
+        text: sttResult.text,
+        language: sttResult.detectedLanguage,
+        confidence: sttResult.confidence,
+      },
+      response: {
+        text: aiResponse.content,
+        audio: ttsResult.audio.toString('base64'),
+        audioFormat: ttsResult.format,
+        audioDurationMs: ttsResult.durationMs,
+      },
+      metrics: {
+        sttLatencyMs: sttResult.latencyMs,
+        aiLatencyMs: aiResponse.metadata?.latencyMs,
+        ttsLatencyMs: ttsResult.latencyMs,
+        totalLatencyMs: sttResult.latencyMs + (aiResponse.metadata?.latencyMs || 0) + ttsResult.latencyMs,
+      },
+    };
+  }
+
+  @Post('transcribe')
+  @UseInterceptors(FileInterceptor('audio'))
+  async transcribe(
+    @UploadedFile() audioFile: Express.Multer.File,
+    @Body() dto: TranscribeDto,
+  ) {
+    return this.voiceService.transcribe({
+      audio: audioFile.buffer,
+      format: audioFile.mimetype.split('/')[1] as 'webm' | 'wav' | 'mp3',
+      language: dto.languageHint,
+      agentId: dto.agentId,
+    });
+  }
+
+  @Post('synthesize')
+  async synthesize(@Body() dto: SynthesizeDto) {
+    return this.voiceService.synthesize({
+      text: dto.text,
+      language: dto.language,
+      voiceId: dto.voiceId,
+      agentId: dto.agentId,
+    });
+  }
+}
+```
+
+### 20.6 Voice Configuration Schema
+
+```typescript
+// packages/validation/src/schemas/voice.schema.ts
+import { z } from 'zod';
+
+export const voiceProviderEnum = z.enum(['sarvam', 'deepgram', 'elevenlabs']);
+
+export const voiceConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  sttEnabled: z.boolean().default(true),         // Allow voice input
+  ttsEnabled: z.boolean().default(true),          // Allow voice output
+  sttProvider: voiceProviderEnum.optional(),       // Override auto-routing
+  ttsProvider: voiceProviderEnum.optional(),       // Override auto-routing
+  defaultLanguage: z.string().default('en'),       // Default language hint
+  supportedLanguages: z.array(z.string()).default(['en']),
+  ttsVoiceId: z.string().optional(),              // Specific voice for TTS
+  ttsSpeed: z.number().min(0.5).max(2.0).default(1.0),
+  autoDetectLanguage: z.boolean().default(true),  // Auto-detect from audio
+});
+
+export type VoiceConfig = z.infer<typeof voiceConfigSchema>;
+```
+
+### 20.7 Database Schema Additions
+
+```prisma
+// Addition to Agent model in schema.prisma
+
+model Agent {
+  // ... existing fields ...
+  voiceEnabled       Boolean      @default(false)
+
+  // Voice configuration (JSON column)
+  voiceConfig        Json?        @db.JsonB
+  // Stores VoiceConfig schema:
+  // {
+  //   sttEnabled: true,
+  //   ttsEnabled: true,
+  //   sttProvider: "sarvam",        // optional override
+  //   ttsProvider: null,            // auto-route
+  //   defaultLanguage: "hi",
+  //   supportedLanguages: ["en", "hi", "mr", "hinglish"],
+  //   ttsVoiceId: null,
+  //   ttsSpeed: 1.0,
+  //   autoDetectLanguage: true,
+  // }
+}
+```
+
+### 20.8 Widget Voice UI Architecture
+
+```
+┌─────────────────────────────────────────────────────────────┐
+│  Widget Voice States                                         │
+│                                                              │
+│  ┌──────────┐     click mic    ┌──────────────┐             │
+│  │  TEXT     │───────────────→│  LISTENING    │             │
+│  │  MODE     │                │  (recording)  │             │
+│  │          │     click mic    │               │             │
+│  │  [input] │←───────────────│  🎙️ waveform  │             │
+│  │  [🎤]    │                │  [⏹️ stop]     │             │
+│  └──────────┘                └───────┬────────┘             │
+│                                       │ stop / silence       │
+│                                       ▼                      │
+│                              ┌──────────────┐               │
+│                              │  PROCESSING  │               │
+│                              │  (STT+AI+TTS)│               │
+│                              │  ⏳ spinner   │               │
+│                              └───────┬───────┘               │
+│                                       │ response ready       │
+│                                       ▼                      │
+│                              ┌──────────────┐               │
+│                              │  PLAYING     │               │
+│                              │  (TTS audio) │               │
+│                              │  🔊 waveform │               │
+│                              │  [⏹️ stop]   │               │
+│                              └───────┬───────┘               │
+│                                       │ audio ends           │
+│                                       ▼                      │
+│                              ┌──────────────┐               │
+│                              │  TEXT MODE   │               │
+│                              │  (ready)     │               │
+│                              └──────────────┘               │
+└─────────────────────────────────────────────────────────────┘
+```
+
+**Key Widget Voice Behaviors:**
+- When mic is active (LISTENING state): text input is **disabled**, send button is hidden
+- When audio is playing (PLAYING state): text input is **disabled**, user can stop playback
+- Transcribed text appears in chat as a user message (same as typed text)
+- AI response appears as both text message and audio playback
+- Voice button only visible when `voiceConfig.sttEnabled` is true in widget config
+- Audio playback only occurs when `voiceConfig.ttsEnabled` is true
+
+```typescript
+// apps/widget/src/hooks/useVoice.ts
+import { useState, useRef } from 'preact/hooks';
+
+type VoiceState = 'idle' | 'listening' | 'processing' | 'playing';
+
+export function useVoice(config: WidgetConfig) {
+  const [state, setState] = useState<VoiceState>('idle');
+  const mediaRecorder = useRef<MediaRecorder | null>(null);
+  const audioPlayer = useRef<HTMLAudioElement | null>(null);
+
+  const startListening = async () => {
+    const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+    const recorder = new MediaRecorder(stream, { mimeType: 'audio/webm' });
+    const chunks: Blob[] = [];
+
+    recorder.ondataavailable = (e) => chunks.push(e.data);
+    recorder.onstop = async () => {
+      setState('processing');
+      stream.getTracks().forEach(t => t.stop());
+
+      const audioBlob = new Blob(chunks, { type: 'audio/webm' });
+      const formData = new FormData();
+      formData.append('audio', audioBlob);
+      formData.append('agentId', config.publicId);
+      formData.append('deviceId', config.deviceId);
+      formData.append('sessionId', config.sessionId);
+
+      // Call voice conversation endpoint
+      const response = await fetch(`${config.apiUrl}/voice/conversation`, {
+        method: 'POST',
+        body: formData,
+      });
+
+      const result = await response.json();
+
+      // Play TTS audio if enabled
+      if (config.voiceConfig.ttsEnabled && result.response.audio) {
+        setState('playing');
+        const audioBlob = base64ToBlob(result.response.audio, result.response.audioFormat);
+        const audioUrl = URL.createObjectURL(audioBlob);
+        const audio = new Audio(audioUrl);
+        audioPlayer.current = audio;
+        audio.onended = () => {
+          setState('idle');
+          URL.revokeObjectURL(audioUrl);
+        };
+        audio.play();
+      } else {
+        setState('idle');
+      }
+
+      return result;
+    };
+
+    mediaRecorder.current = recorder;
+    recorder.start();
+    setState('listening');
+  };
+
+  const stopListening = () => {
+    mediaRecorder.current?.stop();
+  };
+
+  const stopPlaying = () => {
+    audioPlayer.current?.pause();
+    setState('idle');
+  };
+
+  return { state, startListening, stopListening, stopPlaying };
+}
+```
+
+### 20.9 Voice Provider Comparison & Routing
+
+| Provider | STT Languages | TTS Languages | Hinglish | Latency | Cost | Best For |
+|----------|--------------|---------------|----------|---------|------|----------|
+| **Sarvam AI** | 22 Indian + English | 11 Indian + English | Excellent (native) | Fast (0.4s TTS) | ~₹30/hr STT, ₹15/10K chars TTS | Indian languages, Hinglish |
+| **Deepgram** | Hindi, Marathi + 45 | English only | Good STT only | Very fast (<300ms) | ~₹38/hr STT | English-dominant STT |
+| **ElevenLabs** | 90+ languages | 12 Indian languages | Good | Moderate (0.9s) | ~₹250/10K chars TTS | Premium voice quality |
+| **Bhashini** | 22 Indian (all) | 22 Indian (all) | Supported | Streaming available | Free | Fallback, cost-sensitive |
+
+**Deferred provider:**
+| **Bhashini** | 22 Indian (all) | 22 Indian (all) | Supported | Streaming available | Free | Deferred — free govt API, all 22 scheduled languages. Complex integration (pipeline discovery step). Add when free-tier fallback needed. |
+
+**Default routing logic:**
+```
+Audio in → detect language hint from agent config
+  ├── Indian language / Hinglish → Sarvam AI (STT + TTS)
+  ├── English-dominant → Deepgram (STT) + ElevenLabs (TTS)
+  └── Agent override → forced provider from voiceConfig
+```
+
+### 20.10 Voice API Endpoints (Updated)
+
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ VOICE                                                                        │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ POST   /voice/conversation     Full voice flow (STT → AI → TTS)            │
+│ POST   /voice/transcribe       Speech-to-text only                          │
+│ POST   /voice/synthesize       Text-to-speech only                          │
+│ POST   /voice/detect-language  Detect language from audio                   │
+│ GET    /voice/providers        List available providers + supported langs    │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
+
+### 20.11 Dashboard Voice Configuration UI
+
+The dashboard agent settings page includes a Voice Configuration section:
+
+- **Enable/Disable Voice** — master toggle (`voiceEnabled`)
+- **Voice Input (STT)** — toggle independently
+- **Voice Output (TTS)** — toggle independently
+- **Default Language** — dropdown (en, hi, mr, hinglish, etc.)
+- **Supported Languages** — multi-select
+- **Auto-detect Language** — toggle
+- **STT Provider** — dropdown (Auto / Sarvam / Deepgram / ElevenLabs)
+- **TTS Provider** — dropdown (Auto / Sarvam / ElevenLabs)
+- **TTS Voice** — dropdown (provider-dependent voice options)
+- **TTS Speed** — slider (0.5x - 2.0x)
+
+### 20.12 Phase 2: OpenAI Realtime API (Future)
+
+> **Status:** Designed, not yet implemented. Deferred until AI orchestration layer replacement.
+
+The Realtime API is a speech-to-speech model — audio in, audio out, with OpenAI's model doing the thinking. It **bypasses** the modular STT → n8n → TTS pipeline entirely.
+
+**Why it's deferred:**
+- Requires context injection (RAG, KB, conversation history) that currently lives in n8n
+- n8n cannot participate in a Realtime API session
+- When the AI orchestration layer is replaced with a custom/OSS solution, that layer can manage Realtime API sessions
+
+**Future architecture:**
+```
+Widget → audio → NestJS backend → proxy → AI Orchestration Service
+                                            ├── Gathers context (RAG, KB, history)
+                                            ├── Opens OpenAI Realtime API session
+                                            ├── Stuffs context into system prompt
+                                            ├── Proxies audio ↔ Realtime API
+                                            └── Handles function calls from Realtime API
+```
+
+**Interface placeholder:**
+```typescript
+// Future: apps/api/src/modules/voice/providers/realtime-proxy.interface.ts
+export interface RealtimeSessionConfig {
+  agentId: string;
+  systemPrompt: string;
+  conversationContext: string[];  // Injected from RAG/KB
+  model: 'gpt-4o-realtime';
+}
+
+export interface RealtimeProxy {
+  openSession(config: RealtimeSessionConfig): Promise<WebSocket>;
+  injectContext(sessionId: string, context: string[]): Promise<void>;
+  closeSession(sessionId: string): Promise<void>;
+}
+```
+
+**Key constraints for Phase 2:**
+- Locked to OpenAI models only
+- Context is "best effort" via system prompt + function calling
+- Cannot use custom agent logic mid-conversation
+- Premium feature — higher cost, lower latency, more natural voice
+
+### 20.13 Future: AI Orchestration Layer Replacement
+
+> **Status:** Designed, not yet implemented. Evaluating options.
+
+Currently, n8n handles all AI orchestration (LLM routing, conversation memory, agent logic) via webhooks. This has a key limitation: **n8n does not support streaming responses**, which adds latency for both text chat (no token streaming) and voice (TTS must wait for full response).
+
+**Planned replacement:** A dedicated AI orchestration codebase that handles:
+- RAG pipeline (document ingestion, chunking, embedding, retrieval)
+- Knowledge base management per client/agent
+- Multi-LLM routing (OpenAI, Claude, Gemini, etc.)
+- Agent/tool-use capabilities
+- Conversation history and memory management
+- Streaming responses (enables TTS to start as tokens arrive)
+- OpenAI Realtime API session management (Phase 2 voice)
+
+**Options evaluated (as of 2026-03-14):**
+
+| Option | License | Fit | Trade-off |
+|--------|---------|-----|-----------|
+| **Dify** (111k+ GitHub stars) | Apache 2.0 + commercial for multi-tenant SaaS | Best out-of-box: RAG, KB, agents, memory, voice plugins, API-first | Requires commercial license for multi-tenant SaaS. Heavy infra (~18GB RAM). |
+| **Langflow** (140k+ stars) | MIT (fully permissive) | Good: RAG, API endpoints, TypeScript client | No built-in multi-tenant, conversation memory is manual. More DIY. |
+| **Flowise** (42k stars) | Apache 2.0 | TypeScript/Node.js — natural fit for NestJS stack | Acquired by Workday (2025), uncertain OSS future. |
+| **Custom build** (LangChain/LlamaIndex) | MIT | Full control, minimal hosting cost (~₹2.5-4K/month) | Most development effort. Build everything yourself. |
+
+**Decision:** Deferred. n8n works for current scale. Evaluate when:
+1. Streaming responses become a hard requirement (voice latency optimization)
+2. RAG/knowledge base features are needed
+3. n8n hits a specific scalability or feature wall
+
+**Architecture impact:** When this codebase is built/adopted:
+- This platform (codeweaves-platform) remains dashboard-only: widget config, billing, analytics
+- AI orchestration service handles: RAG, agents, LLM routing, conversation memory
+- Voice Gateway (future): WebRTC transport, STT/TTS if moved out of this platform
+- The integration point stays the same: webhook URL per agent, text in → text out
+
+```
+Current:   Widget → NestJS backend → n8n webhook → AI response
+Future:    Widget → NestJS backend → AI Orchestration Service → AI response (streamed)
+           Widget → NestJS backend → AI Orchestration Service → OpenAI Realtime (Phase 2)
+```
+
+---
+
+## 21. Appendix: File Structure Reference
 
 ### Quick Reference: Where Things Live
 
@@ -2944,8 +3570,12 @@ export default {
 | Dashboard Components | `apps/web/components/` | React components |
 | Zustand Stores | `apps/web/store/` | Client state (UI, drafts) |
 | Query Hooks | `apps/web/hooks/queries/` | Server state (TanStack Query) |
+| Voice Module | `apps/api/src/modules/voice/` | STT/TTS orchestration |
+| Voice Providers | `apps/api/src/modules/voice/providers/` | Sarvam, Deepgram, ElevenLabs adapters |
+| Voice Config Schema | `packages/validation/src/schemas/voice.schema.ts` | Voice configuration validation |
 | Widget Entry | `apps/widget/src/index.ts` | Widget bootstrap |
 | Widget Components | `apps/widget/src/components/` | Preact components |
+| Widget Voice Hook | `apps/widget/src/hooks/useVoice.ts` | Voice capture/playback state |
 | Zod Schemas | `packages/validation/src/schemas/` | Shared validation |
 | Theme Utils | `packages/theme/src/` | Theme transformer |
 | Shared UI | `packages/widget-ui/src/` | Widget components |
@@ -2962,6 +3592,7 @@ export default {
 | Version | Date | Author | Changes |
 |---------|------|--------|---------|
 | 1.0.0 | 2026-02-02 | Winston (Architect) | Initial architecture document |
+| 1.1.0 | 2026-03-14 | Winston (Architect) | Added Voice Architecture (Section 20): provider adapter pattern, multilingual routing (Sarvam AI, Deepgram, ElevenLabs), widget voice UI states, voice config schema, Phase 2 Realtime API design. Added ADR-011 for voice provider strategy. |
 
 ---
 
