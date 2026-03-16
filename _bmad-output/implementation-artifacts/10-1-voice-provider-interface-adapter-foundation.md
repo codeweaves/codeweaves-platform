@@ -1,6 +1,6 @@
 # Story 10.1: Voice Provider Interface & Adapter Foundation
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -20,35 +20,35 @@ So that STT/TTS providers can be swapped without changing business logic.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create VoiceProvider interface and types (AC: #1, #2)
-  - [ ] 1.1 Create `apps/api/src/modules/voice/providers/voice-provider.interface.ts`
-  - [ ] 1.2 Define `STTRequest`, `STTResponse`, `TTSRequest`, `TTSResponse`, `LanguageDetectionResponse` interfaces
-  - [ ] 1.3 Define `VoiceProvider` abstract interface with `transcribe()`, `synthesize()`, `detectLanguage()`, `name`, `supportedLanguages`
-  - [ ] 1.4 Define `VoiceProviderError` class extending NestJS exceptions
+- [x] Task 1: Create VoiceProvider interface and types (AC: #1, #2)
+  - [x] 1.1 Create `apps/api/src/modules/voice/providers/voice-provider.interface.ts`
+  - [x] 1.2 Define `STTRequest`, `STTResponse`, `TTSRequest`, `TTSResponse`, `LanguageDetectionResponse` interfaces
+  - [x] 1.3 Define `VoiceProvider` abstract interface with `transcribe()`, `synthesize()`, `detectLanguage()`, `name`, `supportedLanguages`
+  - [x] 1.4 Define `VoiceProviderError` class extending NestJS exceptions
 
-- [ ] Task 2: Create Zod validation schemas (AC: #6)
-  - [ ] 2.1 Create `packages/validation/src/voice.ts`
-  - [ ] 2.2 Define `voiceConversationSchema` for the `/voice/conversation` endpoint
-  - [ ] 2.3 Define `transcribeSchema`, `synthesizeSchema` for individual endpoints
-  - [ ] 2.4 Define `voiceConfigSchema` for agent voice configuration
-  - [ ] 2.5 Export from `packages/validation/src/index.ts`
+- [x] Task 2: Create Zod validation schemas (AC: #6)
+  - [x] 2.1 Create `packages/validation/src/voice.ts`
+  - [x] 2.2 Define `voiceConversationSchema` for the `/voice/conversation` endpoint
+  - [x] 2.3 Define `transcribeSchema`, `synthesizeSchema` for individual endpoints
+  - [x] 2.4 Define `voiceConfigSchema` for agent voice configuration
+  - [x] 2.5 Export from `packages/validation/src/index.ts`
 
-- [ ] Task 3: Create VoiceModule with DI wiring (AC: #3, #4, #5)
-  - [ ] 3.1 Create `apps/api/src/modules/voice/voice.module.ts`
-  - [ ] 3.2 Create `apps/api/src/modules/voice/voice.service.ts` with provider registry
-  - [ ] 3.3 Create `apps/api/src/modules/voice/voice.controller.ts` with stub endpoints
-  - [ ] 3.4 Create `apps/api/src/modules/voice/dto/` directory with DTOs
-  - [ ] 3.5 Register VoiceModule in `apps/api/src/modules/app.module.ts`
+- [x] Task 3: Create VoiceModule with DI wiring (AC: #3, #4, #5)
+  - [x] 3.1 Create `apps/api/src/modules/voice/voice.module.ts`
+  - [x] 3.2 Create `apps/api/src/modules/voice/voice.service.ts` with provider registry
+  - [x] 3.3 Create `apps/api/src/modules/voice/voice.controller.ts` with stub endpoints
+  - [x] 3.4 Create `apps/api/src/modules/voice/dto/` directory with DTOs
+  - [x] 3.5 Register VoiceModule in `apps/api/src/modules/app.module.ts`
 
-- [ ] Task 4: Create stub provider for testing (AC: #5, #7)
-  - [ ] 4.1 Create `apps/api/src/modules/voice/providers/stub.provider.ts` — returns mock responses for dev/testing
-  - [ ] 4.2 Register stub provider in VoiceModule as default
+- [x] Task 4: Create stub provider for testing (AC: #5, #7)
+  - [x] 4.1 Create `apps/api/src/modules/voice/providers/stub.provider.ts` — returns mock responses for dev/testing
+  - [x] 4.2 Register stub provider in VoiceModule as default
 
-- [ ] Task 5: Unit tests (AC: #7)
-  - [ ] 5.1 Create `apps/api/test/services/voice/voice.service.spec.ts`
-  - [ ] 5.2 Test provider registry (register, get, unknown provider error)
-  - [ ] 5.3 Test VoiceService routing logic (delegates to correct provider)
-  - [ ] 5.4 Test stub provider returns valid responses
+- [x] Task 5: Unit tests (AC: #7)
+  - [x] 5.1 Create `apps/api/test/services/voice/voice.service.spec.ts`
+  - [x] 5.2 Test provider registry (register, get, unknown provider error)
+  - [x] 5.3 Test VoiceService routing logic (delegates to correct provider)
+  - [x] 5.4 Test stub provider returns valid responses
 
 ## Dev Notes
 
@@ -233,9 +233,41 @@ describe('VoiceService', () => {
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Fixed lint warnings: removed unused imports (VoiceProviderError from service, STTResponse/TTSResponse/LanguageDetectionResponse from test)
+- Fixed TS1205: DTO re-exports needed `export type` due to `isolatedModules`
+- Fixed TS2415: Renamed `cause` to `originalError` on VoiceProviderError to avoid conflict with HttpException base class
 
 ### Completion Notes List
+- Task 1: Created VoiceProvider interface with transcribe/synthesize/detectLanguage methods, STT/TTS request/response types with latencyMs+provider metadata, SupportedLanguage type (ISO 639-1 normalized), VoiceProviderError, and VOICE_PROVIDERS injection token
+- Task 2: Created Zod schemas in packages/validation/src/voice.ts — voiceProviderEnum, voiceConfigSchema, voiceConversationSchema, transcribeSchema, synthesizeSchema — exported from index.ts
+- Task 3: Created VoiceModule with controller (public/voice endpoints), service (provider registry Map + routing), DTOs, and registered in AppModule
+- Task 4: Created StubProvider implementing VoiceProvider interface with mock responses for all 3 methods, registered as default via VOICE_PROVIDERS factory
+- Task 5: 18 unit tests covering registry operations, routing delegation, stub provider response validation, and VoiceProviderError behavior
+- All validation gates passed: lint (0 warnings), check-types (0 errors), build (all packages), test:cov (56 suites, 1029 tests, 0 failures)
+
+### Code Review Fixes (2026-03-16)
+- [H1] Controller stubs now call VoiceService instead of returning hardcoded JSON — validates DI wiring end-to-end
+- [M1] Added 6 controller unit tests (voice.controller.spec.ts) — getProviders, transcribe, synthesize delegation
+- [M2/M3] Added `.max(128)` constraints to `sessionId` and `deviceId` in Zod schemas
+- [M4] Changed `languageHint` from `z.string()` to `supportedLanguageEnum` in transcribe/conversation schemas
+- [L1] Removed unnecessary DTO re-export files (`dto/` directory) — controller imports directly from `@repo/validation`
+- [L2] Changed `voiceConfigSchema.supportedLanguages` from `z.array(z.string())` to `z.array(supportedLanguageEnum)`, added `supportedLanguageEnum` export, and `defaultLanguage` to use the enum
+
+### Change Log
+- 2026-03-16: Implemented story 10-1 — Voice provider interface, adapter foundation, Zod schemas, VoiceModule, stub provider, 18 unit tests
+- 2026-03-16: Code review fixes — 7 issues resolved (1 High, 4 Medium, 2 Low), added 6 controller tests, hardened Zod schemas
 
 ### File List
+- apps/api/src/modules/voice/providers/voice-provider.interface.ts (new)
+- apps/api/src/modules/voice/providers/stub.provider.ts (new)
+- apps/api/src/modules/voice/voice.module.ts (new)
+- apps/api/src/modules/voice/voice.service.ts (new)
+- apps/api/src/modules/voice/voice.controller.ts (new)
+- apps/api/src/modules/app.module.ts (modified — added VoiceModule import)
+- packages/validation/src/voice.ts (new)
+- packages/validation/src/index.ts (modified — added voice re-export)
+- apps/api/test/services/voice/voice.service.spec.ts (new)
+- apps/api/test/controllers/voice/voice.controller.spec.ts (new)
