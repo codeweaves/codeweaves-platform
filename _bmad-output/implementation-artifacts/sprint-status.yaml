@@ -251,7 +251,7 @@ development_status:
   # Constraint: Non-streaming (n8n returns full response before TTS)
   # ============================================
   epic-10: in-progress
-  10-1-voice-provider-interface-adapter-foundation: ready-for-dev
+  10-1-voice-provider-interface-adapter-foundation: done
   10-2-sarvam-ai-provider-implementation: ready-for-dev
   10-3-deepgram-provider-implementation: ready-for-dev
   10-4-elevenlabs-provider-implementation: ready-for-dev

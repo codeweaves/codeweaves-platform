@@ -9,6 +9,7 @@ import { InvitationsModule } from './invitations.module';
 import { OrganizationsModule } from './organizations.module';
 import { AgentsModule } from './agents.module';
 import { ChatModule } from './chat.module';
+import { VoiceModule } from './voice/voice.module';
 import { AnalyticsModule } from './analytics.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
@@ -38,6 +39,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     OrganizationsModule,
     AgentsModule,
     ChatModule,
+    VoiceModule,
     AnalyticsModule,
     TracerModule,
     CryptoModule,
