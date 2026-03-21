@@ -3,7 +3,7 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Save, RotateCcw, ChevronDown, Loader2, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { defaultWidgetTheme } from '@repo/validation';
+import { defaultWidgetTheme, voiceConfigSchema } from '@repo/validation';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -184,11 +184,24 @@ function AgentEditorContent() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
+      // Validate voice config client-side before sending
+      if (formData.voiceEnabled && formData.voiceConfig) {
+        const result = voiceConfigSchema.safeParse(formData.voiceConfig);
+        if (!result.success) {
+          const firstError = result.error.errors[0];
+          toast.error(`Voice config invalid: ${firstError?.message ?? 'Unknown error'}`);
+          setSaving(false);
+          return;
+        }
+      }
+
       const payload: Record<string, unknown> = {
         name: formData.name,
         systemPrompt: formData.systemPrompt || null,
         welcomeMessage: formData.welcomeMessage || null,
         allowedDomains: formData.allowedDomains,
+        voiceEnabled: formData.voiceEnabled,
+        voiceConfig: formData.voiceConfig,
       };
 
       // Save agent config, webhook, and theme in parallel

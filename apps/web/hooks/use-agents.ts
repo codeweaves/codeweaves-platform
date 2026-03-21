@@ -14,6 +14,8 @@ export interface Agent {
   systemPrompt: string | null;
   welcomeMessage: string | null;
   allowedDomains: string[];
+  voiceEnabled: boolean;
+  voiceConfig: import('@repo/validation').VoiceConfigDto | null;
   createdAt: string;
   updatedAt: string;
 }

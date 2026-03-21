@@ -9,7 +9,7 @@ import {
   type ReactNode,
 } from 'react';
 import type { Agent } from '@/hooks/use-agents';
-import { type WidgetTheme, defaultWidgetTheme } from '@repo/validation';
+import { type WidgetTheme, defaultWidgetTheme, type VoiceConfigDto } from '@repo/validation';
 
 export interface AgentFormData {
   name: string;
@@ -18,6 +18,8 @@ export interface AgentFormData {
   welcomeMessage: string;
   allowedDomains: string[];
   webhookUrl: string;
+  voiceEnabled: boolean;
+  voiceConfig: VoiceConfigDto | null;
 }
 
 interface AgentEditorContextType {
@@ -252,6 +254,8 @@ export function agentToFormData(
     welcomeMessage: agent.welcomeMessage ?? '',
     allowedDomains: agent.allowedDomains ?? [],
     webhookUrl,
+    voiceEnabled: agent.voiceEnabled ?? false,
+    voiceConfig: agent.voiceConfig ?? null,
   };
 }
 

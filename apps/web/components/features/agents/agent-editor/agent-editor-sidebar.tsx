@@ -5,6 +5,7 @@ import {
   Palette,
   MessageCircle,
   Settings,
+  Mic,
   ScrollText,
   Plug,
   BadgeInfo,
@@ -17,6 +18,7 @@ export type CategoryId =
   | 'appearance'
   | 'chat'
   | 'behavior'
+  | 'voice'
   | 'prompt'
   | 'integration'
   | 'branding';
@@ -53,6 +55,12 @@ const allCategories: Category[] = [
     title: 'Behavior',
     icon: <Settings className="h-5 w-5" />,
     description: 'Interactions and user experience',
+  },
+  {
+    id: 'voice',
+    title: 'Voice',
+    icon: <Mic className="h-5 w-5" />,
+    description: 'Voice input and output settings',
   },
   {
     id: 'prompt',
