@@ -6,8 +6,10 @@ import { SarvamProvider } from './providers/sarvam.provider';
 import { DeepgramProvider } from './providers/deepgram.provider';
 import { ElevenLabsProvider } from './providers/elevenlabs.provider';
 import { VOICE_PROVIDERS } from './providers/voice-provider.interface';
+import { PrismaModule } from '../prisma.module';
 
 @Module({
+  imports: [PrismaModule],
   controllers: [VoiceController],
   providers: [
     StubProvider,

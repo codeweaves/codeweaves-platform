@@ -44,7 +44,7 @@ describe('VoiceController', () => {
   });
 
   describe('transcribe', () => {
-    it('should delegate to VoiceService.transcribe with stub provider', async () => {
+    it('should delegate to VoiceService.transcribe', async () => {
       const dto = { agentId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890', languageHint: 'hi' as const };
       mockVoiceService.transcribe.mockResolvedValue({
         transcript: 'hello',
@@ -56,7 +56,7 @@ describe('VoiceController', () => {
 
       const result = await controller.transcribe(dto);
 
-      expect(mockVoiceService.transcribe).toHaveBeenCalledWith('stub', {
+      expect(mockVoiceService.transcribe).toHaveBeenCalledWith({
         audio: expect.any(Buffer),
         audioFormat: 'audio/webm',
         languageHint: 'hi',
@@ -81,14 +81,14 @@ describe('VoiceController', () => {
 
       await controller.transcribe(dto);
 
-      expect(mockVoiceService.transcribe).toHaveBeenCalledWith('stub', expect.objectContaining({
+      expect(mockVoiceService.transcribe).toHaveBeenCalledWith(expect.objectContaining({
         languageHint: undefined,
       }));
     });
   });
 
   describe('synthesize', () => {
-    it('should delegate to VoiceService.synthesize with stub provider', async () => {
+    it('should delegate to VoiceService.synthesize', async () => {
       const dto = {
         text: 'Hello world',
         language: 'en' as const,
@@ -104,7 +104,7 @@ describe('VoiceController', () => {
 
       const result = await controller.synthesize(dto);
 
-      expect(mockVoiceService.synthesize).toHaveBeenCalledWith('stub', {
+      expect(mockVoiceService.synthesize).toHaveBeenCalledWith({
         text: 'Hello world',
         language: 'en',
         voiceId: undefined,
@@ -136,7 +136,7 @@ describe('VoiceController', () => {
 
       await controller.synthesize(dto);
 
-      expect(mockVoiceService.synthesize).toHaveBeenCalledWith('stub', expect.objectContaining({
+      expect(mockVoiceService.synthesize).toHaveBeenCalledWith(expect.objectContaining({
         voiceId: 'voice-123',
         speed: 1.5,
       }));

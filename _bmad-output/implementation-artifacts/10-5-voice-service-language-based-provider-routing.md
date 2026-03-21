@@ -1,6 +1,6 @@
 # Story 10.5: Voice Service — Language-Based Provider Routing
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -24,56 +24,56 @@ So that each language gets optimal transcription and synthesis quality.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Refactor VoiceService provider registry (AC: #1, #2, #6)
-  - [ ] 1.1 Update `apps/api/src/modules/voice/voice.service.ts`
-  - [ ] 1.2 Inject all three providers: `SarvamProvider`, `DeepgramProvider`, `ElevenLabsProvider`
-  - [ ] 1.3 Create separate STT and TTS provider maps (not all providers support both)
-  - [ ] 1.4 Expose public `transcribe(request)` and `synthesize(request)` methods that resolve provider internally
+- [x] Task 1: Refactor VoiceService provider registry (AC: #1, #2, #6)
+  - [x] 1.1 Update `apps/api/src/modules/voice/voice.service.ts`
+  - [x] 1.2 Inject all three providers: `SarvamProvider`, `DeepgramProvider`, `ElevenLabsProvider`
+  - [x] 1.3 Create separate STT and TTS provider maps (not all providers support both)
+  - [x] 1.4 Expose public `transcribe(request)` and `synthesize(request)` methods that resolve provider internally
 
-- [ ] Task 2: Implement STT routing logic (AC: #1, #3)
-  - [ ] 2.1 Create `private resolveSTTProvider(voiceConfig, language): VoiceProvider`
-  - [ ] 2.2 Priority: agent override (`voiceConfig.sttProvider`) → language-based routing → default
-  - [ ] 2.3 Indian languages list: `['hi', 'mr', 'bn', 'ta', 'te', 'gu', 'kn', 'ml', 'pa', 'or', 'hinglish']`
-  - [ ] 2.4 Indian languages → Sarvam, English/other → Deepgram
+- [x] Task 2: Implement STT routing logic (AC: #1, #3)
+  - [x] 2.1 Create `private resolveSTTProvider(voiceConfig, language): VoiceProvider`
+  - [x] 2.2 Priority: agent override (`voiceConfig.sttProvider`) → language-based routing → default
+  - [x] 2.3 Indian languages list: `['hi', 'mr', 'bn', 'ta', 'te', 'gu', 'kn', 'ml', 'pa', 'or', 'hinglish']`
+  - [x] 2.4 Indian languages → Sarvam, English/other → Deepgram
 
-- [ ] Task 3: Implement TTS routing logic (AC: #2, #3, #4)
-  - [ ] 3.1 Create `private resolveTTSProvider(voiceConfig, language): VoiceProvider`
-  - [ ] 3.2 Priority: agent override (`voiceConfig.ttsProvider`) → language-based routing → default
-  - [ ] 3.3 Indian languages → Sarvam, English/other → ElevenLabs
-  - [ ] 3.4 Handle `UnsupportedLanguageError` from providers — catch and try next provider in fallback chain
-  - [ ] 3.5 Fallback chain for TTS: configured provider → Sarvam (broadest Indian coverage) → ElevenLabs → error
+- [x] Task 3: Implement TTS routing logic (AC: #2, #3, #4)
+  - [x] 3.1 Create `private resolveTTSProvider(voiceConfig, language): VoiceProvider`
+  - [x] 3.2 Priority: agent override (`voiceConfig.ttsProvider`) → language-based routing → default
+  - [x] 3.3 Indian languages → Sarvam, English/other → ElevenLabs
+  - [x] 3.4 Handle `UnsupportedLanguageError` from providers — catch and try next provider in fallback chain
+  - [x] 3.5 Fallback chain for TTS: configured provider → Sarvam (broadest Indian coverage) → ElevenLabs → error
 
-- [ ] Task 4: Fetch agent voice config (AC: #3)
-  - [ ] 4.1 Create `private getVoiceConfig(agentId): Promise<VoiceConfig>`
-  - [ ] 4.2 Query agent's `voiceConfig` JSONB field via PrismaService (or AgentsService)
-  - [ ] 4.3 Parse with `voiceConfigSchema` from `packages/validation`
-  - [ ] 4.4 Return defaults if agent has no voice config or voice is disabled
-  - [ ] 4.5 Cache voice config per request (fetch once, reuse for STT + TTS in same conversation)
+- [x] Task 4: Fetch agent voice config (AC: #3)
+  - [x] 4.1 Create `private getVoiceConfig(agentId): Promise<VoiceConfig>`
+  - [x] 4.2 Query agent's `voiceConfig` JSONB field via PrismaService (or AgentsService)
+  - [x] 4.3 Parse with `voiceConfigSchema` from `packages/validation`
+  - [x] 4.4 Return defaults if agent has no voice config or voice is disabled
+  - [x] 4.5 Cache voice config per request (fetch once, reuse for STT + TTS in same conversation)
 
-- [ ] Task 5: Implement `detectLanguage()` delegation (AC: #6)
-  - [ ] 5.1 Create public `detectLanguage(audio, agentId)` method
-  - [ ] 5.2 Route to Sarvam by default (best Indian language detection with `language_code: 'unknown'`)
-  - [ ] 5.3 Return detected language and confidence
+- [x] Task 5: Implement `detectLanguage()` delegation (AC: #6)
+  - [x] 5.1 Create public `detectLanguage(audio, agentId)` method
+  - [x] 5.2 Route to Sarvam by default (best Indian language detection with `language_code: 'unknown'`)
+  - [x] 5.3 Return detected language and confidence
 
-- [ ] Task 6: Observability logging (AC: #5)
-  - [ ] 6.1 Log routing decisions: `logger.log('STT routing: language=${lang}, provider=${provider.name}, override=${hasOverride}')`
-  - [ ] 6.2 Log fallback events: `logger.warn('TTS fallback: ${originalProvider} → ${fallbackProvider}, reason: ${error.message}')`
-  - [ ] 6.3 Log latency per provider call
+- [x] Task 6: Observability logging (AC: #5)
+  - [x] 6.1 Log routing decisions: `logger.log('STT routing: language=${lang}, provider=${provider.name}, override=${hasOverride}')`
+  - [x] 6.2 Log fallback events: `logger.warn('TTS fallback: ${originalProvider} → ${fallbackProvider}, reason: ${error.message}')`
+  - [x] 6.3 Log latency per provider call
 
-- [ ] Task 7: Update VoiceModule wiring (AC: #6)
-  - [ ] 7.1 Import `AgentsModule` (or `PrismaModule`) in VoiceModule for voice config lookup
-  - [ ] 7.2 Ensure all three providers + VoiceService are properly wired in module
+- [x] Task 7: Update VoiceModule wiring (AC: #6)
+  - [x] 7.1 Import `AgentsModule` (or `PrismaModule`) in VoiceModule for voice config lookup
+  - [x] 7.2 Ensure all three providers + VoiceService are properly wired in module
 
-- [ ] Task 8: Unit tests (AC: #7)
-  - [ ] 8.1 Update `apps/api/test/services/voice/voice.service.spec.ts`
-  - [ ] 8.2 Test STT routing: Hindi → Sarvam, English → Deepgram
-  - [ ] 8.3 Test TTS routing: Hindi → Sarvam, English → ElevenLabs
-  - [ ] 8.4 Test agent override: `sttProvider: 'elevenlabs'` forces ElevenLabs for STT regardless of language
-  - [ ] 8.5 Test TTS fallback: Deepgram throws `UnsupportedLanguageError` → falls back to Sarvam
-  - [ ] 8.6 Test all Indian languages route to Sarvam
-  - [ ] 8.7 Test `hinglish` routes to Sarvam
-  - [ ] 8.8 Test missing/disabled voice config returns defaults
-  - [ ] 8.9 Test voice config is fetched once per request (not per provider call)
+- [x] Task 8: Unit tests (AC: #7)
+  - [x] 8.1 Update `apps/api/test/services/voice/voice.service.spec.ts`
+  - [x] 8.2 Test STT routing: Hindi → Sarvam, English → Deepgram
+  - [x] 8.3 Test TTS routing: Hindi → Sarvam, English → ElevenLabs
+  - [x] 8.4 Test agent override: `sttProvider: 'elevenlabs'` forces ElevenLabs for STT regardless of language
+  - [x] 8.5 Test TTS fallback: Deepgram throws `UnsupportedLanguageError` → falls back to Sarvam
+  - [x] 8.6 Test all Indian languages route to Sarvam
+  - [x] 8.7 Test `hinglish` routes to Sarvam
+  - [x] 8.8 Test missing/disabled voice config returns defaults
+  - [x] 8.9 Test voice config is fetched once per request (not per provider call)
 
 ## Dev Notes
 
@@ -269,9 +269,38 @@ throw new BadGatewayException('AI service returned an error');
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- All 1139 API tests pass (59 suites)
+- 41 voice service tests covering routing, fallback, config, errors
+- Lint: 0 errors, 0 warnings
+- Type-check: passes
+- Build: passes
+- test:cov has pre-existing Bun/Jest coverage runtime issue (unrelated)
 
 ### Completion Notes List
+- Rewrote VoiceService from simple provider registry to language-based routing service
+- Added `UnsupportedLanguageError` class to voice-provider.interface.ts
+- STT routing: Indian languages → Sarvam, English/other → Deepgram, with agent override support
+- TTS routing: Indian languages → Sarvam, English/other → ElevenLabs, with agent override + fallback chain
+- TTS fallback chain: on VoiceProviderError, tries sarvam → elevenlabs → throws BadGatewayException
+- Voice config fetched from Prisma agent.voiceConfig JSONB, parsed with voiceConfigSchema, cached per agent
+- Gracefully handles missing voiceConfig column (returns defaults) for parallel story 10-6 development
+- detectLanguage routes to Sarvam by default for best Indian language detection
+- Observability: logs routing decisions, fallback events, and latency per provider call
+- Updated VoiceModule to import PrismaModule for DB access
+- Updated VoiceController to use new API (no longer passes provider name)
+- Updated controller tests to match new API signature
+- Deepgram excluded from TTS provider map (intentionally not supported)
 
 ### File List
+- apps/api/src/modules/voice/voice.service.ts (rewritten)
+- apps/api/src/modules/voice/voice.module.ts (added PrismaModule import)
+- apps/api/src/modules/voice/voice.controller.ts (updated API calls)
+- apps/api/src/modules/voice/providers/voice-provider.interface.ts (added UnsupportedLanguageError)
+- apps/api/test/services/voice/voice.service.spec.ts (rewritten, 41 tests)
+- apps/api/test/controllers/voice/voice.controller.spec.ts (updated assertions)
+
+### Change Log
+- 2026-03-21: Implemented language-based provider routing with STT/TTS maps, fallback chain, voice config fetching, observability logging, and 41 unit tests

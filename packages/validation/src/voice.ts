@@ -11,6 +11,9 @@ import { z } from 'zod';
 export const voiceProviderEnum = z.enum(['sarvam', 'deepgram', 'elevenlabs']);
 export type VoiceProviderEnum = z.infer<typeof voiceProviderEnum>;
 
+export const ttsProviderEnum = z.enum(['sarvam', 'elevenlabs']);
+export type TtsProviderEnum = z.infer<typeof ttsProviderEnum>;
+
 // ============================================
 // Supported Language Enum
 // ============================================
@@ -26,7 +29,7 @@ export const voiceConfigSchema = z.object({
   sttEnabled: z.boolean().default(true),
   ttsEnabled: z.boolean().default(true),
   sttProvider: voiceProviderEnum.optional(),
-  ttsProvider: voiceProviderEnum.optional(),
+  ttsProvider: ttsProviderEnum.optional(),
   defaultLanguage: supportedLanguageEnum.default('en'),
   supportedLanguages: z.array(supportedLanguageEnum).default(['en']),
   ttsVoiceId: z.string().max(255).optional(),
