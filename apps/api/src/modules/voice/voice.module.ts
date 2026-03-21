@@ -6,10 +6,12 @@ import { SarvamProvider } from './providers/sarvam.provider';
 import { DeepgramProvider } from './providers/deepgram.provider';
 import { ElevenLabsProvider } from './providers/elevenlabs.provider';
 import { VOICE_PROVIDERS } from './providers/voice-provider.interface';
+import { ChatModule } from '../chat.module';
+import { MessageRateLimitService } from '../../services/message-rate-limit.service';
 import { PrismaModule } from '../prisma.module';
 
 @Module({
-  imports: [PrismaModule],
+  imports: [ChatModule, PrismaModule],
   controllers: [VoiceController],
   providers: [
     StubProvider,
@@ -27,6 +29,7 @@ import { PrismaModule } from '../prisma.module';
       inject: [StubProvider, SarvamProvider, DeepgramProvider, ElevenLabsProvider],
     },
     VoiceService,
+    MessageRateLimitService,
   ],
   exports: [VoiceService],
 })

@@ -108,6 +108,22 @@ export class VoiceService {
     return Array.from(this.registry.keys());
   }
 
+  getProvidersInfo(): {
+    name: string;
+    stt: boolean;
+    tts: boolean;
+    languages: string[];
+  }[] {
+    return Array.from(this.registry.entries())
+      .filter(([name]) => !NON_ROUTABLE_PROVIDERS.has(name))
+      .map(([name, provider]) => ({
+        name,
+        stt: this.sttProviders.has(name),
+        tts: this.ttsProviders.has(name),
+        languages: [...provider.supportedLanguages],
+      }));
+  }
+
   async transcribe(request: STTRequest): Promise<STTResponse> {
     const config = await this.getVoiceConfig(request.agentId);
     const provider = this.resolveSTTProvider(
@@ -271,7 +287,7 @@ export class VoiceService {
     );
   }
 
-  private async getVoiceConfig(agentId: string): Promise<VoiceConfigDto> {
+  async getVoiceConfig(agentId: string): Promise<VoiceConfigDto> {
     const now = Date.now();
     const cached = this.voiceConfigCache.get(agentId);
     if (cached && cached.expiresAt > now) return cached.config;

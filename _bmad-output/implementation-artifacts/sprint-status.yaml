@@ -255,9 +255,9 @@ development_status:
   10-2-sarvam-ai-provider-implementation: done
   10-3-deepgram-provider-implementation: done
   10-4-elevenlabs-provider-implementation: done
-  10-5-voice-service-language-based-provider-routing: ready-for-dev
-  10-6-voice-configuration-schema-database: review
-  10-7-voice-controller-full-conversation-endpoint: ready-for-dev
+  10-5-voice-service-language-based-provider-routing: done
+  10-6-voice-configuration-schema-database: done
+  10-7-voice-controller-full-conversation-endpoint: review
   10-8-voice-ui-state-machine-mic-button: ready-for-dev
   10-9-widget-voice-audio-capture-playback: backlog
   10-10-dashboard-voice-configuration-ui: ready-for-dev
