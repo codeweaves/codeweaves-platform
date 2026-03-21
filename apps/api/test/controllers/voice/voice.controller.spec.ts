@@ -7,6 +7,7 @@ import * as Sentry from '@sentry/nestjs';
 import { VoiceController } from '../../../src/modules/voice/voice.controller';
 import { VoiceService } from '../../../src/modules/voice/voice.service';
 import { ChatService } from '../../../src/services/chat.service';
+import { PrismaService } from '../../../src/services/prisma.service';
 import { MessageRateLimitService } from '../../../src/services/message-rate-limit.service';
 import {
   UnsupportedLanguageError,
@@ -54,6 +55,12 @@ describe('VoiceController', () => {
 
   const mockChatService = {
     sendMessage: jest.fn(),
+  };
+
+  const mockPrismaService = {
+    chatMessage: {
+      update: jest.fn().mockResolvedValue({}),
+    },
   };
 
   const mockMessageRateLimitService = {
@@ -131,6 +138,7 @@ describe('VoiceController', () => {
       providers: [
         { provide: VoiceService, useValue: mockVoiceService },
         { provide: ChatService, useValue: mockChatService },
+        { provide: PrismaService, useValue: mockPrismaService },
         { provide: MessageRateLimitService, useValue: mockMessageRateLimitService },
       ],
     }).compile();
@@ -350,6 +358,111 @@ describe('VoiceController', () => {
 
       expect(result.response.audio).toBeNull();
       expect(mockVoiceService.synthesize).not.toHaveBeenCalled();
+    });
+  });
+
+  // ============================
+  // Voice metadata storage (Story 10-14)
+  // ============================
+  describe('voice metadata storage', () => {
+    it('should store voice metadata on user message after successful conversation', async () => {
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
+      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      await controller.voiceConversation(audioFile, dto, req, res);
+
+      // User message metadata — includes aiLatencyMs (P3) and defensive spread (P4)
+      expect(mockPrismaService.chatMessage.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'msg-uuid' },
+          data: {
+            metadata: expect.objectContaining({
+              inputType: 'voice',
+              detectedLanguage: 'en',
+              languageConfidence: 0.95,
+              sttProvider: 'deepgram',
+              aiLatencyMs: expect.any(Number),
+            }),
+          },
+        }),
+      );
+    });
+
+    it('should store TTS provider metadata on assistant message', async () => {
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
+      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID };
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      await controller.voiceConversation(audioFile, dto, req, res);
+
+      // Assistant message metadata — ttsError key omitted when no error (P1)
+      const assistantCall = mockPrismaService.chatMessage.update.mock.calls.find(
+        (call: [{ where: { id: string }; data: { metadata: Record<string, unknown> } }]) => call[0].where.id === 'assistant-msg-uuid',
+      );
+      expect(assistantCall).toBeDefined();
+      const assistantMeta = assistantCall![0].data.metadata as Record<string, unknown>;
+      expect(assistantMeta.inputType).toBe('voice');
+      expect(assistantMeta.ttsProvider).toBe('elevenlabs');
+      expect(assistantMeta).not.toHaveProperty('ttsError');
+    });
+
+    it('should store ttsError code in assistant metadata when TTS fails', async () => {
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
+      mockVoiceService.synthesize.mockRejectedValue(
+        new VoiceProviderError('elevenlabs', 'TTS failed'),
+      );
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID };
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      await controller.voiceConversation(audioFile, dto, req, res);
+
+      // Assistant message should have ttsError
+      expect(mockPrismaService.chatMessage.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: 'assistant-msg-uuid' },
+          data: {
+            metadata: expect.objectContaining({
+              ttsError: voiceErrorCodes.TTS_FAILED,
+            }),
+          },
+        }),
+      );
+    });
+
+    it('should not fail the response if metadata storage fails (retries once)', async () => {
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
+      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
+      mockPrismaService.chatMessage.update.mockRejectedValue(new Error('DB error'));
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID };
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
+
+      // Fire-and-forget: allow retry to complete
+      await new Promise((r) => setTimeout(r, 50));
+
+      // Should still return successful response
+      expect(result.transcription.text).toBe('Hello, how are you?');
+      expect(result.response.text).toBe('I am doing great, thanks!');
     });
   });
 

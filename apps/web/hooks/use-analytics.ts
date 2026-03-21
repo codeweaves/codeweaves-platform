@@ -174,6 +174,85 @@ export function useMessageVolumeChart(params: AnalyticsParams, options?: Analyti
   });
 }
 
+// ==========================================
+// Voice Analytics Types & Hooks (Story 10-14)
+// ==========================================
+
+export interface VoiceSummaryResponse {
+  totalVoiceMessages: number;
+  totalTextMessages: number;
+  voiceRatio: number;
+  avgSttLatencyMs: number;
+  avgTtsLatencyMs: number;
+  voiceErrorCount: number;
+  trend: { voiceMessagesTrend: number };
+}
+
+export interface LanguageDistributionEntry {
+  language: string;
+  count: number;
+  percentage: number;
+}
+
+export interface LanguageDistributionResponse {
+  languages: LanguageDistributionEntry[];
+}
+
+export interface ProviderLatencyEntry {
+  provider: string;
+  avg: number;
+  p50: number;
+  p95: number;
+  count: number;
+}
+
+export interface VoiceLatencyResponse {
+  stt: ProviderLatencyEntry[];
+  tts: ProviderLatencyEntry[];
+}
+
+export function useVoiceSummary(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<VoiceSummaryResponse>({
+    queryKey: ['analytics', 'voice-summary', params],
+    queryFn: () => api.get(`/analytics/voice/summary?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useLanguageDistribution(params: AnalyticsParams, options?: AnalyticsQueryOptions & { enabled?: boolean }) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<LanguageDistributionResponse>({
+    queryKey: ['analytics', 'voice-languages', params],
+    queryFn: () => api.get(`/analytics/voice/languages?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading && (options?.enabled !== false),
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useVoiceLatency(params: AnalyticsParams, options?: AnalyticsQueryOptions & { enabled?: boolean }) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<VoiceLatencyResponse>({
+    queryKey: ['analytics', 'voice-latency', params],
+    queryFn: () => api.get(`/analytics/voice/latency?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading && (options?.enabled !== false),
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+  });
+}
+
 export interface AgentAnalyticsParams extends AnalyticsParams {
   page?: number;
   limit?: number;

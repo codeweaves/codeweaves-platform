@@ -40,8 +40,10 @@ export class AnalyticsService {
    */
   private getPreviousPeriod(startDate: Date, endDate: Date): { prevStart: Date; prevEnd: Date } {
     const durationMs = endDate.getTime() - startDate.getTime();
+    // Minimum 1 day duration to avoid zero-length window when startDate === endDate
+    const effectiveDurationMs = Math.max(durationMs, 86_400_000);
     const prevEnd = new Date(startDate.getTime() - 1);
-    const prevStart = new Date(prevEnd.getTime() - durationMs);
+    const prevStart = new Date(prevEnd.getTime() - effectiveDurationMs);
     return { prevStart, prevEnd };
   }
 
@@ -168,6 +170,7 @@ export class AnalyticsService {
       FROM chat_messages
       WHERE role = 'ASSISTANT'
         AND metadata->>'responseLatencyMs' IS NOT NULL
+        AND metadata->>'responseLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$'
         AND "chatSessionId" IN (
           SELECT id FROM chat_sessions
           WHERE "agentId" = ANY(${agentIds}::text[])
@@ -286,6 +289,7 @@ export class AnalyticsService {
         FROM chat_messages
         WHERE role = 'ASSISTANT'
           AND metadata->>'responseLatencyMs' IS NOT NULL
+          AND metadata->>'responseLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$'
           AND "chatSessionId" IN (
             SELECT id FROM chat_sessions
             WHERE "agentId" = ANY(${agentIds}::text[])
@@ -467,6 +471,190 @@ export class AnalyticsService {
         queriesRaised: Number(d.queries_raised),
       })),
       meta: { page, limit, total, totalPages },
+    };
+  }
+
+  // ==========================================
+  // Voice Analytics Methods (Story 10-14)
+  // ==========================================
+
+  async getVoiceSummary(query: AnalyticsQuery, user: CurrentUserData) {
+    const { startDate, endDate } = query;
+    const agentIds = await this.getAgentIds(query, user);
+    const { prevStart, prevEnd } = this.getPreviousPeriod(startDate, endDate);
+
+    if (agentIds.length === 0) {
+      return {
+        totalVoiceMessages: 0,
+        totalTextMessages: 0,
+        voiceRatio: 0,
+        avgSttLatencyMs: 0,
+        avgTtsLatencyMs: 0,
+        voiceErrorCount: 0,
+        trend: { voiceMessagesTrend: 0 },
+      };
+    }
+
+    const [current, previous] = await Promise.all([
+      this.getVoiceMetrics(agentIds, startDate, endDate),
+      this.getVoiceMetrics(agentIds, prevStart, prevEnd),
+    ]);
+
+    const total = current.voiceCount + current.textCount;
+    return {
+      totalVoiceMessages: current.voiceCount,
+      totalTextMessages: current.textCount,
+      voiceRatio: total > 0 ? Math.round((current.voiceCount / total) * 10000) / 10000 : 0,
+      avgSttLatencyMs: Math.round(current.avgSttLatency),
+      avgTtsLatencyMs: Math.round(current.avgTtsLatency),
+      voiceErrorCount: current.errorCount,
+      trend: {
+        voiceMessagesTrend: this.calcTrend(current.voiceCount, previous.voiceCount),
+      },
+    };
+  }
+
+  private async getVoiceMetrics(agentIds: string[], startDate: Date, endDate: Date) {
+    const result = await this.prisma.$queryRaw<
+      {
+        voice_count: bigint;
+        text_count: bigint;
+        avg_stt_latency: number | null;
+        avg_tts_latency: number | null;
+        error_count: bigint;
+      }[]
+    >`
+      SELECT
+        COUNT(*) FILTER (WHERE cm.metadata->>'inputType' = 'voice' AND cm.role = 'USER') as voice_count,
+        COUNT(*) FILTER (WHERE (cm.metadata->>'inputType' IS NULL OR cm.metadata->>'inputType' != 'voice') AND cm.role = 'USER') as text_count,
+        AVG((cm.metadata->>'sttLatencyMs')::numeric) FILTER (WHERE cm.metadata->>'sttLatencyMs' IS NOT NULL AND cm.metadata->>'sttLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$') as avg_stt_latency,
+        AVG((cm.metadata->>'ttsLatencyMs')::numeric) FILTER (WHERE cm.metadata->>'ttsLatencyMs' IS NOT NULL AND cm.metadata->>'ttsLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$') as avg_tts_latency,
+        COUNT(*) FILTER (WHERE cm.metadata->>'ttsError' IS NOT NULL AND cm.role = 'ASSISTANT') as error_count
+      FROM chat_messages cm
+      WHERE cm."chatSessionId" IN (
+        SELECT id FROM chat_sessions
+        WHERE "agentId" = ANY(${agentIds}::text[])
+          AND "createdAt" >= ${startDate}
+          AND "createdAt" <= ${endDate}
+      )
+    `;
+
+    const row = result[0];
+    return {
+      voiceCount: Number(row?.voice_count ?? 0),
+      textCount: Number(row?.text_count ?? 0),
+      avgSttLatency: Number(row?.avg_stt_latency ?? 0),
+      avgTtsLatency: Number(row?.avg_tts_latency ?? 0),
+      errorCount: Number(row?.error_count ?? 0),
+    };
+  }
+
+  async getLanguageDistribution(query: AnalyticsQuery, user: CurrentUserData) {
+    const { startDate, endDate } = query;
+    const agentIds = await this.getAgentIds(query, user);
+
+    if (agentIds.length === 0) {
+      return { languages: [] };
+    }
+
+    const result = await this.prisma.$queryRaw<
+      { language: string; count: bigint }[]
+    >`
+      SELECT
+        cm.metadata->>'detectedLanguage' as language,
+        COUNT(*) as count
+      FROM chat_messages cm
+      WHERE cm.metadata->>'inputType' = 'voice'
+        AND cm.metadata->>'detectedLanguage' IS NOT NULL
+        AND cm.role = 'USER'
+        AND cm."chatSessionId" IN (
+          SELECT id FROM chat_sessions
+          WHERE "agentId" = ANY(${agentIds}::text[])
+            AND "createdAt" >= ${startDate}
+            AND "createdAt" <= ${endDate}
+        )
+      GROUP BY cm.metadata->>'detectedLanguage'
+      ORDER BY count DESC
+    `;
+
+    const total = result.reduce((sum, r) => sum + Number(r.count), 0);
+    return {
+      languages: result.map((r) => ({
+        language: r.language,
+        count: Number(r.count),
+        percentage: total > 0 ? Math.round((Number(r.count) / total) * 10000) / 100 : 0,
+      })),
+    };
+  }
+
+  async getVoiceLatencyByProvider(query: AnalyticsQuery, user: CurrentUserData) {
+    const { startDate, endDate } = query;
+    const agentIds = await this.getAgentIds(query, user);
+
+    if (agentIds.length === 0) {
+      return { stt: [], tts: [] };
+    }
+
+    const [sttResult, ttsResult] = await Promise.all([
+      this.prisma.$queryRaw<
+        { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
+      >`
+        SELECT
+          cm.metadata->>'sttProvider' as provider,
+          AVG((cm.metadata->>'sttLatencyMs')::numeric) as avg,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (cm.metadata->>'sttLatencyMs')::numeric) as p50,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY (cm.metadata->>'sttLatencyMs')::numeric) as p95,
+          COUNT(*) as count
+        FROM chat_messages cm
+        WHERE cm.metadata->>'inputType' = 'voice'
+          AND cm.metadata->>'sttProvider' IS NOT NULL
+          AND cm.metadata->>'sttLatencyMs' IS NOT NULL
+          AND cm.metadata->>'sttLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$'
+          AND cm.role = 'USER'
+          AND cm."chatSessionId" IN (
+            SELECT id FROM chat_sessions
+            WHERE "agentId" = ANY(${agentIds}::text[])
+              AND "createdAt" >= ${startDate}
+              AND "createdAt" <= ${endDate}
+          )
+        GROUP BY cm.metadata->>'sttProvider'
+      `,
+      this.prisma.$queryRaw<
+        { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
+      >`
+        SELECT
+          cm.metadata->>'ttsProvider' as provider,
+          AVG((cm.metadata->>'ttsLatencyMs')::numeric) as avg,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (cm.metadata->>'ttsLatencyMs')::numeric) as p50,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY (cm.metadata->>'ttsLatencyMs')::numeric) as p95,
+          COUNT(*) as count
+        FROM chat_messages cm
+        WHERE cm.metadata->>'inputType' = 'voice'
+          AND cm.metadata->>'ttsProvider' IS NOT NULL
+          AND cm.metadata->>'ttsLatencyMs' IS NOT NULL
+          AND cm.metadata->>'ttsLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$'
+          AND cm.role = 'ASSISTANT'
+          AND cm."chatSessionId" IN (
+            SELECT id FROM chat_sessions
+            WHERE "agentId" = ANY(${agentIds}::text[])
+              AND "createdAt" >= ${startDate}
+              AND "createdAt" <= ${endDate}
+          )
+        GROUP BY cm.metadata->>'ttsProvider'
+      `,
+    ]);
+
+    const mapRow = (r: { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }) => ({
+      provider: r.provider,
+      avg: Math.round(Number(r.avg ?? 0)),
+      p50: Math.round(Number(r.p50 ?? 0)),
+      p95: Math.round(Number(r.p95 ?? 0)),
+      count: Number(r.count),
+    });
+
+    return {
+      stt: sttResult.map(mapRow),
+      tts: ttsResult.map(mapRow),
     };
   }
 

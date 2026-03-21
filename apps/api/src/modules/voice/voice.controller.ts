@@ -17,6 +17,7 @@ import * as Sentry from '@sentry/nestjs';
 import { Public } from '../../decorators/public.decorator';
 import { VoiceService } from './voice.service';
 import { ChatService } from '../../services/chat.service';
+import { PrismaService } from '../../services/prisma.service';
 import { MessageRateLimitService } from '../../services/message-rate-limit.service';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import {
@@ -55,6 +56,7 @@ export class VoiceController {
   constructor(
     private readonly voiceService: VoiceService,
     private readonly chatService: ChatService,
+    private readonly prisma: PrismaService,
     private readonly messageRateLimitService: MessageRateLimitService,
   ) {}
 
@@ -167,6 +169,7 @@ export class VoiceController {
     let ttsFormat: string | null = null;
     let ttsDurationMs: number | null = null;
     let ttsLatencyMs = 0;
+    let ttsProvider: string | null = null;
     let ttsError: { errorCode: string; message: string } | undefined;
 
     let voiceConfig: { ttsEnabled?: boolean };
@@ -190,6 +193,7 @@ export class VoiceController {
         ttsAudio = ttsResult.audio.toString('base64');
         ttsFormat = ttsResult.audioFormat;
         ttsDurationMs = ttsResult.durationMs ?? null;
+        ttsProvider = ttsResult.provider;
       } catch (error) {
         ttsLatencyMs = Date.now() - ttsStart;
         // TTS failure is graceful degradation — return text response, not 500
@@ -214,6 +218,52 @@ export class VoiceController {
         );
       }
     }
+
+    // Store voice metadata on user and assistant messages for analytics (AC #1, #2, #3)
+    const ttsAttempted = ttsAudio !== null || ttsError !== undefined;
+    const userMetadata = {
+      ...(chatResult.metadata as Record<string, unknown> ?? {}),
+      inputType: 'voice' as const,
+      detectedLanguage: sttResult.detectedLanguage,
+      languageConfidence: sttResult.confidence,
+      sttProvider: sttResult.provider ?? 'unknown',
+      sttLatencyMs,
+      aiLatencyMs,
+    };
+    const assistantMetadata = {
+      ...(chatResult.metadata as Record<string, unknown> ?? {}),
+      inputType: 'voice' as const,
+      ...(ttsAttempted && { ttsProvider: ttsProvider ?? 'unknown' }),
+      ...(ttsAttempted && { ttsLatencyMs }),
+      ...(ttsError && { ttsError: ttsError.errorCode }),
+    };
+
+    const storeMetadata = async (attempt = 1) => {
+      try {
+        await Promise.all([
+          this.prisma.chatMessage.update({
+            where: { id: chatResult.messageId },
+            data: { metadata: userMetadata },
+          }),
+          this.prisma.chatMessage.update({
+            where: { id: chatResult.assistantMessageId },
+            data: { metadata: assistantMetadata },
+          }),
+        ]);
+      } catch (metadataError) {
+        if (attempt < 2) {
+          this.logger.warn(
+            `Voice metadata write attempt ${attempt} failed for message ${chatResult.messageId}, retrying...`,
+          );
+          return storeMetadata(attempt + 1);
+        }
+        this.logger.warn(
+          `Failed to store voice metadata for message ${chatResult.messageId} after ${attempt} attempts: ${metadataError instanceof Error ? metadataError.message : 'unknown'}`,
+        );
+      }
+    };
+    // Fire-and-forget — don't block the response
+    storeMetadata();
 
     return {
       transcription: {
