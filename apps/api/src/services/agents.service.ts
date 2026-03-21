@@ -8,6 +8,8 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from './prisma.service';
 import { Prisma, Role, Agent } from '@prisma/client';
+import { voiceConfigSchema } from '@repo/validation';
+import { ZodError } from 'zod';
 import type { CreateAgentDto, UpdateAgentDto, AgentListQuery } from '../models/agent.dto';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { generatePublicId } from '../utils/public-id';
@@ -147,6 +149,37 @@ export class AgentsService {
         ? deduplicateDomains(dto.allowedDomains)
         : undefined;
 
+    // Validate voiceConfig with Zod before writing to DB
+    let voiceConfigData: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined;
+    if (dto.voiceConfig !== undefined) {
+      if (dto.voiceConfig === null) {
+        voiceConfigData = Prisma.DbNull;
+      } else {
+        try {
+          const parsed = voiceConfigSchema.parse(dto.voiceConfig);
+          // Zod output is plain JS object with JSON-safe primitives (booleans, strings, numbers)
+          voiceConfigData = parsed as Prisma.InputJsonValue;
+        } catch (error) {
+          if (error instanceof ZodError) {
+            throw new BadRequestException(
+              `Invalid voice configuration: ${error.errors.map((e) => e.message).join(', ')}`,
+            );
+          }
+          throw error;
+        }
+      }
+    }
+
+    // Prevent enabling voice without a voiceConfig present
+    if (dto.voiceEnabled === true && voiceConfigData === undefined) {
+      // Check if the existing agent already has a voiceConfig
+      if (!existing.voiceConfig) {
+        throw new BadRequestException(
+          'Cannot enable voice without a voice configuration. Provide voiceConfig in the same request.',
+        );
+      }
+    }
+
     try {
       const updated = await this.prisma.agent.update({
         where: { id },
@@ -154,6 +187,8 @@ export class AgentsService {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.status !== undefined && { status: dto.status }),
           ...(normalizedDomains !== undefined && { allowedDomains: normalizedDomains }),
+          ...(dto.voiceEnabled !== undefined && { voiceEnabled: dto.voiceEnabled }),
+          ...(voiceConfigData !== undefined && { voiceConfig: voiceConfigData }),
         },
         include: { organization: { select: { id: true, name: true } } },
       });
@@ -172,6 +207,22 @@ export class AgentsService {
         await this.agentLogger.logStatusChanged(updated.id, {
           oldStatus: existing.status,
           newStatus: dto.status,
+        });
+      }
+
+      // Audit: voice configuration changes
+      if (dto.voiceEnabled !== undefined && dto.voiceEnabled !== existing.voiceEnabled) {
+        await this.agentLogger.logAgentUpdated(updated.id, {
+          event: 'AGENT_VOICE_TOGGLED',
+          oldVoiceEnabled: existing.voiceEnabled,
+          newVoiceEnabled: dto.voiceEnabled,
+          userId: user.id,
+        });
+      }
+      if (dto.voiceConfig !== undefined) {
+        await this.agentLogger.logAgentUpdated(updated.id, {
+          event: 'AGENT_VOICE_CONFIG_UPDATED',
+          userId: user.id,
         });
       }
 
@@ -223,6 +274,8 @@ export class AgentsService {
         publicId: true,
         name: true,
         welcomeMessage: true,
+        voiceEnabled: true,
+        voiceConfig: true,
       },
     });
 
@@ -240,6 +293,20 @@ export class AgentsService {
       name: agent.name,
       welcomeMessage: agent.welcomeMessage,
       theme: theme?.config ?? null,
+      voiceConfig: agent.voiceEnabled && agent.voiceConfig
+        ? this.sanitizeVoiceConfigForWidget(agent.voiceConfig as Record<string, unknown>)
+        : null,
+    };
+  }
+
+  /** Strip provider internals from voiceConfig before exposing to public widget endpoint */
+  private sanitizeVoiceConfigForWidget(config: Record<string, unknown>) {
+    return {
+      sttEnabled: config.sttEnabled ?? true,
+      ttsEnabled: config.ttsEnabled ?? true,
+      defaultLanguage: config.defaultLanguage ?? 'en',
+      supportedLanguages: config.supportedLanguages ?? ['en'],
+      autoDetectLanguage: config.autoDetectLanguage ?? true,
     };
   }
 

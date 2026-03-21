@@ -1,6 +1,6 @@
 # Story 10.2: Sarvam AI Provider Implementation
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -22,56 +22,56 @@ So that Indian languages and Hinglish are supported with native code-switching.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create SarvamProvider class (AC: #1, #4)
-  - [ ] 1.1 Create `apps/api/src/modules/voice/providers/sarvam.provider.ts`
-  - [ ] 1.2 Implement `VoiceProvider` interface — `name`, `supportedLanguages`, `transcribe()`, `synthesize()`, `detectLanguage()`
-  - [ ] 1.3 Create internal language code mapping: `hi` → `hi-IN`, `mr` → `mr-IN`, `hinglish` → `unknown` (auto-detect)
-  - [ ] 1.4 Make it `@Injectable()` for NestJS DI
+- [x] Task 1: Create SarvamProvider class (AC: #1, #4)
+  - [x] 1.1 Create `apps/api/src/modules/voice/providers/sarvam.provider.ts`
+  - [x] 1.2 Implement `VoiceProvider` interface — `name`, `supportedLanguages`, `transcribe()`, `synthesize()`, `detectLanguage()`
+  - [x] 1.3 Create internal language code mapping: `hi` → `hi-IN`, `mr` → `mr-IN`, `hinglish` → `unknown` (auto-detect)
+  - [x] 1.4 Make it `@Injectable()` for NestJS DI
 
-- [ ] Task 2: Implement STT — `transcribe()` (AC: #2, #7, #9)
-  - [ ] 2.1 Build `FormData` with audio buffer, model (`saarika:v2.5`), and language code
-  - [ ] 2.2 Send `POST` to `https://api.sarvam.ai/speech-to-text` with `api-subscription-key` header
-  - [ ] 2.3 Parse response: extract `transcript`, `language_code`, `language_probability`
-  - [ ] 2.4 Map Sarvam language code back to internal format (`hi-IN` → `hi`)
-  - [ ] 2.5 Track latency with `Date.now()` before/after call
-  - [ ] 2.6 Return `STTResponse` with text, detectedLanguage, confidence, latencyMs, provider
+- [x] Task 2: Implement STT — `transcribe()` (AC: #2, #7, #9)
+  - [x] 2.1 Build `FormData` with audio buffer, model (`saarika:v2.5`), and language code
+  - [x] 2.2 Send `POST` to `https://api.sarvam.ai/speech-to-text` with `api-subscription-key` header
+  - [x] 2.3 Parse response: extract `transcript`, `language_code`, `language_probability`
+  - [x] 2.4 Map Sarvam language code back to internal format (`hi-IN` → `hi`)
+  - [x] 2.5 Track latency with `Date.now()` before/after call
+  - [x] 2.6 Return `STTResponse` with text, detectedLanguage, confidence, latencyMs, provider
 
-- [ ] Task 3: Implement TTS — `synthesize()` (AC: #3, #7, #9)
-  - [ ] 3.1 Build JSON body with text, `target_language_code` (BCP-47), speaker, model (`bulbul:v3`), pace
-  - [ ] 3.2 Send `POST` to `https://api.sarvam.ai/text-to-speech` with `api-subscription-key` header
-  - [ ] 3.3 Parse response: decode base64 audio from `audios[0]` using `Buffer.from(audios[0], 'base64')`
-  - [ ] 3.4 Track latency
-  - [ ] 3.5 Return `TTSResponse` with audio buffer, format, durationMs, latencyMs, provider
+- [x] Task 3: Implement TTS — `synthesize()` (AC: #3, #7, #9)
+  - [x] 3.1 Build JSON body with text, `target_language_code` (BCP-47), speaker, model (`bulbul:v3`), pace
+  - [x] 3.2 Send `POST` to `https://api.sarvam.ai/text-to-speech` with `api-subscription-key` header
+  - [x] 3.3 Parse response: decode base64 audio from `audios[0]` using `Buffer.from(audios[0], 'base64')`
+  - [x] 3.4 Track latency
+  - [x] 3.5 Return `TTSResponse` with audio buffer, format, durationMs, latencyMs, provider
 
-- [ ] Task 4: Implement `detectLanguage()` (AC: #1)
-  - [ ] 4.1 Use STT with `language_code: 'unknown'` to auto-detect
-  - [ ] 4.2 Return detected language and confidence from STT response
+- [x] Task 4: Implement `detectLanguage()` (AC: #1)
+  - [x] 4.1 Use STT with `language_code: 'unknown'` to auto-detect
+  - [x] 4.2 Return detected language and confidence from STT response
 
-- [ ] Task 5: Error handling (AC: #6)
-  - [ ] 5.1 Map Sarvam error codes to NestJS exceptions:
+- [x] Task 5: Error handling (AC: #6)
+  - [x] 5.1 Map Sarvam error codes to NestJS exceptions:
     - `invalid_api_key_error` / `authentication_error` → `UnauthorizedException`
     - `rate_limit_exceeded_error` → `TooManyRequestsException` (429)
     - `invalid_request_error` / `unprocessable_entity_error` → `BadRequestException`
     - `internal_server_error` → `BadGatewayException`
-  - [ ] 5.2 Handle network timeouts (10s) with `AbortSignal.timeout(10_000)`
-  - [ ] 5.3 Log errors with provider name and request context
+  - [x] 5.2 Handle network timeouts (10s) with `AbortSignal.timeout(10_000)`
+  - [x] 5.3 Log errors with provider name and request context
 
-- [ ] Task 6: Register provider in VoiceModule (AC: #1)
-  - [ ] 6.1 Add `SarvamProvider` to VoiceModule providers array
-  - [ ] 6.2 Register in VoiceService provider registry under key `'sarvam'`
+- [x] Task 6: Register provider in VoiceModule (AC: #1)
+  - [x] 6.1 Add `SarvamProvider` to VoiceModule providers array
+  - [x] 6.2 Register in VoiceService provider registry under key `'sarvam'`
 
-- [ ] Task 7: Add environment config (AC: #5)
-  - [ ] 7.1 Add `SARVAM_API_KEY` to `.env.example`
-  - [ ] 7.2 Validate API key is present on provider initialization (log warning if missing, don't crash)
+- [x] Task 7: Add environment config (AC: #5)
+  - [x] 7.1 Add `SARVAM_API_KEY` to `.env.example`
+  - [x] 7.2 Validate API key is present on provider initialization (log warning if missing, don't crash)
 
-- [ ] Task 8: Unit tests (AC: #8)
-  - [ ] 8.1 Create `apps/api/test/services/voice/sarvam.provider.spec.ts`
-  - [ ] 8.2 Mock `fetch` calls — test successful STT response parsing
-  - [ ] 8.3 Mock `fetch` calls — test successful TTS response parsing (base64 decode)
-  - [ ] 8.4 Test language code mapping (internal ↔ BCP-47)
-  - [ ] 8.5 Test error mapping (each Sarvam error code → correct NestJS exception)
-  - [ ] 8.6 Test timeout handling
-  - [ ] 8.7 Test `detectLanguage()` delegates to STT with `unknown` language
+- [x] Task 8: Unit tests (AC: #8)
+  - [x] 8.1 Create `apps/api/test/services/voice/sarvam.provider.spec.ts`
+  - [x] 8.2 Mock `fetch` calls — test successful STT response parsing
+  - [x] 8.3 Mock `fetch` calls — test successful TTS response parsing (base64 decode)
+  - [x] 8.4 Test language code mapping (internal ↔ BCP-47)
+  - [x] 8.5 Test error mapping (each Sarvam error code → correct NestJS exception)
+  - [x] 8.6 Test timeout handling
+  - [x] 8.7 Test `detectLanguage()` delegates to STT with `unknown` language
 
 ## Dev Notes
 
@@ -268,9 +268,24 @@ formData.append('language_code', this.toSarvamLanguage(request.language));
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- All 24 unit tests pass (sarvam.provider.spec.ts)
+- All 18 existing voice.service tests pass (zero regressions)
 
 ### Completion Notes List
+- Expanded `SupportedLanguage` type to include all Indian languages (bn, ta, te, gu, kn, ml, pa, or)
+- Implemented SarvamProvider with full STT (Saarika v2.5) and TTS (Bulbul v3) support
+- Language code mapping between ISO 639-1 (internal) ↔ BCP-47 (Sarvam), including od-IN gotcha for Odia
+- Error handling maps all 7 Sarvam error codes to appropriate NestJS HTTP exceptions
+- Network timeout handling (10s) with AbortSignal
+- detectLanguage delegates to STT with `language_code: 'unknown'`
+- Registered in VoiceModule, added SARVAM_API_KEY to .env.example
 
 ### File List
+- `apps/api/src/modules/voice/providers/sarvam.provider.ts` (new)
+- `apps/api/src/modules/voice/providers/voice-provider.interface.ts` (modified — expanded SupportedLanguage)
+- `apps/api/src/modules/voice/voice.module.ts` (modified — added SarvamProvider)
+- `apps/api/.env.example` (modified — added SARVAM_API_KEY)
+- `apps/api/test/services/voice/sarvam.provider.spec.ts` (new — 24 tests)

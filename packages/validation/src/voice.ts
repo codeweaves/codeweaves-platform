@@ -23,7 +23,6 @@ export type SupportedLanguageEnum = z.infer<typeof supportedLanguageEnum>;
 // ============================================
 
 export const voiceConfigSchema = z.object({
-  enabled: z.boolean().default(false),
   sttEnabled: z.boolean().default(true),
   ttsEnabled: z.boolean().default(true),
   sttProvider: voiceProviderEnum.optional(),
