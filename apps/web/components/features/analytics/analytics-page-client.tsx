@@ -32,6 +32,7 @@ import { MessageVolumeHeatmap } from './message-volume-heatmap';
 import { AgentAnalyticsTable } from './agent-analytics-table';
 import { AnalyticsEmptyState } from './analytics-empty-state';
 import { AnalyticsExportButton } from './analytics-export-button';
+import { VoiceAnalyticsSection } from './voice-analytics-section';
 
 // --- Date helpers (M3 fix: use local date, not UTC) ---
 function formatDateLocal(date: Date): string {
@@ -266,6 +267,12 @@ export function AnalyticsPageClient() {
 
           {/* Agent Analytics Table (Story 8-8) */}
           <AgentAnalyticsTable params={analyticsParams} pollingOptions={pollingOptions} />
+
+          {/* Voice Analytics Section (Story 10-14) */}
+          <div>
+            <h2 className="mb-4 text-lg font-semibold">Voice Analytics</h2>
+            <VoiceAnalyticsSection params={analyticsParams} pollingOptions={pollingOptions} />
+          </div>
         </>
       )}
     </div>

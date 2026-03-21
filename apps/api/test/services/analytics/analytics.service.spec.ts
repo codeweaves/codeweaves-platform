@@ -579,6 +579,203 @@ describe('AnalyticsService', () => {
     });
   });
 
+  // ==========================================
+  // Voice Analytics — getVoiceSummary (Story 10-14, AC: 4, 7, 8)
+  // ==========================================
+
+  describe('getVoiceSummary', () => {
+    beforeEach(() => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+    });
+
+    it('should return correct voice summary with counts and ratios', async () => {
+      // current period voice metrics + previous period voice metrics (called in parallel)
+      mockPrismaService.$queryRaw
+        .mockResolvedValueOnce([{
+          voice_count: BigInt(30),
+          text_count: BigInt(70),
+          avg_stt_latency: 450.5,
+          avg_tts_latency: 800.3,
+          error_count: BigInt(2),
+        }])
+        .mockResolvedValueOnce([{
+          voice_count: BigInt(20),
+          text_count: BigInt(80),
+          avg_stt_latency: 500,
+          avg_tts_latency: 900,
+          error_count: BigInt(1),
+        }]);
+
+      const result = await service.getVoiceSummary(baseQuery, adminUser);
+
+      expect(result.totalVoiceMessages).toBe(30);
+      expect(result.totalTextMessages).toBe(70);
+      expect(result.voiceRatio).toBe(0.3);
+      expect(result.avgSttLatencyMs).toBe(451);
+      expect(result.avgTtsLatencyMs).toBe(800);
+      expect(result.voiceErrorCount).toBe(2);
+      expect(result.trend.voiceMessagesTrend).toBe(50); // 30 vs 20 = +50%
+    });
+
+    it('should return zeros when no agents found', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([]);
+
+      const result = await service.getVoiceSummary(baseQuery, adminUser);
+
+      expect(result.totalVoiceMessages).toBe(0);
+      expect(result.totalTextMessages).toBe(0);
+      expect(result.voiceRatio).toBe(0);
+      expect(result.avgSttLatencyMs).toBe(0);
+      expect(result.avgTtsLatencyMs).toBe(0);
+      expect(result.voiceErrorCount).toBe(0);
+      expect(result.trend.voiceMessagesTrend).toBe(0);
+    });
+
+    it('should return zeros when no voice messages exist', async () => {
+      mockPrismaService.$queryRaw
+        .mockResolvedValueOnce([{
+          voice_count: BigInt(0),
+          text_count: BigInt(50),
+          avg_stt_latency: null,
+          avg_tts_latency: null,
+          error_count: BigInt(0),
+        }])
+        .mockResolvedValueOnce([{
+          voice_count: BigInt(0),
+          text_count: BigInt(40),
+          avg_stt_latency: null,
+          avg_tts_latency: null,
+          error_count: BigInt(0),
+        }]);
+
+      const result = await service.getVoiceSummary(baseQuery, adminUser);
+
+      expect(result.totalVoiceMessages).toBe(0);
+      expect(result.voiceRatio).toBe(0);
+      expect(result.avgSttLatencyMs).toBe(0);
+    });
+
+    it('should respect tenant isolation for CLIENT users', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+      mockPrismaService.$queryRaw
+        .mockResolvedValueOnce([{ voice_count: BigInt(5), text_count: BigInt(10), avg_stt_latency: 300, avg_tts_latency: 600, error_count: BigInt(0) }])
+        .mockResolvedValueOnce([{ voice_count: BigInt(3), text_count: BigInt(8), avg_stt_latency: 350, avg_tts_latency: 650, error_count: BigInt(0) }]);
+
+      await service.getVoiceSummary(baseQuery, clientUser);
+
+      expect(mockPrismaService.agent.findMany).toHaveBeenCalledWith({
+        where: expect.objectContaining({ organizationId: orgId }),
+        select: { id: true },
+      });
+    });
+  });
+
+  // ==========================================
+  // Voice Analytics — getLanguageDistribution (Story 10-14, AC: 5, 7, 8)
+  // ==========================================
+
+  describe('getLanguageDistribution', () => {
+    beforeEach(() => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+    });
+
+    it('should return language distribution with percentages', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValueOnce([
+        { language: 'hi', count: BigInt(60) },
+        { language: 'en', count: BigInt(30) },
+        { language: 'mr', count: BigInt(10) },
+      ]);
+
+      const result = await service.getLanguageDistribution(baseQuery, adminUser);
+
+      expect(result.languages).toHaveLength(3);
+      expect(result.languages[0]).toEqual({ language: 'hi', count: 60, percentage: 60 });
+      expect(result.languages[1]).toEqual({ language: 'en', count: 30, percentage: 30 });
+      expect(result.languages[2]).toEqual({ language: 'mr', count: 10, percentage: 10 });
+    });
+
+    it('should return empty array when no voice messages exist', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValueOnce([]);
+
+      const result = await service.getLanguageDistribution(baseQuery, adminUser);
+
+      expect(result.languages).toEqual([]);
+    });
+
+    it('should return empty when no agents found', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([]);
+
+      const result = await service.getLanguageDistribution(baseQuery, adminUser);
+
+      expect(result.languages).toEqual([]);
+    });
+  });
+
+  // ==========================================
+  // Voice Analytics — getVoiceLatencyByProvider (Story 10-14, AC: 6, 7, 8)
+  // ==========================================
+
+  describe('getVoiceLatencyByProvider', () => {
+    beforeEach(() => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+    });
+
+    it('should return STT and TTS latency by provider with P50/P95', async () => {
+      // STT query result, TTS query result (called in parallel)
+      mockPrismaService.$queryRaw
+        .mockResolvedValueOnce([
+          { provider: 'sarvam', avg: 450, p50: 400, p95: 800, count: BigInt(50) },
+          { provider: 'deepgram', avg: 300, p50: 250, p95: 600, count: BigInt(30) },
+        ])
+        .mockResolvedValueOnce([
+          { provider: 'sarvam', avg: 700, p50: 650, p95: 1200, count: BigInt(40) },
+          { provider: 'elevenlabs', avg: 500, p50: 450, p95: 900, count: BigInt(25) },
+        ]);
+
+      const result = await service.getVoiceLatencyByProvider(baseQuery, adminUser);
+
+      expect(result.stt).toHaveLength(2);
+      expect(result.stt[0]).toEqual({ provider: 'sarvam', avg: 450, p50: 400, p95: 800, count: 50 });
+      expect(result.stt[1]).toEqual({ provider: 'deepgram', avg: 300, p50: 250, p95: 600, count: 30 });
+
+      expect(result.tts).toHaveLength(2);
+      expect(result.tts[0]).toEqual({ provider: 'sarvam', avg: 700, p50: 650, p95: 1200, count: 40 });
+      expect(result.tts[1]).toEqual({ provider: 'elevenlabs', avg: 500, p50: 450, p95: 900, count: 25 });
+    });
+
+    it('should return empty arrays when no agents found', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([]);
+
+      const result = await service.getVoiceLatencyByProvider(baseQuery, adminUser);
+
+      expect(result.stt).toEqual([]);
+      expect(result.tts).toEqual([]);
+    });
+
+    it('should return empty arrays when no voice latency data exists', async () => {
+      mockPrismaService.$queryRaw
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([]);
+
+      const result = await service.getVoiceLatencyByProvider(baseQuery, adminUser);
+
+      expect(result.stt).toEqual([]);
+      expect(result.tts).toEqual([]);
+    });
+  });
+
+  // ==========================================
+  // Voice Analytics — Error Cases (Story 10-14)
+  // ==========================================
+
+  describe('voice analytics error cases', () => {
+    it('should throw ForbiddenException for CLIENT without organization on voice endpoints', async () => {
+      await expect(service.getVoiceSummary(baseQuery, clientUserNoOrg)).rejects.toThrow(ForbiddenException);
+      await expect(service.getLanguageDistribution(baseQuery, clientUserNoOrg)).rejects.toThrow(ForbiddenException);
+      await expect(service.getVoiceLatencyByProvider(baseQuery, clientUserNoOrg)).rejects.toThrow(ForbiddenException);
+    });
+  });
+
   // Error Cases (AC: 14)
   // ==========================================
 

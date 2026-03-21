@@ -108,6 +108,52 @@ export class AnalyticsController {
     return this.analyticsService.getAgentMetrics(query, user);
   }
 
+  // ==========================================
+  // Voice Analytics Endpoints (Story 10-14)
+  // ==========================================
+
+  @Get('voice/summary')
+  @ApiOperation({ summary: 'Get voice analytics summary (voice vs text ratio, latencies, errors)' })
+  @ApiQuery({ name: 'startDate', required: true, type: String, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'endDate', required: true, type: String, description: 'End date (ISO 8601)' })
+  @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
+  @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
+  @ApiResponse({ status: 200, description: 'Voice analytics summary' })
+  async getVoiceSummary(
+    @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.analyticsService.getVoiceSummary(query, user);
+  }
+
+  @Get('voice/languages')
+  @ApiOperation({ summary: 'Get voice language distribution for pie chart' })
+  @ApiQuery({ name: 'startDate', required: true, type: String, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'endDate', required: true, type: String, description: 'End date (ISO 8601)' })
+  @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
+  @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
+  @ApiResponse({ status: 200, description: 'Language distribution data' })
+  async getLanguageDistribution(
+    @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.analyticsService.getLanguageDistribution(query, user);
+  }
+
+  @Get('voice/latency')
+  @ApiOperation({ summary: 'Get per-provider voice latency breakdown (P50, P95, avg)' })
+  @ApiQuery({ name: 'startDate', required: true, type: String, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'endDate', required: true, type: String, description: 'End date (ISO 8601)' })
+  @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
+  @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
+  @ApiResponse({ status: 200, description: 'Voice latency per provider' })
+  async getVoiceLatencyByProvider(
+    @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.analyticsService.getVoiceLatencyByProvider(query, user);
+  }
+
   @Post('export-log')
   @ApiOperation({ summary: 'Log an analytics data export action' })
   @ApiResponse({ status: 201, description: 'Export logged successfully' })
