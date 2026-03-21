@@ -263,7 +263,7 @@ development_status:
   10-10-dashboard-voice-configuration-ui: done
   10-11-language-detection-preference-persistence: backlog
   10-12-widget-language-selector-ui: backlog
-  10-13-voice-error-handling-fallbacks: ready-for-dev
+  10-13-voice-error-handling-fallbacks: done
   10-14-voice-analytics-metrics-tracking: ready-for-dev
   10-15-voice-integration-testing-provider-health-checks: ready-for-dev
   epic-10-retrospective: optional

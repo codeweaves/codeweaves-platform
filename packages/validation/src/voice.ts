@@ -5,6 +5,24 @@
 import { z } from 'zod';
 
 // ============================================
+// Voice Error Codes
+// ============================================
+
+export const voiceErrorCodes = {
+  STT_FAILED: 'STT_FAILED',
+  TTS_FAILED: 'TTS_FAILED',
+  UNSUPPORTED_LANGUAGE: 'UNSUPPORTED_LANGUAGE',
+  PROVIDER_TIMEOUT: 'PROVIDER_TIMEOUT',
+  PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
+  INVALID_AUDIO: 'INVALID_AUDIO',
+  AUDIO_TOO_SHORT: 'AUDIO_TOO_SHORT',
+  RATE_LIMITED: 'RATE_LIMITED',
+  RECORDING_FAILED: 'RECORDING_FAILED',
+} as const;
+
+export type VoiceErrorCode = (typeof voiceErrorCodes)[keyof typeof voiceErrorCodes];
+
+// ============================================
 // Voice Provider Enum
 // ============================================
 

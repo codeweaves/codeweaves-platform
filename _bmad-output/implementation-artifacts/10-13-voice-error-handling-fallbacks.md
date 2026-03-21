@@ -1,6 +1,6 @@
 # Story 10.13: Voice Error Handling & Fallbacks
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -25,8 +25,8 @@ So that I can still use the chatbot via text.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Define voice error codes and types (AC: #10)
-  - [ ] 1.1 Create error code enum in `packages/validation/src/voice.ts`:
+- [x] Task 1: Define voice error codes and types (AC: #10)
+  - [x] 1.1 Create error code enum in `packages/validation/src/voice.ts`:
     ```typescript
     export const voiceErrorCodes = {
       STT_FAILED: 'STT_FAILED',
@@ -39,15 +39,15 @@ So that I can still use the chatbot via text.
       RATE_LIMITED: 'RATE_LIMITED',
     } as const;
     ```
-  - [ ] 1.2 Export from `packages/validation/src/index.ts`
+  - [x] 1.2 Export from `packages/validation/src/index.ts`
 
-- [ ] Task 2: Backend error handling in VoiceController (AC: #6, #10, #11)
-  - [ ] 2.1 Update `apps/api/src/modules/voice/voice.controller.ts`
-  - [ ] 2.2 Wrap STT call in try/catch — on failure, return structured error:
+- [x] Task 2: Backend error handling in VoiceController (AC: #6, #10, #11)
+  - [x] 2.1 Update `apps/api/src/modules/voice/voice.controller.ts`
+  - [x] 2.2 Wrap STT call in try/catch — on failure, return structured error:
     ```typescript
     { error: true, errorCode: 'STT_FAILED', message: 'Speech recognition failed' }
     ```
-  - [ ] 2.3 Wrap TTS call in try/catch — on failure, still return the text response with `audio: null`:
+  - [x] 2.3 Wrap TTS call in try/catch — on failure, still return the text response with `audio: null`:
     ```typescript
     {
       transcription: { text, detectedLanguage, confidence },
@@ -56,23 +56,23 @@ So that I can still use the chatbot via text.
       ttsError: { errorCode: 'TTS_FAILED', message: 'Voice synthesis unavailable' },
     }
     ```
-  - [ ] 2.4 Handle `UnsupportedLanguageError` from provider routing — return 422 with `UNSUPPORTED_LANGUAGE` code
-  - [ ] 2.5 Handle provider timeout — return 504 with `PROVIDER_TIMEOUT` code
-  - [ ] 2.6 When TTS fallback chain is exhausted (all providers failed), return text-only response (not 500):
+  - [x] 2.4 Handle `UnsupportedLanguageError` from provider routing — return 422 with `UNSUPPORTED_LANGUAGE` code
+  - [x] 2.5 Handle provider timeout — return 504 with `PROVIDER_TIMEOUT` code
+  - [x] 2.6 When TTS fallback chain is exhausted (all providers failed), return text-only response (not 500):
     - This is graceful degradation, not an error — the user still gets the AI's text response
     - Include `ttsError` field so the frontend knows TTS failed
 
-- [ ] Task 3: Sentry error reporting for voice failures (AC: #7)
-  - [ ] 3.1 Update voice controller and service error handling to capture Sentry context
-  - [ ] 3.2 On STT failure, report to Sentry with extras: `{ provider, language, agentId, errorType: 'stt_failure' }`
-  - [ ] 3.3 On TTS failure (including fallback exhaustion), report to Sentry with extras: `{ provider, language, agentId, errorType: 'tts_failure', fallbackAttempted: true }`
-  - [ ] 3.4 On provider timeout, report to Sentry with extras: `{ provider, language, agentId, errorType: 'provider_timeout', timeoutMs }`
-  - [ ] 3.5 Use existing `SentryService` integration — errors with status >= 500 are already auto-captured by `AllExceptionsFilter`, but voice-specific context needs to be added via `Sentry.setContext()` or `Sentry.captureException()` with extras
-  - [ ] 3.6 TTS graceful degradation (text-only fallback) should be logged as a **warning**, not an error — it's expected behavior
+- [x] Task 3: Sentry error reporting for voice failures (AC: #7)
+  - [x] 3.1 Update voice controller and service error handling to capture Sentry context
+  - [x] 3.2 On STT failure, report to Sentry with extras: `{ provider, language, agentId, errorType: 'stt_failure' }`
+  - [x] 3.3 On TTS failure (including fallback exhaustion), report to Sentry with extras: `{ provider, language, agentId, errorType: 'tts_failure', fallbackAttempted: true }`
+  - [x] 3.4 On provider timeout, report to Sentry with extras: `{ provider, language, agentId, errorType: 'provider_timeout', timeoutMs }`
+  - [x] 3.5 Use existing `SentryService` integration — errors with status >= 500 are already auto-captured by `AllExceptionsFilter`, but voice-specific context needs to be added via `Sentry.setContext()` or `Sentry.captureException()` with extras
+  - [x] 3.6 TTS graceful degradation (text-only fallback) should be logged as a **warning**, not an error — it's expected behavior
 
-- [ ] Task 4: Frontend error handling in useVoice hook (AC: #1, #2, #3, #4, #5, #8, #9)
-  - [ ] 4.1 Update `apps/web/hooks/use-voice.ts`
-  - [ ] 4.2 Map backend `errorCode` to user-friendly messages:
+- [x] Task 4: Frontend error handling in useVoice hook (AC: #1, #2, #3, #4, #5, #8, #9)
+  - [x] 4.1 Update `apps/web/hooks/use-voice.ts`
+  - [x] 4.2 Map backend `errorCode` to user-friendly messages:
     ```typescript
     const ERROR_MESSAGES: Record<string, string> = {
       STT_FAILED: "Couldn't understand audio. Please try again or type your message.",
@@ -85,31 +85,31 @@ So that I can still use the chatbot via text.
       RATE_LIMITED: "Too many voice requests. Please wait a moment.",
     };
     ```
-  - [ ] 4.3 Network error handling: `fetch` throws → map to "Connection issue. Please try again."
-  - [ ] 4.4 Microphone permission denied: `NotAllowedError` → "Microphone access denied. Please allow microphone in your browser settings."
-  - [ ] 4.5 On ANY error, always transition back to `idle` state — no stuck states
-  - [ ] 4.6 On TTS failure with text response available: show the text in chat (graceful degradation), show brief error banner for audio failure
-  - [ ] 4.7 Text input must remain functional regardless of voice state — if voice errors out, user can immediately type
-  - [ ] 4.8 Frontend timeout: if API call takes > 30s, abort with `AbortController` and show timeout message
+  - [x] 4.3 Network error handling: `fetch` throws → map to "Connection issue. Please try again."
+  - [x] 4.4 Microphone permission denied: `NotAllowedError` → "Microphone access denied. Please allow microphone in your browser settings."
+  - [x] 4.5 On ANY error, always transition back to `idle` state — no stuck states
+  - [x] 4.6 On TTS failure with text response available: show the text in chat (graceful degradation), show brief error banner for audio failure
+  - [x] 4.7 Text input must remain functional regardless of voice state — if voice errors out, user can immediately type
+  - [x] 4.8 Frontend timeout: if API call takes > 30s, abort with `AbortController` and show timeout message
 
-- [ ] Task 5: Update VoiceErrorBanner for error types (AC: #1, #2, #3, #5, #6, #12)
-  - [ ] 5.1 Update `apps/web/components/features/chat/voice-error-banner.tsx` (from story 10-8)
-  - [ ] 5.2 Accept `errorCode` prop and display appropriate user-friendly message
-  - [ ] 5.3 Different severity levels:
+- [x] Task 5: Update VoiceErrorBanner for error types (AC: #1, #2, #3, #5, #6, #12)
+  - [x] 5.1 Update `apps/web/components/features/chat/voice-error-banner.tsx` (from story 10-8)
+  - [x] 5.2 Accept `errorCode` prop and display appropriate user-friendly message
+  - [x] 5.3 Different severity levels:
     - **Error** (red): STT failed, network error, timeout, permission denied
     - **Warning** (yellow): TTS failed (text still available), rate limited
     - **Info** (blue): unsupported browser (shown once, dismissible)
-  - [ ] 5.4 Auto-dismiss after 5 seconds for warnings, 8 seconds for errors
-  - [ ] 5.5 Dismiss on click
+  - [x] 5.4 Auto-dismiss after 5 seconds for warnings, 8 seconds for errors
+  - [x] 5.5 Dismiss on click
 
-- [ ] Task 6: Frontend Sentry reporting (AC: #7)
-  - [ ] 6.1 On voice errors in the `useVoice` hook, call `Sentry.captureException()` or `Sentry.captureMessage()` with context
-  - [ ] 6.2 Include: `agentId`, `errorCode`, `voiceState` at time of error, browser info (`MediaRecorder` support)
-  - [ ] 6.3 Permission denied is NOT an error to report to Sentry (user choice, not a bug)
-  - [ ] 6.4 Unsupported browser is NOT an error to report to Sentry (expected condition)
+- [x] Task 6: Frontend Sentry reporting (AC: #7)
+  - [x] 6.1 On voice errors in the `useVoice` hook, call `Sentry.captureException()` or `Sentry.captureMessage()` with context
+  - [x] 6.2 Include: `agentId`, `errorCode`, `voiceState` at time of error, browser info (`MediaRecorder` support)
+  - [x] 6.3 Permission denied is NOT an error to report to Sentry (user choice, not a bug)
+  - [x] 6.4 Unsupported browser is NOT an error to report to Sentry (expected condition)
 
-- [ ] Task 7: Unit tests (AC: all)
-  - [ ] 7.1 Backend tests in `apps/api/test/services/voice/voice.controller.spec.ts`:
+- [x] Task 7: Unit tests (AC: all)
+  - [x] 7.1 Backend tests in `apps/api/test/services/voice/voice.controller.spec.ts`:
     - Test STT failure returns structured error with `STT_FAILED` code
     - Test TTS failure returns text-only response with `ttsError` field (not 500)
     - Test TTS fallback exhaustion returns graceful degradation response
@@ -275,9 +275,46 @@ Sentry.captureMessage('Voice STT failed', {
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Fixed `@sentry/node` → `@sentry/nestjs` import (only `@sentry/nestjs` is installed in API package)
+- Rebuilt `@repo/validation` package after adding `voiceErrorCodes` to fix test runtime resolution
+- Fixed TS strict type errors: `ERROR_MESSAGES` record values typed as `string | undefined`
 
 ### Completion Notes List
+- Task 1: Added `voiceErrorCodes` const and `VoiceErrorCode` type to `packages/validation/src/voice.ts`. Already re-exported via wildcard in `index.ts`.
+- Task 2: Rewrote `VoiceController` error handling — STT wrapped in try/catch returning `{ error, errorCode, message }`, TTS wrapped with graceful degradation returning text-only + `ttsError` field, rate limit returns 429 with `RATE_LIMITED` errorCode, empty transcript returns `AUDIO_TOO_SHORT`. Used `@Res({ passthrough: true })` for custom status codes.
+- Task 3: Added `reportVoiceErrorToSentry()` private method using `Sentry.withScope()` with voice context (provider, language, agentId, operation). TTS failures reported as `warning` level, STT as `error`.
+- Task 4: Updated `useVoice` hook with `errorCode` state, `mapErrorToMessage()` mapping backend error codes to user-friendly messages, 30s frontend timeout via `AbortController`, TTS graceful degradation (text delivered even when audio fails). Updated `voice-api.ts` to parse `errorCode` from error responses and added `ttsError` to response type.
+- Task 5: Updated `VoiceErrorBanner` with severity-based styling (red=error, yellow=warning, blue=info) based on `errorCode`. Auto-dismiss: 5s for warnings, 8s for errors.
+- Task 6: Added `Sentry.captureMessage()` calls in `useVoice` for API failures, TTS degradation, and frontend timeouts. Permission denied and unsupported browser are NOT reported (AC #7: 6.3, 6.4).
+- Task 7: Updated 34 backend tests in `voice.controller.spec.ts` covering structured error responses, TTS graceful degradation, RATE_LIMITED errorCode, PROVIDER_TIMEOUT, UNSUPPORTED_LANGUAGE, AUDIO_TOO_SHORT, Sentry reporting, chatService failure, getVoiceConfig failure. All 1169 tests pass.
+
+### Code Review Fixes (post-review)
+- P-1: `classifyVoiceError` accepts `operation` param — returns `TTS_FAILED` for tts operations instead of defaulting to `STT_FAILED`
+- P-2: Added `timedOutRef` to `useVoice` to distinguish timeout abort from unmount abort
+- P-4: `validateAudioFile` returns structured `INVALID_AUDIO` error instead of throwing `BadRequestException`
+- P-5: `chatService.sendMessage` wrapped in try/catch — returns 502 `PROVIDER_UNAVAILABLE` on failure
+- P-6: `getVoiceConfig` wrapped in try/catch — defaults to `{ ttsEnabled: true }` on failure
+- P-7: TTS error message aligned to spec: "Voice playback unavailable"
+- P-8: `errorType` field added to all Sentry voice context objects
+- P-9: `RECORDING_FAILED` added to `voiceErrorCodes` in shared validation package
+- P-10: Re-added `@ApiResponse({ status: 502 })` Swagger decorator to conversation endpoint
+- BS-3: Rate limit message aligned to spec: "Please wait." (both frontend locations)
+- D-1: Added `audio/mp4` and `audio/aac` to `ALLOWED_AUDIO_MIMES` for Safari/iOS support
+- D-2: Added `revokeAudioUrl()` in Audio constructor catch block to prevent URL leak
+- D-3: Added `errorType` context to frontend Sentry reports
 
 ### File List
+- `packages/validation/src/voice.ts` — added `voiceErrorCodes` const, `VoiceErrorCode` type, `RECORDING_FAILED`
+- `apps/api/src/modules/voice/voice.controller.ts` — rewrote error handling with structured responses, Sentry reporting, TTS graceful degradation, chatService/getVoiceConfig try/catch, validateAudioFile structured errors, audio/mp4+aac MIME support
+- `apps/web/lib/voice-api.ts` — added `errorCode` to `VoiceApiError`, `ttsError` to response type, parse error body
+- `apps/web/hooks/use-voice.ts` — error code mapping, frontend timeout with timedOutRef, Sentry reporting with errorType, severity-based auto-dismiss, revokeAudioUrl on Audio error
+- `apps/web/components/features/chat/voice-error-banner.tsx` — severity-based styling (error/warning/info)
+- `apps/web/app/agents/demo/[agentId]/demo-page-client.tsx` — pass `errorCode` to VoiceErrorBanner
+- `apps/api/test/controllers/voice/voice.controller.spec.ts` — 34 tests covering all error scenarios including chatService failure, getVoiceConfig failure, structured INVALID_AUDIO errors
+
+### Change Log
+- 2026-03-21: Implemented voice error handling & fallbacks (story 10-13) — structured error codes, TTS graceful degradation, Sentry reporting, severity-based UI
+- 2026-03-21: Applied 13 code review fixes — classifyVoiceError operation param, timedOutRef, validateAudioFile structured errors, chatService/getVoiceConfig try/catch, spec-aligned messages, Sentry errorType, RECORDING_FAILED code, Safari MIME types, audio URL leak fix
