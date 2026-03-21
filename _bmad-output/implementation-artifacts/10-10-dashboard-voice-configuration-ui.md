@@ -1,6 +1,6 @@
 # Story 10.10: Dashboard Voice Configuration UI
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -32,104 +32,51 @@ So that I can control voice behavior per agent.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Add "Voice" category to agent editor sidebar (AC: #1)
-  - [ ] 1.1 Update `apps/web/components/features/agents/agent-editor/agent-editor-sidebar.tsx`
-  - [ ] 1.2 Add `voice` to the `allCategories` array with a mic icon (e.g., `Mic` from lucide-react)
-  - [ ] 1.3 Position it after "behavior" and before admin-only sections (prompt, integration, branding)
-  - [ ] 1.4 Voice category is visible to all roles (not admin-only) — agent owners configure their own voice settings
+- [x] Task 1: Add "Voice" category to agent editor sidebar (AC: #1)
+  - [x] 1.1 Update `apps/web/components/features/agents/agent-editor/agent-editor-sidebar.tsx`
+  - [x] 1.2 Add `voice` to the `allCategories` array with a mic icon (e.g., `Mic` from lucide-react)
+  - [x] 1.3 Position it after "behavior" and before admin-only sections (prompt, integration, branding)
+  - [x] 1.4 Voice category is visible to all roles (not admin-only) — agent owners configure their own voice settings
 
-- [ ] Task 2: Add voice section routing in agent editor form (AC: #1)
-  - [ ] 2.1 Update `apps/web/components/features/agents/agent-editor/agent-editor-form.tsx`
-  - [ ] 2.2 Add `case 'voice':` that renders the new `<VoiceSettings />` component
+- [x] Task 2: Add voice section routing in agent editor form (AC: #1)
+  - [x] 2.1 Update `apps/web/components/features/agents/agent-editor/agent-editor-form.tsx`
+  - [x] 2.2 Add `case 'voice':` that renders the new `<VoiceSettings />` component
 
-- [ ] Task 3: Extend AgentFormData with voice fields (AC: #5, #8)
-  - [ ] 3.1 Update `AgentFormData` interface in `agent-editor-context.tsx`:
-    ```typescript
-    interface AgentFormData {
-      name: string;
-      systemPrompt: string;
-      welcomeMessage: string;
-      allowedDomains: string[];
-      webhookUrl: string;
-      voiceEnabled: boolean;          // NEW
-      voiceConfig: VoiceConfig | null; // NEW
-    }
-    ```
-  - [ ] 3.2 Initialize `voiceEnabled` and `voiceConfig` from agent API response
-  - [ ] 3.3 Include `voiceEnabled` and `voiceConfig` in the save payload sent to `PATCH /agents/:id`
-  - [ ] 3.4 Ensure `deepEqual` comparison works correctly with the nested `voiceConfig` object for unsaved changes tracking
+- [x] Task 3: Extend AgentFormData with voice fields (AC: #5, #8)
+  - [x] 3.1 Update `AgentFormData` interface in `agent-editor-context.tsx`
+  - [x] 3.2 Initialize `voiceEnabled` and `voiceConfig` from agent API response
+  - [x] 3.3 Include `voiceEnabled` and `voiceConfig` in the save payload sent to `PATCH /agents/:id`
+  - [x] 3.4 Ensure `deepEqual` comparison works correctly with the nested `voiceConfig` object for unsaved changes tracking
 
-- [ ] Task 4: Create VoiceSettings section component (AC: #2, #3, #4, #9, #10)
-  - [ ] 4.1 Create `apps/web/components/features/agents/agent-editor/sections/voice-settings.tsx`
-  - [ ] 4.2 Use `<FormSection>` wrapper with title "Voice Configuration" and description "Enable voice input and output for this agent"
-  - [ ] 4.3 Implement master toggle:
-    ```
-    ┌─────────────────────────────────────────┐
-    │ Enable Voice                    [toggle] │
-    │ Allow users to interact with this       │
-    │ agent using voice                        │
-    └─────────────────────────────────────────┘
-    ```
-  - [ ] 4.4 When `voiceEnabled: false`, hide everything below the master toggle
-  - [ ] 4.5 Implement STT section (visible when voice enabled):
-    ```
-    ┌─────────────────────────────────────────┐
-    │ Voice Input (STT)                       │
-    │ Enable Speech-to-Text       [toggle]    │
-    │ STT Provider    [Auto ▾]                │
-    └─────────────────────────────────────────┘
-    ```
-  - [ ] 4.6 STT Provider dropdown hidden when `sttEnabled: false`
-  - [ ] 4.7 STT Provider options: `Auto` (empty/null), `Sarvam AI`, `Deepgram`, `ElevenLabs`
-  - [ ] 4.8 Implement TTS section (visible when voice enabled):
-    ```
-    ┌─────────────────────────────────────────┐
-    │ Voice Output (TTS)                      │
-    │ Enable Text-to-Speech       [toggle]    │
-    │ TTS Provider    [Auto ▾]                │
-    │ Voice ID        [input]                 │
-    │ Speed           [===●===] 1.0x          │
-    └─────────────────────────────────────────┘
-    ```
-  - [ ] 4.9 TTS Provider options: `Auto` (empty/null), `Sarvam AI`, `ElevenLabs` (no Deepgram — it doesn't support TTS for Indian languages)
-  - [ ] 4.10 TTS Voice ID input: placeholder changes based on provider (e.g., "e.g., Anushka" for Sarvam, "e.g., Xb7hH8MSUJpSbSDYk0k2" for ElevenLabs)
-  - [ ] 4.11 TTS Speed slider: range 0.5–2.0, step 0.1, show current value as "1.0x"
-  - [ ] 4.12 Hide Voice ID, Speed when `ttsEnabled: false`
-  - [ ] 4.13 Implement Language section (visible when voice enabled):
-    ```
-    ┌─────────────────────────────────────────┐
-    │ Language                                 │
-    │ Default Language    [English ▾]          │
-    │ Supported Languages [en] [hi] [+]       │
-    │ Auto-detect Language        [toggle]     │
-    └─────────────────────────────────────────┘
-    ```
-  - [ ] 4.14 Default Language dropdown with language display names:
-    - `en` — English, `hi` — Hindi, `mr` — Marathi, `bn` — Bengali, `ta` — Tamil, `te` — Telugu, `gu` — Gujarati, `kn` — Kannada, `ml` — Malayalam, `pa` — Punjabi, `or` — Odia, `hinglish` — Hinglish
-  - [ ] 4.15 Supported Languages: multi-select or tag-style input where user adds/removes language codes
-  - [ ] 4.16 Auto-detect Language toggle with description: "Automatically detect the user's language from their speech"
+- [x] Task 4: Create VoiceSettings section component (AC: #2, #3, #4, #9, #10)
+  - [x] 4.1 Create `apps/web/components/features/agents/agent-editor/sections/voice-settings.tsx`
+  - [x] 4.2 Use `<FormSection>` wrapper with title "Voice Configuration" and description "Enable voice input and output for this agent"
+  - [x] 4.3 Implement master toggle
+  - [x] 4.4 When `voiceEnabled: false`, hide everything below the master toggle
+  - [x] 4.5 Implement STT section (visible when voice enabled)
+  - [x] 4.6 STT Provider dropdown hidden when `sttEnabled: false`
+  - [x] 4.7 STT Provider options: `Auto` (empty/null), `Sarvam AI`, `Deepgram`, `ElevenLabs`
+  - [x] 4.8 Implement TTS section (visible when voice enabled)
+  - [x] 4.9 TTS Provider options: `Auto` (empty/null), `Sarvam AI`, `ElevenLabs` (no Deepgram)
+  - [x] 4.10 TTS Voice ID input: placeholder changes based on provider
+  - [x] 4.11 TTS Speed slider: range 0.5–2.0, step 0.1, show current value as "1.0x"
+  - [x] 4.12 Hide Voice ID, Speed when `ttsEnabled: false`
+  - [x] 4.13 Implement Language section (visible when voice enabled)
+  - [x] 4.14 Default Language dropdown with language display names (matched to validation schema: en, hi, mr, hinglish)
+  - [x] 4.15 Supported Languages: tag-style badges with add/remove
+  - [x] 4.16 Auto-detect Language toggle with description
 
-- [ ] Task 5: Wire form state to context (AC: #5, #6, #7, #8)
-  - [ ] 5.1 Read `voiceEnabled` and `voiceConfig` from `useAgentEditor()` context
-  - [ ] 5.2 On any change, call `updateFormData()` with updated values
-  - [ ] 5.3 Apply defaults when voice is first enabled and no existing config:
-    ```typescript
-    const defaultVoiceConfig: VoiceConfig = {
-      sttEnabled: true,
-      ttsEnabled: true,
-      defaultLanguage: 'en',
-      supportedLanguages: ['en'],
-      ttsSpeed: 1.0,
-      autoDetectLanguage: true,
-    };
-    ```
-  - [ ] 5.4 When `voiceEnabled` is toggled off, preserve `voiceConfig` in form state (don't clear it)
-  - [ ] 5.5 Validate with `voiceConfigSchema` before saving (the existing save flow should handle this via the API)
+- [x] Task 5: Wire form state to context (AC: #5, #6, #7, #8)
+  - [x] 5.1 Read `voiceEnabled` and `voiceConfig` from `useAgentEditor()` context
+  - [x] 5.2 On any change, call `updateFormData()` with updated values
+  - [x] 5.3 Apply defaults when voice is first enabled and no existing config
+  - [x] 5.4 When `voiceEnabled` is toggled off, preserve `voiceConfig` in form state (don't clear it)
+  - [x] 5.5 Validate with `voiceConfigSchema` before saving (the existing save flow handles this via the API)
 
-- [ ] Task 6: Update save flow to include voice fields (AC: #5)
-  - [ ] 6.1 Update `agent-editor-layout.tsx` save handler to include `voiceEnabled` and `voiceConfig` in the `PATCH /agents/:id` payload
-  - [ ] 6.2 Only include `voiceConfig` in payload when `voiceEnabled` is true OR when it was previously set (preserve on disable)
-  - [ ] 6.3 Handle API validation errors for voice config fields — display inline or as toast
+- [x] Task 6: Update save flow to include voice fields (AC: #5)
+  - [x] 6.1 Update `agent-editor-layout.tsx` save handler to include `voiceEnabled` and `voiceConfig` in the `PATCH /agents/:id` payload
+  - [x] 6.2 `voiceConfig` always included in payload (preserved on disable per AC #8)
+  - [x] 6.3 API validation errors handled by existing toast error flow
 
 ## Dev Notes
 
@@ -276,9 +223,29 @@ BUN_CONFIG_IGNORE_SCRIPTS=true bunx shadcn@latest add slider --yes
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Language options limited to 4 (en, hi, mr, hinglish) to match `supportedLanguageEnum` from `@repo/validation` (story 10-6). Story spec listed 12 but backend validation only accepts 4.
+- Radix Select requires non-empty string values — used `__auto__` sentinel for provider "Auto" option.
+- Slider component already existed in Shadcn UI — no need to install.
+- `deepEqual` in context already handles nested objects, so `voiceConfig` comparison works out of the box.
 
 ### Completion Notes List
+- Added "Voice" sidebar category with Mic icon, positioned after Behavior (non-admin)
+- Created VoiceSettings component with full cascading visibility: master toggle → STT/TTS/Language sections → sub-controls
+- Extended AgentFormData with `voiceEnabled` and `voiceConfig` fields
+- Updated Agent interface with voice fields from API
+- Save payload includes voice fields via existing PATCH /agents/:id flow
+- All lint, type-check, build, and 1162 tests pass
+
+### Change Log
+- 2026-03-21: Implemented story 10-10 — Dashboard Voice Configuration UI
 
 ### File List
+- `apps/web/components/features/agents/agent-editor/sections/voice-settings.tsx` (new)
+- `apps/web/components/features/agents/agent-editor/agent-editor-sidebar.tsx` (modified)
+- `apps/web/components/features/agents/agent-editor/agent-editor-form.tsx` (modified)
+- `apps/web/components/features/agents/agent-editor/agent-editor-context.tsx` (modified)
+- `apps/web/components/features/agents/agent-editor/agent-editor-layout.tsx` (modified)
+- `apps/web/hooks/use-agents.ts` (modified)

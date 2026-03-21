@@ -8,6 +8,7 @@ import { BehaviorSettings } from './sections/behavior-settings';
 import { PromptSettings } from './sections/prompt-settings';
 import { IntegrationSettings } from './sections/integration-settings';
 import { BrandingSettings } from './sections/branding-settings';
+import { VoiceSettings } from './sections/voice-settings';
 
 interface AgentEditorFormProps {
   selectedCategory: CategoryId;
@@ -23,6 +24,8 @@ export function AgentEditorForm({ selectedCategory }: AgentEditorFormProps) {
       return <ChatSettings />;
     case 'behavior':
       return <BehaviorSettings />;
+    case 'voice':
+      return <VoiceSettings />;
     case 'prompt':
       return <PromptSettings />;
     case 'integration':
