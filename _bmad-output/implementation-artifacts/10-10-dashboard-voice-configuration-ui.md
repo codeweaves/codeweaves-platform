@@ -1,6 +1,6 @@
 # Story 10.10: Dashboard Voice Configuration UI
 
-Status: review
+Status: done
 
 ## Story
 

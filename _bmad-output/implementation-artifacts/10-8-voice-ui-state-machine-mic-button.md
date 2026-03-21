@@ -1,6 +1,6 @@
 # Story 10.8: Voice UI — State Machine & Mic Button
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -29,13 +29,13 @@ So that I can interact with the agent using voice on both the demo page and agen
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create `useVoice` hook (AC: #2, #3, #4, #5, #6, #7, #8, #9)
-  - [ ] 1.1 Create `apps/web/hooks/use-voice.ts`
-  - [ ] 1.2 Define state machine type:
+- [x] Task 1: Create `useVoice` hook (AC: #2, #3, #4, #5, #6, #7, #8, #9)
+  - [x] 1.1 Create `apps/web/hooks/use-voice.ts`
+  - [x] 1.2 Define state machine type:
     ```typescript
     type VoiceState = 'idle' | 'listening' | 'processing' | 'playing';
     ```
-  - [ ] 1.3 Implement state transitions:
+  - [x] 1.3 Implement state transitions:
     ```
     idle → listening     (user clicks mic, permission granted)
     idle → error         (user clicks mic, permission denied)
@@ -45,7 +45,7 @@ So that I can interact with the agent using voice on both the demo page and agen
     playing → idle          (audio playback ends OR user clicks stop)
     error → idle            (after displaying error)
     ```
-  - [ ] 1.4 Hook signature:
+  - [x] 1.4 Hook signature:
     ```typescript
     interface UseVoiceOptions {
       agentId: string;
@@ -65,59 +65,59 @@ So that I can interact with the agent using voice on both the demo page and agen
       isSupported: boolean;  // false if MediaRecorder not available
     }
     ```
-  - [ ] 1.5 Check `navigator.mediaDevices?.getUserMedia` support on mount — set `isSupported` accordingly
-  - [ ] 1.6 `startRecording()`: request mic permission → create `MediaRecorder` with `audio/webm` → start recording → transition to `listening`
-  - [ ] 1.7 Track recording duration with `setInterval` (update every 100ms)
-  - [ ] 1.8 Auto-stop at 60 seconds: `setTimeout(() => stopRecording(), 60_000)` — clear on manual stop
-  - [ ] 1.9 `stopRecording()`: stop `MediaRecorder` → collect chunks into `Blob` → transition to `processing` → call API
-  - [ ] 1.10 API call: `POST /voice/conversation` with `FormData` (audio blob + agentId + sessionId + languageHint)
-  - [ ] 1.11 On successful response: call `onTranscription` and `onResponse` callbacks → if audio present, transition to `playing` → if no audio, transition to `idle`
-  - [ ] 1.12 On error: set `error` state, transition to `idle`, call `onError` callback
-  - [ ] 1.13 Cleanup: stop MediaRecorder, release mic stream, clear timers on unmount
+  - [x] 1.5 Check `navigator.mediaDevices?.getUserMedia` support on mount — set `isSupported` accordingly
+  - [x] 1.6 `startRecording()`: request mic permission → create `MediaRecorder` with `audio/webm` → start recording → transition to `listening`
+  - [x] 1.7 Track recording duration with `setInterval` (update every 100ms)
+  - [x] 1.8 Auto-stop at 60 seconds: `setTimeout(() => stopRecording(), 60_000)` — clear on manual stop
+  - [x] 1.9 `stopRecording()`: stop `MediaRecorder` → collect chunks into `Blob` → transition to `processing` → call API
+  - [x] 1.10 API call: `POST /voice/conversation` with `FormData` (audio blob + agentId + sessionId + languageHint)
+  - [x] 1.11 On successful response: call `onTranscription` and `onResponse` callbacks → if audio present, transition to `playing` → if no audio, transition to `idle`
+  - [x] 1.12 On error: set `error` state, transition to `idle`, call `onError` callback
+  - [x] 1.13 Cleanup: stop MediaRecorder, release mic stream, clear timers on unmount
 
-- [ ] Task 2: Create VoiceMicButton component (AC: #1, #3, #11, #12)
-  - [ ] 2.1 Create `apps/web/components/features/chat/voice-mic-button.tsx`
-  - [ ] 2.2 Render different icons/states based on `voiceState`:
+- [x] Task 2: Create VoiceMicButton component (AC: #1, #3, #11, #12)
+  - [x] 2.1 Create `apps/web/components/features/chat/voice-mic-button.tsx`
+  - [x] 2.2 Render different icons/states based on `voiceState`:
     - `idle`: microphone icon (e.g., `Mic` from lucide-react)
     - `listening`: stop icon (`Square`) with pulse animation
     - `processing`: spinner (`Loader2` with `animate-spin`)
     - `playing`: speaker icon (`Volume2`) with stop option
-  - [ ] 2.3 Show recording duration timer during `listening` state (format: `0:05`, `0:30`, `1:00`)
-  - [ ] 2.4 Pulse animation on the mic button during `listening` (CSS `animate-pulse` or custom keyframes with ring effect)
-  - [ ] 2.5 Button is disabled during `processing` state
-  - [ ] 2.6 Use theme colors from parent context (demo page theme or editor preview theme)
-  - [ ] 2.7 Add `aria-label` for each state: "Start recording", "Stop recording", "Processing voice", "Stop playback"
-  - [ ] 2.8 Add `aria-live="polite"` region for state change announcements
+  - [x] 2.3 Show recording duration timer during `listening` state (format: `0:05`, `0:30`, `1:00`)
+  - [x] 2.4 Pulse animation on the mic button during `listening` (CSS `animate-pulse` or custom keyframes with ring effect)
+  - [x] 2.5 Button is disabled during `processing` state
+  - [x] 2.6 Use theme colors from parent context (demo page theme or editor preview theme)
+  - [x] 2.7 Add `aria-label` for each state: "Start recording", "Stop recording", "Processing voice", "Stop playback"
+  - [x] 2.8 Add `aria-live="polite"` region for state change announcements
 
-- [ ] Task 3: Create VoiceErrorBanner component (AC: #9)
-  - [ ] 3.1 Create inline error display (not a modal/toast — appears near the mic button)
-  - [ ] 3.2 Show specific messages:
+- [x] Task 3: Create VoiceErrorBanner component (AC: #9)
+  - [x] 3.1 Create inline error display (not a modal/toast — appears near the mic button)
+  - [x] 3.2 Show specific messages:
     - Permission denied: "Microphone access denied. Please allow microphone in your browser settings."
     - Not supported: "Voice is not supported in this browser."
     - API error: "Voice processing failed. Please try again."
     - Rate limited: "Too many voice requests. Please wait."
-  - [ ] 3.3 Auto-dismiss after 5 seconds or on user click
+  - [x] 3.3 Auto-dismiss after 5 seconds or on user click
 
-- [ ] Task 4: Integrate voice into demo page (AC: #10)
-  - [ ] 4.1 Update `apps/web/app/agents/demo/[agentId]/demo-page-client.tsx`
-  - [ ] 4.2 Fetch `voiceEnabled` from the agent demo endpoint response (may need API update if not included)
-  - [ ] 4.3 Conditionally render `VoiceMicButton` next to the send button when `voiceEnabled: true`
-  - [ ] 4.4 Initialize `useVoice` hook with `agentId` and current `sessionId`
-  - [ ] 4.5 Wire `onTranscription` callback: add user message to chat (same as typed message)
-  - [ ] 4.6 Wire `onResponse` callback: add assistant message to chat with typewriter animation (same as text response)
-  - [ ] 4.7 Disable text input and send button during `listening`, `processing`, `playing` states
-  - [ ] 4.8 Show `VoiceErrorBanner` when voice error occurs
+- [x] Task 4: Integrate voice into demo page (AC: #10)
+  - [x] 4.1 Update `apps/web/app/agents/demo/[agentId]/demo-page-client.tsx`
+  - [x] 4.2 Fetch `voiceEnabled` from the agent demo endpoint response (may need API update if not included)
+  - [x] 4.3 Conditionally render `VoiceMicButton` next to the send button when `voiceEnabled: true`
+  - [x] 4.4 Initialize `useVoice` hook with `agentId` and current `sessionId`
+  - [x] 4.5 Wire `onTranscription` callback: add user message to chat (same as typed message)
+  - [x] 4.6 Wire `onResponse` callback: add assistant message to chat with typewriter animation (same as text response)
+  - [x] 4.7 Disable text input and send button during `listening`, `processing`, `playing` states
+  - [x] 4.8 Show `VoiceErrorBanner` when voice error occurs
 
-- [ ] Task 5: Integrate voice visuals into agent editor preview (AC: #10)
-  - [ ] 5.1 Update `apps/web/components/features/agents/agent-editor/chat-widget-surface.tsx`
-  - [ ] 5.2 Accept `voiceEnabled` prop (from agent editor form data)
-  - [ ] 5.3 Conditionally render `VoiceMicButton` next to the send button when `voiceEnabled` is toggled on
-  - [ ] 5.4 Preview is **visual-only**: show the themed mic button and UI layout but do NOT initialize `useVoice` hook, no real recording, no API calls
-  - [ ] 5.5 Optionally allow cycling through states via click for visual preview (idle → listening → processing → playing → idle) so the user can see all animation states in the theme editor
-  - [ ] 5.6 Respect preview theme colors for the voice button
+- [x] Task 5: Integrate voice visuals into agent editor preview (AC: #10)
+  - [x] 5.1 Update `apps/web/components/features/agents/agent-editor/chat-widget-surface.tsx`
+  - [x] 5.2 Accept `voiceEnabled` prop (from agent editor form data)
+  - [x] 5.3 Conditionally render `VoiceMicButton` next to the send button when `voiceEnabled` is toggled on
+  - [x] 5.4 Preview is **visual-only**: show the themed mic button and UI layout but do NOT initialize `useVoice` hook, no real recording, no API calls
+  - [x] 5.5 Optionally allow cycling through states via click for visual preview (idle → listening → processing → playing → idle) so the user can see all animation states in the theme editor
+  - [x] 5.6 Respect preview theme colors for the voice button
 
-- [ ] Task 6: API integration helper (AC: #5, #6)
-  - [ ] 6.1 Create `apps/web/lib/voice-api.ts` with typed API call:
+- [x] Task 6: API integration helper (AC: #5, #6)
+  - [x] 6.1 Create `apps/web/lib/voice-api.ts` with typed API call:
     ```typescript
     export async function sendVoiceConversation(params: {
       audio: Blob;
@@ -140,8 +140,8 @@ So that I can interact with the agent using voice on both the demo page and agen
       return response.json();
     }
     ```
-  - [ ] 6.2 Define `VoiceConversationResponse` type matching the API response shape from 10-7
-  - [ ] 6.3 Handle error responses (rate limit, validation, server errors) with typed error classes
+  - [x] 6.2 Define `VoiceConversationResponse` type matching the API response shape from 10-7
+  - [x] 6.3 Handle error responses (rate limit, validation, server errors) with typed error classes
 
 ## Dev Notes
 
@@ -333,9 +333,27 @@ const isSupported = typeof window !== 'undefined'
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Lint caught unused `Volume2` import in voice-mic-button.tsx — removed (using `Square` icon for stop in both listening and playing states)
 
 ### Completion Notes List
+- Task 6: Created `apps/web/lib/voice-api.ts` — typed API helper with `sendVoiceConversation()`, `VoiceConversationResponse` type matching 10-7 endpoint, and `VoiceApiError` class for error handling (rate limit, validation, server errors)
+- Task 1: Created `apps/web/hooks/use-voice.ts` — 4-state machine (`idle → listening → processing → playing`), MediaRecorder with `audio/webm`, 60s auto-stop, duration tracking at 100ms intervals, mic permission error handling, base64 audio playback via `HTMLAudioElement`, auto-dismiss errors after 5s, full cleanup on unmount
+- Task 2: Created `apps/web/components/features/chat/voice-mic-button.tsx` — state-specific icons (Mic/Square/Loader2/Square), pulse animation during listening, recording duration timer, aria-labels per state, sr-only live region for state announcements
+- Task 3: Created `apps/web/components/features/chat/voice-error-banner.tsx` — inline error display near mic button with dismiss button, role="alert" for accessibility
+- Task 4: Updated demo page — added `voiceConfig` to `AgentDemoInfo` interface (API already returns it), conditionally renders VoiceMicButton when voice enabled + browser supported, wires `onTranscription`/`onResponse` callbacks to add messages to chat, disables text input during voice states, shows VoiceErrorBanner on errors
+- Task 5: Updated agent editor preview — added `voiceEnabled` to `PreviewFormData` and `toPreviewFormData()`, preview mic button cycles through visual states on click (idle → listening → processing → playing), themed using `sendButtonBg`/`sendButtonBorderRadius`/`sendButtonIconColor`, no real recording or API calls
+
+### Change Log
+- 2026-03-21: Implemented all 6 tasks for story 10-8 Voice UI State Machine & Mic Button
 
 ### File List
+- `apps/web/lib/voice-api.ts` (new)
+- `apps/web/hooks/use-voice.ts` (new)
+- `apps/web/components/features/chat/voice-mic-button.tsx` (new)
+- `apps/web/components/features/chat/voice-error-banner.tsx` (new)
+- `apps/web/app/agents/demo/[agentId]/demo-page-client.tsx` (modified)
+- `apps/web/components/features/agents/agent-editor/chat-widget-surface.tsx` (modified)
+- `apps/web/components/features/agents/agent-editor/agent-editor-context.tsx` (modified)

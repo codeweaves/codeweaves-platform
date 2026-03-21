@@ -258,9 +258,9 @@ development_status:
   10-5-voice-service-language-based-provider-routing: done
   10-6-voice-configuration-schema-database: done
   10-7-voice-controller-full-conversation-endpoint: done
-  10-8-voice-ui-state-machine-mic-button: ready-for-dev
+  10-8-voice-ui-state-machine-mic-button: done
   10-9-widget-voice-audio-capture-playback: backlog
-  10-10-dashboard-voice-configuration-ui: review
+  10-10-dashboard-voice-configuration-ui: done
   10-11-language-detection-preference-persistence: backlog
   10-12-widget-language-selector-ui: backlog
   10-13-voice-error-handling-fallbacks: ready-for-dev
