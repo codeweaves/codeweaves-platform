@@ -1,6 +1,6 @@
 # Story 10.6: Voice Configuration Schema & Database
 
-Status: review
+Status: done
 
 ## Story
 
