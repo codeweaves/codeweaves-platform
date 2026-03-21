@@ -105,3 +105,16 @@ export class VoiceProviderError extends HttpException {
     super(`[${provider}] ${message}`, status);
   }
 }
+
+export class UnsupportedLanguageError extends VoiceProviderError {
+  constructor(
+    provider: string,
+    public readonly language: string,
+  ) {
+    super(
+      provider,
+      `Language "${language}" is not supported by ${provider}`,
+      HttpStatus.BAD_REQUEST,
+    );
+  }
+}

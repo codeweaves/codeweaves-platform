@@ -26,7 +26,7 @@ export class VoiceController {
   async transcribe(
     @Body(new ZodValidationPipe(transcribeSchema)) dto: TranscribeDto,
   ) {
-    const result = await this.voiceService.transcribe('stub', {
+    const result = await this.voiceService.transcribe({
       audio: Buffer.alloc(0),
       audioFormat: 'audio/webm',
       languageHint: dto.languageHint as SupportedLanguage | undefined,
@@ -42,7 +42,7 @@ export class VoiceController {
   async synthesize(
     @Body(new ZodValidationPipe(synthesizeSchema)) dto: SynthesizeDto,
   ) {
-    const result = await this.voiceService.synthesize('stub', {
+    const result = await this.voiceService.synthesize({
       text: dto.text,
       language: dto.language as SupportedLanguage,
       voiceId: dto.voiceId,
