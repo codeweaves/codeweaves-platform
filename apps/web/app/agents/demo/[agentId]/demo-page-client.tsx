@@ -5,9 +5,20 @@ import { ArrowLeft, Send, Bot, User } from 'lucide-react';
 import Link from 'next/link';
 import { apiUrl } from '@/config/api';
 import { ChatMessageContent } from '@/components/features/chat/chat-message-content';
+import { VoiceMicButton } from '@/components/features/chat/voice-mic-button';
+import { VoiceErrorBanner } from '@/components/features/chat/voice-error-banner';
+import { useVoice } from '@/hooks/use-voice';
 
 interface Starter {
   message: string;
+}
+
+interface AgentVoiceConfig {
+  sttEnabled: boolean;
+  ttsEnabled: boolean;
+  defaultLanguage: string;
+  supportedLanguages: string[];
+  autoDetectLanguage: boolean;
 }
 
 interface AgentDemoInfo {
@@ -19,6 +30,7 @@ interface AgentDemoInfo {
     starters?: Starter[];
     [key: string]: unknown;
   } | null;
+  voiceConfig: AgentVoiceConfig | null;
 }
 
 interface Message {
@@ -45,11 +57,43 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const [isTyping, setIsTyping] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [startersVisible, setStartersVisible] = useState(true);
+  const [voiceSessionId, setVoiceSessionId] = useState<string | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingMsgIdRef = useRef<string | null>(null);
+
+  // Voice
+  const voiceEnabled = !!agent?.voiceConfig;
+  const {
+    voiceState,
+    startRecording,
+    stopRecording,
+    stopPlayback,
+    clearError: clearVoiceError,
+    recordingDurationMs,
+    error: voiceError,
+    isSupported: voiceSupported,
+  } = useVoice({
+    agentId,
+    sessionId: voiceSessionId,
+    onTranscription: useCallback((text: string) => {
+      setStartersVisible(false);
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: 'user', content: text, timestamp: new Date() },
+      ]);
+    }, []),
+    onResponse: useCallback((reply: string, newSessionId: string) => {
+      sessionIdRef.current = newSessionId;
+      setVoiceSessionId(newSessionId);
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: 'bot', content: reply, timestamp: new Date() },
+      ]);
+    }, []),
+  });
 
   // Typewriter animation state
   const typewriterBufferRef = useRef('');
@@ -217,6 +261,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
               } else if (parsed.type === 'done') {
                 if (parsed.sessionId) {
                   sessionIdRef.current = parsed.sessionId;
+                  if (parsed.sessionId) setVoiceSessionId(parsed.sessionId);
                 }
               } else if (parsed.type === 'error') {
                 // Remove empty bot message on error, keep partial content
@@ -311,7 +356,8 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
     sendMessage(starter.message).catch(() => {});
   };
 
-  const isBusy = isTyping || isStreaming;
+  const isVoiceActive = voiceState !== 'idle';
+  const isBusy = isTyping || isStreaming || isVoiceActive;
 
   if (loading) {
     return (
@@ -468,16 +514,32 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
 
           {/* Input Area */}
           <div className="border-t bg-white px-4 py-3">
+            {voiceError && (
+              <VoiceErrorBanner
+                error={voiceError}
+                onDismiss={clearVoiceError}
+              />
+            )}
             <form onSubmit={handleSubmit} className="flex gap-2">
               <input
                 ref={inputRef}
                 type="text"
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
-                placeholder="Type a message..."
+                placeholder={voiceState === 'listening' ? 'Recording...' : 'Type a message...'}
                 className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
                 disabled={isBusy}
               />
+              {voiceEnabled && voiceSupported && (
+                <VoiceMicButton
+                  voiceState={voiceState}
+                  recordingDurationMs={recordingDurationMs}
+                  onStartRecording={startRecording}
+                  onStopRecording={stopRecording}
+                  onStopPlayback={stopPlayback}
+                  disabled={isTyping || isStreaming}
+                />
+              )}
               <button
                 type="submit"
                 disabled={!input.trim() || isBusy}

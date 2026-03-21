@@ -162,6 +162,8 @@ export interface PreviewFormData {
   brandingLogo: string;
   brandingTextColor: string;
   brandingLinkColor: string;
+  // Voice
+  voiceEnabled: boolean;
 }
 
 /** Maps AgentFormData + WidgetTheme to the full PreviewFormData shape for the chat widget preview. */
@@ -241,6 +243,8 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     brandingLogo: themeData.branding.logo ?? '',
     brandingTextColor: themeData.branding.textColor,
     brandingLinkColor: themeData.branding.linkColor,
+    // Voice
+    voiceEnabled: formData.voiceEnabled,
   };
 }
 

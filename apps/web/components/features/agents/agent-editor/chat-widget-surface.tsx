@@ -14,6 +14,10 @@ import {
   User as UserIcon,
   UserCheck,
   Send,
+  Mic,
+  Square,
+  Loader2,
+  Volume2,
 } from 'lucide-react';
 import type { PreviewFormData } from './agent-editor-context';
 
@@ -50,9 +54,18 @@ export function ChatWidgetSurface({
   typingIndicator,
 }: ChatWidgetSurfaceProps) {
   const [inputValue, setInputValue] = useState('');
+  const [previewVoiceState, setPreviewVoiceState] = useState<'idle' | 'listening' | 'processing' | 'playing'>('idle');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const msgRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+
+  const cycleVoiceState = () => {
+    setPreviewVoiceState((prev) => {
+      const order = ['idle', 'listening', 'processing', 'playing'] as const;
+      const idx = order.indexOf(prev);
+      return order[(idx + 1) % order.length]!;
+    });
+  };
 
   const handleSend = () => {
     if (!inputValue.trim()) return;
@@ -478,6 +491,34 @@ export function ChatWidgetSurface({
                     borderRadius: `${formData.inputBorderRadius || 14}px`,
                   }}
                 />
+                {formData.voiceEnabled && (
+                  <button
+                    onClick={cycleVoiceState}
+                    aria-label={
+                      previewVoiceState === 'idle' ? 'Start recording' :
+                      previewVoiceState === 'listening' ? 'Stop recording' :
+                      previewVoiceState === 'processing' ? 'Processing voice' :
+                      'Stop playback'
+                    }
+                    className="relative flex h-10 w-10 items-center justify-center p-0"
+                    style={{
+                      backgroundColor: previewVoiceState === 'listening' ? '#EF4444' :
+                        previewVoiceState === 'playing' ? '#F97316' :
+                        formData.sendButtonBg,
+                      borderRadius: `${formData.sendButtonBorderRadius || 14}px`,
+                      color: formData.sendButtonIconColor || '#FFFFFF',
+                      opacity: previewVoiceState === 'processing' ? 0.6 : 1,
+                    }}
+                  >
+                    {previewVoiceState === 'listening' && (
+                      <span className="absolute inset-0 animate-ping rounded-lg bg-red-400 opacity-30" style={{ borderRadius: `${formData.sendButtonBorderRadius || 14}px` }} />
+                    )}
+                    {previewVoiceState === 'idle' && <Mic className="h-4 w-4" />}
+                    {previewVoiceState === 'listening' && <Square className="relative h-3.5 w-3.5 fill-current" />}
+                    {previewVoiceState === 'processing' && <Loader2 className="h-4 w-4 animate-spin" />}
+                    {previewVoiceState === 'playing' && <Volume2 className="h-4 w-4" />}
+                  </button>
+                )}
                 <button
                   onClick={handleSend}
                   aria-label="Send message"
