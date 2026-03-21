@@ -106,6 +106,8 @@ model Agent {
   organization   Organization  @relation(fields: [organizationId], references: [id])
   allowedDomains String[]
   hmacEnabled    Boolean       @default(false)
+  voiceEnabled   Boolean       @default(false)
+  voiceConfig    Json?         @db.JsonB
   systemPrompt   String?       @db.Text
   welcomeMessage String?
   secret         AgentSecret?

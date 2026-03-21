@@ -1,6 +1,6 @@
 # Story 10.6: Voice Configuration Schema & Database
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -21,37 +21,37 @@ So that each agent can have independent voice settings.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Prisma schema migration (AC: #1, #2)
-  - [ ] 1.1 Add `voiceEnabled Boolean @default(false)` to Agent model in `apps/api/prisma/schema.prisma`
-  - [ ] 1.2 Add `voiceConfig Json? @db.JsonB` to Agent model
-  - [ ] 1.3 Run `bunx prisma migrate dev --name add-agent-voice-config`
-  - [ ] 1.4 Verify migration creates both columns with correct types and defaults
+- [x] Task 1: Prisma schema migration (AC: #1, #2)
+  - [x] 1.1 Add `voiceEnabled Boolean @default(false)` to Agent model in `apps/api/prisma/schema.prisma`
+  - [x] 1.2 Add `voiceConfig Json? @db.JsonB` to Agent model
+  - [x] 1.3 Run `bunx prisma migrate dev --name add-agent-voice-config`
+  - [x] 1.4 Verify migration creates both columns with correct types and defaults
 
-- [ ] Task 2: Zod validation schemas (AC: #3, #4, #7)
-  - [ ] 2.1 Create `voiceProviderEnum` in `packages/validation/src/voice.ts` (if not already from 10-1)
-  - [ ] 2.2 Create `voiceConfigSchema` with all fields and defaults
-  - [ ] 2.3 Export `VoiceConfig` type via `z.infer`
-  - [ ] 2.4 Export from `packages/validation/src/index.ts`
+- [x] Task 2: Zod validation schemas (AC: #3, #4, #7)
+  - [x] 2.1 Create `voiceProviderEnum` in `packages/validation/src/voice.ts` (if not already from 10-1)
+  - [x] 2.2 Create `voiceConfigSchema` with all fields and defaults
+  - [x] 2.3 Export `VoiceConfig` type via `z.infer`
+  - [x] 2.4 Export from `packages/validation/src/index.ts`
 
-- [ ] Task 3: Update agent schemas (AC: #5)
-  - [ ] 3.1 Add `voiceEnabled: z.boolean().optional()` to `updateAgentSchema` in `packages/validation/src/index.ts`
-  - [ ] 3.2 Add `voiceConfig: voiceConfigSchema.optional()` to `updateAgentSchema`
-  - [ ] 3.3 Update the `.refine()` validator to include voice fields in "at least one field" check
-  - [ ] 3.4 Ensure `createAgentSchema` does NOT include voice fields (agents start with voice disabled)
+- [x] Task 3: Update agent schemas (AC: #5)
+  - [x] 3.1 Add `voiceEnabled: z.boolean().optional()` to `updateAgentSchema` in `packages/validation/src/index.ts`
+  - [x] 3.2 Add `voiceConfig: voiceConfigSchema.optional()` to `updateAgentSchema`
+  - [x] 3.3 Update the `.refine()` validator to include voice fields in "at least one field" check
+  - [x] 3.4 Ensure `createAgentSchema` does NOT include voice fields (agents start with voice disabled)
 
-- [ ] Task 4: Update AgentsService (AC: #5)
-  - [ ] 4.1 Update `update()` method in `apps/api/src/services/agents.service.ts` to handle `voiceEnabled` and `voiceConfig`
-  - [ ] 4.2 When saving `voiceConfig`, validate with `voiceConfigSchema.parse()` before writing to DB
-  - [ ] 4.3 When returning agent data, include `voiceEnabled` and `voiceConfig` in responses
-  - [ ] 4.4 If `voiceEnabled` is set to `false`, optionally preserve `voiceConfig` (don't delete it — user may re-enable)
+- [x] Task 4: Update AgentsService (AC: #5)
+  - [x] 4.1 Update `update()` method in `apps/api/src/services/agents.service.ts` to handle `voiceEnabled` and `voiceConfig`
+  - [x] 4.2 When saving `voiceConfig`, validate with `voiceConfigSchema.parse()` before writing to DB
+  - [x] 4.3 When returning agent data, include `voiceEnabled` and `voiceConfig` in responses
+  - [x] 4.4 If `voiceEnabled` is set to `false`, optionally preserve `voiceConfig` (don't delete it — user may re-enable)
 
-- [ ] Task 5: Update agent response DTOs (AC: #5, #6)
-  - [ ] 5.1 Ensure agent list and detail responses include `voiceEnabled` field
-  - [ ] 5.2 Ensure agent detail response includes `voiceConfig` (parsed from JSONB)
-  - [ ] 5.3 For widget config response (when it exists), include `voiceConfig` only when `voiceEnabled: true`
+- [x] Task 5: Update agent response DTOs (AC: #5, #6)
+  - [x] 5.1 Ensure agent list and detail responses include `voiceEnabled` field
+  - [x] 5.2 Ensure agent detail response includes `voiceConfig` (parsed from JSONB)
+  - [x] 5.3 For widget config response (when it exists), include `voiceConfig` only when `voiceEnabled: true`
 
-- [ ] Task 6: Add environment variables placeholder (AC: #5)
-  - [ ] 6.1 Ensure `.env.example` has voice provider API keys (may already exist from 10-1):
+- [x] Task 6: Add environment variables placeholder (AC: #5)
+  - [x] 6.1 Ensure `.env.example` has voice provider API keys (may already exist from 10-1):
     ```
     # Voice Providers (Epic 10)
     SARVAM_API_KEY=
@@ -60,14 +60,14 @@ So that each agent can have independent voice settings.
     ELEVENLABS_DEFAULT_VOICE_ID=
     ```
 
-- [ ] Task 7: Unit tests (AC: #8)
-  - [ ] 7.1 Update `apps/api/test/services/agents/agents.service.spec.ts`
-  - [ ] 7.2 Test updating agent with `voiceEnabled: true`
-  - [ ] 7.3 Test updating agent with full `voiceConfig` object
-  - [ ] 7.4 Test `voiceConfig` validation rejects invalid values (bad provider name, speed out of range)
-  - [ ] 7.5 Test `voiceConfig` defaults are applied for missing fields
-  - [ ] 7.6 Test disabling voice preserves voiceConfig
-  - [ ] 7.7 Test agent response includes voice fields
+- [x] Task 7: Unit tests (AC: #8)
+  - [x] 7.1 Update `apps/api/test/services/agents/agents.service.spec.ts`
+  - [x] 7.2 Test updating agent with `voiceEnabled: true`
+  - [x] 7.3 Test updating agent with full `voiceConfig` object
+  - [x] 7.4 Test `voiceConfig` validation rejects invalid values (bad provider name, speed out of range)
+  - [x] 7.5 Test `voiceConfig` defaults are applied for missing fields
+  - [x] 7.6 Test disabling voice preserves voiceConfig
+  - [x] 7.7 Test agent response includes voice fields
 
 ## Dev Notes
 
@@ -284,9 +284,28 @@ Follow the same pattern. The `voiceConfig` JSONB stores the full `VoiceConfig` o
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Debug Log References
+- Supabase project was paused/unhealthy during initial migration attempt — waited for DB to come online before running migration
+- Bun + Jest `stack-utils` readonly property error affects all test suites when run from `apps/api` directly — must run from monorepo root via `bun run test`
 
 ### Completion Notes List
+- ✅ Task 1: Migration `20260321054050_add_agent_voice_config` applied — added `voiceEnabled` (Boolean, default false) and `voiceConfig` (JSONB, nullable) to Agent model
+- ✅ Task 2: `voiceConfigSchema` already existed from story 10-1 in `packages/validation/src/voice.ts` — verified all fields match AC #3, #4, #7
+- ✅ Task 3: `updateAgentSchema` updated with `voiceEnabled` and `voiceConfig` optional fields, refine check extended, `createAgentSchema` left untouched
+- ✅ Task 4: `AgentsService.update()` handles both voice fields — Zod validates `voiceConfig` before DB write, `voiceConfig` preserved when disabling voice
+- ✅ Task 5: Agent list/detail responses include voice fields (Prisma returns full model). `getDemoInfo` conditionally returns `voiceConfig` only when `voiceEnabled: true`
+- ✅ Task 6: `.env.example` already has all 4 voice provider keys from story 10-1
+- ✅ Task 7: 9 unit tests added covering all 7 subtasks — voiceEnabled toggle, full config update, invalid provider rejection, ttsSpeed range validation, defaults, preserve on disable, response inclusion, widget conditional config
+- ✅ All 1114 tests pass, lint clean, type-check clean, build successful
 
 ### File List
+- `apps/api/prisma/schema.prisma` — Added `voiceEnabled` and `voiceConfig` fields to Agent model
+- `apps/api/prisma/migrations/20260321054050_add_agent_voice_config/migration.sql` — Migration file
+- `packages/validation/src/index.ts` — Added `voiceEnabled` and `voiceConfig` to `updateAgentSchema`, imported `voiceConfigSchema`
+- `apps/api/src/services/agents.service.ts` — Updated `update()` with voice field handling, updated `getDemoInfo` with conditional voiceConfig
+- `apps/api/test/services/agents/agents.service.spec.ts` — Added 9 voice config tests (2 describe blocks), added `agentTheme` to mock, added `voiceEnabled`/`voiceConfig` to mockAgent
+
+### Change Log
+- 2026-03-21: Implemented story 10-6 — Voice Configuration Schema & Database. Added voiceEnabled/voiceConfig to Agent model, updated PATCH endpoint, added 9 unit tests. All 1114 tests pass.

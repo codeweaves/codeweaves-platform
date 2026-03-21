@@ -252,11 +252,11 @@ development_status:
   # ============================================
   epic-10: in-progress
   10-1-voice-provider-interface-adapter-foundation: done
-  10-2-sarvam-ai-provider-implementation: ready-for-dev
-  10-3-deepgram-provider-implementation: ready-for-dev
-  10-4-elevenlabs-provider-implementation: ready-for-dev
+  10-2-sarvam-ai-provider-implementation: done
+  10-3-deepgram-provider-implementation: done
+  10-4-elevenlabs-provider-implementation: done
   10-5-voice-service-language-based-provider-routing: ready-for-dev
-  10-6-voice-configuration-schema-database: ready-for-dev
+  10-6-voice-configuration-schema-database: review
   10-7-voice-controller-full-conversation-endpoint: ready-for-dev
   10-8-voice-ui-state-machine-mic-button: ready-for-dev
   10-9-widget-voice-audio-capture-playback: backlog

@@ -4,7 +4,19 @@ import { HttpException, HttpStatus } from '@nestjs/common';
 // Normalized Language Codes (ISO 639-1 based)
 // ============================================
 
-export type SupportedLanguage = 'en' | 'hi' | 'mr' | 'hinglish';
+export type SupportedLanguage =
+  | 'en'
+  | 'hi'
+  | 'mr'
+  | 'bn'
+  | 'ta'
+  | 'te'
+  | 'gu'
+  | 'kn'
+  | 'ml'
+  | 'pa'
+  | 'or'
+  | 'hinglish';
 
 // ============================================
 // STT (Speech-to-Text) Types
@@ -19,6 +31,10 @@ export interface STTRequest {
 
 export interface STTResponse {
   transcript: string;
+  /** Confidence score (0-1). Semantics vary by provider:
+   *  - Deepgram: transcription confidence
+   *  - Sarvam: language detection probability
+   *  - ElevenLabs: language detection probability */
   confidence: number;
   detectedLanguage: SupportedLanguage;
   provider: string;

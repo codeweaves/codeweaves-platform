@@ -3,6 +3,7 @@
  * Shared Zod schemas for validation across frontend and backend
  */
 import { z } from 'zod';
+import { voiceConfigSchema } from './voice.js';
 
 // Re-export zod for convenience
 export { z } from 'zod';
@@ -185,9 +186,16 @@ export const updateAgentSchema = z
     name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters').optional(),
     status: agentStatusEnum.optional(),
     allowedDomains: allowedDomainsSchema.optional(),
+    voiceEnabled: z.boolean().optional(),
+    voiceConfig: voiceConfigSchema.nullable().optional(),
   })
   .refine(
-    (data) => data.name !== undefined || data.status !== undefined || data.allowedDomains !== undefined,
+    (data) =>
+      data.name !== undefined ||
+      data.status !== undefined ||
+      data.allowedDomains !== undefined ||
+      data.voiceEnabled !== undefined ||
+      data.voiceConfig !== undefined,
     { message: 'At least one field must be provided' },
   );
 

@@ -27,6 +27,9 @@ describe('AgentsService', () => {
       findUnique: jest.fn(),
       upsert: jest.fn(),
     },
+    agentTheme: {
+      findUnique: jest.fn(),
+    },
   };
 
   const mockAgentLogger = {
@@ -66,6 +69,9 @@ describe('AgentsService', () => {
     status: 'ACTIVE',
     organizationId: orgId,
     allowedDomains: [],
+    hmacEnabled: false,
+    voiceEnabled: false,
+    voiceConfig: null,
     systemPrompt: null,
     welcomeMessage: null,
     createdAt: new Date('2026-01-01'),
@@ -905,6 +911,243 @@ describe('AgentsService', () => {
       await expect(service.testWebhook(agentId, adminUser)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  // ==========================================
+  // Voice Configuration Tests (Story 10-6)
+  // ==========================================
+
+  describe('update — voice configuration', () => {
+    const validVoiceConfig = {
+      sttEnabled: true,
+      ttsEnabled: true,
+      sttProvider: 'deepgram' as const,
+      ttsProvider: 'elevenlabs' as const,
+      defaultLanguage: 'en' as const,
+      supportedLanguages: ['en' as const],
+      ttsVoiceId: 'Xb7hH8MSUJpSbSDYk0k2',
+      ttsSpeed: 1.0,
+      autoDetectLanguage: true,
+    };
+
+    it('should reject voiceEnabled: true when no voiceConfig exists', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+
+      await expect(
+        service.update(agentId, { voiceEnabled: true }, adminUser),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrismaService.agent.update).not.toHaveBeenCalled();
+    });
+
+    it('should allow voiceEnabled: true when agent already has voiceConfig', async () => {
+      const agentWithConfig = { ...mockAgent, voiceConfig: validVoiceConfig };
+      const updated = { ...agentWithConfig, voiceEnabled: true };
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithConfig);
+      mockPrismaService.agent.update.mockResolvedValue(updated);
+
+      const result = await service.update(agentId, { voiceEnabled: true }, adminUser);
+
+      expect(result.voiceEnabled).toBe(true);
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
+        where: { id: agentId },
+        data: { voiceEnabled: true },
+        include: { organization: { select: { id: true, name: true } } },
+      });
+    });
+
+    it('should update agent with full voiceConfig object', async () => {
+      const updated = { ...mockAgent, voiceEnabled: true, voiceConfig: validVoiceConfig };
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue(updated);
+
+      const result = await service.update(
+        agentId,
+        { voiceEnabled: true, voiceConfig: validVoiceConfig },
+        adminUser,
+      );
+
+      expect(result.voiceEnabled).toBe(true);
+      expect(result.voiceConfig).toEqual(validVoiceConfig);
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
+        where: { id: agentId },
+        data: {
+          voiceEnabled: true,
+          voiceConfig: expect.objectContaining({
+            sttEnabled: true,
+            ttsEnabled: true,
+            sttProvider: 'deepgram',
+            ttsProvider: 'elevenlabs',
+          }),
+        },
+        include: { organization: { select: { id: true, name: true } } },
+      });
+    });
+
+    it('should reject voiceConfig with invalid provider name as BadRequestException', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+
+      await expect(
+        service.update(
+          agentId,
+          // eslint-disable-next-line @typescript-eslint/no-explicit-any
+          { voiceConfig: { ...validVoiceConfig, sttProvider: 'invalid-provider' } as any },
+          adminUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrismaService.agent.update).not.toHaveBeenCalled();
+    });
+
+    it('should reject voiceConfig with ttsSpeed out of range as BadRequestException', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+
+      await expect(
+        service.update(
+          agentId,
+          { voiceConfig: { ...validVoiceConfig, ttsSpeed: 5.0 } },
+          adminUser,
+        ),
+      ).rejects.toThrow(BadRequestException);
+
+      expect(mockPrismaService.agent.update).not.toHaveBeenCalled();
+    });
+
+    it('should apply defaults for missing voiceConfig fields', async () => {
+      const minimalConfig = {};
+      const expectedDefaults = {
+        sttEnabled: true,
+        ttsEnabled: true,
+        defaultLanguage: 'en',
+        supportedLanguages: ['en'],
+        ttsSpeed: 1.0,
+        autoDetectLanguage: true,
+      };
+      const updated = { ...mockAgent, voiceConfig: expectedDefaults };
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue(updated);
+
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      await service.update(agentId, { voiceConfig: minimalConfig as any }, adminUser);
+
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
+        where: { id: agentId },
+        data: {
+          voiceConfig: expect.objectContaining({
+            sttEnabled: true,
+            ttsEnabled: true,
+            defaultLanguage: 'en',
+            supportedLanguages: ['en'],
+            ttsSpeed: 1.0,
+            autoDetectLanguage: true,
+          }),
+        },
+        include: { organization: { select: { id: true, name: true } } },
+      });
+    });
+
+    it('should preserve voiceConfig when disabling voice', async () => {
+      const agentWithVoice = { ...mockAgent, voiceEnabled: true, voiceConfig: validVoiceConfig };
+      const updated = { ...agentWithVoice, voiceEnabled: false };
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithVoice);
+      mockPrismaService.agent.update.mockResolvedValue(updated);
+
+      const result = await service.update(agentId, { voiceEnabled: false }, adminUser);
+
+      expect(result.voiceEnabled).toBe(false);
+      // voiceConfig should NOT be in the update data (not deleted)
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
+        where: { id: agentId },
+        data: { voiceEnabled: false },
+        include: { organization: { select: { id: true, name: true } } },
+      });
+      // The existing voiceConfig is preserved (still on the returned agent)
+      expect(result.voiceConfig).toEqual(validVoiceConfig);
+    });
+
+    it('should include voiceEnabled and voiceConfig in agent response', async () => {
+      const agentWithVoice = { ...mockAgent, voiceEnabled: true, voiceConfig: validVoiceConfig };
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithVoice);
+
+      const result = await service.findById(agentId, adminUser);
+
+      expect(result).toHaveProperty('voiceEnabled', true);
+      expect(result).toHaveProperty('voiceConfig', validVoiceConfig);
+    });
+
+    it('should clear voiceConfig when set to null', async () => {
+      const agentWithVoice = { ...mockAgent, voiceEnabled: false, voiceConfig: validVoiceConfig };
+      const updated = { ...agentWithVoice, voiceConfig: null };
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithVoice);
+      mockPrismaService.agent.update.mockResolvedValue(updated);
+
+      const result = await service.update(agentId, { voiceConfig: null }, adminUser);
+
+      expect(result.voiceConfig).toBeNull();
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith({
+        where: { id: agentId },
+        data: { voiceConfig: Prisma.DbNull },
+        include: { organization: { select: { id: true, name: true } } },
+      });
+    });
+  });
+
+  describe('getDemoInfo — voice config in widget response', () => {
+    it('should return sanitized voiceConfig (no provider details) when voiceEnabled is true', async () => {
+      const voiceConfig = {
+        sttEnabled: true,
+        ttsEnabled: true,
+        sttProvider: 'deepgram',
+        ttsProvider: 'elevenlabs',
+        defaultLanguage: 'en',
+        supportedLanguages: ['en'],
+        ttsVoiceId: 'Xb7hH8MSUJpSbSDYk0k2',
+        ttsSpeed: 1.0,
+        autoDetectLanguage: true,
+      };
+      mockPrismaService.agent.findFirst.mockResolvedValue({
+        id: agentId,
+        publicId: 'AbCd1234',
+        name: 'Test Agent',
+        welcomeMessage: null,
+        voiceEnabled: true,
+        voiceConfig,
+      });
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue(null);
+
+      const result = await service.getDemoInfo(agentId);
+
+      // Should include only widget-safe fields
+      expect(result.voiceConfig).toEqual({
+        sttEnabled: true,
+        ttsEnabled: true,
+        defaultLanguage: 'en',
+        supportedLanguages: ['en'],
+        autoDetectLanguage: true,
+      });
+      // Should NOT expose provider internals
+      expect(result.voiceConfig).not.toHaveProperty('sttProvider');
+      expect(result.voiceConfig).not.toHaveProperty('ttsProvider');
+      expect(result.voiceConfig).not.toHaveProperty('ttsVoiceId');
+      expect(result.voiceConfig).not.toHaveProperty('ttsSpeed');
+    });
+
+    it('should return null voiceConfig when voiceEnabled is false', async () => {
+      const voiceConfig = { sttEnabled: true, ttsEnabled: true, defaultLanguage: 'en' };
+      mockPrismaService.agent.findFirst.mockResolvedValue({
+        id: agentId,
+        publicId: 'AbCd1234',
+        name: 'Test Agent',
+        welcomeMessage: null,
+        voiceEnabled: false,
+        voiceConfig,
+      });
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue(null);
+
+      const result = await service.getDemoInfo(agentId);
+
+      expect(result.voiceConfig).toBeNull();
     });
   });
 });
