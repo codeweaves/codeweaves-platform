@@ -20,17 +20,23 @@ export interface VoiceConversationResponse {
     ttsLatencyMs: number;
     totalLatencyMs: number;
   };
+  ttsError?: {
+    errorCode: string;
+    message: string;
+  };
 }
 
 export class VoiceApiError extends Error {
   status: number;
   statusText: string;
+  errorCode: string | null;
 
-  constructor(response: Response) {
+  constructor(response: Response, errorCode?: string) {
     super(`Voice API error: ${response.status} ${response.statusText}`);
     this.name = 'VoiceApiError';
     this.status = response.status;
     this.statusText = response.statusText;
+    this.errorCode = errorCode ?? null;
   }
 }
 
@@ -63,7 +69,14 @@ export async function sendVoiceConversation(params: {
   });
 
   if (!response.ok) {
-    throw new VoiceApiError(response);
+    let errorCode: string | undefined;
+    try {
+      const body = await response.json();
+      errorCode = body?.errorCode;
+    } catch {
+      // Response body not JSON — leave errorCode undefined
+    }
+    throw new VoiceApiError(response, errorCode);
   }
 
   return response.json();

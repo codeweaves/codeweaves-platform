@@ -74,6 +74,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
     clearError: clearVoiceError,
     recordingDurationMs,
     error: voiceError,
+    errorCode: voiceErrorCode,
     isSupported: voiceSupported,
   } = useVoice({
     agentId,
@@ -517,6 +518,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
             {voiceError && (
               <VoiceErrorBanner
                 error={voiceError}
+                errorCode={voiceErrorCode}
                 onDismiss={clearVoiceError}
               />
             )}
