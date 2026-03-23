@@ -338,15 +338,15 @@ development_status:
   # Dependencies: Epic 6 (Chat), Epic 10 (Voice)
   # Architecture: ADR-013 (architecture.md v1.2.0)
   #
-  # IMPLEMENTATION PHASE ORDER:
-  # Phase 1 (Foundations):    13-1, 13-2 (schema + UI for chatTriggerUrl)
-  # Phase 2 (Core Streaming): 13-3, 13-4, 13-5 (provider, SSE controller, metadata)
-  # Phase 3 (Voice):          13-6, 13-7 (sentence buffer, progressive TTS)
+  # IMPLEMENTATION PHASE ORDER (revised 2026-03-23):
+  # 13-1 and 13-2 CANCELLED — webhookUrl already holds Chat Trigger URL
+  # Phase 1 (Text Streaming):  13-3 → 13-4 (+ 13-5 parallel with 13-4)
+  # Phase 2 (Voice Streaming): 13-6 → 13-7
   # ============================================
   epic-13: in-progress
-  13-1-agent-chat-trigger-url-schema-api: ready-for-dev
-  13-2-dashboard-chat-trigger-url-input: ready-for-dev
-  13-3-n8n-chat-trigger-streaming-provider: ready-for-dev
+  13-1-agent-chat-trigger-url-schema-api: cancelled
+  13-2-dashboard-chat-trigger-url-input: cancelled
+  13-3-n8n-chat-trigger-streaming-provider: done
   13-4-real-sse-streaming-text-chat: ready-for-dev
   13-5-streaming-metadata-extraction-analytics: ready-for-dev
   13-6-sentence-buffer-progressive-tts: ready-for-dev

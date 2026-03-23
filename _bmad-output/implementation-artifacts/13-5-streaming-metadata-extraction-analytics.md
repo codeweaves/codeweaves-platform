@@ -15,37 +15,30 @@ So that I can monitor AI response times and diagnose bottlenecks.
 3. `timeToFirstToken` is calculated (first `item` chunk arrival time - request sent time)
 4. `streamDurationMs` is calculated (`end` timestamp - `begin` timestamp)
 5. `totalTokens` counts the number of `item` chunks received
-6. `streamingMode` is set to `"real"` or `"simulated"` in message metadata
-7. All new metrics are stored in the ChatMessage `metadata` JSON column alongside existing fields
-8. Existing analytics queries continue to work (backward compatible — new fields are additive)
-9. Analytics API endpoints return streaming metrics when available
-10. Unit tests verify metadata extraction for both streaming modes
+6. All new metrics are stored in the ChatMessage `metadata` JSON column alongside existing fields (additive)
+7. Existing analytics queries continue to work (new fields are additive)
+8. Analytics API endpoints return streaming metrics when available
+9. Unit tests verify metadata extraction from stream chunks
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Define StreamingMetadata interface (AC: 1-6)
+- [ ] Task 1: Define StreamingMetadata interface (AC: 1-5)
   - [ ] Create or extend metadata type in `apps/api/src/services/chat-metadata.interface.ts`
-  - [ ] Include all fields: `backendReceivedAt`, `n8nReceivedAt`, `agentRepliedAt`, `backendRespondedAt`, `responseLatencyMs`, `streamingMode`, `timeToFirstToken`, `totalTokens`, `streamDurationMs`
+  - [ ] Include all fields: `backendReceivedAt`, `n8nReceivedAt`, `agentRepliedAt`, `backendRespondedAt`, `responseLatencyMs`, `timeToFirstToken`, `totalTokens`, `streamDurationMs`
 
-- [ ] Task 2: Build metadata in real streaming path (AC: 1-6, 7)
-  - [ ] In `PublicChatController.handleRealStreaming()` (from Story 13-4), collect timestamps during iteration
+- [ ] Task 2: Build metadata in streaming path (AC: 1-5, 6)
+  - [ ] In `PublicChatController.handleStreaming()` (from Story 13-4), collect timestamps during iteration
   - [ ] After stream ends, build full metadata object with all fields
   - [ ] Store in assistant ChatMessage metadata column
 
-- [ ] Task 3: Add streamingMode to simulated path (AC: 6, 8)
-  - [ ] In `ChatService.buildMetadata()`, add `streamingMode: 'simulated'` field
-  - [ ] Existing fields unchanged — purely additive
-
-- [ ] Task 4: Update analytics aggregation (AC: 8, 9)
+- [ ] Task 3: Update analytics aggregation (AC: 7, 8)
   - [ ] Check existing analytics queries in `apps/api/src/services/analytics.service.ts`
-  - [ ] Ensure response time calculations work with both metadata shapes
-  - [ ] Add `streamingMode` to any per-message analytics breakdowns if applicable
+  - [ ] Ensure response time calculations work with the new metadata shape
   - [ ] Add `averageTimeToFirstToken` to analytics summary if useful
 
-- [ ] Task 5: Unit tests (AC: 10)
-  - [ ] Test metadata built from real streaming: all fields present with correct values
-  - [ ] Test metadata built from simulated streaming: `streamingMode: 'simulated'`, no streaming-specific fields
-  - [ ] Test backward compatibility: existing analytics queries handle both shapes
+- [ ] Task 4: Unit tests (AC: 9)
+  - [ ] Test metadata built from streaming: all fields present with correct values
+  - [ ] Test backward compatibility: existing analytics queries handle new fields
   - [ ] Test null handling: missing timestamps in n8n chunks → null in metadata
 
 ## Dev Notes
@@ -63,11 +56,11 @@ So that I can monitor AI response times and diagnose bottlenecks.
 }
 ```
 
-### New Metadata Shape (Real Streaming)
+### New Metadata Shape (Streaming)
 
 ```typescript
 {
-  // Existing fields (same meaning, different source)
+  // Existing fields (same meaning, now sourced from stream chunks)
   backendReceivedAt: "2026-03-01T10:00:00.000Z",
   n8nReceivedAt: "2026-03-01T10:00:00.701Z",       // from begin chunk metadata.timestamp
   agentRepliedAt: "2026-03-01T10:00:02.355Z",       // from end chunk metadata.timestamp
@@ -75,27 +68,9 @@ So that I can monitor AI response times and diagnose bottlenecks.
   responseLatencyMs: 2400,
 
   // New streaming-specific fields
-  streamingMode: "real",
   timeToFirstToken: 750,                             // ms from request sent to first item chunk
   totalTokens: 47,                                   // count of item chunks
   streamDurationMs: 1654,                            // end timestamp - begin timestamp
-}
-```
-
-### New Metadata Shape (Simulated — Backward Compatible)
-
-```typescript
-{
-  // Existing fields (unchanged)
-  backendReceivedAt: "...",
-  n8nReceivedAt: "...",
-  agentRepliedAt: "...",
-  backendRespondedAt: "...",
-  responseLatencyMs: 1300,
-
-  // New field only
-  streamingMode: "simulated",
-  // timeToFirstToken, totalTokens, streamDurationMs are NOT present
 }
 ```
 
