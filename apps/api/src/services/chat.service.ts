@@ -5,7 +5,7 @@ import { HmacService } from '../common/security/hmac.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { TracerService } from '../common/tracer/tracer.service';
 import type { SendMessageDto } from '@repo/validation';
-import type { ChatSession } from '@prisma/client';
+import type { ChatSession, Prisma } from '@prisma/client';
 import { randomUUID } from 'crypto';
 
 const N8N_TIMEOUT_MS = 10_000;
@@ -37,7 +37,7 @@ export class ChatService {
     };
   }
 
-  private async resolveAgent(agentId: string) {
+  async resolveAgent(agentId: string) {
     const agent = await this.prisma.agent.findFirst({
       where: { id: agentId, deletedAt: null, status: 'ACTIVE' },
       select: { id: true, hmacEnabled: true },
@@ -48,7 +48,7 @@ export class ChatService {
     return agent;
   }
 
-  private async resolveOrCreateSession(agentId: string, sessionId?: string): Promise<ChatSession> {
+  async resolveOrCreateSession(agentId: string, sessionId?: string): Promise<ChatSession> {
     if (sessionId) {
       const existing = await this.prisma.chatSession.findFirst({
         where: { sessionId, agentId, status: 'ACTIVE' },
@@ -65,6 +65,41 @@ export class ChatService {
         source: 'DEMO',
       },
     });
+  }
+
+  /**
+   * Save a user message to the database.
+   */
+  async saveUserMessage(chatSessionId: string, content: string) {
+    return this.prisma.chatMessage.create({
+      data: { chatSessionId, role: 'USER', content },
+    });
+  }
+
+  /**
+   * Save an assistant message with metadata to the database.
+   */
+  async saveAssistantMessage(chatSessionId: string, content: string, metadata: Prisma.InputJsonValue) {
+    return this.prisma.chatMessage.create({
+      data: { chatSessionId, role: 'ASSISTANT', content, metadata },
+    });
+  }
+
+  /**
+   * Update session lastMessageAt timestamp.
+   */
+  async updateSessionTimestamp(sessionDbId: string) {
+    return this.prisma.chatSession.update({
+      where: { id: sessionDbId },
+      data: { lastMessageAt: new Date() },
+    });
+  }
+
+  /**
+   * Delete a message by ID. Used to clean up orphaned user messages on stream failure.
+   */
+  async deleteMessage(messageId: string) {
+    return this.prisma.chatMessage.delete({ where: { id: messageId } });
   }
 
   /**

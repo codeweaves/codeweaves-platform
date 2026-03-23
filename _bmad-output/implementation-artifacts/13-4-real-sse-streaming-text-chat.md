@@ -1,6 +1,6 @@
 # Story 13.4: Real SSE Streaming for Text Chat
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -23,39 +23,39 @@ So that the chat feels responsive and natural instead of seeing fake word-by-wor
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Wire N8nStreamingService into controller (AC: 1)
-  - [ ] Inject `N8nStreamingService` and `AgentsService` into `PublicChatController`
-  - [ ] In `stream()` method, replace simulated streaming with real streaming path
-  - [ ] Get webhookUrl via `agentsService.getEffectiveWebhookUrl()`
+- [x] Task 1: Wire N8nStreamingService into controller (AC: 1)
+  - [x] Inject `N8nStreamingService` and `AgentsService` into `PublicChatController`
+  - [x] In `stream()` method, replace simulated streaming with real streaming path
+  - [x] Get webhookUrl via `agentsService.getEffectiveWebhookUrl()`
 
-- [ ] Task 2: Implement real streaming path in controller (AC: 1, 2, 3, 4, 5, 7, 8)
-  - [ ] Call `n8nStreamingService.streamFromWebhookUrl()` to get AsyncGenerator
-  - [ ] Iterate generator, writing each `item` chunk as SSE event
-  - [ ] Track: `fullResponse` (concatenated text), `n8nBeginTimestamp`, `n8nEndTimestamp`, `firstTokenTime`, `tokenCount`
-  - [ ] On stream end: build metadata, save assistant message to DB, send `done` event
-  - [ ] On client disconnect (`res.on('close')`): signal abort to stop generator
-  - [ ] Timeout still applies (30s from stream start)
+- [x] Task 2: Implement real streaming path in controller (AC: 1, 2, 3, 4, 5, 7, 8)
+  - [x] Call `n8nStreamingService.streamFromWebhookUrl()` to get AsyncGenerator
+  - [x] Iterate generator, writing each `item` chunk as SSE event
+  - [x] Track: `fullResponse` (concatenated text), `n8nBeginTimestamp`, `n8nEndTimestamp`, `firstTokenTime`, `tokenCount`
+  - [x] On stream end: build metadata, save assistant message to DB, send `done` event
+  - [x] On client disconnect (`res.on('close')`): signal abort to stop generator
+  - [x] Timeout still applies (30s from stream start)
 
-- [ ] Task 3: Save user message timing (AC: 5)
-  - [ ] Save user message BEFORE starting n8n stream (same as current `streamMessage`)
-  - [ ] Save assistant message AFTER stream completes with full text + metadata
-  - [ ] Update session `lastMessageAt`
+- [x] Task 3: Save user message timing (AC: 5)
+  - [x] Save user message BEFORE starting n8n stream (same as current `streamMessage`)
+  - [x] Save assistant message AFTER stream completes with full text + metadata
+  - [x] Update session `lastMessageAt`
 
-- [ ] Task 4: Remove simulated streaming path (AC: 1)
-  - [ ] Remove the old simulated word-splitting chunking logic from the controller
-  - [ ] The `chatService.streamMessage()` simulated path is no longer called from the controller
+- [x] Task 4: Remove simulated streaming path (AC: 1)
+  - [x] Remove the old simulated word-splitting chunking logic from the controller
+  - [x] The `chatService.streamMessage()` simulated path is no longer called from the controller
 
-- [ ] Task 5: Update ChatModule (AC: 1)
-  - [ ] Import N8nStreamingService in ChatModule providers (if not done in 13-3)
-  - [ ] Ensure AgentsService is accessible (already imported via AgentsModule)
+- [x] Task 5: Update ChatModule (AC: 1)
+  - [x] Import N8nStreamingService in ChatModule providers (if not done in 13-3)
+  - [x] Ensure AgentsService is accessible (already imported via AgentsModule)
 
-- [ ] Task 6: Unit tests (AC: 10)
-  - [ ] Update `apps/api/test/controllers/public/public-chat.controller.spec.ts`
-  - [ ] Add test: streaming path — mock generator yields chunks, SSE events written
-  - [ ] Add test: client disconnect stops streaming
-  - [ ] Add test: stream timeout sends error event
-  - [ ] Add test: rate limit enforced before streaming starts
-  - [ ] Add test: user + assistant messages saved to DB correctly
+- [x] Task 6: Unit tests (AC: 10)
+  - [x] Update `apps/api/test/controllers/public/public-chat.controller.spec.ts`
+  - [x] Add test: streaming path — mock generator yields chunks, SSE events written
+  - [x] Add test: client disconnect stops streaming
+  - [x] Add test: stream timeout sends error event
+  - [x] Add test: rate limit enforced before streaming starts
+  - [x] Add test: user + assistant messages saved to DB correctly
 
 ## Dev Notes
 
@@ -188,9 +188,37 @@ Same as current `streamMessage()` — user message saved first (may orphan on fa
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Completion Notes List
+- Replaced simulated word-splitting streaming with real token-by-token SSE streaming via N8nStreamingService
+- Made ChatService.resolveAgent() and resolveOrCreateSession() public for controller access
+- Added ChatService helper methods: saveUserMessage, saveAssistantMessage, updateSessionTimestamp, deleteMessage
+- Controller uses ChatService for all DB operations (no direct PrismaService injection)
+- Controller now: resolves agent/session → saves user message → streams from n8n webhook → saves assistant message with metadata → sends done event
+- Metadata includes: backendReceivedAt, n8nReceivedAt, agentRepliedAt, backendRespondedAt, responseLatencyMs, timeToFirstToken, totalChunks, streamDurationMs
+- Client disconnect triggers AbortController to cancel n8n fetch
+- 30s timeout still applies via setTimeout in controller
+- SSE event format unchanged (chunk/done/error) — no frontend changes needed
+- Removed CHUNK_DELAY_MS (no more artificial 30ms delay between chunks)
+
+**Code review fixes (2026-03-23):**
+- P1: done event now sends assistant message ID (not user message ID)
+- P2: done event sent even when stream has no item chunks (empty response)
+- P3: Removed direct PrismaService from controller — all DB ops via ChatService
+- P4: Renamed totalTokens → totalChunks (n8n doesn't expose LLM token counts)
+- IG1: Logs warning when streaming with HMAC-enabled agent (HMAC not applicable to streaming)
+- IG2: Service timeout errors mapped to friendly "Stream timeout" message
+- D1: Orphaned user messages cleaned up on stream failure
+- D3: backendReceivedAt captured after rate limit check for accurate latency metrics
+- Full suite: 60 suites, 1217 tests pass. Lint, type-check, build all green.
 
 ### Change Log
+- 2026-03-23: Implemented real SSE streaming for text chat (Story 13-4)
+- 2026-03-23: Fixed all code review findings (P1-P4, IG1-IG2, D1, D3)
 
 ### File List
+- apps/api/src/controllers/public/public-chat.controller.ts (MODIFIED — real streaming implementation with review fixes)
+- apps/api/src/services/chat.service.ts (MODIFIED — public methods, helper methods for DB ops)
+- apps/api/test/controllers/public/public-chat.controller.spec.ts (MODIFIED — 25 tests for real streaming)
+- apps/api/test/services/chat/chat.service.spec.ts (MODIFIED — 4 new tests for helper methods)
