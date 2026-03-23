@@ -5,6 +5,9 @@ import {
   BadRequestException,
   BadGatewayException,
 } from '@nestjs/common';
+import type { N8nStreamChunk } from '../../services/n8n-stream.interface';
+import type { VoiceStreamChunk } from './interfaces/voice-stream.interface';
+import { SentenceBuffer } from './utils/sentence-buffer';
 import {
   type VoiceProvider,
   type STTRequest,
@@ -207,6 +210,123 @@ export class VoiceService {
       `Language detection: routing to ${firstProvider.name} (fallback)`,
     );
     return firstProvider.detectLanguage(audio, audioFormat);
+  }
+
+  async *streamingTTS(
+    tokenStream: AsyncGenerator<N8nStreamChunk>,
+    language: string,
+    agentId: string,
+    config?: VoiceConfigDto,
+  ): AsyncGenerator<VoiceStreamChunk> {
+    const resolvedConfig = config ?? await this.getVoiceConfig(agentId);
+    const provider = this.resolveTTSProvider(resolvedConfig, language as SupportedLanguage);
+    const sentenceBuffer = new SentenceBuffer();
+    let sentenceIndex = 0;
+    let fullText = '';
+
+    for await (const chunk of tokenStream) {
+      if (chunk.type === 'item' && chunk.content) {
+        fullText += chunk.content;
+        const sentences = sentenceBuffer.addToken(chunk.content);
+
+        for (const sentence of sentences) {
+          const result = yield* this.synthesizeSentenceWithFallback(
+            sentence, language as SupportedLanguage, agentId,
+            resolvedConfig, provider, sentenceIndex,
+          );
+          if (result) sentenceIndex++;
+        }
+      }
+    }
+
+    // Flush remaining buffer
+    const remaining = sentenceBuffer.flush();
+    if (remaining) {
+      const result = yield* this.synthesizeSentenceWithFallback(
+        remaining, language as SupportedLanguage, agentId,
+        resolvedConfig, provider, sentenceIndex,
+      );
+      if (result) sentenceIndex++;
+    }
+
+    yield { type: 'end', fullText, totalSentences: sentenceIndex };
+  }
+
+  private async *synthesizeSentenceWithFallback(
+    sentence: string,
+    language: SupportedLanguage,
+    agentId: string,
+    config: VoiceConfigDto,
+    primaryProvider: VoiceProvider,
+    sentenceIndex: number,
+  ): AsyncGenerator<VoiceStreamChunk, boolean> {
+    const request: TTSRequest = {
+      text: sentence,
+      language,
+      agentId,
+      voiceId: config.ttsVoiceId,
+      speed: config.ttsSpeed,
+    };
+
+    // Try primary provider
+    try {
+      const ttsStart = Date.now();
+      const ttsResult = await primaryProvider.synthesize(request);
+      const ttsLatencyMs = Date.now() - ttsStart;
+
+      yield {
+        type: 'audio',
+        sentenceIndex,
+        text: sentence,
+        audio: ttsResult.audio.toString('base64'),
+        audioFormat: ttsResult.audioFormat,
+        audioDurationMs: ttsResult.durationMs ?? null,
+        ttsLatencyMs,
+      };
+      return true;
+    } catch {
+      // Try fallback providers
+      const fallbackOrder = ['elevenlabs', 'sarvam'];
+      for (const providerName of fallbackOrder) {
+        if (providerName === primaryProvider.name) continue;
+        const fallbackProvider = this.ttsProviders.get(providerName);
+        if (!fallbackProvider) continue;
+
+        try {
+          this.logger.warn(
+            `Streaming TTS fallback: ${primaryProvider.name} → ${providerName} for sentence ${sentenceIndex}`,
+          );
+          const ttsStart = Date.now();
+          const ttsResult = await fallbackProvider.synthesize(request);
+          const ttsLatencyMs = Date.now() - ttsStart;
+
+          yield {
+            type: 'audio',
+            sentenceIndex,
+            text: sentence,
+            audio: ttsResult.audio.toString('base64'),
+            audioFormat: ttsResult.audioFormat,
+            audioDurationMs: ttsResult.durationMs ?? null,
+            ttsLatencyMs,
+          };
+          return true;
+        } catch {
+          continue;
+        }
+      }
+
+      // All providers failed — yield error chunk, continue stream
+      this.logger.error(
+        `All TTS providers failed for sentence ${sentenceIndex}: "${sentence.substring(0, 50)}..."`,
+      );
+      yield {
+        type: 'error',
+        errorCode: 'TTS_ALL_PROVIDERS_FAILED',
+        message: 'Voice synthesis unavailable for this sentence',
+        sentenceIndex,
+      };
+      return false;
+    }
   }
 
   private resolveSTTProvider(
