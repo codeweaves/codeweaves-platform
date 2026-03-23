@@ -10,27 +10,26 @@ So that the chat feels responsive and natural instead of seeing fake word-by-wor
 
 ## Acceptance Criteria
 
-1. For agents with a `chatTriggerUrl`, the SSE endpoint streams real tokens from n8n Chat Trigger (not simulated word-splitting)
+1. The SSE endpoint streams real tokens from n8n via the agent's webhookUrl (replacing simulated word-splitting)
 2. Each real token arrives as `data: {"type":"chunk","content":"..."}\n\n` (same format as current)
 3. The final event is `data: {"type":"done","sessionId":"...","messageId":"...","metadata":{...}}\n\n`
-4. Metadata includes `n8nReceivedAt`, `agentRepliedAt`, `streamingMode: "real"`, `timeToFirstToken`, `totalTokens`
+4. Metadata includes `n8nReceivedAt`, `agentRepliedAt`, `timeToFirstToken`, `totalTokens`, `streamDurationMs`
 5. The complete AI response is saved to the database after the stream ends
-6. For agents WITHOUT a Chat Trigger URL, the existing simulated streaming continues to work unchanged
-7. The frontend SSE client requires no changes (same event format)
-8. The 30-second stream timeout still applies
-9. Client disconnect (SSE `close` event) aborts the n8n request
-10. Rate limiting still enforced before streaming begins
-11. Unit tests cover both real and simulated streaming paths
+6. The frontend SSE client requires no changes (same event format)
+7. The 30-second stream timeout still applies
+8. Client disconnect (SSE `close` event) aborts the n8n request
+9. Rate limiting still enforced before streaming begins
+10. Unit tests cover streaming, timeout, disconnect, and DB save
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Wire N8nStreamingService into controller (AC: 1, 6)
+- [ ] Task 1: Wire N8nStreamingService into controller (AC: 1)
   - [ ] Inject `N8nStreamingService` and `AgentsService` into `PublicChatController`
-  - [ ] In `stream()` method, after rate limit check, resolve agent and check for `chatTriggerUrl`
-  - [ ] Branch: if `chatTriggerUrl` → real streaming path, else → existing simulated path
+  - [ ] In `stream()` method, replace simulated streaming with real streaming path
+  - [ ] Get webhookUrl via `agentsService.getEffectiveWebhookUrl()`
 
-- [ ] Task 2: Implement real streaming path in controller (AC: 1, 2, 3, 4, 5, 8, 9)
-  - [ ] Call `n8nStreamingService.streamFromChatTrigger()` to get AsyncGenerator
+- [ ] Task 2: Implement real streaming path in controller (AC: 1, 2, 3, 4, 5, 7, 8)
+  - [ ] Call `n8nStreamingService.streamFromWebhookUrl()` to get AsyncGenerator
   - [ ] Iterate generator, writing each `item` chunk as SSE event
   - [ ] Track: `fullResponse` (concatenated text), `n8nBeginTimestamp`, `n8nEndTimestamp`, `firstTokenTime`, `tokenCount`
   - [ ] On stream end: build metadata, save assistant message to DB, send `done` event
@@ -42,21 +41,21 @@ So that the chat feels responsive and natural instead of seeing fake word-by-wor
   - [ ] Save assistant message AFTER stream completes with full text + metadata
   - [ ] Update session `lastMessageAt`
 
-- [ ] Task 4: Keep simulated path working (AC: 6)
-  - [ ] Existing code path (`chatService.streamMessage()` + chunk delay loop) remains untouched
-  - [ ] Only difference: the `if (chatTriggerUrl)` branch at the top
+- [ ] Task 4: Remove simulated streaming path (AC: 1)
+  - [ ] Remove the old simulated word-splitting chunking logic from the controller
+  - [ ] The `chatService.streamMessage()` simulated path is no longer called from the controller
 
 - [ ] Task 5: Update ChatModule (AC: 1)
   - [ ] Import N8nStreamingService in ChatModule providers (if not done in 13-3)
   - [ ] Ensure AgentsService is accessible (already imported via AgentsModule)
 
-- [ ] Task 6: Unit tests (AC: 11)
+- [ ] Task 6: Unit tests (AC: 10)
   - [ ] Update `apps/api/test/controllers/public/public-chat.controller.spec.ts`
-  - [ ] Add test: real streaming path — agent with chatTriggerUrl, mock generator yields chunks
-  - [ ] Add test: simulated path still works — agent without chatTriggerUrl
+  - [ ] Add test: streaming path — mock generator yields chunks, SSE events written
   - [ ] Add test: client disconnect stops streaming
   - [ ] Add test: stream timeout sends error event
   - [ ] Add test: rate limit enforced before streaming starts
+  - [ ] Add test: user + assistant messages saved to DB correctly
 
 ## Dev Notes
 
@@ -69,17 +68,14 @@ The `stream()` method in `public-chat.controller.ts` (lines 45-109) currently:
 4. Loops through chunks with 30ms delay, writing SSE events
 5. Sends `done` event
 
-**New flow for real streaming:**
+**New flow (replaces simulated streaming entirely):**
 1. Sets SSE headers (unchanged)
 2. Checks rate limit (unchanged)
-3. Resolves agent, checks for `chatTriggerUrl`
-4. **If chatTriggerUrl exists:**
-   - Saves user message to DB
-   - Calls `n8nStreamingService.streamFromChatTrigger(url, message, sessionId)`
-   - Iterates AsyncGenerator, writes each token as SSE `chunk` event (NO artificial delay)
-   - On stream end: saves assistant message with metadata, sends `done` event
-5. **If no chatTriggerUrl:**
-   - Falls through to existing `chatService.streamMessage()` path (unchanged)
+3. Resolves agent, gets webhookUrl via `agentsService.getEffectiveWebhookUrl()`
+4. Saves user message to DB
+5. Calls `n8nStreamingService.streamFromWebhookUrl(webhookUrl, message, sessionId, abortSignal)`
+6. Iterates AsyncGenerator, writes each token as SSE `chunk` event (NO artificial delay)
+7. On stream end: saves assistant message with metadata, sends `done` event
 
 ### Controller Implementation Pattern
 
@@ -88,15 +84,10 @@ The `stream()` method in `public-chat.controller.ts` (lines 45-109) currently:
 
 const agent = await this.chatService.resolveAgent(dto.agentId);
 const session = await this.chatService.resolveOrCreateSession(dto.agentId, dto.sessionId);
-const chatTriggerUrl = await this.agentsService.getEffectiveChatTriggerUrl(dto.agentId);
+const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
 
-if (chatTriggerUrl) {
-  // REAL STREAMING PATH
-  await this.handleRealStreaming(res, chatTriggerUrl, dto, session, timeout, closed);
-} else {
-  // LEGACY SIMULATED PATH (existing code, unchanged)
-  await this.handleSimulatedStreaming(res, dto, timeout, closed);
-}
+// Single streaming path — no branching
+await this.handleStreaming(res, webhookUrl, dto, session, backendReceivedAt);
 ```
 
 ### Key Concern: resolveAgent and resolveOrCreateSession are Private
@@ -110,7 +101,7 @@ if (chatTriggerUrl) {
 
 **Recommended: Option 1** — Change `resolveAgent` and `resolveOrCreateSession` to public. They're simple lookup methods with no side effects. The controller needs them for the branching decision.
 
-### Metadata Shape (Real Streaming)
+### Metadata Shape
 
 ```typescript
 const metadata = {
@@ -119,14 +110,11 @@ const metadata = {
   agentRepliedAt: n8nEndTimestamp ? new Date(n8nEndTimestamp).toISOString() : null,
   backendRespondedAt: new Date().toISOString(),
   responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
-  streamingMode: 'real',
   timeToFirstToken: firstTokenTime ? firstTokenTime - backendReceivedAt.getTime() : null,
   totalTokens: tokenCount,
   streamDurationMs: n8nEndTimestamp && n8nBeginTimestamp ? n8nEndTimestamp - n8nBeginTimestamp : null,
 };
 ```
-
-For the **simulated path**, metadata remains unchanged (no `streamingMode` field, or add `streamingMode: 'simulated'` for consistency).
 
 ### SSE Event Format (Unchanged for Frontend)
 
@@ -175,9 +163,8 @@ Same as current `streamMessage()` — user message saved first (may orphan on fa
 
 ### Dependencies
 
-- **Story 13-1**: `agentsService.getEffectiveChatTriggerUrl()` must exist
-- **Story 13-3**: `N8nStreamingService.streamFromChatTrigger()` must exist
-- Stories 13-1 and 13-3 must be complete before this story
+- **Story 13-3**: `N8nStreamingService.streamFromWebhookUrl()` must exist
+- Story 13-3 must be complete before this story
 
 ### Project Structure Notes
 

@@ -700,19 +700,20 @@ This document provides the complete epic and story breakdown for CodeWeaves Plat
 ---
 
 ### Epic 13: Streaming Pipeline (n8n Chat Trigger + Progressive TTS)
-**Goal:** Replace simulated text streaming and sequential voice pipeline with real token-by-token streaming from n8n Chat Trigger, reducing text chat to real-time tokens and voice latency from ~9s to ~4s.
+**Goal:** Replace simulated text streaming and sequential voice pipeline with real token-by-token streaming from n8n Chat Trigger (via existing `webhookUrl`), reducing text chat to real-time tokens and voice latency from ~9s to ~4s.
 
 **Scope:**
-- Agent `chatTriggerUrl` field (DB, API, dashboard UI)
-- n8n Chat Trigger streaming provider (AsyncGenerator)
-- Real SSE streaming for text chat
-- Metadata extraction from stream chunks
-- Sentence buffer for progressive TTS
-- Streaming voice controller
+- n8n streaming provider using existing webhookUrl (AsyncGenerator, chunked HTTP parsing)
+- Real SSE streaming for text chat (replace simulated word-splitting)
+- Streaming metadata extraction (timestamps from n8n stream chunks for analytics)
+- Sentence buffer utility for progressive TTS
+- Streaming voice pipeline (progressive sentence-by-sentence TTS)
 
 **Architecture:** ADR-013 (architecture.md v1.2.0)
 **Priority:** P1 (directly improves UX latency)
 **Dependencies:** Epic 6, Epic 10
+
+> **Note:** Stories 13-1 (chatTriggerUrl schema) and 13-2 (dashboard UI) were cancelled — the existing `webhookUrl` in `AgentSecret` already holds the n8n Chat Trigger URL. No separate field is needed.
 
 ---
 
@@ -3937,98 +3938,67 @@ So that I know if issues are affecting my experience.
 
 ### Epic 13: Streaming Pipeline (n8n Chat Trigger + Progressive TTS)
 
-**Goal:** Replace simulated text streaming and sequential voice pipeline with real token-by-token streaming from n8n Chat Trigger, and progressive sentence-by-sentence TTS for voice — reducing text chat to real-time tokens and voice latency from ~9s to ~4s.
+**Goal:** Replace simulated text streaming and sequential voice pipeline with real token-by-token streaming from n8n Chat Trigger (via existing `webhookUrl`), and progressive sentence-by-sentence TTS for voice — reducing text chat to real-time tokens and voice latency from ~9s to ~4s.
 
 **Scope:**
-- Agent `chatTriggerUrl` field (DB schema, API, dashboard UI)
-- n8n Chat Trigger streaming provider (AsyncGenerator, chunked HTTP parsing)
+- n8n streaming provider using existing webhookUrl (AsyncGenerator, chunked HTTP parsing)
 - Real SSE streaming for text chat (replace simulated word-splitting)
-- Metadata extraction from n8n stream chunks (timestamps for analytics)
+- Streaming metadata extraction (timestamps from n8n stream chunks for analytics)
 - Sentence buffer utility for progressive TTS
-- Streaming voice controller (progressive TTS orchestrator)
-- Demo page / frontend SSE client verification
+- Streaming voice pipeline (progressive sentence-by-sentence TTS)
 
 **Architecture:** ADR-013 (Section 12.1, 13.2, 20.1.2, 20.14, 20.15 of architecture.md v1.2.0)
 **Priority:** P1 (directly improves UX latency for text + voice)
 **Dependencies:** Epic 6 (Chat), Epic 10 (Voice)
 
----
+> **Note:** Stories 13-1 (chatTriggerUrl schema) and 13-2 (dashboard UI) were cancelled — the existing `webhookUrl` in `AgentSecret` already holds the n8n Chat Trigger URL. No separate field is needed.
 
-#### Story 13.1: Agent Chat Trigger URL — Schema & API
-
-As a **platform admin**,
-I want to configure a Chat Trigger URL on each agent (in addition to the existing webhook URL),
-So that the backend can use real streaming when a Chat Trigger URL is available.
-
-**Acceptance Criteria:**
-
-**Given** the Agent model in the database
-**When** I add a `chatTriggerUrl` field
-**Then** a new nullable `chatTriggerUrl` column exists on the Agent table
-**And** the Prisma schema is updated with the new field
-**And** a migration is generated and applied
-**And** the Agent CRUD API (create/update/get) exposes `chatTriggerUrl`
-**And** validation ensures it's a valid HTTPS URL if provided
-**And** existing agents have `chatTriggerUrl` as null (backward compatible)
-**And** unit tests cover the schema change and API endpoints
-
-**Technical notes:**
-- Field: `chatTriggerUrl String? @db.Text` on Agent model
-- Validation: Zod schema in `packages/validation` updated
-- API: `AgentsService.update()` and `AgentsService.create()` accept `chatTriggerUrl`
-- The `getChatTriggerUrl(publicId)` method is added to `AgentsService`
+**Implementation Phases:**
+```
+Phase 1 (Text Streaming):  13-3 → 13-4 (+ 13-5 parallel with 13-4)
+Phase 2 (Voice Streaming):  13-6 → 13-7
+```
 
 ---
 
-#### Story 13.2: Dashboard Chat Trigger URL Input
+#### ~~Story 13.1: Agent Chat Trigger URL — Schema & API~~ CANCELLED
 
-As a **dashboard admin**,
-I want to enter the Chat Trigger URL in the agent settings UI,
-So that I can enable real streaming for specific agents.
-
-**Acceptance Criteria:**
-
-**Given** the agent detail/edit page in the dashboard
-**When** I open the agent settings
-**Then** a "Chat Trigger URL" input field appears below the existing Webhook URL field
-**And** the field has a helper text: "n8n Chat Trigger URL for real-time streaming (optional)"
-**And** the field validates as HTTPS URL on blur
-**And** saving the agent persists the Chat Trigger URL
-**And** clearing the field removes the Chat Trigger URL (falls back to webhook)
-
-**Technical notes:**
-- Location: Agent detail/edit page in `apps/web`
-- Reuse existing webhook URL input pattern
-- No frontend tests (per project convention — manual testing only)
+> Cancelled — the existing `webhookUrl` in `AgentSecret` already stores the n8n Chat Trigger URL. No new field needed.
 
 ---
 
-#### Story 13.3: n8n Chat Trigger Streaming Provider
+#### ~~Story 13.2: Dashboard Chat Trigger URL Input~~ CANCELLED
+
+> Cancelled — the webhook URL input already exists in the agent editor Integration Settings.
+
+---
+
+#### Story 13.3: n8n Streaming Provider
 
 As a **backend developer**,
-I want an n8n provider that streams tokens from the Chat Trigger URL,
+I want a streaming provider that reads token-by-token chunks from the agent's webhookUrl (n8n Chat Trigger),
 So that the backend can forward real tokens to the frontend via SSE.
 
 **Acceptance Criteria:**
 
-**Given** an n8n Chat Trigger URL
+**Given** the agent's webhookUrl (n8n Chat Trigger URL)
 **When** the backend sends a POST request with `chatInput` and `sessionId`
 **Then** the response is read as a chunked HTTP stream
 **And** each chunk is parsed as newline-delimited JSON (`{"type":"begin"|"item"|"end", ...}`)
 **And** `item` chunks yield their `content` field as individual tokens
-**And** `begin` chunk timestamp is captured for metadata
-**And** `end` chunk timestamp is captured for metadata
-**And** malformed chunks are skipped without breaking the stream
-**And** a 30-second timeout aborts the request
+**And** `begin`/`end` chunk timestamps are captured for metadata
+**And** malformed chunks are skipped without breaking the stream (logged as warnings)
+**And** a 30-second timeout aborts the request via AbortSignal
+**And** client disconnect aborts the stream via AbortSignal
+**And** partial chunks spanning TCP read boundaries are buffered correctly
 **And** the provider exposes an `AsyncGenerator<N8nStreamChunk>` interface
-**And** a fallback `streamFromWebhook()` AsyncGenerator exists for agents without Chat Trigger URL
-**And** unit tests cover both streaming modes, timeout, and malformed chunk handling
+**And** unit tests cover streaming, timeout, malformed chunks, and abort
 
 **Technical notes:**
-- New file: `apps/api/src/services/n8n-streaming.provider.ts` (or extend existing n8n provider)
+- New file: `apps/api/src/services/n8n-streaming.service.ts`
 - Interface: `N8nStreamChunk { type: 'begin'|'item'|'end'; content?: string; metadata?: { timestamp: number } }`
-- `streamFromChatTrigger(url, message, sessionId): AsyncGenerator<N8nStreamChunk>`
-- `streamFromWebhook(url, message, sessionId): AsyncGenerator<N8nStreamChunk>` (wraps legacy response into same interface)
+- Method: `streamFromWebhookUrl(webhookUrl, message, sessionId, abortSignal?): AsyncGenerator<N8nStreamChunk>`
+- No fallback method. No dual modes. Single streaming path using existing webhookUrl.
 - See architecture.md Section 13.2 for full implementation spec
 
 ---
@@ -4037,25 +4007,26 @@ So that the backend can forward real tokens to the frontend via SSE.
 
 As a **website visitor chatting with an agent**,
 I want to see AI responses appear token-by-token in real time,
-So that the chat feels responsive and natural.
+So that the chat feels responsive and natural instead of seeing fake word-by-word chunking.
 
 **Acceptance Criteria:**
 
-**Given** an agent with a `chatTriggerUrl` configured
-**When** I send a message through the chat widget
-**Then** the SSE endpoint streams real tokens from n8n (not simulated word-splitting)
+**Given** a website visitor sending a message
+**When** the SSE endpoint processes the request
+**Then** it streams real tokens from n8n via the agent's webhookUrl (replacing simulated word-splitting)
 **And** each token arrives as `data: {"type":"chunk","content":"..."}\n\n`
 **And** the final event is `data: {"type":"done","sessionId":"...","metadata":{...}}\n\n`
-**And** metadata includes `n8nReceivedAt`, `agentRepliedAt`, `streamingMode: "real"`
+**And** metadata includes `n8nReceivedAt`, `agentRepliedAt`, `timeToFirstToken`, `totalTokens`, `streamDurationMs`
 **And** the complete response is saved to the database after the stream ends
-**And** for agents WITHOUT a Chat Trigger URL, the existing simulated streaming still works
+**And** client disconnect aborts the n8n request
 **And** the frontend SSE client requires no changes (same event format)
-**And** unit tests cover both streaming modes
+**And** rate limiting is still enforced before streaming begins
+**And** unit tests cover streaming, timeout, disconnect, and DB save
 
 **Technical notes:**
-- Modify: `apps/api/src/controllers/public/public-chat.controller.ts` (or equivalent)
-- Use `n8nStreamingProvider.streamFromChatTrigger()` when `chatTriggerUrl` exists
-- Fall back to `n8nStreamingProvider.streamFromWebhook()` otherwise
+- Modify: `apps/api/src/controllers/public/public-chat.controller.ts`
+- No if/else branching — streaming replaces simulated chunking entirely
+- Uses `agentsService.getEffectiveWebhookUrl()` → `n8nStreamingService.streamFromWebhookUrl()`
 - See architecture.md Section 12.1.1 for full controller implementation spec
 
 ---
@@ -4068,22 +4039,21 @@ So that I can monitor AI response times and diagnose bottlenecks.
 
 **Acceptance Criteria:**
 
-**Given** a streaming response from n8n Chat Trigger
+**Given** a streaming response from n8n Chat Trigger (via webhookUrl)
 **When** the stream completes
 **Then** `n8nReceivedAt` is extracted from the `begin` chunk's `metadata.timestamp`
 **And** `agentRepliedAt` is extracted from the `end` chunk's `metadata.timestamp`
 **And** `timeToFirstToken` is calculated (first `item` chunk arrival - request sent)
 **And** `streamDurationMs` is calculated (`end` timestamp - `begin` timestamp)
 **And** `totalTokens` counts the number of `item` chunks
-**And** `streamingMode` is set to `"real"` or `"simulated"` in message metadata
-**And** all metrics are stored in the ChatMessage metadata JSON column
-**And** existing analytics queries continue to work (backward compatible)
-**And** unit tests verify metadata extraction for both streaming modes
+**And** all metrics are stored in the ChatMessage metadata JSON column (additive to existing fields)
+**And** existing analytics queries continue to work (new fields are additive)
+**And** unit tests verify metadata extraction from stream chunks
 
 **Technical notes:**
 - See architecture.md Section 12.3 and 20.14.4 for metadata mapping
-- Legacy webhook metadata (`n8nReceivedAt`, `agentRepliedAt` from response headers) unchanged for simulated mode
-- New fields: `timeToFirstToken`, `streamDurationMs`, `totalTokens`, `streamingMode`
+- New fields: `timeToFirstToken`, `streamDurationMs`, `totalTokens`
+- Existing fields (`n8nReceivedAt`, `agentRepliedAt`, `responseLatencyMs`) now sourced from stream chunks instead of response body
 
 ---
 
@@ -4119,22 +4089,22 @@ So that voice conversations feel fast and natural instead of waiting 9+ seconds.
 
 **Acceptance Criteria:**
 
-**Given** an agent with voice enabled AND a `chatTriggerUrl` configured
-**When** I speak a message and the AI responds
-**Then** the voice controller uses the streaming pipeline (STT → n8n streaming → progressive TTS)
-**And** tokens from n8n are buffered into sentences using `SentenceBuffer`
+**Given** a website visitor using voice chat
+**When** they speak a message and the AI responds
+**Then** the voice controller streams tokens from n8n via the agent's webhookUrl
+**And** tokens are buffered into sentences using `SentenceBuffer`
 **And** each sentence triggers a TTS synthesis call immediately
 **And** audio chunks are returned progressively to the frontend (chunked JSON response)
 **And** the first audio chunk arrives within ~4 seconds (STT + first sentence AI + TTS)
 **And** subsequent sentences are synthesized and queued while audio plays
 **And** the final chunk includes `type: "end"` with `fullText` and `totalSentences`
-**And** for agents WITHOUT a Chat Trigger URL, the existing sequential voice flow still works
 **And** voice analytics metrics capture per-sentence TTS latency
-**And** unit tests cover the streaming orchestrator and fallback to legacy mode
+**And** unit tests cover the streaming TTS orchestrator
 
 **Technical notes:**
 - New method: `VoiceService.streamingTTS(tokenStream, language, agentId): AsyncGenerator<VoiceStreamChunk>`
 - New interface: `VoiceStreamChunk` = `VoiceAudioChunk | VoiceEndChunk` (see architecture.md 20.15.3)
+- Uses `agentsService.getEffectiveWebhookUrl()` → `n8nStreamingService.streamFromWebhookUrl()` → `SentenceBuffer` → TTS
 - Modify: `VoiceController.voiceConversation()` to branch on `chatTriggerUrl`
 - See architecture.md Section 20.14.3 for controller flow and 20.15.2 for TTS orchestrator
 

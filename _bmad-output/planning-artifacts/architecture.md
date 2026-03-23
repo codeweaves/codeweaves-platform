@@ -208,8 +208,9 @@ CodeWeaves is a multi-tenant B2B SaaS platform for deploying customizable AI cha
 - New WebSocket connection management in providers (connection pooling, reconnection, cleanup)
 - Sentence boundary detection needed for progressive TTS
 - Metadata extraction changes: timestamps from n8n stream chunks replace `n8nReceivedAt`/`agentRepliedAt` fields
-- Chat Trigger URL replaces webhook URL for streaming-capable agents; non-streaming webhook remains as fallback
-- Two n8n URLs per agent: `webhookUrl` (legacy, non-streaming) and `chatTriggerUrl` (streaming)
+- The existing `webhookUrl` (stored in `AgentSecret`) points to the n8n Chat Trigger URL — no separate field needed
+- Streaming is the default and only mode; the simulated word-splitting chunking is replaced entirely
+- Metadata extraction changes: timestamps from n8n stream chunks replace `n8nReceivedAt`/`agentRepliedAt` fields
 
 ---
 
@@ -2011,18 +2012,11 @@ interface PaginatedResponse<T> {
 
 ### 12.1 Streaming Architecture Overview
 
-The platform supports two streaming modes based on agent configuration:
+The platform uses real token-by-token streaming from n8n's Chat Trigger node. The agent's `webhookUrl` (in `AgentSecret`) points to the n8n Chat Trigger URL, which returns chunked HTTP responses with newline-delimited JSON.
 
 ```
-Mode 1: Real Streaming (n8n Chat Trigger URL configured)
-─────────────────────────────────────────────────────────
-Frontend ←──SSE──← NestJS Backend ←──chunked HTTP──← n8n Chat Trigger
+Frontend ←──SSE──← NestJS Backend ←──chunked HTTP──← n8n Chat Trigger (webhookUrl)
                                       (real token-by-token streaming)
-
-Mode 2: Legacy Non-Streaming (webhook URL only)
-─────────────────────────────────────────────────
-Frontend ←──SSE──← NestJS Backend ←──full JSON──← n8n Webhook
-                   (word-split chunking of complete response)
 ```
 
 **n8n Chat Trigger streaming format** (verified via testing):
@@ -2037,7 +2031,7 @@ Frontend ←──SSE──← NestJS Backend ←──full JSON──← n8n We
 
 Each chunk is a newline-delimited JSON object. The `begin` and `end` chunks carry timestamps used for metadata extraction (see Section 12.3).
 
-### 12.1.1 SSE Controller (Real Streaming)
+### 12.1.1 SSE Controller (Streaming)
 
 ```typescript
 // apps/api/src/controllers/public/public-chat.controller.ts
@@ -2060,26 +2054,20 @@ async streamMessage(
     content: dto.message,
   });
 
-  // Determine streaming mode based on agent config
-  const chatTriggerUrl = await this.agentsService.getChatTriggerUrl(dto.agentId);
+  // Get webhook URL (points to n8n Chat Trigger)
+  const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(dto.agentId);
 
-  if (chatTriggerUrl) {
-    // REAL STREAMING: n8n Chat Trigger
-    await this.streamFromN8nChatTrigger(res, chatTriggerUrl, dto, session, backendReceivedAt);
-  } else {
-    // LEGACY: webhook with simulated streaming
-    await this.streamFromN8nWebhook(res, dto, session, backendReceivedAt);
-  }
+  await this.streamFromN8n(res, webhookUrl, dto, session, backendReceivedAt);
 }
 
-private async streamFromN8nChatTrigger(
+private async streamFromN8n(
   res: Response,
-  chatTriggerUrl: string,
+  webhookUrl: string,
   dto: SendMessageDto,
   session: ChatSession,
   backendReceivedAt: Date,
 ) {
-  const n8nResponse = await fetch(chatTriggerUrl, {
+  const n8nResponse = await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({
@@ -2197,20 +2185,22 @@ export function streamChat(
 }
 ```
 
-> **Note:** The frontend SSE consumer is **unchanged** — both real streaming and legacy mode emit the same `{type: 'chunk', content}` events. The streaming mode is transparent to the frontend.
+> **Note:** The frontend SSE consumer requires no changes — it consumes the same `{type: 'chunk', content}` events.
 
 ### 12.3 Metadata Extraction from Streaming Chunks
 
-With the legacy webhook, metadata fields `n8nReceivedAt` and `agentRepliedAt` came from JSON fields in the response body. With real streaming, these are extracted from chunk timestamps:
+With real streaming, metadata timestamps are extracted from the n8n Chat Trigger chunk timestamps:
 
-| Field | Legacy (webhook) | Streaming (Chat Trigger) |
-|-------|-------------------|--------------------------|
-| `n8nReceivedAt` | `response.n8nReceivedAt` | `begin` chunk `metadata.timestamp` |
-| `agentRepliedAt` | `response.agentRepliedAt` | `end` chunk `metadata.timestamp` |
-| `backendReceivedAt` | Recorded on request entry | Same |
-| `backendRespondedAt` | Recorded after full response | Recorded after stream ends |
-| `responseLatencyMs` | `respondedAt - receivedAt` | Same |
-| `streamingMode` | N/A | `'real'` or `'legacy'` |
+| Field | Source |
+|-------|--------|
+| `n8nReceivedAt` | `begin` chunk `metadata.timestamp` |
+| `agentRepliedAt` | `end` chunk `metadata.timestamp` |
+| `backendReceivedAt` | Recorded on request entry |
+| `backendRespondedAt` | Recorded after stream ends |
+| `responseLatencyMs` | `backendRespondedAt - backendReceivedAt` |
+| `timeToFirstToken` | First `item` chunk arrival - request sent time (ms) |
+| `totalTokens` | Count of `item` chunks |
+| `streamDurationMs` | `end` timestamp - `begin` timestamp (ms) |
 
 ### 12.2 Widget SSE Client
 
@@ -2315,39 +2305,43 @@ export interface AIProvider {
 
 ### 13.2 n8n Provider Implementation
 
-The n8n provider supports two modes: **real streaming** via Chat Trigger URL and **legacy** via webhook URL.
+The n8n provider streams tokens from the agent's `webhookUrl`, which points to an n8n Chat Trigger node.
 
 ```typescript
-// apps/api/src/services/chat.service.ts (streaming methods)
+// apps/api/src/services/n8n-streaming.service.ts
 
 /**
- * REAL STREAMING: n8n Chat Trigger URL
- * Consumes token-by-token chunks from n8n's Chat Trigger node.
- * Returns an AsyncGenerator that yields content strings.
+ * Streams tokens from n8n Chat Trigger URL (the agent's webhookUrl).
+ * Consumes chunked HTTP response with newline-delimited JSON.
+ * Returns an AsyncGenerator that yields N8nStreamChunk objects.
  */
-async *streamFromChatTrigger(
-  chatTriggerUrl: string,
+async *streamFromWebhookUrl(
+  webhookUrl: string,
   chatInput: string,
   sessionId: string,
+  abortSignal?: AbortSignal,
 ): AsyncGenerator<N8nStreamChunk> {
-  const response = await fetch(chatTriggerUrl, {
+  const response = await fetch(webhookUrl, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ chatInput, action: 'sendMessage', sessionId }),
-    signal: AbortSignal.timeout(30_000),
+    signal: abortSignal ?? AbortSignal.timeout(30_000),
   });
 
   const reader = response.body!.getReader();
   const decoder = new TextDecoder();
+  let buffer = '';
 
   while (true) {
     const { done, value } = await reader.read();
     if (done) break;
 
-    const text = decoder.decode(value, { stream: true });
-    const lines = text.split('\n').filter(l => l.trim());
+    buffer += decoder.decode(value, { stream: true });
+    const lines = buffer.split('\n');
+    buffer = lines.pop() || ''; // Last element may be incomplete
 
     for (const line of lines) {
+      if (!line.trim()) continue;
       try {
         const chunk = JSON.parse(line);
         yield chunk; // { type: 'begin'|'item'|'end', content?, metadata }
@@ -2356,27 +2350,6 @@ async *streamFromChatTrigger(
       }
     }
   }
-}
-
-/**
- * LEGACY: n8n Webhook URL
- * Receives full response, simulates streaming by word-splitting.
- * Kept as fallback for agents without Chat Trigger URL configured.
- */
-async *streamFromWebhook(
-  webhookUrl: string,
-  chatInput: string,
-  sessionId: string,
-): AsyncGenerator<N8nStreamChunk> {
-  const response = await fetch(webhookUrl, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ chatInput, sessionId }),
-    signal: AbortSignal.timeout(30_000),
-  });
-
-  const data = await response.json();
-  const content = data?.agentReply ?? data?.output;
 
   // Emit begin
   yield { type: 'begin', metadata: { timestamp: Date.now() } };
@@ -3143,13 +3116,13 @@ export default {
 
 Voice is a **transport-layer concern**, not an AI concern. It wraps the existing text chat flow with STT (pre-processing) and TTS (post-processing). The AI/orchestration layer (n8n or future replacement) always receives text and returns text — it never knows voice is involved.
 
-#### 20.1.1 Legacy Voice Flow (HTTP — Webhook URL)
+#### 20.1.1 Current Voice Flow (HTTP — Sequential)
 
-For agents configured with only a `webhookUrl` (no Chat Trigger URL), the full sequential pipeline applies:
+The current voice flow (implemented in Epic 10) is sequential — full AI response must be received before TTS begins:
 
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  VOICE FLOW (Legacy - Sequential HTTP)                                      │
+│  VOICE FLOW (Current - Sequential HTTP)                                     │
 │                                                                             │
 │  Widget                    NestJS Backend                   External        │
 │  ┌──────────┐    audio    ┌──────────────┐                                  │
@@ -3159,7 +3132,7 @@ For agents configured with only a `webhookUrl` (no Chat Trigger URL), the full s
 │                          │              │    text     └─────────────────┘  │
 │                          │              │                                   │
 │                          │              │    text     ┌─────────────────┐  │
-│                          │              │───────────→│ n8n Webhook     │  │
+│                          │              │───────────→│ n8n Chat Trigger│  │
 │                          │              │←───────────│ (full response) │  │
 │                          │              │    text     └─────────────────┘  │
 │                          │              │                                   │
@@ -3172,9 +3145,9 @@ For agents configured with only a `webhookUrl` (no Chat Trigger URL), the full s
 
 **Latency (measured):** ~9-12 seconds total (STT ~2s + AI ~4s + TTS ~3s). Full AI response must be received before TTS begins.
 
-#### 20.1.2 Streaming Voice Flow (Chat Trigger URL)
+#### 20.1.2 Streaming Voice Flow (Progressive TTS — Epic 13)
 
-For agents configured with a `chatTriggerUrl`, the streaming pipeline enables progressive TTS — audio starts playing while the AI is still generating tokens:
+The streaming pipeline uses the same `webhookUrl` (n8n Chat Trigger) but reads the response as a chunked stream, enabling progressive TTS — audio starts playing while the AI is still generating tokens:
 
 ```
 ┌──────────────────────────────────────────────────────────────────────────────────┐
@@ -3886,50 +3859,45 @@ async voiceConversation(
   @Res() res: Response,
 ) {
   const agent = await this.agentsService.findByPublicId(dto.agentId);
-  const usesStreaming = !!agent.chatTriggerUrl;
+  const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
 
-  // Step 1: STT (batched — same for both modes)
+  // Step 1: STT (batched)
   const sttResult = await this.voiceService.transcribe({ ... });
 
-  if (usesStreaming) {
-    // Step 2: Stream AI response from n8n Chat Trigger
-    const tokenStream = this.n8nProvider.streamFromChatTrigger(
-      agent.chatTriggerUrl, sttResult.text, dto.sessionId,
-    );
+  // Step 2: Stream AI response from n8n Chat Trigger (webhookUrl)
+  const tokenStream = this.n8nStreamingService.streamFromWebhookUrl(
+    webhookUrl, sttResult.text, dto.sessionId,
+  );
 
-    // Step 3+4: Buffer sentences → progressive TTS → stream audio chunks
-    const audioChunks = this.voiceService.streamingTTS(
-      tokenStream, sttResult.detectedLanguage, dto.agentId,
-    );
+  // Step 3+4: Buffer sentences → progressive TTS → stream audio chunks
+  const audioChunks = this.voiceService.streamingTTS(
+    tokenStream, sttResult.detectedLanguage, dto.agentId,
+  );
 
-    // Return progressive audio response
-    res.setHeader('Content-Type', 'application/json');
-    res.setHeader('Transfer-Encoding', 'chunked');
+  // Return progressive audio response
+  res.setHeader('Content-Type', 'application/json');
+  res.setHeader('Transfer-Encoding', 'chunked');
 
-    for await (const chunk of audioChunks) {
-      res.write(JSON.stringify(chunk) + '\n');
-    }
-    res.end();
-  } else {
-    // Legacy: sequential HTTP flow (existing implementation)
-    // ... same as current 20.5 controller ...
+  for await (const chunk of audioChunks) {
+    res.write(JSON.stringify(chunk) + '\n');
   }
+  res.end();
 }
 ```
 
 #### 20.14.4 Metadata Extraction from Stream
 
-Timestamps for analytics are extracted from the n8n Chat Trigger stream chunks:
+Timestamps for analytics are extracted from the n8n Chat Trigger stream chunks (same source for both text and voice streaming):
 
-| Metric | Legacy (Webhook) | Streaming (Chat Trigger) |
-|--------|-----------------|--------------------------|
-| `n8nReceivedAt` | `response.n8nReceivedAt` header | `begin` chunk arrival timestamp |
-| `agentRepliedAt` | `response.agentRepliedAt` header | `end` chunk arrival timestamp |
-| `timeToFirstToken` | N/A | `first item chunk timestamp - request sent timestamp` |
-| `totalTokens` | N/A (not available) | Count of `item` chunks |
-| `streamDurationMs` | N/A | `end timestamp - begin timestamp` |
+| Metric | Source |
+|--------|--------|
+| `n8nReceivedAt` | `begin` chunk `metadata.timestamp` |
+| `agentRepliedAt` | `end` chunk `metadata.timestamp` |
+| `timeToFirstToken` | First `item` chunk arrival - request sent time (ms) |
+| `totalTokens` | Count of `item` chunks |
+| `streamDurationMs` | `end` timestamp - `begin` timestamp (ms) |
 
-See also Section 12.3 for the unified metadata extraction interface used by both text and voice streaming.
+See also Section 12.3 for the unified metadata extraction interface.
 
 ### 20.15 Sentence Buffering for Progressive TTS
 
