@@ -126,9 +126,26 @@ export class VoiceService {
 
   async transcribe(request: STTRequest): Promise<STTResponse> {
     const config = await this.getVoiceConfig(request.agentId);
+
+    // If no language hint and auto-detect is on, route to Sarvam directly with 'unknown'
+    // Sarvam auto-detects AND transcribes in one call — no extra round trip
+    if (!request.languageHint && config.autoDetectLanguage !== false && !config.sttProvider) {
+      const sarvam = this.sttProviders.get('sarvam');
+      if (sarvam) {
+        this.logger.log('No language hint — routing to Sarvam for auto-detect + transcribe');
+        const startTime = Date.now();
+        const result = await sarvam.transcribe(request); // languageHint is undefined → Sarvam sends 'unknown'
+        const latencyMs = Date.now() - startTime;
+        this.logger.log(
+          `STT completed: provider=sarvam (auto-detect), language=${result.detectedLanguage}, latency=${latencyMs}ms`,
+        );
+        return result;
+      }
+    }
+
     const provider = this.resolveSTTProvider(
       config,
-      request.languageHint ?? 'en',
+      request.languageHint ?? config.defaultLanguage ?? 'en',
     );
     const hasOverride = !!config.sttProvider;
     this.logger.log(
