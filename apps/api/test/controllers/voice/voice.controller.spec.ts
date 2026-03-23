@@ -7,6 +7,8 @@ import * as Sentry from '@sentry/nestjs';
 import { VoiceController } from '../../../src/modules/voice/voice.controller';
 import { VoiceService } from '../../../src/modules/voice/voice.service';
 import { ChatService } from '../../../src/services/chat.service';
+import { N8nStreamingService } from '../../../src/services/n8n-streaming.service';
+import { AgentsService } from '../../../src/services/agents.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { MessageRateLimitService } from '../../../src/services/message-rate-limit.service';
 import {
@@ -51,10 +53,22 @@ describe('VoiceController', () => {
     transcribe: jest.fn(),
     synthesize: jest.fn(),
     getVoiceConfig: jest.fn(),
+    streamingTTS: jest.fn(),
   };
 
   const mockChatService = {
     sendMessage: jest.fn(),
+    resolveOrCreateSession: jest.fn(),
+    saveUserMessage: jest.fn(),
+    saveAssistantMessage: jest.fn(),
+  };
+
+  const mockN8nStreamingService = {
+    streamFromWebhookUrl: jest.fn(),
+  };
+
+  const mockAgentsService = {
+    getEffectiveWebhookUrl: jest.fn(),
   };
 
   const mockPrismaService = {
@@ -138,6 +152,8 @@ describe('VoiceController', () => {
       providers: [
         { provide: VoiceService, useValue: mockVoiceService },
         { provide: ChatService, useValue: mockChatService },
+        { provide: N8nStreamingService, useValue: mockN8nStreamingService },
+        { provide: AgentsService, useValue: mockAgentsService },
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: MessageRateLimitService, useValue: mockMessageRateLimitService },
       ],
@@ -148,6 +164,12 @@ describe('VoiceController', () => {
     // Default: rate limit allowed
     mockMessageRateLimitService.getDeviceIdentifier.mockReturnValue('test-device');
     mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({ allowed: true });
+
+    // Default: no webhook URL → legacy sequential path
+    mockAgentsService.getEffectiveWebhookUrl.mockRejectedValue(new Error('No webhook URL'));
+
+    // Default: prisma mocks
+    mockPrismaService.chatMessage.update.mockResolvedValue({});
 
     // Default: TTS enabled
     mockVoiceService.getVoiceConfig.mockResolvedValue({
@@ -909,6 +931,160 @@ describe('VoiceController', () => {
 
       // Sentry should be called for TTS failure
       expect(Sentry.withScope).toHaveBeenCalled();
+    });
+  });
+
+  // ============================
+  // Streaming Voice Pipeline
+  // ============================
+  describe('voiceConversation - streaming path', () => {
+    function createMockStreamingResponse(): Response & {
+      writtenChunks: string[];
+      ended: boolean;
+    } {
+      const writtenChunks: string[] = [];
+      return {
+        status: jest.fn().mockReturnThis(),
+        setHeader: jest.fn(),
+        write: jest.fn((data: string) => { writtenChunks.push(data); }),
+        end: jest.fn(),
+        on: jest.fn(),
+        writtenChunks,
+        ended: false,
+      } as unknown as Response & { writtenChunks: string[]; ended: boolean };
+    }
+
+    const mockSession = { id: 'session-123', sessionId: 'ext-session-123' };
+    const mockUserMessage = { id: 'user-msg-123' };
+
+    beforeEach(() => {
+      // Enable streaming path
+      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue('https://n8n.example.com/webhook/agent-1');
+      mockChatService.resolveOrCreateSession.mockResolvedValue(mockSession);
+      mockChatService.saveUserMessage.mockResolvedValue(mockUserMessage);
+      mockChatService.saveAssistantMessage.mockResolvedValue({ id: 'assistant-msg-123' });
+    });
+
+    it('should use streaming path when webhookUrl is available', async () => {
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+
+      async function* mockVoiceStream() {
+        yield { type: 'audio' as const, sentenceIndex: 0, text: 'Hello!', audio: 'base64audio', audioFormat: 'audio/mp3', audioDurationMs: 1000, ttsLatencyMs: 50 };
+        yield { type: 'end' as const, fullText: 'Hello!', totalSentences: 1 };
+      }
+      mockVoiceService.streamingTTS.mockReturnValue(mockVoiceStream());
+      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue((async function*() {
+        yield { type: 'item', content: 'Hello!' };
+      })());
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
+      const req = createMockRequest();
+      const res = createMockStreamingResponse();
+
+      await controller.voiceConversation(audioFile, dto, req, res);
+
+      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'application/x-ndjson');
+      expect(res.setHeader).toHaveBeenCalledWith('Transfer-Encoding', 'chunked');
+      expect(res.write).toHaveBeenCalledTimes(2); // 1 audio + 1 end
+      expect(res.end).toHaveBeenCalled();
+
+      // Verify chunks are valid JSON
+      const parsed = res.writtenChunks.map((c: string) => JSON.parse(c.trim()));
+      expect(parsed[0].type).toBe('audio');
+      expect(parsed[1].type).toBe('end');
+    });
+
+    it('should fall back to legacy path when webhookUrl is not available', async () => {
+      mockAgentsService.getEffectiveWebhookUrl.mockRejectedValue(new Error('No webhook'));
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
+      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
+
+      expect(result.transcription).toBeDefined();
+      expect(result.response.text).toBe('I am doing great, thanks!');
+      expect(mockChatService.sendMessage).toHaveBeenCalled();
+    });
+
+    it('should fall back to legacy path when TTS is disabled', async () => {
+      mockVoiceService.getVoiceConfig.mockResolvedValue({ ttsEnabled: false });
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
+      const req = createMockRequest();
+      const res = createMockResponse();
+
+      await controller.voiceConversation(audioFile, dto, req, res);
+
+      expect(mockN8nStreamingService.streamFromWebhookUrl).not.toHaveBeenCalled();
+    });
+
+    it('should write error chunk on streaming failure', async () => {
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+
+      // eslint-disable-next-line require-yield
+      async function* failingStream(): AsyncGenerator<never> {
+        throw new Error('TTS provider crashed');
+      }
+      mockVoiceService.streamingTTS.mockReturnValue(failingStream());
+      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue((async function*() {
+        yield { type: 'item', content: 'Hello' };
+      })());
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
+      const req = createMockRequest();
+      const res = createMockStreamingResponse();
+
+      await controller.voiceConversation(audioFile, dto, req, res);
+
+      expect(res.end).toHaveBeenCalled();
+      // Should have written an error chunk
+      const errorChunks = res.writtenChunks
+        .map((c: string) => JSON.parse(c.trim()))
+        .filter((c: { type: string }) => c.type === 'error');
+      expect(errorChunks.length).toBe(1);
+      expect(errorChunks[0].errorCode).toBeDefined();
+    });
+
+    it('should save assistant message after streaming completes', async () => {
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+
+      async function* mockVoiceStream() {
+        yield { type: 'audio' as const, sentenceIndex: 0, text: 'Hello!', audio: 'base64audio', audioFormat: 'audio/mp3', audioDurationMs: 1000, ttsLatencyMs: 50 };
+        yield { type: 'end' as const, fullText: 'Hello!', totalSentences: 1 };
+      }
+      mockVoiceService.streamingTTS.mockReturnValue(mockVoiceStream());
+      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue((async function*() {
+        yield { type: 'item', content: 'Hello!' };
+      })());
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
+      const req = createMockRequest();
+      const res = createMockStreamingResponse();
+
+      await controller.voiceConversation(audioFile, dto, req, res);
+
+      expect(mockChatService.saveAssistantMessage).toHaveBeenCalledWith(
+        'session-123',
+        'Hello!',
+        expect.objectContaining({
+          inputType: 'voice',
+          streaming: true,
+          totalSentences: 1,
+          timeToFirstChunkMs: expect.any(Number),
+        }),
+      );
     });
   });
 });

@@ -7,11 +7,12 @@ import { DeepgramProvider } from './providers/deepgram.provider';
 import { ElevenLabsProvider } from './providers/elevenlabs.provider';
 import { VOICE_PROVIDERS } from './providers/voice-provider.interface';
 import { ChatModule } from '../chat.module';
+import { AgentsModule } from '../agents.module';
 import { MessageRateLimitService } from '../../services/message-rate-limit.service';
 import { PrismaModule } from '../prisma.module';
 
 @Module({
-  imports: [ChatModule, PrismaModule],
+  imports: [ChatModule, AgentsModule, PrismaModule],
   controllers: [VoiceController],
   providers: [
     StubProvider,
