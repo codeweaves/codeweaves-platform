@@ -148,7 +148,7 @@ export class SarvamProvider implements VoiceProvider {
         text: request.text,
         target_language_code: targetLanguageCode,
         model: 'bulbul:v3',
-        speaker: 'Anushka',
+        speaker: 'priya',
         pace: request.speed || 1.0,
         speech_sample_rate: '22050',
         output_audio_codec: 'mp3',

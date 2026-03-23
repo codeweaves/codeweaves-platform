@@ -40,7 +40,7 @@ export class ElevenLabsProvider implements VoiceProvider {
 
   readonly name = 'elevenlabs';
   readonly supportedLanguages: SupportedLanguage[] = [
-    'en', 'hi', 'mr', 'bn', 'gu', 'ml', 'ta', 'te',
+    'en', 'hi', 'ta', // Multilingual v2 only supports Hindi + Tamil from Indian languages
   ];
 
   constructor(private readonly configService: ConfigService) {

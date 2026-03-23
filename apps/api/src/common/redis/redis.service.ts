@@ -22,9 +22,14 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
     this.client = new Redis(redisUrl, {
       maxRetriesPerRequest: 3,
-      retryStrategy(times: number) {
-        const delay = Math.min(times * 200, 5000);
-        return delay;
+      retryStrategy: (times: number) => {
+        if (times > 3) {
+          this.logger.warn(
+            'Redis unavailable after 3 retries — rate limiting disabled. Start Redis to enable it.',
+          );
+          return null; // stop retrying
+        }
+        return Math.min(times * 200, 2000);
       },
       lazyConnect: true,
     });
@@ -33,20 +38,16 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       this.logger.log('Redis connection established');
     });
 
-    this.client.on('error', (err: Error) => {
-      this.logger.error(`Redis connection error: ${err.message}`);
-    });
-
-    this.client.on('reconnecting', () => {
-      this.logger.warn('Redis reconnecting...');
+    this.client.on('error', () => {
+      // Silenced — retryStrategy handles logging
     });
 
     try {
       await this.client.connect();
       this.logger.log('RedisService initialized');
     } catch (err) {
-      this.logger.error(
-        `Redis initial connection failed: ${err instanceof Error ? err.message : String(err)}`,
+      this.logger.warn(
+        `Redis not available — rate limiting disabled. ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

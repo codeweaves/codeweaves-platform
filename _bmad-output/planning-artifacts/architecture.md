@@ -191,6 +191,26 @@ CodeWeaves is a multi-tenant B2B SaaS platform for deploying customizable AI cha
 - Free tier sufficient for development (100 emails/day)
 - EmailModule wraps Resend SDK for dependency injection
 
+### ADR-013: Streaming Pipeline — n8n Chat Trigger + WebSocket STT/TTS
+
+**Status:** Accepted
+**Date:** 2026-03-23
+**Context:** Voice conversation latency was ~9 seconds (STT 2s + AI 4s + TTS 3s) due to sequential HTTP calls. Text chat used simulated streaming (word-splitting a complete response). Testing revealed n8n's Chat Trigger URL supports real token-by-token streaming (verified: 47 chunks, 701ms to first token, ~54ms between tokens). All three STT providers (Sarvam, Deepgram, ElevenLabs) support WebSocket real-time streaming. Both TTS providers (Sarvam, ElevenLabs) support WebSocket streaming.
+**Decision:** Migrate from HTTP-based sequential pipeline to streaming pipeline:
+1. Replace simulated SSE text streaming with real n8n Chat Trigger token streaming (text + voice)
+2. Replace HTTP-based STT with WebSocket streaming STT (voice only)
+3. Replace HTTP-based TTS with WebSocket streaming TTS, triggered progressively per sentence (voice only)
+4. n8n input remains non-streaming (n8n buffers full request body — this is a known, accepted limitation)
+
+**Consequences:**
+- Text chat: real token-by-token streaming to frontend via SSE (eliminates fake 20ms delay chunking)
+- Voice: perceived latency drops from ~9-12s to ~4-5s (STT 0.3s + AI first sentence ~1-2s + TTS first sentence ~0.5s)
+- New WebSocket connection management in providers (connection pooling, reconnection, cleanup)
+- Sentence boundary detection needed for progressive TTS
+- Metadata extraction changes: timestamps from n8n stream chunks replace `n8nReceivedAt`/`agentRepliedAt` fields
+- Chat Trigger URL replaces webhook URL for streaming-capable agents; non-streaming webhook remains as fallback
+- Two n8n URLs per agent: `webhookUrl` (legacy, non-streaming) and `chatTriggerUrl` (streaming)
+
 ---
 
 ## 3. System Architecture Overview
@@ -1989,79 +2009,208 @@ interface PaginatedResponse<T> {
 
 ## 12. Real-Time Communication (SSE)
 
-### 12.1 SSE Controller
+### 12.1 Streaming Architecture Overview
+
+The platform supports two streaming modes based on agent configuration:
+
+```
+Mode 1: Real Streaming (n8n Chat Trigger URL configured)
+─────────────────────────────────────────────────────────
+Frontend ←──SSE──← NestJS Backend ←──chunked HTTP──← n8n Chat Trigger
+                                      (real token-by-token streaming)
+
+Mode 2: Legacy Non-Streaming (webhook URL only)
+─────────────────────────────────────────────────
+Frontend ←──SSE──← NestJS Backend ←──full JSON──← n8n Webhook
+                   (word-split chunking of complete response)
+```
+
+**n8n Chat Trigger streaming format** (verified via testing):
+```json
+{"type":"begin","metadata":{"nodeId":"...","nodeName":"AI Agent1","timestamp":1774234478437}}
+{"type":"item","content":"Hello","metadata":{"nodeId":"...","timestamp":1774234478500}}
+{"type":"item","content":"!","metadata":{"nodeId":"...","timestamp":1774234478510}}
+{"type":"item","content":" I","metadata":{"nodeId":"...","timestamp":1774234478520}}
+...
+{"type":"end","metadata":{"nodeId":"...","timestamp":1774234480792}}
+```
+
+Each chunk is a newline-delimited JSON object. The `begin` and `end` chunks carry timestamps used for metadata extraction (see Section 12.3).
+
+### 12.1.1 SSE Controller (Real Streaming)
 
 ```typescript
-// apps/api/src/modules/chat/chat.controller.ts
-@Controller('chat')
-export class ChatController {
-  constructor(
-    private chatService: ChatService,
-    private aiService: AIService,
-  ) {}
+// apps/api/src/controllers/public/public-chat.controller.ts
+@Post('stream')
+@Header('Content-Type', 'text/event-stream')
+@Header('Cache-Control', 'no-cache')
+@Header('Connection', 'keep-alive')
+async streamMessage(
+  @Body() dto: SendMessageDto,
+  @Res() res: Response,
+) {
+  const agent = await this.chatService.getAgentByPublicId(dto.agentId);
+  const session = await this.chatService.resolveSession(agent.id, dto.deviceId, dto.sessionId);
+  const backendReceivedAt = new Date();
 
-  @Post('message')
-  @ApiOperation({ summary: 'Send message and get streamed AI response' })
-  @Header('Content-Type', 'text/event-stream')
-  @Header('Cache-Control', 'no-cache')
-  @Header('Connection', 'keep-alive')
-  async sendMessage(
-    @Body() dto: SendMessageDto,
-    @Res() res: Response,
-  ) {
-    const { agentId, deviceId, message, sessionId, conversationHistory } = dto;
+  // Save user message before streaming
+  const userMessage = await this.chatService.saveMessage({
+    sessionId: session.id,
+    role: 'USER',
+    content: dto.message,
+  });
 
-    // Validate agent and get config
-    const agent = await this.chatService.getAgentByPublicId(agentId);
+  // Determine streaming mode based on agent config
+  const chatTriggerUrl = await this.agentsService.getChatTriggerUrl(dto.agentId);
 
-    // Create or resolve session
-    const session = await this.chatService.resolveSession(
-      agent.id,
-      deviceId,
-      sessionId,
-    );
-
-    // Save user message
-    await this.chatService.saveMessage({
-      sessionId: session.id,
-      role: 'USER',
-      content: message,
-    });
-
-    // Stream AI response
-    try {
-      const stream = await this.aiService.streamResponse({
-        agent,
-        message,
-        history: conversationHistory,
-      });
-
-      let fullResponse = '';
-
-      for await (const chunk of stream) {
-        fullResponse += chunk;
-        res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk })}\n\n`);
-      }
-
-      // Save bot response
-      await this.chatService.saveMessage({
-        sessionId: session.id,
-        role: 'BOT',
-        content: fullResponse,
-        metadata: stream.metadata, // tokens, latency, etc.
-      });
-
-      res.write(`data: ${JSON.stringify({ type: 'done', sessionId: session.id })}\n\n`);
-      res.end();
-
-    } catch (error) {
-      res.write(`data: ${JSON.stringify({ type: 'error', message: 'AI service error' })}\n\n`);
-      res.end();
-      throw error;
-    }
+  if (chatTriggerUrl) {
+    // REAL STREAMING: n8n Chat Trigger
+    await this.streamFromN8nChatTrigger(res, chatTriggerUrl, dto, session, backendReceivedAt);
+  } else {
+    // LEGACY: webhook with simulated streaming
+    await this.streamFromN8nWebhook(res, dto, session, backendReceivedAt);
   }
 }
+
+private async streamFromN8nChatTrigger(
+  res: Response,
+  chatTriggerUrl: string,
+  dto: SendMessageDto,
+  session: ChatSession,
+  backendReceivedAt: Date,
+) {
+  const n8nResponse = await fetch(chatTriggerUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({
+      chatInput: dto.message,
+      sessionId: session.sessionId,
+    }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  const reader = n8nResponse.body!.getReader();
+  const decoder = new TextDecoder();
+  let fullResponse = '';
+  let n8nBeginTimestamp: number | null = null;
+  let n8nEndTimestamp: number | null = null;
+
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
+
+    const text = decoder.decode(value, { stream: true });
+    const lines = text.split('\n').filter(l => l.trim());
+
+    for (const line of lines) {
+      try {
+        const chunk = JSON.parse(line);
+        if (chunk.type === 'begin') {
+          n8nBeginTimestamp = chunk.metadata?.timestamp;
+        } else if (chunk.type === 'item' && chunk.content) {
+          fullResponse += chunk.content;
+          res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.content })}\n\n`);
+        } else if (chunk.type === 'end') {
+          n8nEndTimestamp = chunk.metadata?.timestamp;
+        }
+      } catch {
+        // Skip malformed chunks
+      }
+    }
+  }
+
+  // Build metadata from stream timestamps
+  const backendRespondedAt = new Date();
+  const metadata = {
+    backendReceivedAt: backendReceivedAt.toISOString(),
+    n8nReceivedAt: n8nBeginTimestamp ? new Date(n8nBeginTimestamp).toISOString() : null,
+    agentRepliedAt: n8nEndTimestamp ? new Date(n8nEndTimestamp).toISOString() : null,
+    backendRespondedAt: backendRespondedAt.toISOString(),
+    responseLatencyMs: backendRespondedAt.getTime() - backendReceivedAt.getTime(),
+    streamingMode: 'real',
+  };
+
+  // Save assistant message after stream completes
+  await this.chatService.saveMessage({
+    sessionId: session.id,
+    role: 'ASSISTANT',
+    content: fullResponse,
+    metadata,
+  });
+
+  res.write(`data: ${JSON.stringify({ type: 'done', sessionId: session.sessionId, metadata })}\n\n`);
+  res.end();
+}
 ```
+
+### 12.2 Widget SSE Client
+
+```typescript
+// apps/widget/src/services/sse.ts (unchanged — same consumer interface)
+export function streamChat(
+  baseUrl: string,
+  payload: ChatPayload,
+  onChunk: (chunk: string) => void,
+  onDone: (sessionId: string) => void,
+  onError: (error: Error) => void,
+): AbortController {
+  const controller = new AbortController();
+
+  fetch(`${baseUrl}/chat/message`, {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'X-Device-ID': payload.deviceId,
+    },
+    body: JSON.stringify(payload),
+    signal: controller.signal,
+  })
+    .then(async (response) => {
+      const reader = response.body!.getReader();
+      const decoder = new TextDecoder();
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+
+        const text = decoder.decode(value);
+        const lines = text.split('\n\n');
+
+        for (const line of lines) {
+          if (line.startsWith('data: ')) {
+            const data = JSON.parse(line.slice(6));
+
+            if (data.type === 'chunk') {
+              onChunk(data.content);
+            } else if (data.type === 'done') {
+              onDone(data.sessionId);
+            } else if (data.type === 'error') {
+              onError(new Error(data.message));
+            }
+          }
+        }
+      }
+    })
+    .catch(onError);
+
+  return controller;
+}
+```
+
+> **Note:** The frontend SSE consumer is **unchanged** — both real streaming and legacy mode emit the same `{type: 'chunk', content}` events. The streaming mode is transparent to the frontend.
+
+### 12.3 Metadata Extraction from Streaming Chunks
+
+With the legacy webhook, metadata fields `n8nReceivedAt` and `agentRepliedAt` came from JSON fields in the response body. With real streaming, these are extracted from chunk timestamps:
+
+| Field | Legacy (webhook) | Streaming (Chat Trigger) |
+|-------|-------------------|--------------------------|
+| `n8nReceivedAt` | `response.n8nReceivedAt` | `begin` chunk `metadata.timestamp` |
+| `agentRepliedAt` | `response.agentRepliedAt` | `end` chunk `metadata.timestamp` |
+| `backendReceivedAt` | Recorded on request entry | Same |
+| `backendRespondedAt` | Recorded after full response | Recorded after stream ends |
+| `responseLatencyMs` | `respondedAt - receivedAt` | Same |
+| `streamingMode` | N/A | `'real'` or `'legacy'` |
 
 ### 12.2 Widget SSE Client
 
@@ -2166,53 +2315,94 @@ export interface AIProvider {
 
 ### 13.2 n8n Provider Implementation
 
+The n8n provider supports two modes: **real streaming** via Chat Trigger URL and **legacy** via webhook URL.
+
 ```typescript
-// apps/api/src/modules/ai/providers/n8n.provider.ts
-@Injectable()
-export class N8nProvider implements AIProvider {
-  readonly name = 'n8n';
+// apps/api/src/services/chat.service.ts (streaming methods)
 
-  async *streamMessage(request: AIRequest): AsyncGenerator<AIStreamChunk> {
-    const config = this.getConfig();
+/**
+ * REAL STREAMING: n8n Chat Trigger URL
+ * Consumes token-by-token chunks from n8n's Chat Trigger node.
+ * Returns an AsyncGenerator that yields content strings.
+ */
+async *streamFromChatTrigger(
+  chatTriggerUrl: string,
+  chatInput: string,
+  sessionId: string,
+): AsyncGenerator<N8nStreamChunk> {
+  const response = await fetch(chatTriggerUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chatInput, action: 'sendMessage', sessionId }),
+    signal: AbortSignal.timeout(30_000),
+  });
 
-    const response = await fetch(config.webhookUrl, {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        ...config.headers,
-      },
-      body: JSON.stringify({
-        message: request.message,
-        history: request.conversationHistory,
-        systemPrompt: request.systemPrompt,
-      }),
-    });
+  const reader = response.body!.getReader();
+  const decoder = new TextDecoder();
 
-    // n8n returns full response, simulate streaming
-    const data = await response.json();
-    const content = this.extractContent(data);
+  while (true) {
+    const { done, value } = await reader.read();
+    if (done) break;
 
-    // Chunk the response for streaming effect
-    const words = content.split(' ');
-    for (let i = 0; i < words.length; i++) {
-      yield {
-        content: words[i] + (i < words.length - 1 ? ' ' : ''),
-        isLast: i === words.length - 1,
-      };
-      await this.delay(20); // Simulate streaming
+    const text = decoder.decode(value, { stream: true });
+    const lines = text.split('\n').filter(l => l.trim());
+
+    for (const line of lines) {
+      try {
+        const chunk = JSON.parse(line);
+        yield chunk; // { type: 'begin'|'item'|'end', content?, metadata }
+      } catch {
+        // Skip malformed chunks (partial JSON across chunk boundaries)
+      }
     }
   }
+}
 
-  private extractContent(data: unknown): string {
-    // Support multiple n8n response formats
-    if (typeof data === 'string') return data;
-    if (data?.agentReply) return data.agentReply;
-    if (data?.output) return data.output;
-    if (data?.ai_message?.content) return data.ai_message.content;
-    throw new Error('Unknown n8n response format');
+/**
+ * LEGACY: n8n Webhook URL
+ * Receives full response, simulates streaming by word-splitting.
+ * Kept as fallback for agents without Chat Trigger URL configured.
+ */
+async *streamFromWebhook(
+  webhookUrl: string,
+  chatInput: string,
+  sessionId: string,
+): AsyncGenerator<N8nStreamChunk> {
+  const response = await fetch(webhookUrl, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ chatInput, sessionId }),
+    signal: AbortSignal.timeout(30_000),
+  });
+
+  const data = await response.json();
+  const content = data?.agentReply ?? data?.output;
+
+  // Emit begin
+  yield { type: 'begin', metadata: { timestamp: Date.now() } };
+
+  // Simulate streaming by splitting on words
+  const words = content.split(' ');
+  for (let i = 0; i < words.length; i++) {
+    yield {
+      type: 'item',
+      content: words[i] + (i < words.length - 1 ? ' ' : ''),
+      metadata: { timestamp: Date.now() },
+    };
   }
+
+  // Emit end
+  yield { type: 'end', metadata: { timestamp: Date.now() } };
+}
+
+interface N8nStreamChunk {
+  type: 'begin' | 'item' | 'end';
+  content?: string;
+  metadata?: { timestamp?: number; nodeId?: string; nodeName?: string };
 }
 ```
+
+**Key design decision:** Both modes emit the same `N8nStreamChunk` format. Consumers don't need to know whether tokens are real or simulated. The `streamingMode` field in saved metadata tracks which path was used for observability.
 
 ### 13.3 AI Service (Factory Pattern)
 
@@ -2794,8 +2984,10 @@ export class HealthController {
 | API P95 | < 100ms | > 150ms |
 | AI Response P95 | < 1.5s | > 2s |
 | DB Query P95 | < 50ms | > 100ms |
-| Voice STT | < 500ms | > 750ms |
-| Voice TTS | < 300ms | > 500ms |
+| Voice STT | < 2s | > 3s |
+| Voice TTS (per sentence) | < 500ms | > 750ms |
+| Voice TTFA (time to first audio) | < 4s | > 6s |
+| Text TTFT (time to first token) | < 800ms | > 1.5s |
 
 ### 18.2 Caching Strategy
 
@@ -2951,9 +3143,13 @@ export default {
 
 Voice is a **transport-layer concern**, not an AI concern. It wraps the existing text chat flow with STT (pre-processing) and TTS (post-processing). The AI/orchestration layer (n8n or future replacement) always receives text and returns text — it never knows voice is involved.
 
+#### 20.1.1 Legacy Voice Flow (HTTP — Webhook URL)
+
+For agents configured with only a `webhookUrl` (no Chat Trigger URL), the full sequential pipeline applies:
+
 ```
 ┌─────────────────────────────────────────────────────────────────────────────┐
-│  VOICE FLOW (Phase 1 - Modular Pipeline)                                    │
+│  VOICE FLOW (Legacy - Sequential HTTP)                                      │
 │                                                                             │
 │  Widget                    NestJS Backend                   External        │
 │  ┌──────────┐    audio    ┌──────────────┐                                  │
@@ -2964,7 +3160,7 @@ Voice is a **transport-layer concern**, not an AI concern. It wraps the existing
 │                          │              │                                   │
 │                          │              │    text     ┌─────────────────┐  │
 │                          │              │───────────→│ n8n Webhook     │  │
-│                          │              │←───────────│ (AI response)   │  │
+│                          │              │←───────────│ (full response) │  │
 │                          │              │    text     └─────────────────┘  │
 │                          │              │                                   │
 │  ┌──────────┐    audio   │              │    text     ┌─────────────────┐  │
@@ -2974,7 +3170,53 @@ Voice is a **transport-layer concern**, not an AI concern. It wraps the existing
 └─────────────────────────────────────────────────────────────────────────────┘
 ```
 
-**Important constraint:** n8n does not support streaming. The full AI response must be received before TTS begins. This adds latency but is acceptable for Phase 1. When n8n is replaced with a streaming-capable AI layer, TTS can begin as tokens stream in.
+**Latency (measured):** ~9-12 seconds total (STT ~2s + AI ~4s + TTS ~3s). Full AI response must be received before TTS begins.
+
+#### 20.1.2 Streaming Voice Flow (Chat Trigger URL)
+
+For agents configured with a `chatTriggerUrl`, the streaming pipeline enables progressive TTS — audio starts playing while the AI is still generating tokens:
+
+```
+┌──────────────────────────────────────────────────────────────────────────────────┐
+│  VOICE FLOW (Streaming - Progressive TTS)                                        │
+│                                                                                  │
+│  Widget              NestJS Backend                    External                  │
+│  ┌──────────┐ audio ┌───────────────┐                                            │
+│  │ Mic      │──────→│ Voice         │  audio    ┌──────────────────┐             │
+│  │ Capture  │       │ Controller    │─────────→│ STT Provider     │             │
+│  └──────────┘       │               │←─────────│ (HTTP — batched) │             │
+│                     │               │  text     └──────────────────┘             │
+│                     │               │                                            │
+│                     │               │  POST     ┌──────────────────┐             │
+│                     │               │─────────→│ n8n Chat Trigger │             │
+│                     │               │           │                  │             │
+│                     │               │  ←─ ─ ─ ─│ token stream     │             │
+│                     │               │  chunk 1  │ (chunked HTTP)   │             │
+│                     │               │  ←─ ─ ─ ─│                  │             │
+│                     │               │  chunk 2  └──────────────────┘             │
+│                     │               │  ←─ ─ ─ ─                                  │
+│                     │               │  ... (tokens accumulate in sentence buffer) │
+│                     │               │                                            │
+│                     │  ┌────────────────────────────┐                            │
+│                     │  │ Sentence Buffer             │                            │
+│                     │  │ "Hello, how can I help you?" │ ← sentence boundary hit  │
+│                     │  └─────────────┬──────────────┘                            │
+│                     │                │ text                                       │
+│                     │                ▼            ┌──────────────────┐            │
+│                     │  TTS Request (sentence 1) →│ TTS Provider     │            │
+│  ┌──────────┐ audio │               ←────────────│ (HTTP)           │            │
+│  │ Audio    │←──────│                             └──────────────────┘            │
+│  │ Playback │       │  ... meanwhile tokens keep streaming from n8n ...          │
+│  │ (sent 1) │       │                                                            │
+│  │          │       │  Sentence 2 ready → TTS → audio → playback queued          │
+│  │ (sent 2) │←──────│                                                            │
+│  └──────────┘       └───────────────┘                                            │
+└──────────────────────────────────────────────────────────────────────────────────┘
+```
+
+**Target latency:** ~4-5 seconds to first audio (STT ~2s + AI first sentence ~1-2s + TTS first sentence ~0.5s). Remaining sentences play progressively as they arrive.
+
+**Key constraint:** n8n **input** does not support streaming (request body is buffered). The full STT transcription must complete before the n8n request is sent. However, the n8n Chat Trigger **output** streams tokens in real-time (verified: 47 chunks, 701ms TTFB, ~54ms between tokens).
 
 ### 20.2 Voice Provider Adapter Pattern
 
@@ -3066,7 +3308,9 @@ export class DeepgramProvider implements VoiceProvider {
 @Injectable()
 export class ElevenLabsProvider implements VoiceProvider {
   readonly name = 'elevenlabs';
-  readonly supportedLanguages = ['en', 'hi', 'mr', 'bn', 'gu', 'ml', 'ta', 'te'];
+  // Verified via real API testing (2026-03-23): eleven_multilingual_v2
+  // supports Hindi and Tamil for Indian languages, NOT Marathi/Bengali/etc.
+  readonly supportedLanguages = ['en', 'hi', 'ta'];
 
   async transcribe(request: STTRequest): Promise<STTResponse> {
     // ElevenLabs Scribe v2 - 90+ languages
@@ -3421,17 +3665,22 @@ export function useVoice(config: WidgetConfig) {
 }
 ```
 
-### 20.9 Voice Provider Comparison & Routing
+### 20.9 Voice Provider Comparison & Routing (Verified 2026-03-23)
 
 | Provider | STT Languages | TTS Languages | Hinglish | Latency | Cost | Best For |
 |----------|--------------|---------------|----------|---------|------|----------|
-| **Sarvam AI** | 22 Indian + English | 11 Indian + English | Excellent (native) | Fast (0.4s TTS) | ~₹30/hr STT, ₹15/10K chars TTS | Indian languages, Hinglish |
-| **Deepgram** | Hindi, Marathi + 45 | English only | Good STT only | Very fast (<300ms) | ~₹38/hr STT | English-dominant STT |
-| **ElevenLabs** | 90+ languages | 12 Indian languages | Good | Moderate (0.9s) | ~₹250/10K chars TTS | Premium voice quality |
-| **Bhashini** | 22 Indian (all) | 22 Indian (all) | Supported | Streaming available | Free | Fallback, cost-sensitive |
+| **Sarvam AI** | 22 Indian + English (Saarika v2.5) | 11 Indian + English (Bulbul v3, speaker: `priya`) | Excellent (native) | Fast (~0.4s TTS) | ~₹30/hr STT, ₹15/10K chars TTS | Indian languages, Hinglish, auto-detect |
+| **Deepgram** | Hindi, Marathi + 45 (Nova-3) | **STT only — no TTS** | Good STT only | Very fast (<300ms) | ~₹38/hr STT | English-dominant STT |
+| **ElevenLabs** | 90+ languages (Scribe v2) | en, hi, ta only (eleven_multilingual_v2) — **NOT** mr/bn/gu/ml/te | Good | Moderate (~0.9s) | ~₹250/10K chars TTS | Premium English/Hindi voice quality |
+
+> **Note:** ElevenLabs TTS language support was verified via real API testing. The `eleven_multilingual_v2` model does NOT support Marathi (`mr`), Bengali (`bn`), Gujarati (`gu`), Malayalam (`ml`), or Telugu (`te`) despite documentation claims. Only English, Hindi, and Tamil are confirmed working for Indian languages.
+
+> **Note:** Sarvam TTS Bulbul v3 requires specific speakers. Speaker `priya` is confirmed compatible. Speaker `anushka` exists in older models but is NOT compatible with Bulbul v3.
 
 **Deferred provider:**
-| **Bhashini** | 22 Indian (all) | 22 Indian (all) | Supported | Streaming available | Free | Deferred — free govt API, all 22 scheduled languages. Complex integration (pipeline discovery step). Add when free-tier fallback needed. |
+| Provider | Details |
+|----------|---------|
+| **Bhashini** | Free govt API, all 22 scheduled Indian languages. Complex integration (pipeline discovery step). Add when free-tier fallback needed. |
 
 **Default routing logic:**
 ```
@@ -3518,7 +3767,7 @@ export interface RealtimeProxy {
 
 > **Status:** Designed, not yet implemented. Evaluating options.
 
-Currently, n8n handles all AI orchestration (LLM routing, conversation memory, agent logic) via webhooks. This has a key limitation: **n8n does not support streaming responses**, which adds latency for both text chat (no token streaming) and voice (TTS must wait for full response).
+Currently, n8n handles all AI orchestration (LLM routing, conversation memory, agent logic) via webhooks. ~~n8n does not support streaming responses~~ **Update (2026-03-23):** n8n Chat Trigger **does** support real token-by-token streaming (see ADR-013). The streaming pipeline is now documented in Section 12.1 and Section 20.1.2. The remaining limitations of n8n are: (1) no streaming **input** (request body buffered), (2) no RAG/knowledge base, (3) no multi-LLM routing.
 
 **Planned replacement:** A dedicated AI orchestration codebase that handles:
 - RAG pipeline (document ingestion, chunking, embedding, retrieval)
@@ -3538,10 +3787,11 @@ Currently, n8n handles all AI orchestration (LLM routing, conversation memory, a
 | **Flowise** (42k stars) | Apache 2.0 | TypeScript/Node.js — natural fit for NestJS stack | Acquired by Workday (2025), uncertain OSS future. |
 | **Custom build** (LangChain/LlamaIndex) | MIT | Full control, minimal hosting cost (~₹2.5-4K/month) | Most development effort. Build everything yourself. |
 
-**Decision:** Deferred. n8n works for current scale. Evaluate when:
-1. Streaming responses become a hard requirement (voice latency optimization)
+**Decision:** Deferred. n8n works for current scale (streaming now enabled via Chat Trigger). Evaluate when:
+1. ~~Streaming responses become a hard requirement~~ **Resolved** — n8n Chat Trigger streams tokens (ADR-013)
 2. RAG/knowledge base features are needed
 3. n8n hits a specific scalability or feature wall
+4. Multi-LLM routing or custom agent logic beyond n8n's capabilities is needed
 
 **Architecture impact:** When this codebase is built/adopted:
 - This platform (codeweaves-platform) remains dashboard-only: widget config, billing, analytics
@@ -3551,8 +3801,292 @@ Currently, n8n handles all AI orchestration (LLM routing, conversation memory, a
 
 ```
 Current:   Widget → NestJS backend → n8n webhook → AI response
+Streaming: Widget → NestJS backend → n8n Chat Trigger → AI response (streamed, token-by-token)
 Future:    Widget → NestJS backend → AI Orchestration Service → AI response (streamed)
            Widget → NestJS backend → AI Orchestration Service → OpenAI Realtime (Phase 2)
+```
+
+### 20.14 Streaming Voice Pipeline Architecture
+
+> **Status:** Designed, pending implementation. See ADR-013 for decision record.
+
+The streaming voice pipeline overlaps the AI response generation with TTS synthesis, eliminating the sequential bottleneck. This section documents the voice-specific streaming flow — for text chat streaming, see Section 12.1.
+
+#### 20.14.1 Pipeline Stages
+
+```
+Stage 1: STT (batched — not streaming)
+  ┌──────────────────────────────────────────────────────┐
+  │ User finishes speaking → full audio blob sent to     │
+  │ backend → STT provider transcribes → text returned   │
+  │ Latency: ~1.5-2s (Sarvam) / ~0.3s (Deepgram)       │
+  └──────────────────────────────────────────────────────┘
+                              │ text
+                              ▼
+Stage 2: AI Generation (streaming from n8n Chat Trigger)
+  ┌──────────────────────────────────────────────────────┐
+  │ POST to n8n Chat Trigger with chatInput=text         │
+  │ Response: chunked HTTP with token-by-token streaming │
+  │ Format per chunk:                                    │
+  │   {"type":"begin"}                                   │
+  │   {"type":"item","content":"Hello"}                  │
+  │   {"type":"item","content":" how"}                   │
+  │   {"type":"item","content":" can"}                   │
+  │   ...                                                │
+  │   {"type":"end"}                                     │
+  │ Latency to first token: ~700ms                       │
+  └──────────────────────────────────────────────────────┘
+                              │ tokens stream into sentence buffer
+                              ▼
+Stage 3: Sentence Buffering (overlapped with Stage 2)
+  ┌──────────────────────────────────────────────────────┐
+  │ Tokens accumulate until sentence boundary detected   │
+  │ Boundaries: . ! ? newline (see 20.15 for rules)     │
+  │ Each complete sentence triggers a TTS request        │
+  └──────────────────────────────────────────────────────┘
+                              │ sentence text
+                              ▼
+Stage 4: TTS (progressive — overlapped with Stages 2+3)
+  ┌──────────────────────────────────────────────────────┐
+  │ TTS called per sentence (HTTP, not WebSocket v1)     │
+  │ Audio returned and queued for playback               │
+  │ Sentence 1 audio plays while sentences 2+ synthesize │
+  │ Latency per sentence: ~0.3-0.5s (Sarvam)            │
+  └──────────────────────────────────────────────────────┘
+                              │ audio chunks
+                              ▼
+Stage 5: Audio Playback (progressive)
+  ┌──────────────────────────────────────────────────────┐
+  │ Audio queue on frontend: plays sentence-by-sentence  │
+  │ Seamless playback — next audio queued before current │
+  │ ends. Frontend receives base64 audio chunks via the  │
+  │ voice response or SSE events.                        │
+  └──────────────────────────────────────────────────────┘
+```
+
+#### 20.14.2 Latency Comparison
+
+| Stage | Legacy (HTTP) | Streaming Pipeline | Improvement |
+|-------|--------------|-------------------|-------------|
+| STT | ~2s | ~2s (unchanged — batched) | — |
+| AI (full response) | ~4s | ~0.7s (first token) | -3.3s |
+| TTS (full response) | ~3s | ~0.5s (first sentence) | -2.5s |
+| **Total to first audio** | **~9s** | **~3-4s** | **~5-6s saved** |
+| Total conversation | ~9s | ~5-6s (all sentences played) | ~3-4s saved |
+
+#### 20.14.3 Streaming Voice Controller Flow
+
+```typescript
+// apps/api/src/modules/voice/voice.controller.ts (streaming mode)
+@Post('conversation')
+@UseInterceptors(FileInterceptor('audio'))
+async voiceConversation(
+  @UploadedFile() audioFile: Express.Multer.File,
+  @Body() dto: VoiceConversationDto,
+  @Res() res: Response,
+) {
+  const agent = await this.agentsService.findByPublicId(dto.agentId);
+  const usesStreaming = !!agent.chatTriggerUrl;
+
+  // Step 1: STT (batched — same for both modes)
+  const sttResult = await this.voiceService.transcribe({ ... });
+
+  if (usesStreaming) {
+    // Step 2: Stream AI response from n8n Chat Trigger
+    const tokenStream = this.n8nProvider.streamFromChatTrigger(
+      agent.chatTriggerUrl, sttResult.text, dto.sessionId,
+    );
+
+    // Step 3+4: Buffer sentences → progressive TTS → stream audio chunks
+    const audioChunks = this.voiceService.streamingTTS(
+      tokenStream, sttResult.detectedLanguage, dto.agentId,
+    );
+
+    // Return progressive audio response
+    res.setHeader('Content-Type', 'application/json');
+    res.setHeader('Transfer-Encoding', 'chunked');
+
+    for await (const chunk of audioChunks) {
+      res.write(JSON.stringify(chunk) + '\n');
+    }
+    res.end();
+  } else {
+    // Legacy: sequential HTTP flow (existing implementation)
+    // ... same as current 20.5 controller ...
+  }
+}
+```
+
+#### 20.14.4 Metadata Extraction from Stream
+
+Timestamps for analytics are extracted from the n8n Chat Trigger stream chunks:
+
+| Metric | Legacy (Webhook) | Streaming (Chat Trigger) |
+|--------|-----------------|--------------------------|
+| `n8nReceivedAt` | `response.n8nReceivedAt` header | `begin` chunk arrival timestamp |
+| `agentRepliedAt` | `response.agentRepliedAt` header | `end` chunk arrival timestamp |
+| `timeToFirstToken` | N/A | `first item chunk timestamp - request sent timestamp` |
+| `totalTokens` | N/A (not available) | Count of `item` chunks |
+| `streamDurationMs` | N/A | `end timestamp - begin timestamp` |
+
+See also Section 12.3 for the unified metadata extraction interface used by both text and voice streaming.
+
+### 20.15 Sentence Buffering for Progressive TTS
+
+Progressive TTS requires detecting sentence boundaries in the token stream so TTS can be triggered per-sentence rather than waiting for the full response.
+
+#### 20.15.1 Sentence Boundary Rules
+
+```typescript
+// apps/api/src/modules/voice/utils/sentence-buffer.ts
+
+export class SentenceBuffer {
+  private buffer = '';
+  private readonly SENTENCE_TERMINATORS = /[.!?]\s|[.!?]$/;
+  private readonly MIN_SENTENCE_LENGTH = 10; // Avoid TTS calls for tiny fragments
+  private readonly MAX_BUFFER_LENGTH = 500;  // Force flush for very long sentences
+
+  /**
+   * Feed tokens into the buffer. Returns complete sentences ready for TTS.
+   * Returns empty array if no sentence boundary detected yet.
+   */
+  addToken(token: string): string[] {
+    this.buffer += token;
+    const sentences: string[] = [];
+
+    // Check for sentence boundaries
+    while (this.SENTENCE_TERMINATORS.test(this.buffer)) {
+      const match = this.buffer.match(this.SENTENCE_TERMINATORS);
+      if (!match || match.index === undefined) break;
+
+      const sentenceEnd = match.index + match[0].length;
+      const sentence = this.buffer.slice(0, sentenceEnd).trim();
+
+      if (sentence.length >= this.MIN_SENTENCE_LENGTH) {
+        sentences.push(sentence);
+      }
+      this.buffer = this.buffer.slice(sentenceEnd);
+    }
+
+    // Force flush if buffer is too long (e.g., no punctuation in long response)
+    if (this.buffer.length >= this.MAX_BUFFER_LENGTH) {
+      sentences.push(this.buffer.trim());
+      this.buffer = '';
+    }
+
+    return sentences;
+  }
+
+  /** Flush remaining buffer content (called when stream ends) */
+  flush(): string | null {
+    const remaining = this.buffer.trim();
+    this.buffer = '';
+    return remaining.length > 0 ? remaining : null;
+  }
+}
+```
+
+#### 20.15.2 Streaming TTS Orchestrator
+
+```typescript
+// apps/api/src/modules/voice/voice.service.ts (new method)
+
+/**
+ * Progressive TTS: reads tokens from AI stream, buffers into sentences,
+ * synthesizes each sentence as it completes. Returns async generator of
+ * audio chunks for progressive playback.
+ */
+async *streamingTTS(
+  tokenStream: AsyncGenerator<N8nStreamChunk>,
+  language: string,
+  agentId: string,
+): AsyncGenerator<VoiceStreamChunk> {
+  const sentenceBuffer = new SentenceBuffer();
+  const config = await this.getVoiceConfig(agentId);
+  const provider = this.resolveTTSProvider(config, language);
+  let sentenceIndex = 0;
+  let fullText = '';
+
+  for await (const chunk of tokenStream) {
+    if (chunk.type === 'item' && chunk.content) {
+      fullText += chunk.content;
+      const sentences = sentenceBuffer.addToken(chunk.content);
+
+      for (const sentence of sentences) {
+        const ttsResult = await provider.synthesize({
+          text: sentence,
+          language,
+          agentId,
+          voiceId: config.ttsVoiceId,
+          speed: config.ttsSpeed,
+        });
+
+        yield {
+          type: 'audio',
+          sentenceIndex: sentenceIndex++,
+          text: sentence,
+          audio: ttsResult.audio.toString('base64'),
+          audioFormat: ttsResult.format,
+          audioDurationMs: ttsResult.durationMs,
+          ttsLatencyMs: ttsResult.latencyMs,
+        };
+      }
+    }
+  }
+
+  // Flush remaining buffer
+  const remaining = sentenceBuffer.flush();
+  if (remaining) {
+    const ttsResult = await provider.synthesize({
+      text: remaining,
+      language,
+      agentId,
+      voiceId: config.ttsVoiceId,
+      speed: config.ttsSpeed,
+    });
+
+    yield {
+      type: 'audio',
+      sentenceIndex: sentenceIndex++,
+      text: remaining,
+      audio: ttsResult.audio.toString('base64'),
+      audioFormat: ttsResult.format,
+      audioDurationMs: ttsResult.durationMs,
+      ttsLatencyMs: ttsResult.latencyMs,
+    };
+  }
+
+  // Final chunk with full text for storage
+  yield {
+    type: 'end',
+    fullText,
+    totalSentences: sentenceIndex,
+  };
+}
+```
+
+#### 20.15.3 Voice Stream Chunk Interface
+
+```typescript
+// apps/api/src/modules/voice/interfaces/voice-stream.interface.ts
+
+export interface VoiceAudioChunk {
+  type: 'audio';
+  sentenceIndex: number;
+  text: string;                // Sentence text
+  audio: string;               // Base64-encoded audio
+  audioFormat: 'mp3' | 'wav' | 'opus';
+  audioDurationMs: number;
+  ttsLatencyMs: number;
+}
+
+export interface VoiceEndChunk {
+  type: 'end';
+  fullText: string;            // Complete AI response text
+  totalSentences: number;
+}
+
+export type VoiceStreamChunk = VoiceAudioChunk | VoiceEndChunk;
 ```
 
 ---
@@ -3572,6 +4106,8 @@ Future:    Widget → NestJS backend → AI Orchestration Service → AI respons
 | Query Hooks | `apps/web/hooks/queries/` | Server state (TanStack Query) |
 | Voice Module | `apps/api/src/modules/voice/` | STT/TTS orchestration |
 | Voice Providers | `apps/api/src/modules/voice/providers/` | Sarvam, Deepgram, ElevenLabs adapters |
+| Voice Utils | `apps/api/src/modules/voice/utils/` | Sentence buffer, stream helpers |
+| Voice Interfaces | `apps/api/src/modules/voice/interfaces/` | VoiceStreamChunk, provider types |
 | Voice Config Schema | `packages/validation/src/schemas/voice.schema.ts` | Voice configuration validation |
 | Widget Entry | `apps/widget/src/index.ts` | Widget bootstrap |
 | Widget Components | `apps/widget/src/components/` | Preact components |
@@ -3593,6 +4129,7 @@ Future:    Widget → NestJS backend → AI Orchestration Service → AI respons
 |---------|------|--------|---------|
 | 1.0.0 | 2026-02-02 | Winston (Architect) | Initial architecture document |
 | 1.1.0 | 2026-03-14 | Winston (Architect) | Added Voice Architecture (Section 20): provider adapter pattern, multilingual routing (Sarvam AI, Deepgram, ElevenLabs), widget voice UI states, voice config schema, Phase 2 Realtime API design. Added ADR-011 for voice provider strategy. |
+| 1.2.0 | 2026-03-23 | Winston (Architect) | **Streaming Pipeline.** Added ADR-013: n8n Chat Trigger real streaming + progressive TTS. Updated Section 12 (SSE) with dual-mode streaming architecture (real vs simulated). Updated Section 13.2 (n8n provider) with `streamFromChatTrigger()` and `streamFromWebhook()` AsyncGenerators. Updated Section 20 with: streaming voice flow diagram (20.1.2), verified provider comparison (20.9 — ElevenLabs TTS confirmed en/hi/ta only, Sarvam speaker `priya` for Bulbul v3), streaming voice controller (20.14), sentence buffering for progressive TTS (20.15), latency comparison (9s → 3-4s TTFA), metadata extraction from stream chunks (20.14.4). Struck "n8n does not support streaming" constraint in 20.13. |
 
 ---
 

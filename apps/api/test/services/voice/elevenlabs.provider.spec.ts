@@ -45,13 +45,8 @@ describe('ElevenLabsProvider', () => {
     it('should support the correct languages', () => {
       expect(provider.supportedLanguages).toContain('en');
       expect(provider.supportedLanguages).toContain('hi');
-      expect(provider.supportedLanguages).toContain('mr');
-      expect(provider.supportedLanguages).toContain('bn');
-      expect(provider.supportedLanguages).toContain('gu');
-      expect(provider.supportedLanguages).toContain('ml');
       expect(provider.supportedLanguages).toContain('ta');
-      expect(provider.supportedLanguages).toContain('te');
-      expect(provider.supportedLanguages).toHaveLength(8);
+      expect(provider.supportedLanguages).toHaveLength(3);
     });
   });
 

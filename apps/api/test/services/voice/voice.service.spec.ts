@@ -210,10 +210,10 @@ describe('VoiceService', () => {
       expect(sarvamProvider.transcribe).toHaveBeenCalled();
     });
 
-    it('should default to Deepgram when no language hint provided', async () => {
+    it('should default to Sarvam for auto-detect when no language hint provided', async () => {
       const result = await service.transcribe(makeSTTRequest());
-      expect(deepgramProvider.transcribe).toHaveBeenCalled();
-      expect(result.provider).toBe('deepgram');
+      expect(sarvamProvider.transcribe).toHaveBeenCalled();
+      expect(result.provider).toBe('sarvam');
     });
 
     it('should use agent override sttProvider when set', async () => {
