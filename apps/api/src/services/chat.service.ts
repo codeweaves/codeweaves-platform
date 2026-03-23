@@ -6,6 +6,7 @@ import { CryptoService } from '../common/crypto/crypto.service';
 import { TracerService } from '../common/tracer/tracer.service';
 import type { SendMessageDto } from '@repo/validation';
 import type { ChatSession, Prisma } from '@prisma/client';
+import type { SimulatedStreamingMetadata } from './chat-metadata.interface';
 import { randomUUID } from 'crypto';
 
 const N8N_TIMEOUT_MS = 10_000;
@@ -27,8 +28,9 @@ export class ChatService {
     backendReceivedAt: Date,
     backendRespondedAt: Date,
     n8nResponse: { n8nReceivedAt?: string; agentRepliedAt?: string },
-  ) {
+  ): SimulatedStreamingMetadata {
     return {
+      streamingMode: 'simulated',
       backendReceivedAt: backendReceivedAt.toISOString(),
       n8nReceivedAt: n8nResponse.n8nReceivedAt ?? null,
       agentRepliedAt: n8nResponse.agentRepliedAt ?? null,

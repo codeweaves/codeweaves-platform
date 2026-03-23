@@ -144,6 +144,7 @@ describe('ChatService', () => {
           assistantMessageId: MOCK_ASSISTANT_MSG_ID,
         }));
         expect(result.metadata).toEqual(expect.objectContaining({
+          streamingMode: 'simulated',
           backendReceivedAt: expect.any(String),
           n8nReceivedAt: mockN8nResponse.n8nReceivedAt,
           agentRepliedAt: mockN8nResponse.agentRepliedAt,
@@ -587,6 +588,12 @@ describe('ChatService', () => {
 
       expect(result.metadata.n8nReceivedAt).toBe(mockN8nResponse.n8nReceivedAt);
       expect(result.metadata.agentRepliedAt).toBe(mockN8nResponse.agentRepliedAt);
+    });
+
+    it('should include streamingMode=simulated in metadata', async () => {
+      const result = await service.streamMessage(baseDto);
+
+      expect(result.metadata).toHaveProperty('streamingMode', 'simulated');
     });
 
     it('should not use $transaction (stores messages separately)', async () => {

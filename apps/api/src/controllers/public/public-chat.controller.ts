@@ -8,6 +8,7 @@ import { N8nStreamingService } from '../../services/n8n-streaming.service';
 import { MessageRateLimitService } from '../../services/message-rate-limit.service';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { sendMessageSchema, type SendMessageDto } from '@repo/validation';
+import type { RealStreamingMetadata } from '../../services/chat-metadata.interface';
 
 const STREAM_TIMEOUT_MS = 30_000;
 
@@ -115,6 +116,7 @@ export class PublicChatController {
       let n8nReceivedAt: number | null = null;
       let agentRepliedAt: number | null = null;
       let firstTokenTime: number | null = null;
+      let lastTokenTime: number | null = null;
       let chunkCount = 0;
 
       const generator = this.n8nStreamingService.streamFromWebhookUrl(
@@ -130,9 +132,11 @@ export class PublicChatController {
         if (chunk.type === 'begin') {
           n8nReceivedAt = chunk.metadata?.timestamp ?? null;
         } else if (chunk.type === 'item' && chunk.content) {
+          const now = Date.now();
           if (firstTokenTime === null) {
-            firstTokenTime = Date.now();
+            firstTokenTime = now;
           }
+          lastTokenTime = now;
           chunkCount++;
           fullResponse += chunk.content;
           res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.content })}\n\n`);
@@ -143,13 +147,15 @@ export class PublicChatController {
 
       // P2: Send done event even when fullResponse is empty (e.g., n8n returns begin+end with no items)
       if (!closed) {
-        const metadata = {
+        const metadata: RealStreamingMetadata = {
+          streamingMode: 'real',
           backendReceivedAt: backendReceivedAt.toISOString(),
           n8nReceivedAt: n8nReceivedAt ? new Date(n8nReceivedAt).toISOString() : null,
           agentRepliedAt: agentRepliedAt ? new Date(agentRepliedAt).toISOString() : null,
           backendRespondedAt: new Date().toISOString(),
           responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
           timeToFirstToken: firstTokenTime ? firstTokenTime - backendReceivedAt.getTime() : null,
+          timeToLastToken: lastTokenTime ? lastTokenTime - backendReceivedAt.getTime() : null,
           totalChunks: chunkCount,
           streamDurationMs: agentRepliedAt && n8nReceivedAt ? agentRepliedAt - n8nReceivedAt : null,
         };
