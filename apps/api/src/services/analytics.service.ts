@@ -154,19 +154,27 @@ export class AnalyticsService {
   /**
    * Calculate response time metrics using raw SQL for JSONB aggregation.
    */
-  private async getResponseTimeMetrics(agentIds: string[], startDate: Date, endDate: Date) {
+  private async getResponseTimeMetrics(
+    agentIds: string[],
+    startDate: Date,
+    endDate: Date,
+  ): Promise<{ avg: number; p50: number; p95: number; p99: number; avgTimeToFirstToken: number | null }> {
     if (agentIds.length === 0) {
-      return { avg: 0, p50: 0, p95: 0, p99: 0 };
+      return { avg: 0, p50: 0, p95: 0, p99: 0, avgTimeToFirstToken: null };
     }
 
     const result = await this.prisma.$queryRaw<
-      { avg_ms: number | null; p50: number | null; p95: number | null; p99: number | null }[]
+      { avg_ms: number | null; p50: number | null; p95: number | null; p99: number | null; avg_ttft: number | null }[]
     >`
       SELECT
         AVG((metadata->>'responseLatencyMs')::numeric) as avg_ms,
         PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY (metadata->>'responseLatencyMs')::numeric) as p50,
         PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY (metadata->>'responseLatencyMs')::numeric) as p95,
-        PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY (metadata->>'responseLatencyMs')::numeric) as p99
+        PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY (metadata->>'responseLatencyMs')::numeric) as p99,
+        AVG((metadata->>'timeToFirstToken')::numeric) FILTER (
+          WHERE metadata->>'timeToFirstToken' IS NOT NULL
+            AND metadata->>'timeToFirstToken' ~ '^[0-9]+(\\.[0-9]+)?$'
+        ) as avg_ttft
       FROM chat_messages
       WHERE role = 'ASSISTANT'
         AND metadata->>'responseLatencyMs' IS NOT NULL
@@ -185,6 +193,7 @@ export class AnalyticsService {
       p50: Math.round(Number(row?.p50 ?? 0)),
       p95: Math.round(Number(row?.p95 ?? 0)),
       p99: Math.round(Number(row?.p99 ?? 0)),
+      avgTimeToFirstToken: row?.avg_ttft != null ? Math.round(Number(row.avg_ttft)) : null,
     };
   }
 
@@ -231,6 +240,12 @@ export class AnalyticsService {
         p50ResponseTimeMs: { value: responseTime.p50 },
         p95ResponseTimeMs: { value: responseTime.p95 },
         p99ResponseTimeMs: { value: responseTime.p99 },
+        avgTimeToFirstTokenMs: {
+          value: responseTime.avgTimeToFirstToken,
+          trend: responseTime.avgTimeToFirstToken != null && prevResponseTime.avgTimeToFirstToken != null
+            ? this.calcTrend(responseTime.avgTimeToFirstToken, prevResponseTime.avgTimeToFirstToken)
+            : null,
+        },
         queriesRaised: { value: messages.totalMessagesSent, trend: this.calcTrend(messages.totalMessagesSent, prevMessages.totalMessagesSent) },
       },
     };

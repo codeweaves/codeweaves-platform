@@ -1,6 +1,6 @@
 # Story 13.5: Streaming Metadata Extraction & Analytics
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -22,24 +22,24 @@ So that I can monitor AI response times and diagnose bottlenecks.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Define StreamingMetadata interface (AC: 1-5)
-  - [ ] Create or extend metadata type in `apps/api/src/services/chat-metadata.interface.ts`
-  - [ ] Include all fields: `backendReceivedAt`, `n8nReceivedAt`, `agentRepliedAt`, `backendRespondedAt`, `responseLatencyMs`, `timeToFirstToken`, `totalTokens`, `streamDurationMs`
+- [x] Task 1: Define StreamingMetadata interface (AC: 1-5)
+  - [x] Create or extend metadata type in `apps/api/src/services/chat-metadata.interface.ts`
+  - [x] Include all fields: `backendReceivedAt`, `n8nReceivedAt`, `agentRepliedAt`, `backendRespondedAt`, `responseLatencyMs`, `timeToFirstToken`, `timeToLastToken`, `totalTokens`, `streamDurationMs`
 
-- [ ] Task 2: Build metadata in streaming path (AC: 1-5, 6)
-  - [ ] In `PublicChatController.handleStreaming()` (from Story 13-4), collect timestamps during iteration
-  - [ ] After stream ends, build full metadata object with all fields
-  - [ ] Store in assistant ChatMessage metadata column
+- [x] Task 2: Build metadata in streaming path (AC: 1-5, 6)
+  - [x] In `PublicChatController.handleStreaming()` (from Story 13-4), collect timestamps during iteration
+  - [x] After stream ends, build full metadata object with all fields
+  - [x] Store in assistant ChatMessage metadata column
 
-- [ ] Task 3: Update analytics aggregation (AC: 7, 8)
-  - [ ] Check existing analytics queries in `apps/api/src/services/analytics.service.ts`
-  - [ ] Ensure response time calculations work with the new metadata shape
-  - [ ] Add `averageTimeToFirstToken` to analytics summary if useful
+- [x] Task 3: Update analytics aggregation (AC: 7, 8)
+  - [x] Check existing analytics queries in `apps/api/src/services/analytics.service.ts`
+  - [x] Ensure response time calculations work with the new metadata shape
+  - [x] Add `averageTimeToFirstToken` to analytics summary if useful
 
-- [ ] Task 4: Unit tests (AC: 9)
-  - [ ] Test metadata built from streaming: all fields present with correct values
-  - [ ] Test backward compatibility: existing analytics queries handle new fields
-  - [ ] Test null handling: missing timestamps in n8n chunks → null in metadata
+- [x] Task 4: Unit tests (AC: 9)
+  - [x] Test metadata built from streaming: all fields present with correct values
+  - [x] Test backward compatibility: existing analytics queries handle new fields
+  - [x] Test null handling: missing timestamps in n8n chunks → null in metadata
 
 ## Dev Notes
 
@@ -120,9 +120,27 @@ Story 13-4 builds the metadata object in the controller's real streaming path. T
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Completion Notes List
+- Created `ChatMessageMetadata` type system with `BaseChatMetadata`, `SimulatedStreamingMetadata`, `RealStreamingMetadata`, and `DirectMetadata` types. All share base fields (`responseLatencyMs`, `n8nReceivedAt`, `agentRepliedAt`) so analytics queries work across all modes.
+- Added `streamingMode: 'simulated'` to `ChatService.buildMetadata()` (webhook/simulated SSE paths) and `streamingMode: 'real'` to the controller's real streaming path.
+- Added `timeToLastToken` field — ms from request to last item chunk arrival, giving end-to-end streaming completion time from backend's perspective.
+- Kept field name as `totalChunks` (counts SSE chunks, not LLM tokens — renaming to `totalTokens` per AC5 was reverted during code review as misleading).
+- Added `avgTimeToFirstTokenMs` KPI to analytics summary endpoint — aggregates `timeToFirstToken` from streaming metadata when available.
+- All existing analytics queries verified compatible — they use `responseLatencyMs`, `n8nReceivedAt`, `agentRepliedAt` which are in `BaseChatMetadata`.
+- 11 new tests in `chat-metadata.spec.ts` covering interface shapes, null handling, backward compatibility, and metadata extraction from stream chunks.
+- Updated existing `chat.service.spec.ts` (2 assertions for `streamingMode: 'simulated'`) and `public-chat.controller.spec.ts` (field rename).
 
 ### Change Log
+- 2026-03-23: Implemented streaming metadata extraction & analytics (Story 13-5)
+- 2026-03-23: Code review fixes — added avgTimeToFirstTokenMs trend, reverted buildMetadata to private, added return type to getResponseTimeMetrics, renamed totalTokens back to totalChunks
 
 ### File List
+- `apps/api/src/services/chat-metadata.interface.ts` (NEW) — BaseChatMetadata, SimulatedStreamingMetadata, RealStreamingMetadata type definitions
+- `apps/api/src/services/chat.service.ts` (MODIFIED) — private `buildMetadata()` returns `SimulatedStreamingMetadata` with `streamingMode: 'simulated'`
+- `apps/api/src/controllers/public/public-chat.controller.ts` (MODIFIED) — typed metadata as `RealStreamingMetadata` with `streamingMode: 'real'`, added `timeToLastToken`, `totalChunks`
+- `apps/api/src/services/analytics.service.ts` (MODIFIED) — added `avgTimeToFirstTokenMs` KPI with trend to summary, typed `getResponseTimeMetrics` return
+- `apps/api/test/services/chat/chat-metadata.spec.ts` (NEW) — 11 metadata interface/extraction tests
+- `apps/api/test/services/chat/chat.service.spec.ts` (MODIFIED) — added `streamingMode: 'simulated'` assertions
+- `apps/api/test/controllers/public/public-chat.controller.spec.ts` (MODIFIED) — updated metadata field assertions
