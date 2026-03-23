@@ -24,6 +24,7 @@ describe('ChatService', () => {
     },
     chatMessage: {
       create: jest.fn(),
+      delete: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -823,6 +824,60 @@ describe('ChatService', () => {
         const result = await service.streamMessage(baseDto);
         expect(result.chunks.join('')).toBe(mockN8nResponse.agentReply);
         expect(mockHmacService.verifySignature).not.toHaveBeenCalled();
+      });
+    });
+  });
+
+  describe('saveUserMessage', () => {
+    it('should create a USER role chat message', async () => {
+      const mockMsg = { id: 'msg-1', role: 'USER', content: 'Hello' };
+      mockPrismaService.chatMessage.create.mockResolvedValue(mockMsg);
+
+      const result = await service.saveUserMessage('session-db-id', 'Hello');
+
+      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
+        data: { chatSessionId: 'session-db-id', role: 'USER', content: 'Hello' },
+      });
+      expect(result).toEqual(mockMsg);
+    });
+  });
+
+  describe('saveAssistantMessage', () => {
+    it('should create an ASSISTANT role chat message with metadata', async () => {
+      const metadata = { totalChunks: 5, streamDurationMs: 1000 };
+      const mockMsg = { id: 'msg-2', role: 'ASSISTANT', content: 'Hi there', metadata };
+      mockPrismaService.chatMessage.create.mockResolvedValue(mockMsg);
+
+      const result = await service.saveAssistantMessage('session-db-id', 'Hi there', metadata);
+
+      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
+        data: { chatSessionId: 'session-db-id', role: 'ASSISTANT', content: 'Hi there', metadata },
+      });
+      expect(result).toEqual(mockMsg);
+    });
+  });
+
+  describe('updateSessionTimestamp', () => {
+    it('should update the session lastMessageAt', async () => {
+      mockPrismaService.chatSession.update.mockResolvedValue({});
+
+      await service.updateSessionTimestamp('session-db-id');
+
+      expect(mockPrismaService.chatSession.update).toHaveBeenCalledWith({
+        where: { id: 'session-db-id' },
+        data: { lastMessageAt: expect.any(Date) },
+      });
+    });
+  });
+
+  describe('deleteMessage', () => {
+    it('should delete a chat message by ID', async () => {
+      mockPrismaService.chatMessage.delete.mockResolvedValue({});
+
+      await service.deleteMessage('msg-to-delete');
+
+      expect(mockPrismaService.chatMessage.delete).toHaveBeenCalledWith({
+        where: { id: 'msg-to-delete' },
       });
     });
   });
