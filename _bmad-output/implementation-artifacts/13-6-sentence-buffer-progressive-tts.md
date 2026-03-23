@@ -1,6 +1,6 @@
 # Story 13.6: Sentence Buffer for Progressive TTS
 
-Status: ready-for-dev
+Status: done
 
 ## Story
 
@@ -20,33 +20,33 @@ So that streaming AI tokens can be batched into sentences for progressive TTS sy
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create SentenceBuffer class (AC: 1-5)
-  - [ ] Create `apps/api/src/modules/voice/utils/sentence-buffer.ts`
-  - [ ] Implement `addToken(token)` — appends to internal buffer, scans for boundaries, returns ready sentences
-  - [ ] Implement `flush()` — returns remaining buffer content, resets buffer
-  - [ ] Configurable constants: `MIN_SENTENCE_LENGTH = 10`, `MAX_BUFFER_LENGTH = 500`
+- [x] Task 1: Create SentenceBuffer class (AC: 1-5)
+  - [x] Create `apps/api/src/modules/voice/utils/sentence-buffer.ts`
+  - [x] Implement `addToken(token)` — appends to internal buffer, scans for boundaries, returns ready sentences
+  - [x] Implement `flush()` — returns remaining buffer content, resets buffer
+  - [x] Configurable constants: `MIN_SENTENCE_LENGTH = 10`, `MAX_BUFFER_LENGTH = 500`
 
-- [ ] Task 2: Sentence boundary detection (AC: 2, 6)
-  - [ ] Primary boundaries: `.` `!` `?` followed by whitespace or end of buffer
-  - [ ] Skip false boundaries: common abbreviations (Mr., Mrs., Dr., vs., etc., e.g., i.e.)
-  - [ ] Skip numbered lists: digit + period + space (e.g., "1. First item")
-  - [ ] Handle ellipsis: `...` is NOT a sentence boundary (it's a continuation)
-  - [ ] Handle URLs: skip periods inside URLs (http://..., www....)
+- [x] Task 2: Sentence boundary detection (AC: 2, 6)
+  - [x] Primary boundaries: `.` `!` `?` followed by whitespace or end of buffer
+  - [x] Skip false boundaries: common abbreviations (Mr., Mrs., Dr., vs., etc., e.g., i.e.)
+  - [x] Skip numbered lists: digit + period + space (e.g., "1. First item")
+  - [x] Handle ellipsis: `...` is NOT a sentence boundary (it's a continuation)
+  - [x] Handle URLs: skip periods inside URLs (http://..., www....)
 
-- [ ] Task 3: Export from voice module (AC: 1)
-  - [ ] Export SentenceBuffer from voice utils barrel file (or directly importable)
+- [x] Task 3: Export from voice module (AC: 1)
+  - [x] Export SentenceBuffer from voice utils barrel file (or directly importable)
 
-- [ ] Task 4: Unit tests (AC: 7)
-  - [ ] Create `apps/api/test/services/voice/sentence-buffer.spec.ts`
-  - [ ] Test: "Hello world. How are you?" → ["Hello world."] then ["How are you?"] on flush
-  - [ ] Test: token-by-token input ("H", "ello", " world", ".") → emits sentence when boundary hit
-  - [ ] Test: short sentence "Hi." held until more text or flush
-  - [ ] Test: 500+ chars without punctuation → force-flushed
-  - [ ] Test: flush returns remaining text
-  - [ ] Test: empty buffer flush returns null
-  - [ ] Test: "Dr. Smith went home." → single sentence (not split at "Dr.")
-  - [ ] Test: "1. First item. 2. Second item." → handles numbered lists
-  - [ ] Test: multiple sentences in one token batch
+- [x] Task 4: Unit tests (AC: 7)
+  - [x] Create `apps/api/test/services/voice/sentence-buffer.spec.ts`
+  - [x] Test: "Hello world. How are you?" → ["Hello world."] then ["How are you?"] on flush
+  - [x] Test: token-by-token input ("H", "ello", " world", ".") → emits sentence when boundary hit
+  - [x] Test: short sentence "Hi." held until more text or flush
+  - [x] Test: 500+ chars without punctuation → force-flushed
+  - [x] Test: flush returns remaining text
+  - [x] Test: empty buffer flush returns null
+  - [x] Test: "Dr. Smith went home." → single sentence (not split at "Dr.")
+  - [x] Test: "1. First item. 2. Second item." → handles numbered lists
+  - [x] Test: multiple sentences in one token batch
 
 ## Dev Notes
 
@@ -136,12 +136,59 @@ The architecture provides the basic structure. This story implements it with pro
 - [Source: architecture.md#Section 20.15.1] — SentenceBuffer class spec
 - [Source: architecture.md#Section 20.15.2] — How SentenceBuffer is used in streaming TTS orchestrator
 
+## Senior Developer Review (AI)
+
+**Review Date:** 2026-03-23
+**Review Outcome:** Changes Requested → All Resolved
+**Reviewers:** Blind Hunter, Edge Case Hunter, Acceptance Auditor (3-layer adversarial review)
+
+### Findings Summary
+
+| Category | Count | Resolved |
+|----------|-------|----------|
+| Patch | 5 | 5/5 |
+| Bad Spec | 1 | N/A (cosmetic) |
+| Defer | 4 | 4/4 (all fixed) |
+| Rejected | 6 | N/A |
+
+### Action Items
+
+- [x] **[High] P1:** Infinite loop on 500+ whitespace-only buffer — added `trimStart()` on empty chunks + iteration cap (20)
+- [x] **[Low] P2:** Repeated `toLowerCase()`/`slice()` allocations per period — `isInsideUrl` now walks backward; `isAbbreviation` no longer lowercases entire buffer
+- [x] **[Low] P3:** `\r` not treated as whitespace — centralized `isWhitespace()` Set with `\r` support
+- [x] **[Med] P4:** Missing unit test for `"U.S."` abbreviation — added tests for U.S., U.K., a.m., p.m.
+- [x] **[Low] P5:** Abbreviation false positive from dot-stripping — words containing dots now rejected from single-word match
+- [x] **[Med] D1:** Decimal numbers mid-sentence falsely detected as numbered lists — restricted to buffer start / after sentence boundary
+- [x] **[Med] D2:** Unicode surrogate pair splitting on force-flush — `findSafeBreakPoint()` detects and avoids splitting pairs
+- [x] **[Low] D3:** Missing multi-dot abbreviations — added `u.k.`, `a.m.`, `p.m.`
+- [x] **[Low] D4:** Large single token blocks event loop — iteration cap (20) on force-flush loop
+- **[Low] S1 (Bad Spec):** AC 2 says "at string end" but streaming requires deferral to `flush()` — no code change needed, correct design for streaming
+
 ## Dev Agent Record
 
 ### Agent Model Used
+Claude Opus 4.6
 
 ### Completion Notes List
+- Implemented `SentenceBuffer` class with `addToken()` and `flush()` methods
+- Boundary detection handles: `.` `!` `?` followed by whitespace including `\r` (end-of-buffer deferred to `flush()` for streaming correctness)
+- Short sentence merging: boundaries producing sentences < 10 chars are skipped; the next boundary produces a merged sentence
+- Force-flush at 500 chars breaks at last space for clean output, with surrogate pair protection
+- Edge case handling: 22 abbreviations, 6 multi-dot abbreviations (e.g., i.e., u.s., u.k., a.m., p.m.), numbered lists (start-of-line only), ellipsis, URLs (http/https/www)
+- Abbreviation dot-stripping hardened: words containing dots are not matched against single-word abbreviation set
+- Numbered list detection tightened: only matches at buffer start or after sentence boundary (not mid-sentence decimals)
+- Unicode surrogate pair safe: force-flush detects and avoids splitting surrogate pairs
+- Iteration cap (20) on force-flush loop prevents infinite loops on whitespace-only buffers
+- Centralized whitespace detection via static `isWhitespace()` helper using Set
+- Optimized `isInsideUrl`: backward walk instead of full-buffer slice+toLowerCase
+- 49 unit tests covering all ACs plus code review fixes
+- All 1278 tests pass (zero regressions)
+- Lint, type-check, and build all pass
 
 ### Change Log
+- 2026-03-23: Implemented SentenceBuffer utility and comprehensive unit tests (Story 13-6)
+- 2026-03-23: Code review fixes — P1 infinite loop, P2 perf optimizations, P3 \r whitespace, P4 U.S. test, P5 dot-stripping, D1 numbered list false positive, D2 surrogate pairs, D3 abbreviations, D4 iteration cap
 
 ### File List
+- `apps/api/src/modules/voice/utils/sentence-buffer.ts` — CREATE: SentenceBuffer class
+- `apps/api/test/services/voice/sentence-buffer.spec.ts` — CREATE: 49 unit tests
