@@ -3,8 +3,9 @@
 import { useState, useRef, useCallback, useEffect } from 'react';
 import * as Sentry from '@sentry/nextjs';
 import {
-  sendVoiceConversation,
+  streamVoiceConversation,
   VoiceApiError,
+  type VoiceAudioChunk,
 } from '@/lib/voice-api';
 
 export type VoiceState = 'idle' | 'listening' | 'processing' | 'playing';
@@ -18,6 +19,7 @@ const API_TIMEOUT_MS = 30_000;
 const ERROR_MESSAGES: { [key: string]: string | undefined } = {
   STT_FAILED: "Couldn't understand audio. Please try again or type your message.",
   TTS_FAILED: 'Voice playback unavailable',
+  TTS_ALL_PROVIDERS_FAILED: 'Voice synthesis unavailable for this sentence',
   UNSUPPORTED_LANGUAGE: 'This language is not supported for voice',
   PROVIDER_TIMEOUT: 'Voice processing timed out. Please try again.',
   PROVIDER_UNAVAILABLE: 'Voice service temporarily unavailable',
@@ -26,7 +28,7 @@ const ERROR_MESSAGES: { [key: string]: string | undefined } = {
   RATE_LIMITED: 'Too many voice requests. Please wait.',
 };
 
-const WARNING_ERROR_CODES = new Set(['TTS_FAILED', 'RATE_LIMITED']);
+const WARNING_ERROR_CODES = new Set(['TTS_FAILED', 'TTS_ALL_PROVIDERS_FAILED', 'RATE_LIMITED']);
 
 export function getErrorSeverity(errorCode: string | null): VoiceErrorSeverity {
   if (!errorCode) return 'error';
@@ -81,6 +83,113 @@ function mapErrorToMessage(err: unknown): { message: string; errorCode: string |
   return { message: 'Voice processing failed. Please try again.', errorCode: null };
 }
 
+/**
+ * Manages a queue of base64 audio chunks, playing them sequentially.
+ * Each chunk is decoded, converted to an Audio element, and played in order.
+ */
+class AudioPlaybackQueue {
+  private queue: { audio: string; format: string }[] = [];
+  private currentAudio: HTMLAudioElement | null = null;
+  private currentUrl: string | null = null;
+  private playing = false;
+  private stopped = false;
+  private onFinished: (() => void) | null = null;
+  private streamComplete = false;
+
+  constructor(onFinished: () => void) {
+    this.onFinished = onFinished;
+  }
+
+  enqueue(audio: string, audioFormat: string) {
+    if (this.stopped) return;
+    this.queue.push({ audio, format: audioFormat });
+    if (!this.playing) {
+      this.playNext();
+    }
+  }
+
+  markStreamComplete() {
+    this.streamComplete = true;
+    // If nothing is playing and queue is empty, we're done
+    if (!this.playing && this.queue.length === 0) {
+      this.onFinished?.();
+    }
+  }
+
+  stop() {
+    this.stopped = true;
+    this.queue = [];
+    if (this.currentAudio) {
+      this.currentAudio.pause();
+      this.currentAudio.currentTime = 0;
+      this.currentAudio = null;
+    }
+    if (this.currentUrl) {
+      URL.revokeObjectURL(this.currentUrl);
+      this.currentUrl = null;
+    }
+    this.playing = false;
+  }
+
+  private playNext() {
+    if (this.stopped) return;
+
+    const item = this.queue.shift();
+    if (!item) {
+      this.playing = false;
+      if (this.streamComplete) {
+        this.onFinished?.();
+      }
+      return;
+    }
+
+    this.playing = true;
+    try {
+      const format = item.format.startsWith('audio/') ? item.format : `audio/${item.format}`;
+      const byteChars = atob(item.audio);
+      const byteArray = new Uint8Array(byteChars.length);
+      for (let i = 0; i < byteChars.length; i++) {
+        byteArray[i] = byteChars.charCodeAt(i);
+      }
+      const blob = new Blob([byteArray], { type: format });
+      const url = URL.createObjectURL(blob);
+      this.currentUrl = url;
+
+      const audio = new Audio(url);
+      this.currentAudio = audio;
+
+      audio.onended = () => {
+        this.revokeCurrentUrl();
+        this.currentAudio = null;
+        this.playNext();
+      };
+
+      audio.onerror = () => {
+        this.revokeCurrentUrl();
+        this.currentAudio = null;
+        this.playNext();
+      };
+
+      audio.play().catch(() => {
+        this.revokeCurrentUrl();
+        this.currentAudio = null;
+        this.playNext();
+      });
+    } catch {
+      this.revokeCurrentUrl();
+      this.currentAudio = null;
+      this.playNext();
+    }
+  }
+
+  private revokeCurrentUrl() {
+    if (this.currentUrl) {
+      URL.revokeObjectURL(this.currentUrl);
+      this.currentUrl = null;
+    }
+  }
+}
+
 export function useVoice({
   agentId,
   sessionId,
@@ -103,8 +212,7 @@ export function useVoice({
   const chunksRef = useRef<Blob[]>([]);
   const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
-  const audioUrlRef = useRef<string | null>(null);
+  const playbackQueueRef = useRef<AudioPlaybackQueue | null>(null);
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -124,13 +232,6 @@ export function useVoice({
   const setVoiceStateSynced = useCallback((state: VoiceState) => {
     voiceStateRef.current = state;
     setVoiceState(state);
-  }, []);
-
-  const revokeAudioUrl = useCallback(() => {
-    if (audioUrlRef.current) {
-      URL.revokeObjectURL(audioUrlRef.current);
-      audioUrlRef.current = null;
-    }
   }, []);
 
   const cleanup = useCallback(() => {
@@ -157,6 +258,8 @@ export function useVoice({
     chunksRef.current = [];
     abortRef.current?.abort();
     abortRef.current = null;
+    playbackQueueRef.current?.stop();
+    playbackQueueRef.current = null;
   }, []);
 
   const clearError = useCallback(() => {
@@ -188,18 +291,52 @@ export function useVoice({
     abortRef.current = controller;
     timedOutRef.current = false;
 
-    // Frontend timeout: abort after 30s
     timeoutRef.current = setTimeout(() => {
       timedOutRef.current = true;
       controller.abort();
     }, API_TIMEOUT_MS);
 
+    let receivedFirstAudio = false;
+    let fullResponseText = '';
+    let responseSessionId = sessionIdRef.current ?? '';
+
+    // Create playback queue — transitions to 'idle' when all audio finishes
+    const queue = new AudioPlaybackQueue(() => {
+      playbackQueueRef.current = null;
+      setVoiceStateSynced('idle');
+    });
+    playbackQueueRef.current = queue;
+
     try {
-      const result = await sendVoiceConversation({
+      const result = await streamVoiceConversation({
         audio: audioBlob,
         agentId,
         sessionId: sessionIdRef.current,
         signal: controller.signal,
+        callbacks: {
+          onTranscription: (text: string) => {
+            onTranscriptionRef.current?.(text, '');
+          },
+          onAudioChunk: (chunk: VoiceAudioChunk) => {
+            if (!receivedFirstAudio) {
+              receivedFirstAudio = true;
+              setVoiceStateSynced('playing');
+            }
+            queue.enqueue(chunk.audio, chunk.audioFormat);
+          },
+          onComplete: (fullText: string) => {
+            fullResponseText = fullText;
+            queue.markStreamComplete();
+          },
+          onError: (errCode: string, message: string) => {
+            const mapped = ERROR_MESSAGES[errCode] ?? message;
+            setErrorWithAutoDismiss(mapped, errCode);
+            Sentry.captureMessage('Voice streaming error', {
+              level: 'warning',
+              extra: { agentId, errorCode: errCode, message },
+            });
+          },
+        },
       });
 
       if (timeoutRef.current) {
@@ -209,66 +346,20 @@ export function useVoice({
 
       if (controller.signal.aborted) return;
 
-      // Always deliver text response if available
-      if (result.transcription) {
-        onTranscriptionRef.current?.(
-          result.transcription.text,
-          result.transcription.detectedLanguage,
-        );
-      }
-      if (result.response?.text) {
-        onResponseRef.current?.(result.response.text, result.sessionId);
+      responseSessionId = result.sessionId ?? responseSessionId;
+
+      // Deliver text callbacks
+      if (fullResponseText) {
+        onResponseRef.current?.(fullResponseText, responseSessionId);
       }
 
-      // Handle TTS error (graceful degradation — text was still delivered)
-      if (result.ttsError) {
-        const msg = (result.ttsError.errorCode && ERROR_MESSAGES[result.ttsError.errorCode]) || 'Voice playback unavailable';
-        setErrorWithAutoDismiss(msg, result.ttsError.errorCode);
-        Sentry.captureMessage('Voice TTS failed (graceful degradation)', {
-          level: 'warning',
-          extra: { agentId, errorCode: result.ttsError.errorCode, voiceState: 'processing' },
-        });
-      }
-
-      // Play audio if available
-      if (result.response.audio && result.response.audioFormat) {
-        try {
-          const format = result.response.audioFormat.replace('audio/', '');
-          const byteChars = atob(result.response.audio);
-          const byteArray = new Uint8Array(byteChars.length);
-          for (let i = 0; i < byteChars.length; i++) {
-            byteArray[i] = byteChars.charCodeAt(i);
-          }
-          const responseAudioBlob = new Blob([byteArray], { type: `audio/${format}` });
-          const audioUrl = URL.createObjectURL(responseAudioBlob);
-          audioUrlRef.current = audioUrl;
-          const audio = new Audio(audioUrl);
-
-          audio.onended = () => {
-            revokeAudioUrl();
-            audioRef.current = null;
-            setVoiceStateSynced('idle');
-          };
-
-          audio.onerror = () => {
-            revokeAudioUrl();
-            audioRef.current = null;
-            setVoiceStateSynced('idle');
-          };
-
-          audioRef.current = audio;
-          setVoiceStateSynced('playing');
-          audio.play().catch(() => {
-            revokeAudioUrl();
-            audioRef.current = null;
-            setVoiceStateSynced('idle');
-          });
-        } catch {
-          revokeAudioUrl();
+      // If no audio was received at all, go idle
+      if (!receivedFirstAudio) {
+        queue.markStreamComplete();
+        if (fullResponseText) {
+          // Text-only response (TTS failed for all sentences)
           setVoiceStateSynced('idle');
         }
-      } else {
-        setVoiceStateSynced('idle');
       }
     } catch (err) {
       if (timeoutRef.current) {
@@ -276,7 +367,9 @@ export function useVoice({
         timeoutRef.current = null;
       }
 
-      // Distinguish timeout abort from unmount abort
+      queue.stop();
+      playbackQueueRef.current = null;
+
       if (err instanceof DOMException && err.name === 'AbortError') {
         if (timedOutRef.current) {
           const msg = 'Voice processing timed out. Please try again.';
@@ -288,7 +381,6 @@ export function useVoice({
           });
           setVoiceStateSynced('idle');
         }
-        // Unmount abort — silently ignore
         return;
       }
 
@@ -297,7 +389,6 @@ export function useVoice({
       onErrorRef.current?.(message);
       setVoiceStateSynced('idle');
 
-      // Report to Sentry (not for permission denied or unsupported browser)
       Sentry.captureMessage('Voice API call failed', {
         level: 'error',
         extra: {
@@ -313,7 +404,7 @@ export function useVoice({
         abortRef.current = null;
       }
     }
-  }, [agentId, setErrorWithAutoDismiss, setVoiceStateSynced, revokeAudioUrl]);
+  }, [agentId, setErrorWithAutoDismiss, setVoiceStateSynced]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state === 'recording') {
@@ -388,7 +479,6 @@ export function useVoice({
       let code: string | null = null;
       if (err instanceof DOMException && err.name === 'NotAllowedError') {
         message = 'Microphone access denied. Please allow microphone in your browser settings.';
-        // Permission denied is user choice — NOT reported to Sentry (AC #7: 6.3)
       } else {
         Sentry.captureException(err, {
           extra: { agentId, voiceState: voiceStateRef.current, operation: 'startRecording' },
@@ -402,28 +492,21 @@ export function useVoice({
   }, [isSupported, handleApiCall, stopRecording, setErrorWithAutoDismiss, setVoiceStateSynced, agentId]);
 
   const stopPlayback = useCallback(() => {
-    if (audioRef.current) {
-      audioRef.current.pause();
-      audioRef.current.currentTime = 0;
-      audioRef.current = null;
-    }
-    revokeAudioUrl();
+    playbackQueueRef.current?.stop();
+    playbackQueueRef.current = null;
     setVoiceStateSynced('idle');
-  }, [revokeAudioUrl, setVoiceStateSynced]);
+  }, [setVoiceStateSynced]);
 
   useEffect(() => {
     return () => {
       cleanup();
-      if (audioRef.current) {
-        audioRef.current.pause();
-        audioRef.current = null;
-      }
-      revokeAudioUrl();
+      playbackQueueRef.current?.stop();
+      playbackQueueRef.current = null;
       if (errorTimerRef.current) {
         clearTimeout(errorTimerRef.current);
       }
     };
-  }, [cleanup, revokeAudioUrl]);
+  }, [cleanup]);
 
   return {
     voiceState,

@@ -82,9 +82,9 @@ describe('VoiceController', () => {
     getDeviceIdentifier: jest.fn(),
   };
 
-  function createMockRequest(): Request {
+  function createMockRequest(headers?: Record<string, string>): Request {
     return {
-      headers: { 'x-device-id': 'test-device' },
+      headers: { 'x-device-id': 'test-device', ...headers },
       ip: '127.0.0.1',
     } as unknown as Request;
   }
@@ -979,20 +979,22 @@ describe('VoiceController', () => {
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
-      const req = createMockRequest();
+      const req = createMockRequest({ accept: 'application/x-ndjson' });
       const res = createMockStreamingResponse();
 
       await controller.voiceConversation(audioFile, dto, req, res);
 
       expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'application/x-ndjson');
       expect(res.setHeader).toHaveBeenCalledWith('Transfer-Encoding', 'chunked');
-      expect(res.write).toHaveBeenCalledTimes(2); // 1 audio + 1 end
+      expect(res.write).toHaveBeenCalledTimes(3); // 1 transcription + 1 audio + 1 end
       expect(res.end).toHaveBeenCalled();
 
       // Verify chunks are valid JSON
       const parsed = res.writtenChunks.map((c: string) => JSON.parse(c.trim()));
-      expect(parsed[0].type).toBe('audio');
-      expect(parsed[1].type).toBe('end');
+      expect(parsed[0].type).toBe('transcription');
+      expect(parsed[0].text).toBe('Hello, how are you?');
+      expect(parsed[1].type).toBe('audio');
+      expect(parsed[2].type).toBe('end');
     });
 
     it('should fall back to legacy path when webhookUrl is not available', async () => {
@@ -1042,7 +1044,7 @@ describe('VoiceController', () => {
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
-      const req = createMockRequest();
+      const req = createMockRequest({ accept: 'application/x-ndjson' });
       const res = createMockStreamingResponse();
 
       await controller.voiceConversation(audioFile, dto, req, res);
@@ -1070,7 +1072,7 @@ describe('VoiceController', () => {
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
-      const req = createMockRequest();
+      const req = createMockRequest({ accept: 'application/x-ndjson' });
       const res = createMockStreamingResponse();
 
       await controller.voiceConversation(audioFile, dto, req, res);
