@@ -142,17 +142,21 @@ export class VoiceController {
       };
     }
 
-    // Streaming path: if agent has a webhookUrl, use progressive TTS
+    // Streaming path: requires webhookUrl + TTS enabled + client opt-in via Accept header
+    const clientAcceptsNdjson = req.headers['accept']?.includes('application/x-ndjson');
+
     let webhookUrl: string | null = null;
-    try {
-      webhookUrl = await this.agentsService.getEffectiveWebhookUrl(dto.agentId);
-    } catch (error) {
-      if (!(error instanceof NotFoundException)) {
-        this.logger.error(
-          `Failed to fetch webhook URL for agent ${dto.agentId}: ${error instanceof Error ? error.message : 'unknown'}`,
-        );
+    if (clientAcceptsNdjson) {
+      try {
+        webhookUrl = await this.agentsService.getEffectiveWebhookUrl(dto.agentId);
+      } catch (error) {
+        if (!(error instanceof NotFoundException)) {
+          this.logger.error(
+            `Failed to fetch webhook URL for agent ${dto.agentId}: ${error instanceof Error ? error.message : 'unknown'}`,
+          );
+        }
+        // No webhook URL or error — fall through to legacy sequential path
       }
-      // No webhook URL or error — fall through to legacy sequential path
     }
 
     let voiceConfig: VoiceConfigDto;
@@ -165,7 +169,7 @@ export class VoiceController {
       voiceConfig = { ttsEnabled: true } as VoiceConfigDto;
     }
 
-    if (webhookUrl && voiceConfig.ttsEnabled !== false) {
+    if (webhookUrl && voiceConfig.ttsEnabled !== false && clientAcceptsNdjson) {
       await this.handleStreamingVoice(
         dto, sttResult, sttLatencyMs, webhookUrl, voiceConfig, startTime, res,
       );
@@ -466,6 +470,16 @@ export class VoiceController {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('X-Session-Id', session.id);
     res.setHeader('X-Message-Id', userMessage.id);
+
+    // Send transcription chunk immediately so the client can show the user's message
+    const transcriptionChunk = {
+      type: 'transcription' as const,
+      text: sttResult.transcript,
+      detectedLanguage: sttResult.detectedLanguage,
+      confidence: sttResult.confidence,
+      sttLatencyMs,
+    };
+    res.write(JSON.stringify(transcriptionChunk) + '\n');
 
     // Client disconnect handling
     let closed = false;

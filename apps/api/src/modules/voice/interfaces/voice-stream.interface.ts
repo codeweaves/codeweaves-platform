@@ -1,3 +1,11 @@
+export interface VoiceTranscriptionChunk {
+  type: 'transcription';
+  text: string;
+  detectedLanguage: string;
+  confidence: number;
+  sttLatencyMs: number;
+}
+
 export interface VoiceAudioChunk {
   type: 'audio';
   sentenceIndex: number;
@@ -21,4 +29,4 @@ export interface VoiceErrorChunk {
   sentenceIndex?: number;
 }
 
-export type VoiceStreamChunk = VoiceAudioChunk | VoiceEndChunk | VoiceErrorChunk;
+export type VoiceStreamChunk = VoiceTranscriptionChunk | VoiceAudioChunk | VoiceEndChunk | VoiceErrorChunk;
