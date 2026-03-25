@@ -1,6 +1,13 @@
 {
   "extends": "@repo/typescript-config/base.json",
   "compilerOptions": {
+    "strict": true,
+    "strictNullChecks": true,
+    "strictFunctionTypes": true,
+    "strictBindCallApply": true,
+    "strictPropertyInitialization": true,
+    "noImplicitAny": true,
+    "noImplicitThis": true,
     "jsx": "react-jsx",
     "jsxImportSource": "preact",
     "moduleResolution": "bundler",

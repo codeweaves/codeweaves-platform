@@ -17,7 +17,7 @@ export default [
   {
     rules: {
       // Preact uses 'class' instead of 'className'
-      "react/no-unknown-property": ["error", { ignore: ["class"] }],
+      "react/no-unknown-property": ["error", { ignore: ["class", "stroke-width"] }],
     },
   },
 ];

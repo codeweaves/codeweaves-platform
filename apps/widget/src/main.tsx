@@ -1,17 +1,30 @@
 import { render } from 'preact';
-import { App } from './App';
+import { Widget } from './components/Widget';
 
-// Mount widget to the root element
-const rootElement = document.getElementById('codeweaves-widget-root');
-
-if (rootElement) {
-  render(<App />, rootElement);
-}
-
-// Export for programmatic initialization
-export function initWidget(containerId: string) {
-  const container = document.getElementById(containerId);
-  if (container) {
-    render(<App />, container);
+/**
+ * IIFE auto-init entry point for the CodeWeaves chat widget.
+ * When the script loads, it immediately bootstraps the widget.
+ * The IIFE wrapper is handled by Vite/Rollup build output format.
+ */
+(function init() {
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', bootstrap);
+  } else {
+    bootstrap();
   }
+})();
+
+function bootstrap() {
+  // Prevent duplicate widget injection if script is loaded more than once
+  if (document.getElementById('codeweaves-widget-root')) return;
+
+  // Guard against edge case where body isn't available yet
+  if (!document.body) return;
+
+  // Story 5-2 will replace this with Shadow DOM initialization.
+  // For now, create a host element and render the Widget directly.
+  const host = document.createElement('div');
+  host.id = 'codeweaves-widget-root';
+  document.body.appendChild(host);
+  render(<Widget />, host);
 }
