@@ -96,11 +96,11 @@ function bootstrap(agentId: string, apiBaseUrl: string = ''): void {
 
   // Task 3: Create host element and Shadow DOM
   debug('Creating Shadow DOM');
-  initShadowDom();
+  const { host: hostEl } = initShadowDom();
 
-  // Task 4: Render Preact app into shadow root
+  // Task 4: Render Preact app into shadow root (pass host for theme injection)
   debug('Rendering Preact app');
-  renderInShadow(<Widget agentId={agentId} apiBaseUrl={apiBaseUrl} />);
+  renderInShadow(<Widget agentId={agentId} apiBaseUrl={apiBaseUrl} hostElement={hostEl} />);
 
   // Task 8: Setup SPA navigation handling
   setupSPANavigation();
