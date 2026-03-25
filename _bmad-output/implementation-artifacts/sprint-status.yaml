@@ -1,4 +1,5 @@
 # generated: 2026-03-14
+# last_updated: 2026-03-24
 # project: codeweaves-platform
 # project_key: NOKEY
 # tracking_system: file-system
@@ -34,6 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-14
+last_updated: 2026-03-24
 project: codeweaves-platform
 project_key: NOKEY
 tracking_system: file-system
@@ -146,27 +148,48 @@ development_status:
   epic-4-retrospective: optional
 
   # ============================================
-  # Epic 5: Embeddable Chat Widget
+  # Epic 5: Embeddable Chat Widget ★ NEXT UP
   # Priority: P1
   # Stories: 14
-  # Dependencies: Epic 0, Epic 3
+  # Dependencies: Epic 0, Epic 3 (both done)
   # NFRs: NFR4 (<200ms load), NFR10 (<150KB bundle)
+  # Research: docs/research-widget-css-isolation.md
+  #
+  # KEY ARCHITECTURE DECISIONS (from research 2026-03-24):
+  #   - Closed Shadow DOM with `all: initial` CSS reset
+  #   - Constructable Stylesheets (CSP-safe, no inline <style>)
+  #   - CSS custom properties with --cw-* namespace for theming
+  #   - Host element: position:fixed, z-index:2147483647, isolation:isolate
+  #   - MutationObserver to protect host element from tampering
+  #   - Fonts injected into light DOM (@font-face doesn't work in Shadow DOM)
+  #   - System font stack as default (zero network cost)
+  #   - VisualViewport API for iOS keyboard handling
+  #   - 2-phase lazy loading: ~2KB trigger → full widget on click
+  #   - No CSS framework — plain CSS inside Shadow DOM
+  #
+  # IMPLEMENTATION PHASE ORDER:
+  #   Phase 1 (Foundation):        5-1 → 5-2 (sequential — 5-2 is THE critical story)
+  #   Phase 2 (Init & Theming):    5-3, 5-4, 5-5 (parallel after Phase 1)
+  #   Phase 3 (Widget States):     5-6 → 5-7 (sequential), 5-8 (parallel with 5-6)
+  #   Phase 4 (Chat UI):           5-9, 5-10, 5-11 (5-10/5-11 depend on 5-9)
+  #   Phase 5 (Polish & Security): 5-13 (depends on 5-8), 5-12 (parallel)
+  #   Phase 6 (Final):             5-14 (bundle optimization — LAST)
   # ============================================
-  epic-5: backlog
-  5-1-scaffold-preact-vite-widget-application: backlog
-  5-2-shadow-dom-initialization-closed-mode: backlog
-  5-3-widget-script-tag-initialization: backlog
-  5-4-widget-configuration-loading-with-etag-caching: backlog
-  5-5-theme-css-variables-injection: backlog
-  5-6-minimized-widget-icon-state: backlog
-  5-7-bubble-notification-display: backlog
-  5-8-expanded-chat-window-state: backlog
-  5-9-chat-message-display: backlog
-  5-10-conversational-starters-display: backlog
-  5-11-typing-indicator-animation: backlog
-  5-12-cors-domain-validation: backlog
-  5-13-widget-window-minimized-state: backlog
-  5-14-bundle-size-optimization: backlog
+  epic-5: in-progress
+  5-1-scaffold-preact-vite-widget-application: ready-for-dev
+  5-2-shadow-dom-initialization-closed-mode: ready-for-dev
+  5-3-widget-script-tag-initialization: ready-for-dev
+  5-4-widget-configuration-loading-with-etag-caching: ready-for-dev
+  5-5-theme-css-variables-injection: ready-for-dev
+  5-6-minimized-widget-icon-state: ready-for-dev
+  5-7-bubble-notification-display: ready-for-dev
+  5-8-expanded-chat-window-state: ready-for-dev
+  5-9-chat-message-display: ready-for-dev
+  5-10-conversational-starters-display: ready-for-dev
+  5-11-typing-indicator-animation: ready-for-dev
+  5-12-cors-domain-validation: ready-for-dev
+  5-13-widget-window-minimized-state: ready-for-dev
+  5-14-bundle-size-optimization: ready-for-dev
   epic-5-retrospective: optional
 
   # ============================================
