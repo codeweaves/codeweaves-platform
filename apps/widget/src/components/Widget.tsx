@@ -1,8 +1,11 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
-import type { WidgetState } from '../types';
+import type { WidgetState, LoadedWidgetConfig } from '../types';
 import { ChatWindow } from './ChatWindow';
 import { TriggerButton } from './TriggerButton';
 import { BubbleNotification } from './BubbleNotification';
+import { loadConfig } from '../services/config-loader';
+import { revealWidget } from '../shadow-dom';
+import { debug, warn } from '../utils/debug';
 
 /** Callback registration for external control (global API) */
 let externalOpenFn: (() => void) | null = null;
@@ -28,13 +31,14 @@ export function triggerClose(): void {
 
 interface WidgetProps {
   agentId: string;
+  apiBaseUrl?: string;
 }
 
 /** Main widget container — renders trigger button and conditionally renders chat window */
-export function Widget({ agentId }: WidgetProps) {
-  // agentId will be used by config-loader (Story 5-4) to fetch widget configuration
-  void agentId;
+export function Widget({ agentId, apiBaseUrl = '' }: WidgetProps) {
   const [state, setState] = useState<WidgetState>('minimized');
+  const [config, setConfig] = useState<LoadedWidgetConfig | null>(null);
+  const [configError, setConfigError] = useState(false);
 
   const handleOpen = () => setState('open');
   const handleClose = () => setState('minimized');
@@ -52,6 +56,48 @@ export function Widget({ agentId }: WidgetProps) {
     );
     return () => unregisterWidgetControls();
   }, []);
+
+  // Load config on mount and reveal widget when done
+  useEffect(() => {
+    let cancelled = false;
+
+    loadConfig(agentId, apiBaseUrl)
+      .then((result) => {
+        if (cancelled) return;
+        if (result) {
+          debug('Config loaded for agent:', agentId);
+          setConfig(result);
+        } else {
+          warn('No config available for agent:', agentId);
+          setConfigError(true);
+        }
+      })
+      .catch((err) => {
+        if (cancelled) return;
+        warn('Config loading failed:', err);
+        setConfigError(true);
+      })
+      .finally(() => {
+        if (!cancelled) revealWidget();
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [agentId, apiBaseUrl]);
+
+  if (configError) {
+    return (
+      <div class="cw-widget">
+        <div class="cw-config-error" style={{ pointerEvents: 'auto' }}>
+          Widget unavailable
+        </div>
+      </div>
+    );
+  }
+
+  // Don't render interactive UI until config is loaded
+  if (!config) return null;
 
   return (
     <div class="cw-widget">

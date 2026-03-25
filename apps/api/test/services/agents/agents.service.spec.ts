@@ -1150,4 +1150,76 @@ describe('AgentsService', () => {
       expect(result.voiceConfig).toBeNull();
     });
   });
+
+  describe('getWidgetConfig', () => {
+    const publicId = 'AbCd1234';
+
+    it('should return config with theme, agent info, and allowedDomains', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue({
+        id: agentId,
+        name: 'Test Agent',
+        welcomeMessage: 'Hi there',
+        allowedDomains: ['example.com'],
+      });
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: { icon: { position: 'right' }, starters: [{ message: 'Hello' }] },
+        version: 5,
+      });
+
+      const result = await service.getWidgetConfig(publicId);
+
+      expect(result.config.agent.name).toBe('Test Agent');
+      expect(result.config.agent.greeting).toBe('Hi there');
+      expect(result.config.agent.starters).toEqual(['Hello']);
+      expect(result.config.allowedDomains).toEqual(['example.com']);
+      expect(result.config.theme).toBeDefined();
+      expect(result.version).toBe(5);
+      expect(mockPrismaService.agent.findFirst).toHaveBeenCalledWith({
+        where: { publicId, deletedAt: null, status: 'ACTIVE' },
+        select: { id: true, name: true, welcomeMessage: true, allowedDomains: true },
+      });
+    });
+
+    it('should return version 0 and null theme when no theme exists', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue({
+        id: agentId,
+        name: 'Test Agent',
+        welcomeMessage: null,
+        allowedDomains: [],
+      });
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue(null);
+
+      const result = await service.getWidgetConfig(publicId);
+
+      expect(result.config.theme).toBeNull();
+      expect(result.config.agent.greeting).toBe('');
+      expect(result.config.agent.starters).toEqual([]);
+      expect(result.version).toBe(0);
+    });
+
+    it('should throw NotFoundException for unknown publicId', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(null);
+
+      await expect(service.getWidgetConfig('unknown1')).rejects.toThrow(
+        'Agent not found',
+      );
+    });
+
+    it('should handle empty starters array', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue({
+        id: agentId,
+        name: 'Agent',
+        welcomeMessage: null,
+        allowedDomains: [],
+      });
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: { starters: [] },
+        version: 1,
+      });
+
+      const result = await service.getWidgetConfig(publicId);
+
+      expect(result.config.agent.starters).toEqual([]);
+    });
+  });
 });

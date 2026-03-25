@@ -36,6 +36,7 @@ let navigationHandler: (() => void) | null = null;
   }
 
   const agentId = script?.getAttribute('data-agent-id')?.trim() || null;
+  const apiBaseUrl = script?.getAttribute('data-api-url')?.trim() || '';
 
   // Task 6: Handle missing agent-id gracefully
   if (!agentId) {
@@ -46,9 +47,10 @@ let navigationHandler: (() => void) | null = null;
   }
 
   debug('Agent ID detected:', agentId);
+  if (apiBaseUrl) debug('API base URL:', apiBaseUrl);
 
   // Task 2: DOM-ready wait
-  initWidget(agentId);
+  initWidget(agentId, apiBaseUrl);
 })();
 
 // ── Task 2: DOM-ready wait logic ──────────────────────────────────────
@@ -72,11 +74,15 @@ function onReady(callback: () => void): void {
 
 // ── Core initialization (used by auto-init and programmatic init) ─────
 
-function initWidget(agentId: string): void {
-  onReady(() => bootstrap(agentId));
+// Track apiBaseUrl for re-init scenarios
+let currentApiBaseUrl = '';
+
+function initWidget(agentId: string, apiBaseUrl: string = ''): void {
+  currentApiBaseUrl = apiBaseUrl;
+  onReady(() => bootstrap(agentId, apiBaseUrl));
 }
 
-function bootstrap(agentId: string): void {
+function bootstrap(agentId: string, apiBaseUrl: string = ''): void {
   // Re-check singleton (may have been set between auto-init and DOMContentLoaded)
   if (window.__codeweaves_loaded) return;
   if (!document.body) return;
@@ -94,7 +100,7 @@ function bootstrap(agentId: string): void {
 
   // Task 4: Render Preact app into shadow root
   debug('Rendering Preact app');
-  renderInShadow(<Widget agentId={agentId} />);
+  renderInShadow(<Widget agentId={agentId} apiBaseUrl={apiBaseUrl} />);
 
   // Task 8: Setup SPA navigation handling
   setupSPANavigation();
@@ -134,7 +140,7 @@ function exposeStubAPI(): void {
 }
 
 /** Programmatic init — alternative to data-agent-id attribute (for SPAs). */
-function programmaticInit(agentId: string): void {
+function programmaticInit(agentId: string, apiBaseUrl?: string): void {
   if (!agentId || typeof agentId !== 'string') {
     warn('init() requires a non-empty agentId string');
     return;
@@ -152,7 +158,7 @@ function programmaticInit(agentId: string): void {
     fullDestroy();
   }
 
-  initWidget(trimmed);
+  initWidget(trimmed, apiBaseUrl ?? currentApiBaseUrl);
 }
 
 // ── Task 5 (destroy): Full cleanup ───────────────────────────────────

@@ -299,6 +299,50 @@ export class AgentsService {
     };
   }
 
+  /**
+   * Public: fetch widget configuration by publicId (no auth required).
+   * Returns theme, agent info, allowed domains, and theme version for ETag.
+   */
+  async getWidgetConfig(publicId: string) {
+    const agent = await this.prisma.agent.findFirst({
+      where: { publicId, deletedAt: null, status: 'ACTIVE' },
+      select: {
+        id: true,
+        name: true,
+        welcomeMessage: true,
+        allowedDomains: true,
+      },
+    });
+
+    if (!agent) {
+      throw new NotFoundException('Agent not found');
+    }
+
+    const theme = await this.prisma.agentTheme.findUnique({
+      where: { agentId: agent.id },
+    });
+
+    const themeConfig = (theme?.config ?? null) as Record<string, unknown> | null;
+    const starters: string[] = Array.isArray(themeConfig?.starters)
+      ? (themeConfig.starters as Array<{ message?: string }>)
+          .map((s) => (typeof s === 'string' ? s : s?.message ?? ''))
+          .filter(Boolean)
+      : [];
+
+    return {
+      config: {
+        theme: themeConfig,
+        agent: {
+          name: agent.name,
+          greeting: agent.welcomeMessage ?? '',
+          starters,
+        },
+        allowedDomains: agent.allowedDomains,
+      },
+      version: theme?.version ?? 0,
+    };
+  }
+
   /** Strip provider internals from voiceConfig before exposing to public widget endpoint */
   private sanitizeVoiceConfigForWidget(config: Record<string, unknown>) {
     return {
