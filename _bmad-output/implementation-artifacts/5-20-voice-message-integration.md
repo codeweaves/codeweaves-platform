@@ -36,6 +36,11 @@ This matches the text SSE streaming UX: text appears progressively, but for voic
   - [ ] Cancel recording button (X icon) to discard without sending
   - [ ] Auto-stop recording at 60 seconds maximum, then auto-send
   - [ ] Discard recordings shorter than 0.5 seconds with tooltip "Hold longer to record"
+  - [ ] **Voice button state colors** — each state has distinct icon, color, and optional animation:
+    - `idle`: primary color (`--cw-primary`), mic icon
+    - `listening`: red (`#ef4444`), stop icon, pulse animation (`animate-ping` / CSS `@keyframes cw-pulse`)
+    - `processing`: gray (`#9ca3af`), spinner icon, spin animation (`animate-spin` / CSS `@keyframes cw-spin`), button disabled
+    - `playing`: orange (`#f97316`), stop icon (tap to stop playback)
 - [ ] Implement voice message send flow (AC: #1, #2, #7)
   - [ ] User records audio → create Blob from MediaRecorder
   - [ ] POST to `/public/voice/conversation` with multipart form data + `Accept: application/x-ndjson`
@@ -49,6 +54,11 @@ This matches the text SSE streaming UX: text appears progressively, but for voic
   - [ ] Audio enqueued for playback simultaneously via AudioPlaybackQueue
   - [ ] Result: text appears sentence-by-sentence as the voice reads each sentence
   - [ ] Pattern: same as `onResponseTextChunk` callback already implemented in demo page `use-voice.ts`
+  - [ ] **Typewriter buffer pattern**: text chunks feed into a typewriter buffer for char-by-char rendering (~12ms per 2 chars)
+    - On first audio chunk: create empty bot message, start a `setInterval` typewriter drainer, feed sentence text to buffer
+    - On subsequent audio chunks: append `" " + sentenceText` to buffer (typewriter interval keeps draining chars from buffer into displayed text)
+    - On response complete (`end` chunk): flush remaining buffer immediately (clear interval, set full text)
+    - Reference implementation: `apps/web/hooks/use-voice.ts` typewriter buffer pattern + `apps/web/app/agents/demo/[agentId]/demo-page-client.tsx` `onResponseTextChunk`
 - [ ] Create voice client service (AC: #1, #2)
   - [ ] Create `apps/widget/src/services/voice-client.ts`
   - [ ] `sendVoiceMessage(agentId, audioBlob, sessionId?, languageHint?)` method
@@ -63,6 +73,11 @@ This matches the text SSE streaming UX: text appears progressively, but for voic
   - [ ] Decode base64 → Blob → `URL.createObjectURL()` → `new Audio()` → play
   - [ ] Track object URLs in `Set`, revoke on cleanup
   - [ ] Auto-advance: when one chunk finishes, play next in queue
+  - [ ] **`canplaythrough` requirement**: queue must wait for the `canplaythrough` event before calling `audio.play()`
+    - This prevents the first word of audio from being cut off (browser needs to buffer enough data first)
+    - Pattern: create `new Audio()`, set `audio.oncanplaythrough` handler that calls `audio.play()`, THEN set `audio.src` to the object URL
+    - Do NOT use `new Audio(url)` constructor shorthand — it starts loading before the handler is attached
+    - Reference fix: `apps/web/hooks/use-voice.ts` `AudioPlaybackQueue.playNext()`
 - [ ] Implement microphone permission handling (AC: #5)
   - [ ] Check `navigator.permissions.query({ name: 'microphone' })` if available
   - [ ] Permission states: `granted` (show mic), `prompt` (show mic, browser asks), `denied` (hide mic)
@@ -74,7 +89,13 @@ This matches the text SSE streaming UX: text appears progressively, but for voic
   - [ ] Recording too long (>60s): auto-stop and send
   - [ ] Network error: show error in chat
   - [ ] TTS failure: backend sends text in `response.text` — display as text bubble fallback (AC #8)
-  - [ ] Map backend error codes to user-friendly messages
+  - [ ] Map backend error codes to user-friendly messages (same mapping as demo page `ERROR_MESSAGES`)
+- [ ] Implement voice error banner (AC: #5, #8)
+  - [ ] Display voice errors in a banner positioned above the input area (not as a chat message)
+  - [ ] Severity-based styling: `error` = red background, `warning` = yellow background, `info` = blue background
+  - [ ] Auto-dismiss timers: errors auto-dismiss after 8 seconds, warnings after 5 seconds
+  - [ ] Dismissible via close (X) button on the banner
+  - [ ] Map backend error codes to user-friendly messages (reuse same `ERROR_MESSAGES` mapping as demo page)
 - [ ] Add voice configuration support (AC: #5, #7)
   - [ ] `config.voiceEnabled`: show/hide mic button (default: based on agent voice config)
   - [ ] `config.voiceLanguage`: default language hint for STT

@@ -13,6 +13,7 @@ As a **website visitor**, I want AI responses with formatting (bold, links, list
 5. No external sanitization library used — native DOMParser only (bundle size)
 6. User messages always rendered as plain text
 7. Passes all OWASP XSS vector tests
+8. Bot messages render basic markdown (bold, italic, links, code, lists) via lightweight markdown-to-HTML converter
 
 ## Tasks / Subtasks
 - [ ] Create HTML sanitizer utility (AC: #1, #2, #4, #5)
@@ -45,6 +46,20 @@ As a **website visitor**, I want AI responses with formatting (bold, links, list
   - [ ] User messages: always render as plain text (escape HTML entities, never interpret as HTML)
   - [ ] Audio messages: no sanitization needed (audio bubbles render player UI, not text)
   - [ ] System messages: sanitize same as bot messages
+- [ ] Implement lightweight markdown-to-HTML converter (AC: #1)
+  - [ ] Cannot use `react-markdown` (React dependency, ~30KB) — widget uses Preact
+  - [ ] Create `apps/widget/src/utils/markdown.ts` with minimal markdown parser (~30-50 lines) that handles:
+    - **Bold**: `**text**` or `__text__` → `<strong>text</strong>`
+    - *Italic*: `*text*` or `_text_` → `<em>text</em>`
+    - Links: `[text](url)` → `<a href="url">text</a>`
+    - Inline code: `` `code` `` → `<code>code</code>`
+    - Code blocks: ` ```code``` ` → `<pre><code>code</code></pre>`
+    - Unordered lists: `- item` or `* item` → `<ul><li>item</li></ul>`
+    - Ordered lists: `1. item` → `<ol><li>item</li></ol>`
+    - Line breaks: `\n\n` → `<p>` paragraph tags
+  - [ ] Pipeline: raw text → `markdownToHtml()` → `sanitizeHtml()` → safe HTML for `dangerouslySetInnerHTML`
+  - [ ] Alternative: evaluate `marked` library (~8KB gzipped) if custom parser proves too fragile for edge cases
+  - [ ] Ensure markdown converter output only produces tags already in the sanitizer allowlist
 - [ ] Validate against XSS attack vectors (AC: #2, #7)
   - [ ] `<script>alert('xss')</script>` -> script tag stripped, text content removed
   - [ ] `<img src=x onerror=alert('xss')>` -> img tag stripped entirely (not in allowlist)
@@ -103,6 +118,14 @@ DOMPurify is the gold standard for HTML sanitization (~15KB minified, ~6KB gzipp
 - The allowlist is small and well-defined (16 tags)
 - `DOMParser` is available in all modern browsers
 - Shadow DOM provides an additional isolation layer (but is NOT a substitute for sanitization)
+
+### Lightweight Markdown Rendering
+AI responses often contain markdown formatting. Since the widget uses Preact (not React), `react-markdown` cannot be used. Options:
+
+1. **Custom minimal parser** (~30-50 lines): regex-based transforms for bold, italic, links, code, lists, paragraphs. Pros: zero bundle cost. Cons: fragile on edge cases (nested formatting, escaped chars).
+2. **`marked` library** (~8KB gzipped): battle-tested markdown parser. Pros: handles all edge cases. Cons: adds to bundle.
+
+The rendering pipeline is: `rawText → markdownToHtml() → sanitizeHtml() → safe HTML`. The markdown converter must only emit tags in the sanitizer allowlist (`strong`, `em`, `a`, `code`, `pre`, `ul`, `ol`, `li`, `p`, `br`). This ensures any markdown library bugs cannot introduce unsafe HTML — the sanitizer is the final gate.
 
 ### Plain Text Optimization
 Most AI responses are plain text or simple markdown-converted HTML. The `isPlainText()` check avoids `DOMParser` overhead for the common case:

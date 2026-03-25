@@ -1,5 +1,5 @@
 # generated: 2026-03-14
-# last_updated: 2026-03-26 # Added stories 5-15 through 5-22 (API integration, voice, state mgmt, XSS)
+# last_updated: 2026-03-26 # Added story 5-23 (branding footer + avatar type icons + deferred schema props)
 # project: codeweaves-platform
 # project_key: NOKEY
 # tracking_system: file-system
@@ -150,7 +150,7 @@ development_status:
   # ============================================
   # Epic 5: Embeddable Chat Widget ★ NEXT UP
   # Priority: P1
-  # Stories: 22
+  # Stories: 23
   # Dependencies: Epic 0, Epic 3 (both done)
   # NFRs: NFR4 (<200ms load), NFR10 (<150KB bundle)
   # Research: docs/research-widget-css-isolation.md
@@ -175,7 +175,7 @@ development_status:
   #   Phase 5 (API Integration):   5-15, 5-16, 5-17 (parallel — client, device ID, session)
   #   Phase 6 (Chat Wiring):       5-18 → 5-19 (sequential — basic then streaming)
   #   Phase 7 (Voice & State):     5-20, 5-21 (parallel — voice bubbles, state management)
-  #   Phase 8 (Security & Polish): 5-22, 5-12, 5-13 (parallel — XSS, CORS, minimized state)
+  #   Phase 8 (Security & Polish): 5-22, 5-12, 5-13, 5-23 (parallel — XSS, CORS, minimized state, UI gaps)
   #   Phase 9 (Final):             5-14 (bundle optimization — LAST)
   # ============================================
   epic-5: in-progress
@@ -201,6 +201,7 @@ development_status:
   5-20-voice-message-integration: ready-for-dev
   5-21-message-history-state-management: ready-for-dev
   5-22-html-sanitization-xss-prevention: ready-for-dev
+  5-23-widget-ui-gaps-branding-avatars: ready-for-dev
   epic-5-retrospective: optional
 
   # ============================================
