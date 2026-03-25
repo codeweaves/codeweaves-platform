@@ -36,6 +36,26 @@ interface WidgetProps {
   hostElement?: HTMLElement;
 }
 
+/** Extract icon-specific config from theme object */
+function extractIconConfig(theme: Record<string, unknown> | null): {
+  position: 'left' | 'right';
+  customImage: string | undefined;
+  pulse: boolean;
+} {
+  if (!theme) return { position: 'right', customImage: undefined, pulse: false };
+
+  const icon = theme.icon as Record<string, unknown> | undefined;
+  const position = icon?.position === 'left' ? 'left' : 'right';
+  const rawUrl = icon?.customImageUrl;
+  const customImage =
+    typeof rawUrl === 'string' && rawUrl.trim()
+      ? rawUrl.trim()
+      : undefined;
+  const pulse = icon?.pulse === true;
+
+  return { position, customImage, pulse };
+}
+
 /** Main widget container — renders trigger button and conditionally renders chat window */
 export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   const [state, setState] = useState<WidgetState>('minimized');
@@ -113,14 +133,20 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   // Don't render interactive UI until config is loaded
   if (!config) return null;
 
+  const iconConfig = extractIconConfig(config.theme as Record<string, unknown> | null);
+
   return (
-    <div class="cw-widget">
+    <div class="cw-widget" data-position={iconConfig.position}>
       {state === 'open' ? (
         <ChatWindow onClose={handleClose} />
       ) : (
         <>
           <BubbleNotification />
-          <TriggerButton onClick={handleOpen} />
+          <TriggerButton
+            onClick={handleOpen}
+            iconCustomImage={iconConfig.customImage}
+            pulse={iconConfig.pulse}
+          />
         </>
       )}
     </div>
