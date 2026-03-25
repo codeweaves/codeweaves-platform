@@ -1,24 +1,47 @@
-/** Default theme CSS custom properties with --cw-* namespace */
-export const themeCSS = `
-:host {
-  /* Primary colors */
-  --cw-primary: #6366f1;
-  --cw-primary-hover: #4f46e5;
-  --cw-primary-foreground: #ffffff;
+/**
+ * Default theme CSS custom properties with --cw-* namespace.
+ *
+ * These defaults are declared on :host and serve as fallbacks.
+ * Runtime values from the API (set via style.setProperty on host) take precedence.
+ *
+ * Generated from THEME_MAP defaults + additional layout/spacing variables.
+ */
+import { THEME_MAP } from './theme-map';
 
-  /* Surface colors */
-  --cw-background: #ffffff;
-  --cw-foreground: #0f172a;
+/** Build the :host block from THEME_MAP defaults + layout variables */
+function buildThemeCSS(): string {
+  const mapDefaults = Object.values(THEME_MAP)
+    .map((entry) => `  ${entry.variable}: ${entry.default};`)
+    .join('\n');
+
+  return `:host {
+${mapDefaults}
+
+  /* Layout & Spacing (not theme-configurable, but used by components) */
+  --cw-widget-width: 400px;
+  --cw-widget-height: 600px;
+  --cw-widget-bottom: 20px;
+  --cw-widget-right: 20px;
+  --cw-trigger-size: var(--cw-icon-size, 56px);
+  --cw-trigger-bg: var(--cw-icon-bg, #3b82f6);
+  --cw-trigger-fg: #ffffff;
+  --cw-trigger-shadow: var(--cw-icon-shadow, 0 4px 12px rgba(0, 0, 0, 0.15));
+  --cw-header-fg: var(--cw-header-text, #ffffff);
+  --cw-msg-user-fg: var(--cw-msg-user-text, #ffffff);
+  --cw-msg-bot-fg: var(--cw-msg-bot-text, #1f2937);
+  --cw-input-fg: var(--cw-input-text, #1f2937);
+  --cw-bubble-fg: var(--cw-bubble-text, #1f2937);
+
+  /* Derived surface colors */
+  --cw-primary: var(--cw-icon-bg, #3b82f6);
+  --cw-primary-hover: var(--cw-icon-hover-bg, #2563eb);
+  --cw-primary-foreground: #ffffff;
+  --cw-background: var(--cw-body-bg, #ffffff);
+  --cw-foreground: var(--cw-msg-bot-text, #1f2937);
   --cw-muted: #f1f5f9;
   --cw-muted-foreground: #64748b;
-
-  /* Border */
-  --cw-border: #e2e8f0;
+  --cw-border: var(--cw-input-border, #e5e7eb);
   --cw-border-radius: 0.5rem;
-
-  /* Typography */
-  --cw-font-family: system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
-  --cw-font-size: 14px;
   --cw-line-height: 1.5;
 
   /* Spacing */
@@ -28,46 +51,19 @@ export const themeCSS = `
   --cw-spacing-lg: 1.5rem;
   --cw-spacing-xl: 2rem;
 
-  /* Widget dimensions */
-  --cw-widget-width: 400px;
-  --cw-widget-height: 600px;
-  --cw-widget-bottom: 20px;
-  --cw-widget-right: 20px;
-
-  /* Trigger button */
-  --cw-trigger-size: 56px;
-  --cw-trigger-bg: var(--cw-primary);
-  --cw-trigger-fg: var(--cw-primary-foreground);
-  --cw-trigger-shadow: 0 4px 12px rgba(0, 0, 0, 0.15);
-
-  /* Header */
-  --cw-header-bg: var(--cw-primary);
-  --cw-header-fg: var(--cw-primary-foreground);
-  --cw-header-height: 56px;
-
-  /* Messages */
-  --cw-msg-user-bg: var(--cw-primary);
-  --cw-msg-user-fg: var(--cw-primary-foreground);
-  --cw-msg-bot-bg: var(--cw-muted);
-  --cw-msg-bot-fg: var(--cw-foreground);
-  --cw-msg-radius: 1rem;
-
-  /* Input */
-  --cw-input-bg: var(--cw-background);
-  --cw-input-fg: var(--cw-foreground);
-  --cw-input-border: var(--cw-border);
-  --cw-input-placeholder: var(--cw-muted-foreground);
-
-  /* Bubble notification */
-  --cw-bubble-bg: var(--cw-background);
-  --cw-bubble-fg: var(--cw-foreground);
-  --cw-bubble-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
-
   /* Animation */
-  --cw-transition-duration: 200ms;
   --cw-transition-easing: cubic-bezier(0.4, 0, 0.2, 1);
 
-  /* Z-index — high but not max-int to coexist with other overlays */
+  /* Z-index */
   --cw-z-index: 2147483000;
+
+  /* Bubble notification */
+  --cw-bubble-shadow: 0 4px 16px rgba(0, 0, 0, 0.12);
+
+  /* Message radius alias */
+  --cw-msg-radius: var(--cw-msg-bot-radius, 16px);
 }
 `;
+}
+
+export const themeCSS = buildThemeCSS();

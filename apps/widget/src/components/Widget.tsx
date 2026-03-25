@@ -4,6 +4,7 @@ import { ChatWindow } from './ChatWindow';
 import { TriggerButton } from './TriggerButton';
 import { BubbleNotification } from './BubbleNotification';
 import { loadConfig } from '../services/config-loader';
+import { applyTheme, setupPreviewMode, teardownPreviewMode } from '../services/theme-engine';
 import { revealWidget } from '../shadow-dom';
 import { debug, warn } from '../utils/debug';
 
@@ -32,10 +33,11 @@ export function triggerClose(): void {
 interface WidgetProps {
   agentId: string;
   apiBaseUrl?: string;
+  hostElement?: HTMLElement;
 }
 
 /** Main widget container — renders trigger button and conditionally renders chat window */
-export function Widget({ agentId, apiBaseUrl = '' }: WidgetProps) {
+export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   const [state, setState] = useState<WidgetState>('minimized');
   const [config, setConfig] = useState<LoadedWidgetConfig | null>(null);
   const [configError, setConfigError] = useState(false);
@@ -57,7 +59,7 @@ export function Widget({ agentId, apiBaseUrl = '' }: WidgetProps) {
     return () => unregisterWidgetControls();
   }, []);
 
-  // Load config on mount and reveal widget when done
+  // Load config on mount, apply theme, then reveal widget
   useEffect(() => {
     let cancelled = false;
 
@@ -66,6 +68,17 @@ export function Widget({ agentId, apiBaseUrl = '' }: WidgetProps) {
         if (cancelled) return;
         if (result) {
           debug('Config loaded for agent:', agentId);
+
+          // Apply theme before widget becomes visible (before opacity transition)
+          if (hostElement && result.theme) {
+            applyTheme(hostElement, result.theme as Record<string, unknown>);
+          }
+
+          // Setup preview mode listener (only activates if data-preview="true")
+          if (hostElement) {
+            setupPreviewMode(hostElement, result.allowedDomains ?? []);
+          }
+
           setConfig(result);
         } else {
           warn('No config available for agent:', agentId);
@@ -83,8 +96,9 @@ export function Widget({ agentId, apiBaseUrl = '' }: WidgetProps) {
 
     return () => {
       cancelled = true;
+      teardownPreviewMode();
     };
-  }, [agentId, apiBaseUrl]);
+  }, [agentId, apiBaseUrl, hostElement]);
 
   if (configError) {
     return (
