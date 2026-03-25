@@ -41,6 +41,8 @@ export interface UseVoiceOptions {
   sessionId?: string;
   onTranscription?: (text: string, language: string) => void;
   onResponse?: (reply: string, sessionId: string) => void;
+  /** Called per sentence as audio chunks arrive — use to progressively display text in sync with audio */
+  onResponseTextChunk?: (sentenceText: string, sentenceIndex: number) => void;
   onError?: (error: string) => void;
 }
 
@@ -155,7 +157,7 @@ class AudioPlaybackQueue {
       const url = URL.createObjectURL(blob);
       this.currentUrl = url;
 
-      const audio = new Audio(url);
+      const audio = new Audio();
       this.currentAudio = audio;
 
       audio.onended = () => {
@@ -170,11 +172,17 @@ class AudioPlaybackQueue {
         this.playNext();
       };
 
-      audio.play().catch(() => {
-        this.revokeCurrentUrl();
-        this.currentAudio = null;
-        this.playNext();
-      });
+      // Wait for audio to buffer before playing — prevents first word cutoff
+      audio.oncanplaythrough = () => {
+        if (this.stopped) return;
+        audio.play().catch(() => {
+          this.revokeCurrentUrl();
+          this.currentAudio = null;
+          this.playNext();
+        });
+      };
+
+      audio.src = url;
     } catch {
       this.revokeCurrentUrl();
       this.currentAudio = null;
@@ -195,6 +203,7 @@ export function useVoice({
   sessionId,
   onTranscription,
   onResponse,
+  onResponseTextChunk,
   onError,
 }: UseVoiceOptions): UseVoiceReturn {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
@@ -221,11 +230,13 @@ export function useVoice({
 
   const onTranscriptionRef = useRef(onTranscription);
   const onResponseRef = useRef(onResponse);
+  const onResponseTextChunkRef = useRef(onResponseTextChunk);
   const onErrorRef = useRef(onError);
   const sessionIdRef = useRef(sessionId);
 
   useEffect(() => { onTranscriptionRef.current = onTranscription; }, [onTranscription]);
   useEffect(() => { onResponseRef.current = onResponse; }, [onResponse]);
+  useEffect(() => { onResponseTextChunkRef.current = onResponseTextChunk; }, [onResponseTextChunk]);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
   useEffect(() => { sessionIdRef.current = sessionId; }, [sessionId]);
 
@@ -321,6 +332,10 @@ export function useVoice({
             if (!receivedFirstAudio) {
               receivedFirstAudio = true;
               setVoiceStateSynced('playing');
+            }
+            // Deliver sentence text in sync with audio so UI shows text as voice plays
+            if (chunk.text) {
+              onResponseTextChunkRef.current?.(chunk.text, chunk.sentenceIndex);
             }
             queue.enqueue(chunk.audio, chunk.audioFormat);
           },

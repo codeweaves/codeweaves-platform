@@ -63,65 +63,11 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const sessionIdRef = useRef<string | null>(null);
   const abortControllerRef = useRef<AbortController | null>(null);
   const streamingMsgIdRef = useRef<string | null>(null);
+  const voiceBotMsgIdRef = useRef<string | null>(null);
 
-  // Voice
-  const voiceEnabled = !!agent?.voiceConfig;
-  const {
-    voiceState,
-    startRecording,
-    stopRecording,
-    stopPlayback,
-    clearError: clearVoiceError,
-    recordingDurationMs,
-    error: voiceError,
-    errorCode: voiceErrorCode,
-    isSupported: voiceSupported,
-  } = useVoice({
-    agentId,
-    sessionId: voiceSessionId,
-    onTranscription: useCallback((text: string) => {
-      setStartersVisible(false);
-      setMessages((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), role: 'user', content: text, timestamp: new Date() },
-      ]);
-    }, []),
-    onResponse: useCallback((reply: string, newSessionId: string) => {
-      sessionIdRef.current = newSessionId;
-      setVoiceSessionId(newSessionId);
-      setMessages((prev) => [
-        ...prev,
-        { id: crypto.randomUUID(), role: 'bot', content: reply, timestamp: new Date() },
-      ]);
-    }, []),
-  });
-
-  // Typewriter animation state
+  // Typewriter animation state (declared before useVoice so voice callbacks can reference them)
   const typewriterBufferRef = useRef('');
   const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
-
-  useEffect(() => {
-    async function fetchAgent() {
-      try {
-        const res = await fetch(apiUrl(`/public/agents/${agentId}/demo`));
-        if (!res.ok) {
-          if (res.status === 404) {
-            setError('Agent not found or inactive.');
-          } else {
-            setError('Failed to load agent information.');
-          }
-          return;
-        }
-        const data: AgentDemoInfo = await res.json();
-        setAgent(data);
-      } catch {
-        setError('Failed to connect to the server.');
-      } finally {
-        setLoading(false);
-      }
-    }
-    fetchAgent();
-  }, [agentId]);
 
   const stopTypewriter = useCallback(() => {
     if (typewriterIntervalRef.current) {
@@ -163,6 +109,88 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
     },
     [stopTypewriter],
   );
+
+  // Voice
+  const voiceEnabled = !!agent?.voiceConfig;
+  const {
+    voiceState,
+    startRecording,
+    stopRecording,
+    stopPlayback,
+    clearError: clearVoiceError,
+    recordingDurationMs,
+    error: voiceError,
+    errorCode: voiceErrorCode,
+    isSupported: voiceSupported,
+  } = useVoice({
+    agentId,
+    sessionId: voiceSessionId,
+    onTranscription: useCallback((text: string) => {
+      setStartersVisible(false);
+      setMessages((prev) => [
+        ...prev,
+        { id: crypto.randomUUID(), role: 'user', content: text, timestamp: new Date() },
+      ]);
+    }, []),
+    onResponseTextChunk: useCallback((sentenceText: string) => {
+      // Feed sentence text into typewriter buffer for smooth char-by-char display
+      if (!voiceBotMsgIdRef.current) {
+        const id = crypto.randomUUID();
+        voiceBotMsgIdRef.current = id;
+        streamingMsgIdRef.current = id;
+        typewriterBufferRef.current = sentenceText;
+        setIsStreaming(true);
+        setMessages((prev) => [
+          ...prev,
+          { id, role: 'bot', content: '', timestamp: new Date() },
+        ]);
+        startTypewriter(id);
+      } else {
+        // Append space + next sentence to the typewriter buffer
+        typewriterBufferRef.current += ' ' + sentenceText;
+      }
+    }, [startTypewriter]),
+    onResponse: useCallback((reply: string, newSessionId: string) => {
+      sessionIdRef.current = newSessionId;
+      setVoiceSessionId(newSessionId);
+      if (voiceBotMsgIdRef.current) {
+        // Flush any remaining typewriter buffer
+        flushTypewriterBuffer(voiceBotMsgIdRef.current);
+        streamingMsgIdRef.current = null;
+        setIsStreaming(false);
+      } else if (reply) {
+        // No text chunks arrived (TTS failed) — add full reply as fallback
+        setMessages((prev) => [
+          ...prev,
+          { id: crypto.randomUUID(), role: 'bot', content: reply, timestamp: new Date() },
+        ]);
+      }
+      voiceBotMsgIdRef.current = null;
+    }, [flushTypewriterBuffer]),
+  });
+
+  useEffect(() => {
+    async function fetchAgent() {
+      try {
+        const res = await fetch(apiUrl(`/public/agents/${agentId}/demo`));
+        if (!res.ok) {
+          if (res.status === 404) {
+            setError('Agent not found or inactive.');
+          } else {
+            setError('Failed to load agent information.');
+          }
+          return;
+        }
+        const data: AgentDemoInfo = await res.json();
+        setAgent(data);
+      } catch {
+        setError('Failed to connect to the server.');
+      } finally {
+        setLoading(false);
+      }
+    }
+    fetchAgent();
+  }, [agentId]);
 
   // Abort in-flight stream on unmount
   useEffect(() => {

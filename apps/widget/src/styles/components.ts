@@ -571,4 +571,62 @@ export const componentCSS = `
 .cw-bubble-animate-in {
   animation: cw-bubble-in 200ms ease-out forwards;
 }
+
+/* ── Conversation Starters ───────────────────────────────────────── */
+
+.cw-starters {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  padding: 0 16px 12px;
+  opacity: 1;
+  transition: opacity 150ms ease;
+}
+
+.cw-starters-fade-out {
+  opacity: 0;
+  pointer-events: none;
+}
+
+.cw-starter-btn {
+  pointer-events: auto;
+  display: inline-flex;
+  align-items: center;
+  max-width: 100%;
+  min-width: 0;
+  padding: 6px 14px;
+  border: 1px solid var(--cw-primary, #3b82f6);
+  border-radius: 9999px;
+  background: transparent;
+  color: var(--cw-primary, #3b82f6);
+  font-family: inherit;
+  font-size: 13px;
+  line-height: 1.4;
+  cursor: pointer;
+  transition: background 150ms ease, color 150ms ease;
+  outline: none;
+}
+
+@media (hover: hover) {
+  .cw-starter-btn:hover {
+    background: var(--cw-primary, #3b82f6);
+    color: #ffffff;
+  }
+}
+
+.cw-starter-btn:focus-visible {
+  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline-offset: 2px;
+}
+
+.cw-starter-btn:active {
+  background: var(--cw-primary, #3b82f6);
+  color: #ffffff;
+}
+
+.cw-starter-text {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
 `;
