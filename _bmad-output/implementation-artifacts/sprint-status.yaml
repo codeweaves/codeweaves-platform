@@ -1,5 +1,5 @@
 # generated: 2026-03-14
-# last_updated: 2026-03-25 # Story 5-5 done
+# last_updated: 2026-03-25 # Story 5-6 done
 # project: codeweaves-platform
 # project_key: NOKEY
 # tracking_system: file-system
@@ -181,7 +181,7 @@ development_status:
   5-3-widget-script-tag-initialization: done
   5-4-widget-configuration-loading-with-etag-caching: done
   5-5-theme-css-variables-injection: done
-  5-6-minimized-widget-icon-state: ready-for-dev
+  5-6-minimized-widget-icon-state: done
   5-7-bubble-notification-display: ready-for-dev
   5-8-expanded-chat-window-state: ready-for-dev
   5-9-chat-message-display: ready-for-dev

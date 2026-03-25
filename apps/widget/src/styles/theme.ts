@@ -22,10 +22,12 @@ ${mapDefaults}
   --cw-widget-height: 600px;
   --cw-widget-bottom: 20px;
   --cw-widget-right: 20px;
-  --cw-trigger-size: var(--cw-icon-size, 56px);
+  --cw-trigger-size: var(--cw-icon-size, 64px);
   --cw-trigger-bg: var(--cw-icon-bg, #3b82f6);
   --cw-trigger-fg: #ffffff;
+  --cw-trigger-radius: var(--cw-icon-radius, 50%);
   --cw-trigger-shadow: var(--cw-icon-shadow, 0 4px 12px rgba(0, 0, 0, 0.15));
+  --cw-trigger-offset: 24px;
   --cw-header-fg: var(--cw-header-text, #ffffff);
   --cw-msg-user-fg: var(--cw-msg-user-text, #ffffff);
   --cw-msg-bot-fg: var(--cw-msg-bot-text, #1f2937);
