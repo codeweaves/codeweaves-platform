@@ -103,12 +103,103 @@ export const componentCSS = `
 
 .cw-bubble-notification {
   pointer-events: auto;
+  position: relative;
   background: var(--cw-bubble-bg, #ffffff);
   color: var(--cw-bubble-fg, #1f2937);
   box-shadow: var(--cw-bubble-shadow, 0 4px 16px rgba(0, 0, 0, 0.12));
-  border-radius: var(--cw-border-radius, 0.5rem);
-  padding: var(--cw-spacing-sm, 0.5rem) var(--cw-spacing-md, 1rem);
+  border-radius: var(--cw-bubble-radius, var(--cw-border-radius, 0.5rem));
+  padding: 10px 32px 10px 14px;
   max-width: 280px;
-  margin-bottom: var(--cw-spacing-sm, 0.5rem);
+  margin-bottom: 12px;
+  cursor: pointer;
+  word-break: break-word;
+}
+
+@media (max-width: 320px) {
+  .cw-bubble-notification {
+    max-width: calc(100vw - 40px);
+  }
+}
+
+/* Bubble text */
+.cw-bubble-text {
+  display: -webkit-box;
+  -webkit-line-clamp: 4;
+  -webkit-box-orient: vertical;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  line-height: 1.4;
+  font-size: 13px;
+}
+
+/* Close (X) button */
+.cw-bubble-close {
+  position: absolute;
+  top: 4px;
+  right: 4px;
+  width: 22px;
+  height: 22px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--cw-bubble-text, var(--cw-bubble-fg, #1f2937));
+  opacity: 0.5;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  pointer-events: auto;
+  transition: opacity 150ms ease;
+}
+
+.cw-bubble-close:hover {
+  opacity: 1;
+}
+
+.cw-bubble-close:focus-visible {
+  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+/* CSS triangle arrow pointing toward trigger button */
+.cw-bubble-arrow {
+  position: absolute;
+  bottom: -6px;
+  width: 0;
+  height: 0;
+  border-left: 6px solid transparent;
+  border-right: 6px solid transparent;
+  border-top: 6px solid var(--cw-bubble-bg, #ffffff);
+  pointer-events: none;
+}
+
+/* Right-side trigger (default) — arrow on the right */
+.cw-widget[data-position="right"] .cw-bubble-arrow {
+  right: 24px;
+  left: auto;
+}
+
+/* Left-side trigger — arrow on the left */
+.cw-widget[data-position="left"] .cw-bubble-arrow {
+  left: 24px;
+  right: auto;
+}
+
+/* Entrance animation: fade-in + slide-up */
+@keyframes cw-bubble-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.cw-bubble-animate-in {
+  animation: cw-bubble-in 200ms ease-out forwards;
 }
 `;

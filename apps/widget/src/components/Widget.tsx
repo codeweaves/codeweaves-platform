@@ -56,6 +56,24 @@ function extractIconConfig(theme: Record<string, unknown> | null): {
   return { position, customImage, pulse };
 }
 
+/** Extract bubble notification config from theme object */
+function extractBubbleConfig(theme: Record<string, unknown> | null): {
+  enabled: boolean;
+  text: string;
+  delayMs: number;
+} {
+  if (!theme) return { enabled: false, text: '', delayMs: 3000 };
+
+  const bubble = theme.bubble as Record<string, unknown> | undefined;
+  if (!bubble) return { enabled: false, text: '', delayMs: 3000 };
+
+  const text = typeof bubble.text === 'string' ? bubble.text.trim() : '';
+  const enabled = bubble.enabled === true && text.length > 0;
+  const delayMs = typeof bubble.delayMs === 'number' && bubble.delayMs >= 0 ? bubble.delayMs : 3000;
+
+  return { enabled, text, delayMs };
+}
+
 /** Main widget container — renders trigger button and conditionally renders chat window */
 export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   const [state, setState] = useState<WidgetState>('minimized');
@@ -133,7 +151,9 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   // Don't render interactive UI until config is loaded
   if (!config) return null;
 
-  const iconConfig = extractIconConfig(config.theme as Record<string, unknown> | null);
+  const themeObj = config.theme as Record<string, unknown> | null;
+  const iconConfig = extractIconConfig(themeObj);
+  const bubbleConfig = extractBubbleConfig(themeObj);
 
   return (
     <div class="cw-widget" data-position={iconConfig.position}>
@@ -141,7 +161,12 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
         <ChatWindow onClose={handleClose} />
       ) : (
         <>
-          <BubbleNotification />
+          <BubbleNotification
+            agentId={agentId}
+            bubbleConfig={bubbleConfig}
+            isOpen={false}
+            onOpen={handleOpen}
+          />
           <TriggerButton
             onClick={handleOpen}
             iconCustomImage={iconConfig.customImage}
