@@ -34,3 +34,12 @@ export interface LoadedWidgetConfig {
   agent: AgentConfig;
   allowedDomains: string[];
 }
+
+/** A single chat message */
+export interface ChatMessage {
+  id: string;
+  role: 'user' | 'assistant';
+  content: string;
+  timestamp: Date;
+  isStreaming?: boolean;
+}

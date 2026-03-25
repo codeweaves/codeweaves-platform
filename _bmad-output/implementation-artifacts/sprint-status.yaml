@@ -1,5 +1,5 @@
 # generated: 2026-03-14
-# last_updated: 2026-03-25 # Story 5-8 done
+# last_updated: 2026-03-26 # Story 5-9 done
 # project: codeweaves-platform
 # project_key: NOKEY
 # tracking_system: file-system
@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-14
-last_updated: 2026-03-25
+last_updated: 2026-03-26
 project: codeweaves-platform
 project_key: NOKEY
 tracking_system: file-system
@@ -184,7 +184,7 @@ development_status:
   5-6-minimized-widget-icon-state: done
   5-7-bubble-notification-display: done
   5-8-expanded-chat-window-state: done
-  5-9-chat-message-display: ready-for-dev
+  5-9-chat-message-display: done
   5-10-conversational-starters-display: ready-for-dev
   5-11-typing-indicator-animation: ready-for-dev
   5-12-cors-domain-validation: ready-for-dev

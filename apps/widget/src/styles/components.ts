@@ -270,6 +270,137 @@ export const componentCSS = `
 
 .cw-message-area-inner {
   min-height: 100%;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
+/* ── Message Bubbles ──────────────────────────────────────────────── */
+
+.cw-msg {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  max-width: 100%;
+}
+
+.cw-msg-user {
+  flex-direction: row-reverse;
+}
+
+.cw-msg-bot {
+  flex-direction: row;
+}
+
+/* Avatar */
+.cw-msg-avatar {
+  width: 32px;
+  height: 32px;
+  min-width: 32px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 13px;
+  font-weight: 600;
+  flex-shrink: 0;
+}
+
+.cw-msg-avatar-square {
+  border-radius: 6px;
+}
+
+.cw-msg-avatar-img {
+  width: 100%;
+  height: 100%;
+  border-radius: inherit;
+  object-fit: cover;
+}
+
+.cw-msg-bot .cw-msg-avatar {
+  background: var(--cw-avatar-bot-bg, #e0e7ff);
+  color: var(--cw-avatar-bot-color, #3b82f6);
+}
+
+.cw-msg-user .cw-msg-avatar {
+  background: var(--cw-avatar-user-bg, #dbeafe);
+  color: var(--cw-avatar-user-color, #3b82f6);
+}
+
+/* Content wrapper */
+.cw-msg-content {
+  max-width: 80%;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.cw-msg-user .cw-msg-content {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-end;
+}
+
+/* Bubble */
+.cw-msg-bubble {
+  padding: 10px 14px;
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+  line-height: 1.45;
+}
+
+.cw-msg-user .cw-msg-bubble {
+  background: var(--cw-msg-user-bg, #3b82f6);
+  color: var(--cw-msg-user-fg, var(--cw-msg-user-text, #ffffff));
+  border-radius: var(--cw-msg-user-radius, 16px) var(--cw-msg-user-radius, 16px) 4px var(--cw-msg-user-radius, 16px);
+}
+
+.cw-msg-bot .cw-msg-bubble {
+  background: var(--cw-msg-bot-bg, #f3f4f6);
+  color: var(--cw-msg-bot-fg, var(--cw-msg-bot-text, #1f2937));
+  border-radius: var(--cw-msg-bot-radius, 16px) var(--cw-msg-bot-radius, 16px) var(--cw-msg-bot-radius, 16px) 4px;
+}
+
+/* Message text — explicit resets for host page inheritance */
+.cw-msg-text {
+  word-break: break-word;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* Timestamp */
+.cw-msg-time {
+  display: block;
+  margin-top: 4px;
+  font-size: 11px;
+  color: var(--cw-timestamp-color, #9ca3af);
+  line-height: 1;
+}
+
+/* Streaming cursor */
+.cw-msg-cursor {
+  display: inline-block;
+  width: 2px;
+  height: 1em;
+  background: currentColor;
+  margin-left: 2px;
+  vertical-align: text-bottom;
+  animation: cw-cursor-blink 1s step-end infinite;
+}
+
+@keyframes cw-cursor-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+/* Empty state */
+.cw-msg-empty {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: var(--cw-muted-foreground, #64748b);
+  font-size: 13px;
 }
 
 /* ── Chat Input ───────────────────────────────────────────────────── */

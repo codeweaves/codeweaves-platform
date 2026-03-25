@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
-import type { AgentConfig } from '../types';
+import type { AgentConfig, ChatMessage } from '../types';
 import { ChatHeader } from './ChatHeader';
 import { MessageArea } from './MessageArea';
 import { ChatInput } from './ChatInput';
@@ -24,6 +24,37 @@ export interface ChatWindowProps {
   position: 'left' | 'right';
 }
 
+/** Validate URL is safe (http/https only) */
+function safeUrl(raw: unknown): string | undefined {
+  if (typeof raw !== 'string' || !raw.trim()) return undefined;
+  const trimmed = raw.trim();
+  if (/^https?:\/\//i.test(trimmed)) return trimmed;
+  return undefined;
+}
+
+/** Extract chat display config from theme */
+function extractChatConfig(theme: Record<string, unknown> | null): {
+  showTimestamp: boolean;
+  avatarShape: 'circle' | 'square';
+  botAvatarUrl: string | undefined;
+  userAvatarUrl: string | undefined;
+} {
+  if (!theme) return { showTimestamp: false, avatarShape: 'circle', botAvatarUrl: undefined, userAvatarUrl: undefined };
+
+  const timestamps = theme.timestamps as Record<string, unknown> | undefined;
+  const showTimestamp = timestamps?.show === true;
+
+  const botAvatar = theme.botAvatar as Record<string, unknown> | undefined;
+  const userAvatar = theme.userAvatar as Record<string, unknown> | undefined;
+  const avatarShape =
+    botAvatar?.shape === 'square' ? 'square' : 'circle';
+
+  const botAvatarUrl = botAvatar?.type === 'custom' ? safeUrl(botAvatar.customImageUrl) : undefined;
+  const userAvatarUrl = userAvatar?.type === 'custom' ? safeUrl(userAvatar.customImageUrl) : undefined;
+
+  return { showTimestamp, avatarShape, botAvatarUrl, userAvatarUrl };
+}
+
 /** Chat window — the expanded chat interface */
 export function ChatWindow({
   agentConfig,
@@ -37,8 +68,11 @@ export function ChatWindow({
     typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT,
   );
   const [keyboardHeight, setKeyboardHeight] = useState(0);
+  const [messages] = useState<ChatMessage[]>([]);
   const windowRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
+
+  const chatConfig = extractChatConfig(theme);
 
   // Open animation + auto-focus input after animation
   useEffect(() => {
@@ -108,9 +142,11 @@ export function ChatWindow({
         const first = focusables[0]!;
         const last = focusables[focusables.length - 1]!;
 
-        // Find active element — in shadow DOM, use getRootNode()
-        const root = container.getRootNode() as ShadowRoot | Document;
-        const active = root.activeElement as HTMLElement | null;
+        // Find deepest active element — traverse nested shadow roots
+        let active: HTMLElement | null = (container.getRootNode() as ShadowRoot | Document).activeElement as HTMLElement | null;
+        while (active?.shadowRoot?.activeElement) {
+          active = active.shadowRoot.activeElement as HTMLElement;
+        }
 
         if (e.shiftKey) {
           // Shift+Tab from first → wrap to last
@@ -149,7 +185,6 @@ export function ChatWindow({
       class={animationClass + mobileClass}
       style={{ ...windowStyle, transformOrigin }}
       role="dialog"
-      aria-modal="true"
       aria-label={`Chat with ${agentConfig.name}`}
       onKeyDown={handleKeyDown}
     >
@@ -159,7 +194,14 @@ export function ChatWindow({
         onMinimize={onMinimize}
         onClose={onClose}
       />
-      <MessageArea />
+      <MessageArea
+        messages={messages}
+        showTimestamp={chatConfig.showTimestamp}
+        avatarShape={chatConfig.avatarShape}
+        botAvatarUrl={chatConfig.botAvatarUrl}
+        userAvatarUrl={chatConfig.userAvatarUrl}
+        greeting={agentConfig.greeting}
+      />
       <ChatInput ref={inputRef} />
     </div>
   );
