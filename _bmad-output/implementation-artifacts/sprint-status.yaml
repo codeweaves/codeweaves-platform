@@ -177,7 +177,7 @@ development_status:
   # ============================================
   epic-5: in-progress
   5-1-scaffold-preact-vite-widget-application: done
-  5-2-shadow-dom-initialization-closed-mode: review
+  5-2-shadow-dom-initialization-closed-mode: done
   5-3-widget-script-tag-initialization: ready-for-dev
   5-4-widget-configuration-loading-with-etag-caching: ready-for-dev
   5-5-theme-css-variables-injection: ready-for-dev
