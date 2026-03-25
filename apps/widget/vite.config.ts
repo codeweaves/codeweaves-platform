@@ -1,12 +1,35 @@
 import { defineConfig } from 'vite';
 import preact from '@preact/preset-vite';
+import { visualizer } from 'rollup-plugin-visualizer';
 
-// https://vitejs.dev/config/
+const analyze = process.env.ANALYZE === 'true';
+
 export default defineConfig({
-  plugins: [preact()],
+  plugins: [
+    preact(),
+    ...(analyze
+      ? [
+          visualizer({
+            filename: 'dist/stats.html',
+            gzipSize: true,
+            brotliSize: true,
+          }),
+        ]
+      : []),
+  ],
   build: {
-    // Target small bundle size for embeddable widget
     target: 'es2020',
+    sourcemap: 'hidden',
+    rollupOptions: {
+      input: 'src/main.tsx',
+      output: {
+        format: 'iife',
+        name: 'CodeWeavesWidget',
+        entryFileNames: 'codeweaves-widget.js',
+        inlineDynamicImports: true,
+      },
+    },
+    cssCodeSplit: false,
     minify: 'terser',
     terserOptions: {
       compress: {
@@ -14,17 +37,6 @@ export default defineConfig({
         drop_debugger: true,
       },
     },
-    rollupOptions: {
-      output: {
-        // Single file output for easy embedding
-        entryFileNames: 'widget.js',
-        assetFileNames: 'widget.[ext]',
-        manualChunks: undefined,
-      },
-    },
-    // Report bundle size
-    reportCompressedSize: true,
   },
-  // Widget will be served from CDN/different domain
   base: './',
 });

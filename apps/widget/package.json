@@ -17,6 +17,7 @@
     "@preact/preset-vite": "^2.10.0",
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
+    "rollup-plugin-visualizer": "^7.0.1",
     "typescript": "^5.9.2",
     "vite": "^6.3.0"
   }
