@@ -46,7 +46,8 @@ const CRITICAL_STYLES = [
   'pointer-events: none !important',
   'isolation: isolate !important',
   'transform: none !important',
-  'opacity: 1 !important',
+  'opacity: 0 !important',
+  'transition: opacity 0.2s ease-in !important',
   'overflow: visible !important',
   'display: block !important',
   'visibility: visible !important',
@@ -55,6 +56,7 @@ const CRITICAL_STYLES = [
 // ── Module State ───────────────────────────────────────────────────────
 
 let initialized = false;
+let revealed = false;
 let host: HTMLElement | null = null;
 let shadowRoot: ShadowRoot | null = null;
 let mountPoint: HTMLDivElement | null = null;
@@ -125,7 +127,10 @@ function setupMutationObservers(hostEl: HTMLElement): void {
     for (const mutation of mutations) {
       if (mutation.type === 'attributes' && mutation.target === hostEl) {
         isReapplying = true;
-        hostEl.setAttribute('style', CRITICAL_STYLES);
+        const styles = revealed
+          ? CRITICAL_STYLES.replace('opacity: 0 !important', 'opacity: 1 !important')
+          : CRITICAL_STYLES;
+        hostEl.setAttribute('style', styles);
         requestAnimationFrame(() => {
           isReapplying = false;
         });
@@ -294,10 +299,24 @@ export function destroy(): void {
   shadowRoot = null;
   mountPoint = null;
   initialized = false;
+  revealed = false;
 
   // Clear window references
   window.__codeweaves_loaded = false;
   delete window.CodeWeaves;
+}
+
+// ── Anti-FOUC: Reveal widget after config loads (Story 5-4) ──────────
+
+/**
+ * Transition the widget from hidden (opacity: 0) to visible (opacity: 1).
+ * Called after config is loaded to prevent flash of unstyled content.
+ */
+export function revealWidget(): void {
+  revealed = true;
+  if (host) {
+    host.style.setProperty('opacity', '1', 'important');
+  }
 }
 
 // ── Main Initialization ────────────────────────────────────────────────

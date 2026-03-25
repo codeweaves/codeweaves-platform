@@ -2,7 +2,7 @@
 
 interface CodeWeavesAPI {
   /** Programmatic initialization (alternative to data-agent-id attribute) */
-  init: (agentId: string) => void;
+  init: (agentId: string, apiBaseUrl?: string) => void;
   /** Fully remove widget from DOM, clean up all listeners, reset singleton */
   destroy: () => void;
   /** Expand the chat widget */

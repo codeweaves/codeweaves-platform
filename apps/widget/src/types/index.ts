@@ -20,3 +20,17 @@ export interface WidgetTheme {
 
 /** Widget open/closed/minimized state */
 export type WidgetState = 'minimized' | 'open' | 'closed';
+
+/** Agent information returned by the config API */
+export interface AgentConfig {
+  name: string;
+  greeting: string;
+  starters: string[];
+}
+
+/** Full widget configuration loaded from the API */
+export interface LoadedWidgetConfig {
+  theme: Record<string, unknown> | null;
+  agent: AgentConfig;
+  allowedDomains: string[];
+}
