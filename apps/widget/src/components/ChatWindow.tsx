@@ -1,9 +1,11 @@
-import { useState, useEffect, useRef, useCallback } from 'preact/hooks';
+import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks';
 import type { AgentConfig, ChatMessage } from '../types';
 import { ChatHeader } from './ChatHeader';
 import { MessageArea } from './MessageArea';
 import { ChatInput } from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
+import { ConversationStarters } from './ConversationStarters';
+import type { StarterItem } from './ConversationStarters';
 import { lockScroll, unlockScroll } from '../shadow-dom';
 
 const ANIMATION_DURATION_MS = 300;
@@ -68,11 +70,39 @@ export function ChatWindow({
     typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT,
   );
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [messages] = useState<ChatMessage[]>([]);
+  const [messages, setMessages] = useState<ChatMessage[]>([]);
   const windowRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
 
   const chatConfig = extractChatConfig(theme);
+
+  // Conversation starters: visible only when no user messages exist
+  const hasUserMessages = useMemo(
+    () => messages.some((m) => m.role === 'user'),
+    [messages],
+  );
+
+  const starterItems = useMemo<StarterItem[]>(
+    () =>
+      (agentConfig.starters ?? [])
+        .filter((s) => s.trim().length > 0)
+        .map((s) => ({ message: s })),
+    [agentConfig.starters],
+  );
+
+  const handleStarterSelect = useCallback(
+    (message: string) => {
+      const userMsg: ChatMessage = {
+        id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        role: 'user',
+        content: message,
+        timestamp: new Date(),
+      };
+      setMessages((prev) => [...prev, userMsg]);
+      // TODO: send message to API (future story)
+    },
+    [setMessages],
+  );
 
   // Open animation + auto-focus input after animation
   useEffect(() => {
@@ -202,6 +232,13 @@ export function ChatWindow({
         userAvatarUrl={chatConfig.userAvatarUrl}
         greeting={agentConfig.greeting}
       />
+      {starterItems.length > 0 && (
+        <ConversationStarters
+          starters={starterItems}
+          onSelect={handleStarterSelect}
+          visible={!hasUserMessages}
+        />
+      )}
       <ChatInput ref={inputRef} />
     </div>
   );

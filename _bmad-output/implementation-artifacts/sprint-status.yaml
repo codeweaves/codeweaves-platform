@@ -1,5 +1,5 @@
 # generated: 2026-03-14
-# last_updated: 2026-03-26 # Story 5-9 done
+# last_updated: 2026-03-26 # Added stories 5-15 through 5-22 (API integration, voice, state mgmt, XSS)
 # project: codeweaves-platform
 # project_key: NOKEY
 # tracking_system: file-system
@@ -150,7 +150,7 @@ development_status:
   # ============================================
   # Epic 5: Embeddable Chat Widget ★ NEXT UP
   # Priority: P1
-  # Stories: 14
+  # Stories: 22
   # Dependencies: Epic 0, Epic 3 (both done)
   # NFRs: NFR4 (<200ms load), NFR10 (<150KB bundle)
   # Research: docs/research-widget-css-isolation.md
@@ -172,8 +172,11 @@ development_status:
   #   Phase 2 (Init & Theming):    5-3, 5-4, 5-5 (parallel after Phase 1)
   #   Phase 3 (Widget States):     5-6 → 5-7 (sequential), 5-8 (parallel with 5-6)
   #   Phase 4 (Chat UI):           5-9, 5-10, 5-11 (5-10/5-11 depend on 5-9)
-  #   Phase 5 (Polish & Security): 5-13 (depends on 5-8), 5-12 (parallel)
-  #   Phase 6 (Final):             5-14 (bundle optimization — LAST)
+  #   Phase 5 (API Integration):   5-15, 5-16, 5-17 (parallel — client, device ID, session)
+  #   Phase 6 (Chat Wiring):       5-18 → 5-19 (sequential — basic then streaming)
+  #   Phase 7 (Voice & State):     5-20, 5-21 (parallel — voice bubbles, state management)
+  #   Phase 8 (Security & Polish): 5-22, 5-12, 5-13 (parallel — XSS, CORS, minimized state)
+  #   Phase 9 (Final):             5-14 (bundle optimization — LAST)
   # ============================================
   epic-5: in-progress
   5-1-scaffold-preact-vite-widget-application: done
@@ -185,11 +188,19 @@ development_status:
   5-7-bubble-notification-display: done
   5-8-expanded-chat-window-state: done
   5-9-chat-message-display: done
-  5-10-conversational-starters-display: ready-for-dev
+  5-10-conversational-starters-display: done
   5-11-typing-indicator-animation: ready-for-dev
   5-12-cors-domain-validation: ready-for-dev
   5-13-widget-window-minimized-state: ready-for-dev
   5-14-bundle-size-optimization: ready-for-dev
+  5-15-widget-api-client-service: ready-for-dev
+  5-16-device-id-generation-and-persistence: ready-for-dev
+  5-17-session-management: ready-for-dev
+  5-18-chat-input-api-integration: ready-for-dev
+  5-19-sse-streaming-integration: ready-for-dev
+  5-20-voice-message-integration: ready-for-dev
+  5-21-message-history-state-management: ready-for-dev
+  5-22-html-sanitization-xss-prevention: ready-for-dev
   epic-5-retrospective: optional
 
   # ============================================
