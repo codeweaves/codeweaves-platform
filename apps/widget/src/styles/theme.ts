@@ -18,6 +18,11 @@ function buildThemeCSS(): string {
 ${mapDefaults}
 
   /* Layout & Spacing (not theme-configurable, but used by components) */
+  --cw-chat-width: 380px;
+  --cw-chat-height: 520px;
+  --cw-chat-max-height: 80vh;
+  --cw-chat-radius: 12px;
+  --cw-header-height: 56px;
   --cw-widget-width: 400px;
   --cw-widget-height: 600px;
   --cw-widget-bottom: 20px;
