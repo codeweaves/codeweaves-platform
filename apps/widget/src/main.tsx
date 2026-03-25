@@ -1,30 +1,49 @@
-import { render } from 'preact';
 import { Widget } from './components/Widget';
+import { initShadowDom, renderInShadow, destroy as shadowDestroy } from './shadow-dom';
 
 /**
  * IIFE auto-init entry point for the CodeWeaves chat widget.
- * When the script loads, it immediately bootstraps the widget.
- * The IIFE wrapper is handled by Vite/Rollup build output format.
+ * When the script loads, it immediately bootstraps the widget
+ * inside a closed Shadow DOM for full CSS isolation.
  */
+
+let domReadyHandler: (() => void) | null = null;
+
 (function init() {
   if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bootstrap);
+    domReadyHandler = bootstrap;
+    document.addEventListener('DOMContentLoaded', domReadyHandler);
   } else {
     bootstrap();
   }
 })();
 
 function bootstrap() {
-  // Prevent duplicate widget injection if script is loaded more than once
-  if (document.getElementById('codeweaves-widget-root')) return;
-
-  // Guard against edge case where body isn't available yet
+  // Prevent duplicate widget injection (module-scoped + window flag)
+  if (window.__codeweaves_loaded) return;
   if (!document.body) return;
 
-  // Story 5-2 will replace this with Shadow DOM initialization.
-  // For now, create a host element and render the Widget directly.
-  const host = document.createElement('div');
-  host.id = 'codeweaves-widget-root';
-  document.body.appendChild(host);
-  render(<Widget />, host);
+  window.__codeweaves_loaded = true;
+
+  // Clean up DOMContentLoaded listener if it was registered
+  if (domReadyHandler) {
+    document.removeEventListener('DOMContentLoaded', domReadyHandler);
+    domReadyHandler = null;
+  }
+
+  // Initialize Shadow DOM (host element, closed shadow root, stylesheets, observers)
+  initShadowDom();
+
+  // Render Preact widget into shadow root mount point
+  renderInShadow(<Widget />);
+
+  // Expose destroy for SPA cleanup
+  window.__codeweaves_destroy = () => {
+    // Remove DOMContentLoaded listener if destroy called before DOM ready
+    if (domReadyHandler) {
+      document.removeEventListener('DOMContentLoaded', domReadyHandler);
+      domReadyHandler = null;
+    }
+    shadowDestroy();
+  };
 }

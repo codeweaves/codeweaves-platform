@@ -1,5 +1,5 @@
 # generated: 2026-03-14
-# last_updated: 2026-03-25
+# last_updated: 2026-03-25 # Story 5-2 moved to review
 # project: codeweaves-platform
 # project_key: NOKEY
 # tracking_system: file-system
@@ -177,7 +177,7 @@ development_status:
   # ============================================
   epic-5: in-progress
   5-1-scaffold-preact-vite-widget-application: done
-  5-2-shadow-dom-initialization-closed-mode: ready-for-dev
+  5-2-shadow-dom-initialization-closed-mode: review
   5-3-widget-script-tag-initialization: ready-for-dev
   5-4-widget-configuration-loading-with-etag-caching: ready-for-dev
   5-5-theme-css-variables-injection: ready-for-dev

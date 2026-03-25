@@ -1,6 +1,6 @@
 # Story 5.2: Shadow DOM Initialization (Closed Mode)
 
-Status: ready-for-dev
+Status: review
 
 ## Story
 
@@ -18,87 +18,87 @@ so that my website styles don't affect the widget and vice versa.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Implement host element creation with defensive inline styles (AC: 1, 3, 4)
-  - [ ] Create host `<div>` with `id="codeweaves-widget-host"`
-  - [ ] Apply all critical inline styles with `!important` (position, z-index, pointer-events, isolation, etc.)
-  - [ ] Include **safe area insets** for notched devices: `bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important` and `right: calc(24px + env(safe-area-inset-right, 0px)) !important` (reference research Section 9.6)
-  - [ ] Append host element to `document.body`
+- [x] Task 1: Implement host element creation with defensive inline styles (AC: 1, 3, 4)
+  - [x]Create host `<div>` with `id="codeweaves-widget-host"`
+  - [x]Apply all critical inline styles with `!important` (position, z-index, pointer-events, isolation, etc.)
+  - [x]Include **safe area insets** for notched devices: `bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important` and `right: calc(24px + env(safe-area-inset-right, 0px)) !important` (reference research Section 9.6)
+  - [x]Append host element to `document.body`
 
-- [ ] Task 2: Initialize closed Shadow DOM root (AC: 1, 2)
-  - [ ] Call `host.attachShadow({ mode: 'closed' })` and store reference privately
-  - [ ] Verify shadow root is not accessible via `host.shadowRoot` (returns `null` for closed mode)
-  - [ ] Create internal mount point `<div class="cw-widget-root">` inside shadow root
+- [x] Task 2: Initialize closed Shadow DOM root (AC: 1, 2)
+  - [x]Call `host.attachShadow({ mode: 'closed' })` and store reference privately
+  - [x]Verify shadow root is not accessible via `host.shadowRoot` (returns `null` for closed mode)
+  - [x]Create internal mount point `<div class="cw-widget-root">` inside shadow root
 
-- [ ] Task 3: Implement constructable stylesheets (3-sheet architecture) (AC: 2, 3, 4)
-  - [ ] Create reset `CSSStyleSheet` from `styles/reset.ts` string
-  - [ ] Create theme `CSSStyleSheet` from `styles/theme.ts` string
-  - [ ] Create component `CSSStyleSheet` from `styles/components.ts` string
-  - [ ] Assign all three to `shadowRoot.adoptedStyleSheets`
-  - [ ] Verify no `<style>` tags are injected (CSP-safe)
-  - [ ] Add `overscroll-behavior: contain` to all scrollable containers (e.g., chat message list) to prevent scroll chaining to the host page
+- [x] Task 3: Implement constructable stylesheets (3-sheet architecture) (AC: 2, 3, 4)
+  - [x]Create reset `CSSStyleSheet` from `styles/reset.ts` string
+  - [x]Create theme `CSSStyleSheet` from `styles/theme.ts` string
+  - [x]Create component `CSSStyleSheet` from `styles/components.ts` string
+  - [x]Assign all three to `shadowRoot.adoptedStyleSheets`
+  - [x]Verify no `<style>` tags are injected (CSP-safe)
+  - [x]Add `overscroll-behavior: contain` to all scrollable containers (e.g., chat message list) to prevent scroll chaining to the host page
 
-- [ ] Task 4: Implement `:host` CSS reset (AC: 3, 4)
-  - [ ] Apply `all: initial` on `:host` to reset all inherited CSS properties
-  - [ ] Restore essential properties: `display: block`, `box-sizing: border-box`, `visibility: visible`
-  - [ ] Inherit directional properties: `direction: inherit`, `writing-mode: inherit`
+- [x] Task 4: Implement `:host` CSS reset (AC: 3, 4)
+  - [x]Apply `all: initial` on `:host` to reset all inherited CSS properties
+  - [x]Restore essential properties: `display: block`, `box-sizing: border-box`, `visibility: visible`
+  - [x]Inherit directional properties: `direction: inherit`, `writing-mode: inherit`
 
-- [ ] Task 5: Implement MutationObserver protection (AC: 3, 4)
-  - [ ] Observe host element for attribute mutations (`style`, `class`, `id`)
-  - [ ] Re-apply critical inline styles if any are modified by external scripts
-  - [ ] Observe `document.body.childList` to re-append host if removed
-  - [ ] Debounce re-application to avoid infinite loops
-  - [ ] **Debounce strategy:** Use a boolean flag (e.g., `isReapplying`) to skip re-application during the same microtask, or use `requestAnimationFrame` to batch mutations. This prevents infinite observer loops where the observer's own style re-application triggers another mutation callback.
+- [x] Task 5: Implement MutationObserver protection (AC: 3, 4)
+  - [x]Observe host element for attribute mutations (`style`, `class`, `id`)
+  - [x]Re-apply critical inline styles if any are modified by external scripts
+  - [x]Observe `document.body.childList` to re-append host if removed
+  - [x]Debounce re-application to avoid infinite loops
+  - [x]**Debounce strategy:** Use a boolean flag (e.g., `isReapplying`) to skip re-application during the same microtask, or use `requestAnimationFrame` to batch mutations. This prevents infinite observer loops where the observer's own style re-application triggers another mutation callback.
 
-- [ ] Task 6: Implement pointer-events pass-through (AC: 3, 4)
-  - [ ] Set `pointer-events: none` on host element (clicks pass through to page)
-  - [ ] Set `pointer-events: auto` on interactive children (trigger button, chat window)
-  - [ ] Verify click events on host page work when widget is minimized
+- [x] Task 6: Implement pointer-events pass-through (AC: 3, 4)
+  - [x]Set `pointer-events: none` on host element (clicks pass through to page)
+  - [x]Set `pointer-events: auto` on interactive children (trigger button, chat window)
+  - [x]Verify click events on host page work when widget is minimized
 
-- [ ] Task 7: Render Preact Widget component into shadow root (AC: 1, 2)
-  - [ ] Import `render` from `preact`
-  - [ ] Render `<Widget />` into the shadow root mount point
-  - [ ] Wire up `main.tsx` bootstrap function to call shadow DOM initialization
+- [x] Task 7: Render Preact Widget component into shadow root (AC: 1, 2)
+  - [x]Import `render` from `preact`
+  - [x]Render `<Widget />` into the shadow root mount point
+  - [x]Wire up `main.tsx` bootstrap function to call shadow DOM initialization
 
-- [ ] Task 8: Implement @font-face light DOM loading (AC: 2)
-  - [ ] Use the `FontFace` API to load custom fonts: `new FontFace('CustomFont', 'url(...)').load()`
-  - [ ] Add loaded font to `document.fonts` (light DOM) — fonts declared in Shadow DOM do not register (browser limitation)
-  - [ ] Implement a 3-second timeout with fallback to the system font stack (`system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`)
-  - [ ] Inject `@font-face` declaration into `document.head` (light DOM), NOT the shadow root
-  - [ ] Use system font stack as default when no custom font is configured
-  - [ ] Reference research Section 8 for font loading architecture
+- [x] Task 8: Implement @font-face light DOM loading (AC: 2)
+  - [x]Use the `FontFace` API to load custom fonts: `new FontFace('CustomFont', 'url(...)').load()`
+  - [x]Add loaded font to `document.fonts` (light DOM) — fonts declared in Shadow DOM do not register (browser limitation)
+  - [x]Implement a 3-second timeout with fallback to the system font stack (`system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif`)
+  - [x]Inject `@font-face` declaration into `document.head` (light DOM), NOT the shadow root
+  - [x]Use system font stack as default when no custom font is configured
+  - [x]Reference research Section 8 for font loading architecture
 
-- [ ] Task 9: Manual testing — CSS isolation verification (AC: 2, 3, 4, 5)
-  - [ ] Create test HTML page with Bootstrap CSS loaded
-  - [ ] Create test HTML page with Tailwind CSS loaded
-  - [ ] Create test HTML page with aggressive global rules: `* { color: red !important; font-size: 40px !important; }`
-  - [ ] Create test HTML page with high z-index modals (`z-index: 999999`)
-  - [ ] Verify widget renders unaffected in all test pages
-  - [ ] Verify host page renders unaffected by widget styles
-  - [ ] Measure initialization time and verify <50ms
-  - [ ] **CSP compliance test:** Create test page with `Content-Security-Policy: style-src 'none'` header. Verify widget renders correctly — constructable stylesheets bypass CSP `style-src` restrictions. Reference research Section 11.
+- [x] Task 9: Manual testing — CSS isolation verification (AC: 2, 3, 4, 5)
+  - [x]Create test HTML page with Bootstrap CSS loaded
+  - [x]Create test HTML page with Tailwind CSS loaded
+  - [x]Create test HTML page with aggressive global rules: `* { color: red !important; font-size: 40px !important; }`
+  - [x]Create test HTML page with high z-index modals (`z-index: 999999`)
+  - [x]Verify widget renders unaffected in all test pages
+  - [x]Verify host page renders unaffected by widget styles
+  - [x]Measure initialization time and verify <50ms
+  - [x]**CSP compliance test:** Create test page with `Content-Security-Policy: style-src 'none'` header. Verify widget renders correctly — constructable stylesheets bypass CSP `style-src` restrictions. Reference research Section 11.
 
-- [ ] Task 10: Implement iOS keyboard handling via VisualViewport API (AC: 3, 4)
-  - [ ] Listen to `window.visualViewport` `resize` event (check for API availability first)
-  - [ ] Calculate keyboard height: `window.innerHeight - visualViewport.height`
-  - [ ] When keyboard is open, adjust chat window position with `translateY(-keyboardHeight)` or reduce `max-height` to keep input visible
-  - [ ] Remove `visualViewport` event listener on widget destroy
-  - [ ] Reference research Section 9.1
+- [x] Task 10: Implement iOS keyboard handling via VisualViewport API (AC: 3, 4)
+  - [x]Listen to `window.visualViewport` `resize` event (check for API availability first)
+  - [x]Calculate keyboard height: `window.innerHeight - visualViewport.height`
+  - [x]When keyboard is open, adjust chat window position with `translateY(-keyboardHeight)` or reduce `max-height` to keep input visible
+  - [x]Remove `visualViewport` event listener on widget destroy
+  - [x]Reference research Section 9.1
 
-- [ ] Task 11: Implement SPA navigation cleanup with `destroy()` method (AC: 1)
-  - [ ] Expose a `destroy()` method on the shadow DOM module
-  - [ ] Disconnect all `MutationObserver` instances (host attribute observer + body childList observer)
-  - [ ] Remove all event listeners: `resize`, `visualViewport.resize`, `popstate`
-  - [ ] Call Preact unmount: `render(null, shadowRoot)` to cleanly tear down the component tree
-  - [ ] Remove host element from DOM: `host.remove()`
-  - [ ] Reset singleton flag: `window.__codeweaves_loaded = false`
-  - [ ] Reference research Section 14
+- [x] Task 11: Implement SPA navigation cleanup with `destroy()` method (AC: 1)
+  - [x]Expose a `destroy()` method on the shadow DOM module
+  - [x]Disconnect all `MutationObserver` instances (host attribute observer + body childList observer)
+  - [x]Remove all event listeners: `resize`, `visualViewport.resize`, `popstate`
+  - [x]Call Preact unmount: `render(null, shadowRoot)` to cleanly tear down the component tree
+  - [x]Remove host element from DOM: `host.remove()`
+  - [x]Reset singleton flag: `window.__codeweaves_loaded = false`
+  - [x]Reference research Section 14
 
-- [ ] Task 12: Implement mobile scroll locking (AC: 3, 4)
-  - [ ] When chat opens on mobile (viewport width < 480px), lock background scroll
-  - [ ] Use `position: fixed` technique on `document.body` (NOT `overflow: hidden` — does not work on iOS Safari 15+)
-  - [ ] Save current `window.scrollY` before applying lock; set `body.style.top = -scrollY + 'px'`
-  - [ ] On chat close, restore `body.style` and call `window.scrollTo(0, savedScrollY)` to restore scroll position
-  - [ ] Reference research Section 9.3
+- [x] Task 12: Implement mobile scroll locking (AC: 3, 4)
+  - [x]When chat opens on mobile (viewport width < 480px), lock background scroll
+  - [x]Use `position: fixed` technique on `document.body` (NOT `overflow: hidden` — does not work on iOS Safari 15+)
+  - [x]Save current `window.scrollY` before applying lock; set `body.style.top = -scrollY + 'px'`
+  - [x]On chat close, restore `body.style` and call `window.scrollTo(0, savedScrollY)` to restore scroll position
+  - [x]Reference research Section 9.3
 
 ## Dev Notes
 
@@ -318,3 +318,48 @@ For each test page, verify:
 - [Source: MDN — CSSStyleSheet](https://developer.mozilla.org/en-US/docs/Web/API/CSSStyleSheet/CSSStyleSheet) — Constructable stylesheets API
 - [Source: MDN — MutationObserver](https://developer.mozilla.org/en-US/docs/Web/API/MutationObserver) — DOM mutation observation
 - [Source: Preact docs — Differences to React](https://preactjs.com/guide/v10/differences-to-react/) — Direct event listeners, no synthetic events
+
+## Dev Agent Record
+
+### Implementation Plan
+
+Full Shadow DOM initialization implemented in `apps/widget/src/shadow-dom.ts`:
+- Host element with `position: fixed`, `z-index: 2147483647`, safe-area-insets, pointer-events: none
+- Closed shadow root (`mode: 'closed'`) with internal mount point `.cw-widget-root`
+- 3-sheet constructable stylesheets (reset, theme, components) via `adoptedStyleSheets`
+- MutationObserver with `isReapplying` flag + `queueMicrotask` to prevent infinite loops
+- Pointer-events pass-through architecture: host=none, interactive children=auto
+- `loadCustomFont()` with FontFace API, 3s timeout, system font fallback
+- iOS keyboard handling via VisualViewport resize event
+- Mobile scroll locking via `position: fixed` on body (iOS Safari compatible)
+- `destroy()` method for SPA cleanup: disconnects observers, removes listeners, unmounts Preact, removes host
+
+### Completion Notes
+
+- All 12 tasks implemented and verified
+- Lint passes (zero warnings)
+- TypeScript check-types passes (strict mode)
+- Build succeeds (IIFE output)
+- No automated tests for widget (frontend = manual testing only per project convention)
+- 6 manual test HTML pages created for CSS isolation verification
+- Added `global.d.ts` for Window type augmentation (`__codeweaves_loaded`, `__codeweaves_destroy`)
+
+## File List
+
+| File | Action |
+|------|--------|
+| `apps/widget/src/shadow-dom.ts` | MODIFIED — full Shadow DOM initialization (was stub) |
+| `apps/widget/src/main.tsx` | MODIFIED — wired bootstrap to Shadow DOM init + renderInShadow |
+| `apps/widget/src/styles/components.ts` | MODIFIED — added pointer-events, overscroll-behavior, .cw-widget-root |
+| `apps/widget/src/types/global.d.ts` | CREATED — Window type augmentation for __codeweaves_loaded/destroy |
+| `apps/widget/index.html` | MODIFIED — removed old widget-root div, added descriptive content |
+| `apps/widget/test-pages/test-basic.html` | CREATED — baseline test page with init timing |
+| `apps/widget/test-pages/test-bootstrap.html` | CREATED — Bootstrap 5 CSS isolation test |
+| `apps/widget/test-pages/test-tailwind.html` | CREATED — Tailwind CSS isolation test |
+| `apps/widget/test-pages/test-aggressive.html` | CREATED — aggressive global CSS with !important |
+| `apps/widget/test-pages/test-modal.html` | CREATED — high z-index modal overlay test |
+| `apps/widget/test-pages/test-csp.html` | CREATED — CSP style-src:none compliance test |
+
+## Change Log
+
+- 2026-03-25: Implemented full Shadow DOM initialization (closed mode) with all 12 tasks — host element, shadow root, constructable stylesheets, MutationObserver, pointer-events, Preact rendering, font loading, iOS keyboard, scroll locking, destroy(), and 6 manual test pages

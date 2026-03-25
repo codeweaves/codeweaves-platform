@@ -1,5 +1,9 @@
 /** Component CSS strings — minimal stubs, expanded in later stories */
 export const componentCSS = `
+.cw-widget-root {
+  pointer-events: none;
+}
+
 .cw-widget {
   font-family: var(--cw-font-family);
   font-size: var(--cw-font-size);
@@ -12,6 +16,7 @@ export const componentCSS = `
 }
 
 .cw-trigger-button {
+  pointer-events: auto;
   width: var(--cw-trigger-size);
   height: var(--cw-trigger-size);
   border-radius: 50%;
@@ -31,6 +36,7 @@ export const componentCSS = `
 }
 
 .cw-chat-window {
+  pointer-events: auto;
   width: var(--cw-widget-width);
   height: var(--cw-widget-height);
   background: var(--cw-background);
@@ -40,9 +46,11 @@ export const componentCSS = `
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  overscroll-behavior: contain;
 }
 
 .cw-bubble-notification {
+  pointer-events: auto;
   background: var(--cw-bubble-bg);
   color: var(--cw-bubble-fg);
   box-shadow: var(--cw-bubble-shadow);
