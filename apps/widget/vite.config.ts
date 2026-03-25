@@ -33,8 +33,10 @@ export default defineConfig({
     minify: 'terser',
     terserOptions: {
       compress: {
-        drop_console: true,
         drop_debugger: true,
+        // Console calls managed by debug utility (data-debug attribute enables at runtime)
+        // Only strip console.debug in production; warn/error always preserved
+        pure_funcs: ['console.debug'],
       },
     },
   },

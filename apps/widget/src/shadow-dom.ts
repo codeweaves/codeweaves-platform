@@ -297,7 +297,7 @@ export function destroy(): void {
 
   // Clear window references
   window.__codeweaves_loaded = false;
-  window.__codeweaves_destroy = undefined;
+  delete window.CodeWeaves;
 }
 
 // ── Main Initialization ────────────────────────────────────────────────
