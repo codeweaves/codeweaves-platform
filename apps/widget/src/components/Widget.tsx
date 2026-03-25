@@ -82,6 +82,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
 
   const handleOpen = () => setState('open');
   const handleClose = () => setState('minimized');
+  const handleMinimize = () => setState('minimized');
 
   // Use refs so registered callbacks always point to latest handlers
   const openRef = useRef(handleOpen);
@@ -158,7 +159,13 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   return (
     <div class="cw-widget" data-position={iconConfig.position}>
       {state === 'open' ? (
-        <ChatWindow onClose={handleClose} />
+        <ChatWindow
+          agentConfig={config.agent}
+          theme={themeObj}
+          onClose={handleClose}
+          onMinimize={handleMinimize}
+          position={iconConfig.position}
+        />
       ) : (
         <>
           <BubbleNotification
