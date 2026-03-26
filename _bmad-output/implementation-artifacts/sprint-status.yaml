@@ -1,5 +1,5 @@
 # generated: 2026-03-14
-# last_updated: 2026-03-26 # Added story 5-23 (branding footer + avatar type icons + deferred schema props)
+# last_updated: 2026-03-26 # Story 5-11 typing indicator animation done
 # project: codeweaves-platform
 # project_key: NOKEY
 # tracking_system: file-system
@@ -189,7 +189,7 @@ development_status:
   5-8-expanded-chat-window-state: done
   5-9-chat-message-display: done
   5-10-conversational-starters-display: done
-  5-11-typing-indicator-animation: ready-for-dev
+  5-11-typing-indicator-animation: done
   5-12-cors-domain-validation: ready-for-dev
   5-13-widget-window-minimized-state: ready-for-dev
   5-14-bundle-size-optimization: ready-for-dev

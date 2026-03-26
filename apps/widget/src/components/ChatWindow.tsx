@@ -71,6 +71,7 @@ export function ChatWindow({
   );
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [isTyping, setIsTyping] = useState(false);
   const windowRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
 
@@ -99,10 +100,23 @@ export function ChatWindow({
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, userMsg]);
-      // TODO: send message to API (future story)
+      setIsTyping(true);
+      // TODO: send message to API (future story 5-18/5-19)
     },
     [setMessages],
   );
+
+  /** Called when typing indicator times out after 30s with no response */
+  const handleTypingTimeout = useCallback(() => {
+    setIsTyping(false);
+    const errorMsg: ChatMessage = {
+      id: `error-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      role: 'assistant',
+      content: 'Response taking too long, please try again',
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, errorMsg]);
+  }, []);
 
   // Open animation + auto-focus input after animation
   useEffect(() => {
@@ -231,6 +245,8 @@ export function ChatWindow({
         botAvatarUrl={chatConfig.botAvatarUrl}
         userAvatarUrl={chatConfig.userAvatarUrl}
         greeting={agentConfig.greeting}
+        isTyping={isTyping}
+        onTypingTimeout={handleTypingTimeout}
       />
       {starterItems.length > 0 && (
         <ConversationStarters

@@ -1,6 +1,7 @@
 import { useRef, useEffect, useCallback, useMemo } from 'preact/hooks';
 import type { ChatMessage } from '../types';
 import { MessageBubble } from './MessageBubble';
+import { TypingIndicator } from './TypingIndicator';
 
 /** Threshold in px: if user is within this distance of the bottom, auto-scroll */
 const SCROLL_THRESHOLD = 50;
@@ -12,6 +13,10 @@ export interface MessageAreaProps {
   botAvatarUrl?: string;
   userAvatarUrl?: string;
   greeting: string;
+  /** Whether to show the typing indicator */
+  isTyping?: boolean;
+  /** Called when typing indicator times out (30s) — required when isTyping is used */
+  onTypingTimeout: () => void;
 }
 
 /** Scrollable message list with auto-scroll and empty/greeting state */
@@ -22,6 +27,8 @@ export function MessageArea({
   botAvatarUrl,
   userAvatarUrl,
   greeting,
+  isTyping = false,
+  onTypingTimeout: handleTypingTimeout,
 }: MessageAreaProps) {
   const containerRef = useRef<HTMLDivElement>(null);
   /** Whether the user is at or near the bottom of the scroll */
@@ -46,10 +53,10 @@ export function MessageArea({
     }
   }, []);
 
-  // Auto-scroll when messages change (new message or streaming update)
+  // Auto-scroll when messages change or typing indicator appears
   useEffect(() => {
     scrollToBottom();
-  }, [messages, scrollToBottom]);
+  }, [messages, isTyping, scrollToBottom]);
 
   // Initial scroll to bottom on mount
   useEffect(() => {
@@ -102,6 +109,12 @@ export function MessageArea({
             />
           ))
         )}
+        <TypingIndicator
+          visible={isTyping}
+          avatarShape={avatarShape}
+          botAvatarUrl={botAvatarUrl}
+          onTimeout={handleTypingTimeout}
+        />
       </div>
     </div>
   );

@@ -1,5 +1,5 @@
-import { useState } from 'preact/hooks';
 import type { ChatMessage } from '../types';
+import { Avatar } from './Avatar';
 
 export interface MessageBubbleProps {
   message: ChatMessage;
@@ -28,38 +28,6 @@ function formatTime(date: Date): string {
   } catch {
     return '';
   }
-}
-
-/** Avatar with optional custom image, falling back to letter */
-function Avatar({
-  imageUrl,
-  letter,
-  avatarClass,
-}: {
-  imageUrl?: string;
-  letter: string;
-  avatarClass: string;
-}) {
-  const [imgFailed, setImgFailed] = useState(false);
-
-  if (imageUrl && !imgFailed) {
-    return (
-      <div class={avatarClass} aria-hidden="true">
-        <img
-          class="cw-msg-avatar-img"
-          src={imageUrl}
-          alt=""
-          onError={() => setImgFailed(true)}
-        />
-      </div>
-    );
-  }
-
-  return (
-    <div class={avatarClass} aria-hidden="true">
-      {letter}
-    </div>
-  );
 }
 
 /** Chat message bubble with avatar, timestamp, and streaming cursor */
