@@ -8,6 +8,7 @@
  */
 
 import type { SendMessageResponse } from '../types';
+import { getDeviceId } from '../utils/device-id';
 import { WidgetApiError, mapResponseError } from './api-errors';
 import { fetchWithRetry } from './fetch-utils';
 
@@ -30,7 +31,8 @@ function buildHeaders(deviceId?: string, sessionId?: string): Record<string, str
   const headers: Record<string, string> = {
     'Content-Type': 'application/json',
   };
-  if (deviceId) headers['X-Device-Id'] = deviceId;
+  // Auto-resolve device ID if not explicitly provided (Story 5-16)
+  headers['X-Device-Id'] = deviceId ?? getDeviceId();
   if (sessionId) headers['X-Session-Id'] = sessionId;
   return headers;
 }
