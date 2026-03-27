@@ -233,27 +233,47 @@ export function setupPreviewMode(
   const isPreview = script?.getAttribute('data-preview') === 'true';
   if (!isPreview) return;
 
-  // Build set of allowed origins for fast lookup
-  const allowedOrigins = new Set<string>();
+  // Build set of exact allowed origins and list of wildcard base domains
+  const exactOrigins = new Set<string>();
+  const wildcardBases: string[] = [];
   // Always allow same origin
-  allowedOrigins.add(window.location.origin);
+  exactOrigins.add(window.location.origin);
   // Add configured domains
   for (const domain of allowedDomains) {
     const trimmed = domain.trim();
     if (!trimmed) continue;
-    // If it's already a full origin (with protocol), use as-is
-    if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
-      allowedOrigins.add(trimmed.replace(/\/$/, ''));
+    if (trimmed.startsWith('*.')) {
+      // Wildcard: *.example.com — store the base for suffix matching
+      wildcardBases.push(trimmed.slice(2).toLowerCase());
+    } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+      // Full origin — use as-is
+      exactOrigins.add(trimmed.replace(/\/$/, ''));
     } else {
-      // Otherwise, add both http and https variants
-      allowedOrigins.add(`https://${trimmed}`);
-      allowedOrigins.add(`http://${trimmed}`);
+      // Domain-only — add both protocol variants
+      exactOrigins.add(`https://${trimmed}`);
+      exactOrigins.add(`http://${trimmed}`);
     }
+  }
+
+  /** Check if an origin is allowed (exact match or wildcard subdomain match) */
+  function isOriginAllowed(origin: string): boolean {
+    if (exactOrigins.has(origin)) return true;
+    if (wildcardBases.length === 0) return false;
+    // Extract hostname from origin (e.g., "https://sub.example.com" → "sub.example.com")
+    try {
+      const hostname = new URL(origin).hostname.toLowerCase();
+      for (const base of wildcardBases) {
+        if (hostname === base || hostname.endsWith('.' + base)) return true;
+      }
+    } catch {
+      // Invalid origin URL — reject
+    }
+    return false;
   }
 
   previewListener = (event: MessageEvent) => {
     // Validate origin
-    if (!allowedOrigins.has(event.origin)) {
+    if (!isOriginAllowed(event.origin)) {
       warn(`Rejected theme update from unauthorized origin: ${event.origin}`);
       return;
     }
@@ -274,9 +294,10 @@ export function setupPreviewMode(
 
   window.addEventListener('message', previewListener);
 
-  // Emit readiness handshake to each allowed origin (no wildcard)
+  // Emit readiness handshake to each exact allowed origin
+  // (wildcard domains cannot receive targeted postMessage — they match inbound only)
   if (window.parent !== window) {
-    for (const origin of allowedOrigins) {
+    for (const origin of exactOrigins) {
       window.parent.postMessage({ type: WIDGET_READY_TYPE }, origin);
     }
   }

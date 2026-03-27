@@ -6,6 +6,7 @@ import { BubbleNotification } from './BubbleNotification';
 import { loadConfig } from '../services/config-loader';
 import { applyTheme, setupPreviewMode, teardownPreviewMode } from '../services/theme-engine';
 import { revealWidget } from '../shadow-dom';
+import { isDomainAllowed } from '../utils/domain-validator';
 import { debug, warn } from '../utils/debug';
 
 /** Callback registration for external control (global API) */
@@ -79,6 +80,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   const [state, setState] = useState<WidgetState>('minimized');
   const [config, setConfig] = useState<LoadedWidgetConfig | null>(null);
   const [configError, setConfigError] = useState(false);
+  const [domainBlocked, setDomainBlocked] = useState(false);
 
   const handleOpen = () => setState('open');
   const handleClose = () => setState('minimized');
@@ -101,12 +103,23 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   // Load config on mount, apply theme, then reveal widget
   useEffect(() => {
     let cancelled = false;
+    let blocked = false;
 
     loadConfig(agentId, apiBaseUrl)
       .then((result) => {
         if (cancelled) return;
         if (result) {
           debug('Config loaded for agent:', agentId);
+
+          // Domain validation: check before rendering full widget (AC #1, #2, #3, #4)
+          const hostname = window.location.hostname;
+          const allowed = isDomainAllowed(hostname, result.allowedDomains ?? []);
+          if (!allowed) {
+            debug(`Domain "${hostname}" is not in the allowed domains list for agent "${agentId}"`);
+            blocked = true;
+            setDomainBlocked(true);
+            return;
+          }
 
           // Apply theme before widget becomes visible (before opacity transition)
           if (hostElement && result.theme) {
@@ -130,7 +143,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
         setConfigError(true);
       })
       .finally(() => {
-        if (!cancelled) revealWidget();
+        if (!cancelled && !blocked) revealWidget();
       });
 
     return () => {
@@ -144,6 +157,17 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
       <div class="cw-widget">
         <div class="cw-config-error" style={{ pointerEvents: 'auto' }}>
           Widget unavailable
+        </div>
+      </div>
+    );
+  }
+
+  // Unauthorized domain — render minimal error, do not initialize chat (AC #4)
+  if (domainBlocked) {
+    return (
+      <div class="cw-widget">
+        <div class="cw-domain-error">
+          This widget is not authorized for this domain
         </div>
       </div>
     );
