@@ -18,8 +18,8 @@ export interface WidgetTheme {
   fontSize: string;
 }
 
-/** Widget open/closed/minimized state */
-export type WidgetState = 'minimized' | 'open' | 'closed';
+/** Widget state: closed (trigger visible), expanded (full chat), minimized (header-only) */
+export type WidgetState = 'closed' | 'expanded' | 'minimized';
 
 /** Agent information returned by the config API */
 export interface AgentConfig {
