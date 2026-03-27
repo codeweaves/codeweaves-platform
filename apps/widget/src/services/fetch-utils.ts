@@ -13,6 +13,9 @@ const RETRY_DELAY_MS = 1_000;
 /**
  * Wraps native fetch with an AbortController timeout.
  * Clears the timer on completion to prevent leaking timers.
+ *
+ * If the caller passes a `signal` in options, both the caller's signal and
+ * the internal timeout can abort the request (whichever fires first).
  */
 export function fetchWithTimeout(
   url: string,
@@ -22,14 +25,37 @@ export function fetchWithTimeout(
   const controller = new AbortController();
   const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
 
+  // If the caller provided an external signal, forward its abort to our controller
+  const externalSignal = options.signal;
+  let onExternalAbort: (() => void) | null = null;
+  if (externalSignal) {
+    if (externalSignal.aborted) {
+      clearTimeout(timeoutId);
+      return Promise.reject(new DOMException('The operation was aborted.', 'AbortError'));
+    }
+    onExternalAbort = () => controller.abort();
+    externalSignal.addEventListener('abort', onExternalAbort);
+  }
+
+  function cleanup(): void {
+    clearTimeout(timeoutId);
+    if (externalSignal && onExternalAbort) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
+  }
+
   return fetch(url, { ...options, signal: controller.signal }).then(
     (response) => {
-      clearTimeout(timeoutId);
+      cleanup();
       return response;
     },
     (error: unknown) => {
-      clearTimeout(timeoutId);
+      cleanup();
       if (error instanceof DOMException && error.name === 'AbortError') {
+        // Distinguish between caller abort and timeout abort
+        if (externalSignal?.aborted) {
+          throw error; // Re-throw as DOMException — caller cancelled
+        }
         throw timeoutError();
       }
       throw networkError(error);

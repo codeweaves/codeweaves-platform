@@ -115,7 +115,10 @@ function parseSSEMessage(message: string): SSEEvent | null {
     }
 
     return null;
-  } catch {
+  } catch (e) {
+    if (typeof console !== 'undefined') {
+      console.warn('[cw-widget] Failed to parse SSE data:', dataStr, e);
+    }
     return null;
   }
 }

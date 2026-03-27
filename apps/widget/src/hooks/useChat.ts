@@ -1,14 +1,14 @@
 /**
- * useChat hook — core chat state management (Story 5-18, Task 1).
+ * useChat hook — core chat state management (Story 5-18 + 5-19).
  *
- * Manages messages, loading state, error state, and rate-limit cooldown.
- * Wires together API client, session manager, and device ID services.
+ * Manages messages, streaming state, error state, and rate-limit cooldown.
+ * Uses SSE streaming by default for progressive message rendering.
  */
 
 import { useState, useCallback, useRef, useEffect } from 'preact/hooks';
 import type { ChatMessage } from '../types';
-import { sendMessage as apiSendMessage } from '../services/api-client';
-import { WidgetApiError } from '../services/api-errors';
+import { startStream } from '../services/stream-handler';
+import type { StreamHandle, StreamErrorOptions } from '../services/stream-handler';
 
 export interface UseChatOptions {
   agentId: string;
@@ -17,9 +17,11 @@ export interface UseChatOptions {
 export interface UseChatReturn {
   messages: ChatMessage[];
   isLoading: boolean;
+  isStreaming: boolean;
   isRateLimited: boolean;
   error: string | null;
   sendMessage: (text: string) => void;
+  stopStream: () => void;
   clearError: () => void;
   /** Reset loading state on typing indicator timeout (30s with no API response) */
   handleTimeout: () => void;
@@ -32,6 +34,7 @@ function generateId(prefix: string): string {
 export function useChat({ agentId }: UseChatOptions): UseChatReturn {
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isLoading, setIsLoading] = useState(false);
+  const [isStreaming, setIsStreaming] = useState(false);
   const [isRateLimited, setIsRateLimited] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -40,12 +43,19 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
   // Guard against concurrent sends (ref stays current across renders)
   const loadingRef = useRef(false);
   const rateLimitedRef = useRef(false);
+  const streamHandleRef = useRef<StreamHandle | null>(null);
+  // Track accumulated content for streaming message (avoids stale closure on setMessages)
+  const streamContentRef = useRef('');
 
-  // Cleanup all timers on unmount
+  // Cleanup all timers and active stream on unmount
   useEffect(() => {
+    const errorTimer = errorTimerRef;
+    const rateLimitTimer = rateLimitTimerRef;
+    const streamHandle = streamHandleRef;
     return () => {
-      if (errorTimerRef.current !== null) clearTimeout(errorTimerRef.current);
-      if (rateLimitTimerRef.current !== null) clearTimeout(rateLimitTimerRef.current);
+      if (errorTimer.current !== null) clearTimeout(errorTimer.current);
+      if (rateLimitTimer.current !== null) clearTimeout(rateLimitTimer.current);
+      streamHandle.current?.abort();
     };
   }, []);
 
@@ -57,11 +67,47 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     }
   }, []);
 
+  const showError = useCallback((message: string) => {
+    setError(message);
+    if (errorTimerRef.current !== null) clearTimeout(errorTimerRef.current);
+    errorTimerRef.current = setTimeout(() => {
+      setError(null);
+      errorTimerRef.current = null;
+    }, 5000);
+  }, []);
+
+  const finishStream = useCallback(() => {
+    setIsLoading(false);
+    setIsStreaming(false);
+    loadingRef.current = false;
+    streamHandleRef.current = null;
+    streamContentRef.current = '';
+  }, []);
+
+  const stopStream = useCallback(() => {
+    if (!streamHandleRef.current) return;
+    streamHandleRef.current.abort();
+
+    // Finalize partial message as-is (AC #5 — preserve partial on cancel)
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.isStreaming ? { ...m, isStreaming: false } : m,
+      ),
+    );
+    finishStream();
+  }, [finishStream]);
+
   const sendMessage = useCallback(
     (text: string) => {
       const trimmed = text.trim();
       // Use refs for guards — immune to stale closures
       if (!trimmed || loadingRef.current || rateLimitedRef.current) return;
+
+      // P2: Abort any existing stream before starting a new one
+      if (streamHandleRef.current) {
+        streamHandleRef.current.abort();
+        streamHandleRef.current = null;
+      }
 
       // Set loading guard immediately (sync) to prevent double-click races
       loadingRef.current = true;
@@ -79,22 +125,61 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
       setMessages((prev) => [...prev, userMsg]);
       setIsLoading(true);
 
-      // API call — session ID and device ID are auto-resolved by api-client
-      apiSendMessage(agentId, trimmed)
-        .then((response) => {
+      // Placeholder bot message ID — created on first chunk
+      const botMsgId = generateId('bot');
+      streamContentRef.current = '';
+
+      const handle = startStream(agentId, trimmed, {
+        onFirstChunk: (content: string) => {
+          // AC #2: Hide typing indicator by setting isStreaming (loading stays true for other UI)
+          streamContentRef.current = content;
           const botMsg: ChatMessage = {
-            id: response.assistantMessageId || generateId('bot'),
+            id: botMsgId,
             role: 'assistant',
-            content: response.reply,
+            content,
             timestamp: new Date(),
+            isStreaming: true,
           };
           setMessages((prev) => [...prev, botMsg]);
-        })
-        .catch((err: unknown) => {
-          if (err instanceof WidgetApiError && err.status === 429) {
-            // Rate limit — show error and start cooldown
-            setError(err.userMessage);
-            const cooldownSeconds = err.retryAfterSeconds ?? 5;
+          setIsStreaming(true);
+          // isLoading stays true but typing indicator hides because isStreaming is now true
+        },
+
+        onChunk: (content: string) => {
+          streamContentRef.current += content;
+          const accumulated = streamContentRef.current;
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botMsgId ? { ...m, content: accumulated } : m,
+            ),
+          );
+        },
+
+        // P6: Accept metadata parameter (P3: keep client-side ID stable)
+        onDone: () => {
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botMsgId
+                ? { ...m, isStreaming: false }
+                : m,
+            ),
+          );
+          finishStream();
+        },
+
+        // P4: Use structured rate limit flag from stream-handler
+        onError: (errorMessage: string, options?: StreamErrorOptions) => {
+          // AC #5: Preserve partial message on error
+          setMessages((prev) =>
+            prev.map((m) =>
+              m.id === botMsgId && m.isStreaming
+                ? { ...m, isStreaming: false }
+                : m,
+            ),
+          );
+
+          if (options?.rateLimited) {
+            const cooldownSeconds = options.retryAfterSeconds ?? 5;
             setIsRateLimited(true);
             rateLimitedRef.current = true;
             rateLimitTimerRef.current = setTimeout(() => {
@@ -102,37 +187,38 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
               rateLimitedRef.current = false;
               rateLimitTimerRef.current = null;
             }, cooldownSeconds * 1000);
-          } else if (err instanceof WidgetApiError) {
-            setError(err.userMessage);
-          } else {
-            setError('Something went wrong. Please try again.');
           }
 
-          // Auto-dismiss error after 5 seconds
-          errorTimerRef.current = setTimeout(() => {
-            setError(null);
-            errorTimerRef.current = null;
-          }, 5000);
-        })
-        .finally(() => {
-          setIsLoading(false);
-          loadingRef.current = false;
-        });
+          showError(errorMessage);
+          finishStream();
+        },
+      });
+
+      streamHandleRef.current = handle;
     },
-    [agentId, clearError],
+    [agentId, clearError, finishStream, showError],
   );
 
   // Called when TypingIndicator fires its 30s timeout with no API response
   const handleTimeout = useCallback(() => {
     if (!loadingRef.current) return;
-    setIsLoading(false);
-    loadingRef.current = false;
-    setError('Response took too long. Please try again.');
-    errorTimerRef.current = setTimeout(() => {
-      setError(null);
-      errorTimerRef.current = null;
-    }, 5000);
-  }, []);
+    // If we're streaming (first chunk arrived), don't treat typing timeout as error
+    if (streamHandleRef.current && streamContentRef.current) return;
+    // No chunks arrived within 30s — abort and show error
+    streamHandleRef.current?.abort();
+    finishStream();
+    showError('Response took too long. Please try again.');
+  }, [finishStream, showError]);
 
-  return { messages, isLoading, isRateLimited, error, sendMessage, clearError, handleTimeout };
+  return {
+    messages,
+    isLoading,
+    isStreaming,
+    isRateLimited,
+    error,
+    sendMessage,
+    stopStream,
+    clearError,
+    handleTimeout,
+  };
 }

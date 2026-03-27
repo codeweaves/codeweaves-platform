@@ -554,6 +554,33 @@ export const componentCSS = `
   outline-offset: 2px;
 }
 
+/* Stop button — shown during active streaming (Story 5-19) */
+.cw-chat-stop-btn {
+  pointer-events: auto;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--cw-send-radius, 12px);
+  background: var(--cw-stop-bg, #ef4444);
+  color: var(--cw-stop-icon, #ffffff);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 150ms ease;
+}
+
+.cw-chat-stop-btn:hover {
+  background: var(--cw-stop-hover-bg, #dc2626);
+}
+
+.cw-chat-stop-btn:focus-visible {
+  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline-offset: 2px;
+}
+
 /* ── Bubble Notification ───────────────────────────────────────────── */
 
 .cw-bubble-notification {

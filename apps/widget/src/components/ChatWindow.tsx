@@ -85,8 +85,10 @@ export function ChatWindow({
   const headerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
 
-  // Core chat state from useChat hook (Story 5-18)
-  const { messages, isLoading, isRateLimited, error, sendMessage, clearError, handleTimeout } = useChat({ agentId });
+  // Core chat state from useChat hook (Story 5-18, 5-19)
+  const { messages, isLoading, isStreaming, isRateLimited, error, sendMessage, stopStream, clearError, handleTimeout } = useChat({
+    agentId,
+  });
 
   const chatConfig = extractChatConfig(theme);
 
@@ -117,8 +119,8 @@ export function ChatWindow({
     handleTimeout();
   }, [handleTimeout]);
 
-  // Input disabled when loading or rate limited
-  const inputDisabled = isLoading || isRateLimited;
+  // Input disabled when loading/streaming or rate limited (AC #6)
+  const inputDisabled = isLoading || isStreaming || isRateLimited;
 
   // Placeholder changes during rate limit cooldown
   const inputPlaceholder = isRateLimited ? 'Please wait...' : undefined;
@@ -290,8 +292,8 @@ export function ChatWindow({
     ? { maxHeight: `calc(100% - ${keyboardHeight}px)` }
     : undefined;
 
-  // Show typing indicator when loading and last message is from user (AC 3)
-  const showTyping = isLoading && messages.length > 0 && messages[messages.length - 1]?.role === 'user';
+  // Show typing indicator when loading but NOT yet streaming (AC #2: hide on first chunk)
+  const showTyping = isLoading && !isStreaming && messages.length > 0 && messages[messages.length - 1]?.role === 'user';
 
   return (
     <div
@@ -335,6 +337,8 @@ export function ChatWindow({
           onSend={sendMessage}
           disabled={inputDisabled}
           placeholder={inputPlaceholder}
+          isStreaming={isStreaming}
+          onStop={stopStream}
         />
         {error && (
           <div class="cw-chat-error" role="alert" aria-live="assertive">
