@@ -1,12 +1,15 @@
 import { useEffect, useRef } from 'preact/hooks';
 import { Avatar } from './Avatar';
+import { getBotAvatarIcon } from './avatar-icons';
 import { showTyping } from '../state/chat-store';
 
 export interface TypingIndicatorProps {
-  /** Avatar shape — circle or square */
-  avatarShape: 'circle' | 'square';
+  /** Avatar shape — circle, square, or rounded */
+  avatarShape: 'circle' | 'square' | 'rounded';
   /** Custom bot avatar image URL */
   botAvatarUrl?: string;
+  /** Bot avatar type for icon rendering */
+  botAvatarType?: string;
   /** Called when 30s timeout fires with no response */
   onTimeout: () => void;
 }
@@ -22,6 +25,7 @@ const TIMEOUT_MS = 30_000;
 export function TypingIndicator({
   avatarShape,
   botAvatarUrl,
+  botAvatarType,
   onTimeout,
 }: TypingIndicatorProps) {
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,13 +51,18 @@ export function TypingIndicator({
 
   if (!visible) return null;
 
-  const avatarClass =
-    'cw-msg-avatar' +
-    (avatarShape === 'square' ? ' cw-msg-avatar-square' : '');
+  const shapeClass =
+    avatarShape === 'square'
+      ? ' cw-msg-avatar-square'
+      : avatarShape === 'rounded'
+        ? ' cw-msg-avatar-rounded'
+        : '';
+  const avatarClass = 'cw-msg-avatar' + shapeClass;
+  const avatarIcon = getBotAvatarIcon(botAvatarType);
 
   return (
     <div class="cw-msg cw-msg-bot" role="status" aria-label="Assistant is typing">
-      <Avatar imageUrl={botAvatarUrl} letter="A" avatarClass={avatarClass} />
+      <Avatar imageUrl={botAvatarUrl} letter="A" avatarClass={avatarClass} icon={avatarIcon} />
       <div class="cw-msg-content">
         <div class="cw-msg-bubble cw-typing-bubble">
           <span class="cw-typing-dot" />
