@@ -1,5 +1,8 @@
+import { useMemo } from 'preact/hooks';
 import type { ChatMessage } from '../types';
 import { Avatar } from './Avatar';
+import { sanitizeHtml } from '../utils/sanitizer';
+import { markdownToHtml } from '../utils/markdown';
 
 export interface MessageBubbleProps {
   message: ChatMessage;
@@ -39,6 +42,7 @@ export function MessageBubble({
   userAvatarUrl,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user';
+  const isAudio = message.type === 'audio';
   const bubbleClass = isUser ? 'cw-msg cw-msg-user' : 'cw-msg cw-msg-bot';
   const avatarClass =
     'cw-msg-avatar' +
@@ -47,6 +51,22 @@ export function MessageBubble({
   const avatarLetter = isUser ? 'U' : 'A';
   const avatarUrl = isUser ? userAvatarUrl : botAvatarUrl;
 
+  // User messages: always plain text (XSS safe). Bot/system: markdown → sanitized HTML.
+  // Audio messages: no text sanitization needed (renders player UI).
+  const renderedHtml = useMemo(() => {
+    if (isUser || isAudio || !message.content) return null;
+    return sanitizeHtml(markdownToHtml(message.content));
+  }, [message.content, isUser, isAudio]);
+
+  // Append streaming cursor inside sanitized HTML so it appears inline with text
+  const displayHtml = useMemo(() => {
+    if (!renderedHtml) return null;
+    if (message.isStreaming) {
+      return renderedHtml + '<span class="cw-msg-cursor" aria-hidden="true"></span>';
+    }
+    return renderedHtml;
+  }, [renderedHtml, message.isStreaming]);
+
   return (
     <div class={bubbleClass}>
       {!isUser && (
@@ -54,12 +74,26 @@ export function MessageBubble({
       )}
       <div class="cw-msg-content">
         <div class="cw-msg-bubble">
-          <span class="cw-msg-text">
-            {message.content}
-            {message.isStreaming && (
-              <span class="cw-msg-cursor" aria-hidden="true" />
-            )}
-          </span>
+          {isUser ? (
+            <span class="cw-msg-text">
+              {message.content}
+              {message.isStreaming && (
+                <span class="cw-msg-cursor" aria-hidden="true" />
+              )}
+            </span>
+          ) : displayHtml ? (
+            <span
+              class="cw-msg-text"
+              dangerouslySetInnerHTML={{ __html: displayHtml }}
+            />
+          ) : (
+            <span class="cw-msg-text">
+              {message.content}
+              {message.isStreaming && (
+                <span class="cw-msg-cursor" aria-hidden="true" />
+              )}
+            </span>
+          )}
         </div>
         {showTimestamp && (
           <time class="cw-msg-time" dateTime={safeISOString(message.timestamp)}>
