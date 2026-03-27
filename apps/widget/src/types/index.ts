@@ -43,3 +43,26 @@ export interface ChatMessage {
   timestamp: Date;
   isStreaming?: boolean;
 }
+
+/** Response from POST /public/chat/send */
+export interface SendMessageResponse {
+  sessionId: string;
+  messageId: string;
+  reply: string;
+  assistantMessageId: string;
+  metadata: {
+    streamingMode: string;
+    backendReceivedAt: string;
+    n8nReceivedAt: string | null;
+    agentRepliedAt: string | null;
+    backendRespondedAt: string;
+    responseLatencyMs: number;
+  };
+}
+
+/** Rate-limit error body from the chat endpoints */
+export interface RateLimitErrorBody {
+  error: true;
+  message: string;
+  retryAfterSeconds: number;
+}
