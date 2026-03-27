@@ -1,5 +1,6 @@
 import { useRef, useImperativeHandle, useState, useCallback } from 'preact/hooks';
 import { forwardRef } from 'preact/compat';
+import type { ComponentChildren } from 'preact';
 
 export interface ChatInputHandle {
   focus: () => void;
@@ -18,11 +19,13 @@ export interface ChatInputProps {
   isStreaming?: boolean;
   /** Called when user clicks Stop button to cancel active stream */
   onStop?: () => void;
+  /** Optional voice recorder slot rendered after the send button */
+  voiceSlot?: ComponentChildren;
 }
 
-/** Chat input with send/stop button — wired to useChat hook (Story 5-18, 5-19) */
+/** Chat input with send/stop button — wired to useChat hook (Story 5-18, 5-19, 5-20) */
 export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
-  function ChatInput({ onSend, disabled = false, placeholder, isStreaming = false, onStop }, ref) {
+  function ChatInput({ onSend, disabled = false, placeholder, isStreaming = false, onStop, voiceSlot }, ref) {
     const inputRef = useRef<HTMLInputElement>(null);
     const [text, setText] = useState('');
 
@@ -53,6 +56,7 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
     }, []);
 
     const canSend = text.trim().length > 0 && !disabled;
+    const hasText = text.trim().length > 0;
 
     return (
       <div class="cw-chat-input">
@@ -86,6 +90,31 @@ export const ChatInput = forwardRef<ChatInputHandle, ChatInputProps>(
               <rect x="6" y="6" width="12" height="12" rx="2" />
             </svg>
           </button>
+        ) : hasText ? (
+          <button
+            class="cw-chat-send-btn"
+            type="button"
+            aria-label="Send message"
+            disabled={!canSend}
+            onClick={handleSubmit}
+          >
+            <svg
+              width="18"
+              height="18"
+              viewBox="0 0 24 24"
+              fill="none"
+              stroke="currentColor"
+              stroke-width="2"
+              stroke-linecap="round"
+              stroke-linejoin="round"
+              aria-hidden="true"
+            >
+              <path d="M22 2L11 13" />
+              <path d="M22 2l-7 20-4-9-9-4 20-7z" />
+            </svg>
+          </button>
+        ) : voiceSlot ? (
+          voiceSlot
         ) : (
           <button
             class="cw-chat-send-btn"

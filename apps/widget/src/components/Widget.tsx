@@ -9,6 +9,7 @@ import { revealWidget } from '../shadow-dom';
 import { isDomainAllowed } from '../utils/domain-validator';
 import { debug, warn } from '../utils/debug';
 import { initApiClient } from '../services/api-client';
+import { initVoiceClient } from '../services/voice-client';
 import { initSession } from '../services/session-manager';
 
 /** Callback registration for external control (global API) */
@@ -124,8 +125,9 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
             return;
           }
 
-          // Initialize API client and session manager (Story 5-18)
+          // Initialize API client, voice client, and session manager (Story 5-18, 5-20)
           initApiClient(apiBaseUrl);
+          initVoiceClient(apiBaseUrl);
           initSession(agentId);
 
           // Apply theme before widget becomes visible (before opacity transition)

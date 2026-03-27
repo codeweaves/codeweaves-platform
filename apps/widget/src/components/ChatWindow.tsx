@@ -6,8 +6,11 @@ import { ChatInput } from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
 import { ConversationStarters } from './ConversationStarters';
 import type { StarterItem } from './ConversationStarters';
+import { VoiceRecorder } from './VoiceRecorder';
+import { VoiceErrorBanner } from './VoiceErrorBanner';
 import { lockScroll, unlockScroll } from '../shadow-dom';
 import { useChat } from '../hooks/useChat';
+import { useVoice, getErrorSeverity } from '../hooks/useVoice';
 
 const ANIMATION_DURATION_MS = 300;
 const MOBILE_BREAKPOINT = 480;
@@ -86,11 +89,133 @@ export function ChatWindow({
   const inputRef = useRef<ChatInputHandle>(null);
 
   // Core chat state from useChat hook (Story 5-18, 5-19)
-  const { messages, isLoading, isStreaming, isRateLimited, error, sendMessage, stopStream, clearError, handleTimeout } = useChat({
-    agentId,
-  });
+  const {
+    messages, isLoading, isStreaming, isRateLimited, error,
+    sendMessage, stopStream, clearError, handleTimeout,
+    addUserMessage, createBotMessage, appendBotMessageText, finalizeBotMessage, setVoiceLoading,
+  } = useChat({ agentId });
 
   const chatConfig = extractChatConfig(theme);
+
+  // ── Voice configuration from theme (Story 5-20) ──
+  // P6: Default to disabled when theme has no voice config — prevents mic button
+  // from showing for agents without voice capability
+  const voiceConfig = useMemo(() => {
+    const voice = (theme as Record<string, unknown> | null)?.voice as Record<string, unknown> | undefined;
+    return {
+      enabled: voice?.enabled === true, // Default: disabled unless explicitly enabled
+      language: typeof voice?.language === 'string' ? voice.language : undefined,
+      autoPlay: voice?.autoPlay !== false, // Default: auto-play
+    };
+  }, [theme]);
+
+  // Typewriter buffer for progressive text display (synced with audio chunks)
+  const typewriterBufferRef = useRef('');
+  const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const voiceBotMsgIdRef = useRef<string | null>(null);
+
+  const TYPEWRITER_MS = 12;
+  const TYPEWRITER_CHARS = 2;
+
+  const stopTypewriter = useCallback(() => {
+    if (typewriterIntervalRef.current) {
+      clearInterval(typewriterIntervalRef.current);
+      typewriterIntervalRef.current = null;
+    }
+  }, []);
+
+  const flushTypewriter = useCallback(() => {
+    stopTypewriter();
+    if (voiceBotMsgIdRef.current && typewriterBufferRef.current) {
+      appendBotMessageText(voiceBotMsgIdRef.current, typewriterBufferRef.current);
+      typewriterBufferRef.current = '';
+    }
+  }, [stopTypewriter, appendBotMessageText]);
+
+  const startTypewriter = useCallback(() => {
+    if (typewriterIntervalRef.current) return; // Already running
+    typewriterIntervalRef.current = setInterval(() => {
+      if (!typewriterBufferRef.current || !voiceBotMsgIdRef.current) return;
+      const chars = typewriterBufferRef.current.slice(0, TYPEWRITER_CHARS);
+      typewriterBufferRef.current = typewriterBufferRef.current.slice(TYPEWRITER_CHARS);
+      if (chars) {
+        appendBotMessageText(voiceBotMsgIdRef.current, chars);
+      }
+      if (!typewriterBufferRef.current) {
+        stopTypewriter();
+      }
+    }, TYPEWRITER_MS);
+  }, [appendBotMessageText, stopTypewriter]);
+
+  // Voice hook
+  const {
+    voiceState,
+    isSupported: voiceIsSupported,
+    recordingDurationMs,
+    error: voiceError,
+    errorCode: voiceErrorCode,
+    startRecording,
+    cancelRecording,
+    stopRecording,
+    stopPlayback,
+    clearError: clearVoiceError,
+  } = useVoice({
+    agentId,
+    voiceEnabled: voiceConfig.enabled,
+    voiceLanguage: voiceConfig.language,
+    voiceAutoPlay: voiceConfig.autoPlay,
+    onTranscription: useCallback((text: string) => {
+      addUserMessage(text);
+      setVoiceLoading(true);
+    }, [addUserMessage, setVoiceLoading]),
+    onAudioSentence: useCallback((text: string, sentenceIndex: number) => {
+      if (sentenceIndex === 0) {
+        // First sentence — create bot message, start typewriter
+        const id = createBotMessage();
+        voiceBotMsgIdRef.current = id;
+        typewriterBufferRef.current = text;
+        startTypewriter();
+        setVoiceLoading(false);
+      } else {
+        // Subsequent sentences — feed into typewriter buffer
+        typewriterBufferRef.current += ' ' + text;
+        startTypewriter();
+      }
+    }, [createBotMessage, startTypewriter, setVoiceLoading]),
+    onComplete: useCallback((fullText: string) => {
+      // Flush remaining typewriter buffer and finalize
+      flushTypewriter();
+      if (voiceBotMsgIdRef.current) {
+        finalizeBotMessage(voiceBotMsgIdRef.current, fullText);
+        voiceBotMsgIdRef.current = null;
+      }
+      setVoiceLoading(false);
+    }, [flushTypewriter, finalizeBotMessage, setVoiceLoading]),
+    onError: useCallback(() => {
+      // If we have a partial bot message, finalize it
+      flushTypewriter();
+      if (voiceBotMsgIdRef.current) {
+        finalizeBotMessage(voiceBotMsgIdRef.current);
+        voiceBotMsgIdRef.current = null;
+      }
+      setVoiceLoading(false);
+    }, [flushTypewriter, finalizeBotMessage, setVoiceLoading]),
+  });
+
+  // P2: Cleanup typewriter interval on unmount to prevent leaked setInterval
+  useEffect(() => {
+    return () => {
+      stopTypewriter();
+    };
+  }, [stopTypewriter]);
+
+  // Show voice mic button when voice is supported and enabled
+  const showVoice = voiceConfig.enabled && voiceIsSupported;
+  const isVoiceActive = voiceState !== 'idle';
+
+  const handleCancelRecording = useCallback(() => {
+    cancelRecording();
+  }, [cancelRecording]);
 
   // Conversation starters: visible only when no user messages exist
   const hasUserMessages = useMemo(
@@ -119,8 +244,8 @@ export function ChatWindow({
     handleTimeout();
   }, [handleTimeout]);
 
-  // Input disabled when loading/streaming or rate limited (AC #6)
-  const inputDisabled = isLoading || isStreaming || isRateLimited;
+  // Input disabled when loading/streaming, rate limited, or voice active (AC #6)
+  const inputDisabled = isLoading || isStreaming || isRateLimited || isVoiceActive;
 
   // Placeholder changes during rate limit cooldown
   const inputPlaceholder = isRateLimited ? 'Please wait...' : undefined;
@@ -293,7 +418,21 @@ export function ChatWindow({
     : undefined;
 
   // Show typing indicator when loading but NOT yet streaming (AC #2: hide on first chunk)
+  // Also show during voice processing (after transcription, before first audio chunk)
   const showTyping = isLoading && !isStreaming && messages.length > 0 && messages[messages.length - 1]?.role === 'user';
+
+  // Voice recorder slot for ChatInput (shown when voice enabled + no text typed)
+  const voiceSlot = showVoice ? (
+    <VoiceRecorder
+      voiceState={voiceState}
+      recordingDurationMs={recordingDurationMs}
+      onStartRecording={startRecording}
+      onStopRecording={stopRecording}
+      onStopPlayback={stopPlayback}
+      onCancelRecording={handleCancelRecording}
+      disabled={isLoading || isStreaming || isRateLimited}
+    />
+  ) : undefined;
 
   return (
     <div
@@ -332,6 +471,13 @@ export function ChatWindow({
             visible={!hasUserMessages}
           />
         )}
+        {voiceError && (
+          <VoiceErrorBanner
+            message={voiceError}
+            severity={getErrorSeverity(voiceErrorCode)}
+            onDismiss={clearVoiceError}
+          />
+        )}
         <ChatInput
           ref={inputRef}
           onSend={sendMessage}
@@ -339,6 +485,7 @@ export function ChatWindow({
           placeholder={inputPlaceholder}
           isStreaming={isStreaming}
           onStop={stopStream}
+          voiceSlot={voiceSlot}
         />
         {error && (
           <div class="cw-chat-error" role="alert" aria-live="assertive">

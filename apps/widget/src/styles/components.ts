@@ -811,4 +811,226 @@ export const componentCSS = `
   opacity: 0.6;
   cursor: not-allowed;
 }
+
+/* ── Voice Recorder (Story 5-20) ────────────────────────────────────── */
+
+.cw-voice-recorder {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-shrink: 0;
+}
+
+/* Voice button — shared base */
+.cw-voice-btn {
+  pointer-events: auto;
+  width: 36px;
+  height: 36px;
+  border: none;
+  border-radius: var(--cw-send-radius, 12px);
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  flex-shrink: 0;
+  transition: background 150ms ease, opacity 150ms ease;
+}
+
+.cw-voice-btn:focus-visible {
+  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline-offset: 2px;
+}
+
+.cw-voice-btn:disabled {
+  cursor: not-allowed;
+  opacity: 0.6;
+}
+
+/* idle: primary color, mic icon */
+.cw-voice-btn--idle {
+  background: transparent;
+  color: var(--cw-primary, #3b82f6);
+}
+
+.cw-voice-btn--idle:hover:not(:disabled) {
+  background: rgba(59, 130, 246, 0.1);
+}
+
+/* listening: red, stop icon, pulse animation */
+.cw-voice-btn--listening {
+  background: #ef4444;
+  color: #ffffff;
+  animation: cw-voice-pulse 1.5s ease-in-out infinite;
+}
+
+.cw-voice-btn--listening:hover {
+  background: #dc2626;
+}
+
+/* processing: gray, spinner, disabled */
+.cw-voice-btn--processing {
+  background: #9ca3af;
+  color: #ffffff;
+}
+
+/* playing: orange, stop icon */
+.cw-voice-btn--playing {
+  background: #f97316;
+  color: #ffffff;
+}
+
+.cw-voice-btn--playing:hover {
+  background: #ea580c;
+}
+
+/* Pulse animation for recording state */
+@keyframes cw-voice-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(239, 68, 68, 0.4); }
+  50% { box-shadow: 0 0 0 6px rgba(239, 68, 68, 0); }
+}
+
+/* Spinner rotation */
+.cw-voice-spinner {
+  animation: cw-voice-spin 1s linear infinite;
+}
+
+@keyframes cw-voice-spin {
+  from { transform: rotate(0deg); }
+  to { transform: rotate(360deg); }
+}
+
+/* Recording info bar (red dot + timer + cancel) */
+.cw-voice-recording-info {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding: 0 4px;
+}
+
+.cw-voice-red-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: #ef4444;
+  flex-shrink: 0;
+  animation: cw-voice-dot-blink 1s step-end infinite;
+}
+
+@keyframes cw-voice-dot-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.3; }
+}
+
+.cw-voice-timer {
+  font-size: 12px;
+  font-variant-numeric: tabular-nums;
+  color: var(--cw-foreground, #1f2937);
+  min-width: 28px;
+}
+
+.cw-voice-cancel-btn {
+  pointer-events: auto;
+  width: 22px;
+  height: 22px;
+  border: none;
+  background: transparent;
+  color: var(--cw-foreground, #1f2937);
+  opacity: 0.5;
+  cursor: pointer;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0;
+  border-radius: 50%;
+  transition: opacity 150ms ease;
+}
+
+.cw-voice-cancel-btn:hover {
+  opacity: 1;
+}
+
+.cw-voice-cancel-btn:focus-visible {
+  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+/* ── Voice Error Banner (Story 5-20) ────────────────────────────────── */
+
+.cw-voice-error-banner {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  margin: 0 12px 4px;
+  border-radius: 6px;
+  font-size: 12px;
+  line-height: 1.3;
+}
+
+.cw-voice-error-banner--error {
+  background: #fef2f2;
+  color: #991b1b;
+  border: 1px solid #fecaca;
+}
+
+.cw-voice-error-banner--warning {
+  background: #fefce8;
+  color: #854d0e;
+  border: 1px solid #fde68a;
+}
+
+.cw-voice-error-banner--info {
+  background: #eff6ff;
+  color: #1e40af;
+  border: 1px solid #bfdbfe;
+}
+
+.cw-voice-error-banner-text {
+  flex: 1;
+}
+
+.cw-voice-error-banner-dismiss {
+  pointer-events: auto;
+  width: 18px;
+  height: 18px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: inherit;
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 14px;
+  line-height: 1;
+  opacity: 0.6;
+  flex-shrink: 0;
+  transition: opacity 150ms ease;
+}
+
+.cw-voice-error-banner-dismiss:hover {
+  opacity: 1;
+}
+
+.cw-voice-error-banner-dismiss:focus-visible {
+  outline: 2px solid currentColor;
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+/* Reduced motion: disable voice animations */
+@media (prefers-reduced-motion: reduce) {
+  .cw-voice-btn--listening {
+    animation: none;
+  }
+  .cw-voice-spinner {
+    animation: none;
+  }
+  .cw-voice-red-dot {
+    animation: none;
+  }
+}
 `;
