@@ -3,7 +3,7 @@ import { config } from "@repo/eslint-config/react-internal";
 /** @type {import("eslint").Linter.Config[]} */
 export default [
   {
-    ignores: ["dist/**", "node_modules/**", "eslint.config.js"],
+    ignores: ["dist/**", "node_modules/**", "eslint.config.js", "scripts/**"],
   },
   ...config,
   {

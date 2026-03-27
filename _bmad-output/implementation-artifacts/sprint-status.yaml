@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-14
-last_updated: 2026-03-27 # Story 5-13 widget window minimized state done + code review fixes
+last_updated: 2026-03-27 # Story 5-14 bundle size optimization done
 project: codeweaves-platform
 project_key: NOKEY
 tracking_system: file-system
@@ -192,7 +192,7 @@ development_status:
   5-11-typing-indicator-animation: done
   5-12-cors-domain-validation: done
   5-13-widget-window-minimized-state: done
-  5-14-bundle-size-optimization: ready-for-dev
+  5-14-bundle-size-optimization: done
   5-15-widget-api-client-service: ready-for-dev
   5-16-device-id-generation-and-persistence: ready-for-dev
   5-17-session-management: ready-for-dev

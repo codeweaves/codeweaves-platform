@@ -6,6 +6,8 @@
   "scripts": {
     "dev": "vite",
     "build": "vite build",
+    "check-size": "node scripts/check-bundle-size.mjs",
+    "build:analyze": "ANALYZE=true vite build",
     "preview": "vite preview",
     "check-types": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0"
