@@ -121,6 +121,7 @@ export async function streamMessage(
   message: string,
   sessionId?: string,
   deviceId?: string,
+  signal?: AbortSignal,
 ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
   ensureInit();
 
@@ -131,12 +132,14 @@ export async function streamMessage(
   const headers = buildHeaders(deviceId, resolvedSessionId);
   headers['Accept'] = 'text/event-stream';
 
-  // Disable retry for streaming — POST is non-idempotent and server may
-  // have already saved the message / triggered the AI pipeline.
+  // Use longer timeout for streaming connections (90s) — the initial connection
+  // must complete within this window; actual stream reads are unbounded.
+  // Disable retry — POST is non-idempotent and server may have already
+  // saved the message / triggered the AI pipeline.
   const response = await fetchWithRetry(
     url,
-    { method: 'POST', headers, body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId }) },
-    undefined,
+    { method: 'POST', headers, body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId }), signal },
+    90_000,
     false,
   );
 
