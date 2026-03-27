@@ -1,5 +1,5 @@
-import { useState, useEffect, useRef } from 'preact/hooks';
-import type { WidgetState, LoadedWidgetConfig } from '../types';
+import { useEffect, useRef } from 'preact/hooks';
+import type { LoadedWidgetConfig } from '../types';
 import { ChatWindow } from './ChatWindow';
 import { TriggerButton } from './TriggerButton';
 import { BubbleNotification } from './BubbleNotification';
@@ -10,7 +10,15 @@ import { isDomainAllowed } from '../utils/domain-validator';
 import { debug, warn } from '../utils/debug';
 import { initApiClient } from '../services/api-client';
 import { initVoiceClient } from '../services/voice-client';
-import { initSession } from '../services/session-manager';
+import { initSession, getSessionId } from '../services/session-manager';
+import {
+  widgetState,
+  setStarterCount,
+  initPersistence,
+  restoreMessages,
+  resetStore,
+} from '../state/chat-store';
+import { signal } from '@preact/signals';
 
 /** Callback registration for external control (global API) */
 let externalOpenFn: (() => void) | null = null;
@@ -78,17 +86,18 @@ function extractBubbleConfig(theme: Record<string, unknown> | null): {
   return { enabled, text, delayMs };
 }
 
+// Local signals for non-store config state (not shared across components)
+const config = signal<LoadedWidgetConfig | null>(null);
+const configError = signal(false);
+const domainBlocked = signal(false);
+
+/** Singleton guard — store signals are module-level, only one Widget instance is supported */
+let widgetMounted = false;
+
 /** Main widget container — renders trigger button and conditionally renders chat window */
 export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
-  const [state, setState] = useState<WidgetState>('closed');
-  const [config, setConfig] = useState<LoadedWidgetConfig | null>(null);
-  const [configError, setConfigError] = useState(false);
-  const [domainBlocked, setDomainBlocked] = useState(false);
-
-  const handleOpen = () => setState('expanded');
-  const handleClose = () => setState('closed');
-  const handleMinimize = () => setState('minimized');
-  const handleExpand = () => setState('expanded');
+  const handleOpen = () => { widgetState.value = 'expanded'; };
+  const handleClose = () => { widgetState.value = 'closed'; };
 
   // Use refs so registered callbacks always point to latest handlers
   const openRef = useRef(handleOpen);
@@ -97,14 +106,27 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   closeRef.current = handleClose;
 
   useEffect(() => {
+    if (widgetMounted) {
+      warn('Multiple Widget instances detected — store signals are shared singletons. Only one Widget instance is supported.');
+    }
+    widgetMounted = true;
+
     registerWidgetControls(
       () => openRef.current(),
       () => closeRef.current(),
     );
-    return () => unregisterWidgetControls();
+    return () => {
+      widgetMounted = false;
+      unregisterWidgetControls();
+      resetStore();
+      // Reset local config signals
+      config.value = null;
+      configError.value = false;
+      domainBlocked.value = false;
+    };
   }, []);
 
-  // Load config on mount, apply theme, then reveal widget
+  // Load config on mount, apply theme, init store persistence, then reveal widget
   useEffect(() => {
     let cancelled = false;
     let blocked = false;
@@ -115,41 +137,49 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
         if (result) {
           debug('Config loaded for agent:', agentId);
 
-          // Domain validation: check before rendering full widget (AC #1, #2, #3, #4)
+          // Domain validation
           const hostname = window.location.hostname;
           const allowed = isDomainAllowed(hostname, result.allowedDomains ?? []);
           if (!allowed) {
             debug(`Domain "${hostname}" is not in the allowed domains list for agent "${agentId}"`);
             blocked = true;
-            setDomainBlocked(true);
+            domainBlocked.value = true;
             return;
           }
 
-          // Initialize API client, voice client, and session manager (Story 5-18, 5-20)
+          // Initialize services
           initApiClient(apiBaseUrl);
           initVoiceClient(apiBaseUrl);
           initSession(agentId);
 
-          // Apply theme before widget becomes visible (before opacity transition)
+          // Initialize store persistence and restore messages (Story 5-21)
+          initPersistence(agentId);
+          restoreMessages(agentId, getSessionId());
+
+          // Set starter count for showStarters computed
+          const starters = result.agent.starters ?? [];
+          setStarterCount(starters.filter((s) => s.trim().length > 0).length);
+
+          // Apply theme before widget becomes visible
           if (hostElement && result.theme) {
             applyTheme(hostElement, result.theme as Record<string, unknown>);
           }
 
-          // Setup preview mode listener (only activates if data-preview="true")
+          // Setup preview mode listener
           if (hostElement) {
             setupPreviewMode(hostElement, result.allowedDomains ?? []);
           }
 
-          setConfig(result);
+          config.value = result;
         } else {
           warn('No config available for agent:', agentId);
-          setConfigError(true);
+          configError.value = true;
         }
       })
       .catch((err) => {
         if (cancelled) return;
         warn('Config loading failed:', err);
-        setConfigError(true);
+        configError.value = true;
       })
       .finally(() => {
         if (!cancelled && !blocked) revealWidget();
@@ -161,7 +191,11 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
     };
   }, [agentId, apiBaseUrl, hostElement]);
 
-  if (configError) {
+  // Read store signal for widget state
+  const state = widgetState.value;
+  const currentConfig = config.value;
+
+  if (configError.value) {
     return (
       <div class="cw-widget">
         <div class="cw-config-error" style={{ pointerEvents: 'auto' }}>
@@ -171,8 +205,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
     );
   }
 
-  // Unauthorized domain — render minimal error, do not initialize chat (AC #4)
-  if (domainBlocked) {
+  if (domainBlocked.value) {
     return (
       <div class="cw-widget">
         <div class="cw-domain-error">
@@ -182,10 +215,9 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
     );
   }
 
-  // Don't render interactive UI until config is loaded
-  if (!config) return null;
+  if (!currentConfig) return null;
 
-  const themeObj = config.theme as Record<string, unknown> | null;
+  const themeObj = currentConfig.theme as Record<string, unknown> | null;
   const iconConfig = extractIconConfig(themeObj);
   const bubbleConfig = extractBubbleConfig(themeObj);
 
@@ -208,12 +240,8 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
       ) : (
         <ChatWindow
           agentId={agentId}
-          agentConfig={config.agent}
+          agentConfig={currentConfig.agent}
           theme={themeObj}
-          onClose={handleClose}
-          onMinimize={handleMinimize}
-          onExpand={handleExpand}
-          isMinimized={state === 'minimized'}
           position={iconConfig.position}
         />
       )}

@@ -35,14 +35,8 @@ export interface LoadedWidgetConfig {
   allowedDomains: string[];
 }
 
-/** A single chat message */
-export interface ChatMessage {
-  id: string;
-  role: 'user' | 'assistant';
-  content: string;
-  timestamp: Date;
-  isStreaming?: boolean;
-}
+/** A single chat message — alias for Message (Story 5-21 migration) */
+export type { Message as ChatMessage } from './message';
 
 /** Response from POST /public/chat/send */
 export interface SendMessageResponse {
