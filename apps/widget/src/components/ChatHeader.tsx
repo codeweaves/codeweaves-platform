@@ -1,6 +1,7 @@
 import { useState } from 'preact/hooks';
 import { forwardRef } from 'preact/compat';
 import type { AgentConfig } from '../types';
+import { isSafeUrl } from '../utils/url';
 
 export interface ChatHeaderProps {
   /** Agent configuration with name */
@@ -17,11 +18,6 @@ export interface ChatHeaderProps {
   onHeaderClick: (e: MouseEvent) => void;
   /** Called on keydown on the header (for expand from minimized) */
   onHeaderKeyDown: (e: KeyboardEvent) => void;
-}
-
-/** Only allow http/https URLs for logo — blocks javascript:, data:, etc. */
-function isSafeUrl(url: string): boolean {
-  return /^https?:\/\//i.test(url);
 }
 
 /** Extract header-specific fields from theme */

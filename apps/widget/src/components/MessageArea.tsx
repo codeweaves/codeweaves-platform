@@ -9,9 +9,12 @@ const SCROLL_THRESHOLD = 50;
 
 export interface MessageAreaProps {
   showTimestamp: boolean;
-  avatarShape: 'circle' | 'square';
+  botAvatarShape: 'circle' | 'square' | 'rounded';
+  userAvatarShape: 'circle' | 'square' | 'rounded';
   botAvatarUrl?: string;
   userAvatarUrl?: string;
+  botAvatarType?: string;
+  userAvatarType?: string;
   greeting: string;
   /** Called when typing indicator times out (30s) */
   onTypingTimeout: () => void;
@@ -20,9 +23,12 @@ export interface MessageAreaProps {
 /** Scrollable message list with auto-scroll and empty/greeting state */
 export function MessageArea({
   showTimestamp,
-  avatarShape,
+  botAvatarShape,
+  userAvatarShape,
   botAvatarUrl,
   userAvatarUrl,
+  botAvatarType,
+  userAvatarType,
   greeting,
   onTypingTimeout: handleTypingTimeout,
 }: MessageAreaProps) {
@@ -99,15 +105,19 @@ export function MessageArea({
               key={msg.id}
               message={msg}
               showTimestamp={showTimestamp}
-              avatarShape={avatarShape}
+              botAvatarShape={botAvatarShape}
+              userAvatarShape={userAvatarShape}
               botAvatarUrl={botAvatarUrl}
               userAvatarUrl={userAvatarUrl}
+              botAvatarType={botAvatarType}
+              userAvatarType={userAvatarType}
             />
           ))
         )}
         <TypingIndicator
-          avatarShape={avatarShape}
+          avatarShape={botAvatarShape}
           botAvatarUrl={botAvatarUrl}
+          botAvatarType={botAvatarType}
           onTimeout={handleTypingTimeout}
         />
       </div>

@@ -4,11 +4,14 @@ import { ChatHeader } from './ChatHeader';
 import { MessageArea } from './MessageArea';
 import { ChatInput } from './ChatInput';
 import type { ChatInputHandle } from './ChatInput';
+import { BrandingFooter } from './BrandingFooter';
+import type { BrandingFooterProps } from './BrandingFooter';
 import { ConversationStarters } from './ConversationStarters';
 import type { StarterItem } from './ConversationStarters';
 import { VoiceRecorder } from './VoiceRecorder';
 import { VoiceErrorBanner } from './VoiceErrorBanner';
 import { lockScroll, unlockScroll } from '../shadow-dom';
+import { isSafeUrl } from '../utils/url';
 import { useChat } from '../hooks/useChat';
 import { useVoice, getErrorSeverity } from '../hooks/useVoice';
 import {
@@ -30,35 +33,46 @@ export interface ChatWindowProps {
   position: 'left' | 'right';
 }
 
-/** Validate URL is safe (http/https only) */
+/** Extract and validate a URL string from theme config */
 function safeUrl(raw: unknown): string | undefined {
   if (typeof raw !== 'string' || !raw.trim()) return undefined;
   const trimmed = raw.trim();
-  if (/^https?:\/\//i.test(trimmed)) return trimmed;
-  return undefined;
+  return isSafeUrl(trimmed) ? trimmed : undefined;
+}
+
+type AvatarShape = 'circle' | 'square' | 'rounded';
+
+function parseShape(raw: unknown): AvatarShape {
+  return raw === 'square' ? 'square' : raw === 'rounded' ? 'rounded' : 'circle';
 }
 
 /** Extract chat display config from theme */
 function extractChatConfig(theme: Record<string, unknown> | null): {
   showTimestamp: boolean;
-  avatarShape: 'circle' | 'square';
+  botAvatarShape: AvatarShape;
+  userAvatarShape: AvatarShape;
   botAvatarUrl: string | undefined;
   userAvatarUrl: string | undefined;
+  botAvatarType: string | undefined;
+  userAvatarType: string | undefined;
 } {
-  if (!theme) return { showTimestamp: false, avatarShape: 'circle', botAvatarUrl: undefined, userAvatarUrl: undefined };
+  if (!theme) return { showTimestamp: false, botAvatarShape: 'circle', userAvatarShape: 'circle', botAvatarUrl: undefined, userAvatarUrl: undefined, botAvatarType: undefined, userAvatarType: undefined };
 
   const timestamps = theme.timestamps as Record<string, unknown> | undefined;
   const showTimestamp = timestamps?.show === true;
 
   const botAvatar = theme.botAvatar as Record<string, unknown> | undefined;
   const userAvatar = theme.userAvatar as Record<string, unknown> | undefined;
-  const avatarShape =
-    botAvatar?.shape === 'square' ? 'square' : 'circle';
+  const botAvatarShape = parseShape(botAvatar?.shape);
+  const userAvatarShape = parseShape(userAvatar?.shape);
 
-  const botAvatarUrl = botAvatar?.type === 'custom' ? safeUrl(botAvatar.customImageUrl) : undefined;
-  const userAvatarUrl = userAvatar?.type === 'custom' ? safeUrl(userAvatar.customImageUrl) : undefined;
+  const botAvatarType = typeof botAvatar?.type === 'string' ? botAvatar.type : undefined;
+  const userAvatarType = typeof userAvatar?.type === 'string' ? userAvatar.type : undefined;
 
-  return { showTimestamp, avatarShape, botAvatarUrl, userAvatarUrl };
+  const botAvatarUrl = botAvatarType === 'custom' ? safeUrl(botAvatar?.customImageUrl) : undefined;
+  const userAvatarUrl = userAvatarType === 'custom' ? safeUrl(userAvatar?.customImageUrl) : undefined;
+
+  return { showTimestamp, botAvatarShape, userAvatarShape, botAvatarUrl, userAvatarUrl, botAvatarType, userAvatarType };
 }
 
 /** Chat window — the expanded chat interface */
@@ -93,6 +107,21 @@ export function ChatWindow({
   } = useChat({ agentId });
 
   const chatConfig = extractChatConfig(theme);
+
+  // Branding configuration from theme (Story 5-23)
+  const brandingConfig = useMemo<BrandingFooterProps>(() => {
+    const branding = (theme as Record<string, unknown> | null)?.branding as Record<string, unknown> | undefined;
+    return {
+      enabled: branding?.enabled === true,
+      textPrefix: typeof branding?.textPrefix === 'string' ? branding.textPrefix : 'Powered by',
+      useLogo: branding?.useLogo === true,
+      logo: typeof branding?.logo === 'string' ? branding.logo : '',
+      linkText: typeof branding?.linkText === 'string' ? branding.linkText : '',
+      linkUrl: typeof branding?.linkUrl === 'string' ? branding.linkUrl : '',
+      textColor: typeof branding?.textColor === 'string' ? branding.textColor : '',
+      linkColor: typeof branding?.linkColor === 'string' ? branding.linkColor : '',
+    };
+  }, [theme]);
 
   // Voice configuration from theme (Story 5-20)
   const voiceConfig = useMemo(() => {
@@ -435,9 +464,12 @@ export function ChatWindow({
       <div class="cw-chat-body">
         <MessageArea
           showTimestamp={chatConfig.showTimestamp}
-          avatarShape={chatConfig.avatarShape}
+          botAvatarShape={chatConfig.botAvatarShape}
+          userAvatarShape={chatConfig.userAvatarShape}
           botAvatarUrl={chatConfig.botAvatarUrl}
           userAvatarUrl={chatConfig.userAvatarUrl}
+          botAvatarType={chatConfig.botAvatarType}
+          userAvatarType={chatConfig.userAvatarType}
           greeting={agentConfig.greeting}
           onTypingTimeout={handleTypingTimeout}
         />
@@ -463,6 +495,7 @@ export function ChatWindow({
           onStop={stopStream}
           voiceSlot={voiceSlot}
         />
+        <BrandingFooter {...brandingConfig} />
         {chatError && (
           <div class="cw-chat-error" role="alert" aria-live="assertive">
             <span class="cw-chat-error-text">{chatError}</span>

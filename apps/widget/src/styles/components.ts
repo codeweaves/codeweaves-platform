@@ -359,6 +359,10 @@ export const componentCSS = `
   border-radius: 6px;
 }
 
+.cw-msg-avatar-rounded {
+  border-radius: 8px;
+}
+
 .cw-msg-avatar-img {
   width: 100%;
   height: 100%;
@@ -487,6 +491,43 @@ export const componentCSS = `
     animation: none;
     opacity: 0.6;
   }
+}
+
+/* ── Branding Footer (Story 5-23) ──────────────────────────────────── */
+
+.cw-branding {
+  padding: 6px 12px;
+  text-align: center;
+  border-top: 1px solid var(--cw-border, #e5e7eb);
+  background: var(--cw-body-bg, #ffffff);
+}
+
+.cw-branding-text {
+  margin: 0;
+  font-size: 11px;
+  line-height: 1.4;
+  color: var(--cw-branding-text, #9ca3af);
+}
+
+.cw-branding-logo {
+  display: inline-block;
+  max-height: 16px;
+  vertical-align: -2px;
+}
+
+.cw-branding-link {
+  font-weight: 500;
+  color: var(--cw-branding-link, #3b82f6);
+  text-decoration: none;
+}
+
+.cw-branding-link:hover {
+  text-decoration: underline;
+}
+
+.cw-branding-link-text {
+  font-weight: 500;
+  color: var(--cw-branding-link, #3b82f6);
 }
 
 /* ── Chat Input ───────────────────────────────────────────────────── */

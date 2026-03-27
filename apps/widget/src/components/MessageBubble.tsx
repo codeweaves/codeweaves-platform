@@ -1,15 +1,19 @@
 import { useMemo } from 'preact/hooks';
 import type { ChatMessage } from '../types';
 import { Avatar } from './Avatar';
+import { getBotAvatarIcon, getUserAvatarIcon } from './avatar-icons';
 import { sanitizeHtml } from '../utils/sanitizer';
 import { markdownToHtml } from '../utils/markdown';
 
 export interface MessageBubbleProps {
   message: ChatMessage;
   showTimestamp: boolean;
-  avatarShape: 'circle' | 'square';
+  botAvatarShape: 'circle' | 'square' | 'rounded';
+  userAvatarShape: 'circle' | 'square' | 'rounded';
   botAvatarUrl?: string;
   userAvatarUrl?: string;
+  botAvatarType?: string;
+  userAvatarType?: string;
 }
 
 /** Safely convert a value to an ISO string for the datetime attribute */
@@ -33,23 +37,33 @@ function formatTime(date: Date): string {
   }
 }
 
+function shapeToClass(shape: 'circle' | 'square' | 'rounded'): string {
+  if (shape === 'square') return ' cw-msg-avatar-square';
+  if (shape === 'rounded') return ' cw-msg-avatar-rounded';
+  return '';
+}
+
 /** Chat message bubble with avatar, timestamp, and streaming cursor */
 export function MessageBubble({
   message,
   showTimestamp,
-  avatarShape,
+  botAvatarShape,
+  userAvatarShape,
   botAvatarUrl,
   userAvatarUrl,
+  botAvatarType,
+  userAvatarType,
 }: MessageBubbleProps) {
   const isUser = message.role === 'user';
   const isAudio = message.type === 'audio';
   const bubbleClass = isUser ? 'cw-msg cw-msg-user' : 'cw-msg cw-msg-bot';
-  const avatarClass =
-    'cw-msg-avatar' +
-    (avatarShape === 'square' ? ' cw-msg-avatar-square' : '');
+  const avatarClass = 'cw-msg-avatar' + shapeToClass(isUser ? userAvatarShape : botAvatarShape);
 
   const avatarLetter = isUser ? 'U' : 'A';
   const avatarUrl = isUser ? userAvatarUrl : botAvatarUrl;
+  const avatarIcon = isUser
+    ? getUserAvatarIcon(userAvatarType)
+    : getBotAvatarIcon(botAvatarType);
 
   // User messages: always plain text (XSS safe). Bot/system: markdown → sanitized HTML.
   // Audio messages: no text sanitization needed (renders player UI).
@@ -70,7 +84,7 @@ export function MessageBubble({
   return (
     <div class={bubbleClass}>
       {!isUser && (
-        <Avatar imageUrl={avatarUrl} letter={avatarLetter} avatarClass={avatarClass} />
+        <Avatar imageUrl={avatarUrl} letter={avatarLetter} avatarClass={avatarClass} icon={avatarIcon} />
       )}
       <div class="cw-msg-content">
         <div class="cw-msg-bubble">
@@ -102,7 +116,7 @@ export function MessageBubble({
         )}
       </div>
       {isUser && (
-        <Avatar imageUrl={avatarUrl} letter={avatarLetter} avatarClass={avatarClass} />
+        <Avatar imageUrl={avatarUrl} letter={avatarLetter} avatarClass={avatarClass} icon={avatarIcon} />
       )}
     </div>
   );
