@@ -1,12 +1,24 @@
 /**
- * useChat hook — core chat state management (Story 5-18 + 5-19).
+ * useChat hook — streaming orchestration and chat actions (Story 5-18, 5-19, 5-21).
  *
- * Manages messages, streaming state, error state, and rate-limit cooldown.
- * Uses SSE streaming by default for progressive message rendering.
+ * State lives in the centralized chat store (signals). This hook handles
+ * streaming lifecycle, error timers, rate-limit cooldown, and voice helpers.
  */
 
-import { useState, useCallback, useRef, useEffect } from 'preact/hooks';
-import type { ChatMessage } from '../types';
+import { useCallback, useRef, useEffect } from 'preact/hooks';
+import { batch } from '@preact/signals';
+import {
+  isLoading,
+  isStreaming,
+  isRateLimited,
+  error,
+  streamingMessageId,
+  addMessage,
+  updateMessage,
+  appendMessageContent,
+  generateMessageId,
+} from '../state/chat-store';
+import type { Message } from '../types/message';
 import { startStream } from '../services/stream-handler';
 import type { StreamHandle, StreamErrorOptions } from '../services/stream-handler';
 
@@ -15,47 +27,26 @@ export interface UseChatOptions {
 }
 
 export interface UseChatReturn {
-  messages: ChatMessage[];
-  isLoading: boolean;
-  isStreaming: boolean;
-  isRateLimited: boolean;
-  error: string | null;
   sendMessage: (text: string) => void;
   stopStream: () => void;
   clearError: () => void;
-  /** Reset loading state on typing indicator timeout (30s with no API response) */
   handleTimeout: () => void;
-  /** Add a user message bubble (for voice transcription) */
   addUserMessage: (text: string) => void;
-  /** Create an empty bot message and return its ID (for voice progressive text) */
   createBotMessage: () => string;
-  /** Append text to an existing bot message (for voice sentence-by-sentence display) */
   appendBotMessageText: (botMsgId: string, text: string) => void;
-  /** Finalize a bot message (mark streaming complete) */
   finalizeBotMessage: (botMsgId: string, fullText?: string) => void;
-  /** Set loading state externally (for voice processing) */
   setVoiceLoading: (loading: boolean) => void;
 }
 
-function generateId(prefix: string): string {
-  return `${prefix}-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`;
-}
-
 export function useChat({ agentId }: UseChatOptions): UseChatReturn {
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isLoading, setIsLoading] = useState(false);
-  const [isStreaming, setIsStreaming] = useState(false);
-  const [isRateLimited, setIsRateLimited] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const rateLimitTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Guard against concurrent sends (ref stays current across renders)
   const loadingRef = useRef(false);
   const rateLimitedRef = useRef(false);
   const streamHandleRef = useRef<StreamHandle | null>(null);
-  // Track accumulated content for streaming message (avoids stale closure on setMessages)
   const streamContentRef = useRef('');
+  /** Guard against store mutations from late async callbacks after abort/unmount */
+  const streamAbortedRef = useRef(false);
 
   // Cleanup all timers and active stream on unmount
   useEffect(() => {
@@ -70,7 +61,7 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
   }, []);
 
   const clearError = useCallback(() => {
-    setError(null);
+    error.value = null;
     if (errorTimerRef.current !== null) {
       clearTimeout(errorTimerRef.current);
       errorTimerRef.current = null;
@@ -78,17 +69,21 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
   }, []);
 
   const showError = useCallback((message: string) => {
-    setError(message);
+    error.value = message;
     if (errorTimerRef.current !== null) clearTimeout(errorTimerRef.current);
     errorTimerRef.current = setTimeout(() => {
-      setError(null);
+      error.value = null;
       errorTimerRef.current = null;
     }, 5000);
   }, []);
 
   const finishStream = useCallback(() => {
-    setIsLoading(false);
-    setIsStreaming(false);
+    streamAbortedRef.current = true;
+    batch(() => {
+      isLoading.value = false;
+      isStreaming.value = false;
+      streamingMessageId.value = null;
+    });
     loadingRef.current = false;
     streamHandleRef.current = null;
     streamContentRef.current = '';
@@ -98,102 +93,86 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     if (!streamHandleRef.current) return;
     streamHandleRef.current.abort();
 
-    // Finalize partial message as-is (AC #5 — preserve partial on cancel)
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.isStreaming ? { ...m, isStreaming: false } : m,
-      ),
-    );
+    // Finalize partial message as-is (preserve partial on cancel)
+    const currentStreamId = streamingMessageId.value;
+    if (currentStreamId) {
+      updateMessage(currentStreamId, { isStreaming: false });
+    }
     finishStream();
   }, [finishStream]);
 
   const sendMessage = useCallback(
     (text: string) => {
       const trimmed = text.trim();
-      // Use refs for guards — immune to stale closures
       if (!trimmed || loadingRef.current || rateLimitedRef.current) return;
 
-      // P2: Abort any existing stream before starting a new one
+      // Abort any existing stream before starting a new one
       if (streamHandleRef.current) {
         streamHandleRef.current.abort();
         streamHandleRef.current = null;
       }
 
-      // Set loading guard immediately (sync) to prevent double-click races
       loadingRef.current = true;
-
-      // Clear any existing error on new send
+      streamAbortedRef.current = false;
       clearError();
 
       // Optimistic UI — add user message immediately
-      const userMsg: ChatMessage = {
-        id: generateId('user'),
+      const userMsg: Message = {
+        id: generateMessageId('user'),
         role: 'user',
         content: trimmed,
         timestamp: new Date(),
       };
-      setMessages((prev) => [...prev, userMsg]);
-      setIsLoading(true);
 
-      // Placeholder bot message ID — created on first chunk
-      const botMsgId = generateId('bot');
+      batch(() => {
+        addMessage(userMsg);
+        isLoading.value = true;
+      });
+
+      const botMsgId = generateMessageId('bot');
       streamContentRef.current = '';
 
       const handle = startStream(agentId, trimmed, {
         onFirstChunk: (content: string) => {
-          // AC #2: Hide typing indicator by setting isStreaming (loading stays true for other UI)
+          if (streamAbortedRef.current) return;
           streamContentRef.current = content;
-          const botMsg: ChatMessage = {
+          const botMsg: Message = {
             id: botMsgId,
             role: 'assistant',
             content,
             timestamp: new Date(),
             isStreaming: true,
           };
-          setMessages((prev) => [...prev, botMsg]);
-          setIsStreaming(true);
-          // isLoading stays true but typing indicator hides because isStreaming is now true
+          batch(() => {
+            addMessage(botMsg);
+            isStreaming.value = true;
+            streamingMessageId.value = botMsgId;
+          });
         },
 
         onChunk: (content: string) => {
+          if (streamAbortedRef.current) return;
           streamContentRef.current += content;
-          const accumulated = streamContentRef.current;
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === botMsgId ? { ...m, content: accumulated } : m,
-            ),
-          );
+          updateMessage(botMsgId, { content: streamContentRef.current });
         },
 
-        // P6: Accept metadata parameter (P3: keep client-side ID stable)
         onDone: () => {
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === botMsgId
-                ? { ...m, isStreaming: false }
-                : m,
-            ),
-          );
+          if (streamAbortedRef.current) return;
+          updateMessage(botMsgId, { isStreaming: false, status: 'sent' });
           finishStream();
         },
 
-        // P4: Use structured rate limit flag from stream-handler
         onError: (errorMessage: string, options?: StreamErrorOptions) => {
-          // AC #5: Preserve partial message on error
-          setMessages((prev) =>
-            prev.map((m) =>
-              m.id === botMsgId && m.isStreaming
-                ? { ...m, isStreaming: false }
-                : m,
-            ),
-          );
+          if (streamAbortedRef.current) return;
+          // Preserve partial message on error
+          updateMessage(botMsgId, { isStreaming: false });
 
           if (options?.rateLimited) {
             const cooldownSeconds = options.retryAfterSeconds ?? 5;
-            setIsRateLimited(true);
+            isRateLimited.value = true;
             rateLimitedRef.current = true;
             rateLimitTimerRef.current = setTimeout(() => {
-              setIsRateLimited(false);
+              isRateLimited.value = false;
               rateLimitedRef.current = false;
               rateLimitTimerRef.current = null;
             }, cooldownSeconds * 1000);
@@ -209,12 +188,9 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     [agentId, clearError, finishStream, showError],
   );
 
-  // Called when TypingIndicator fires its 30s timeout with no API response
   const handleTimeout = useCallback(() => {
     if (!loadingRef.current) return;
-    // If we're streaming (first chunk arrived), don't treat typing timeout as error
     if (streamHandleRef.current && streamContentRef.current) return;
-    // No chunks arrived within 30s — abort and show error
     streamHandleRef.current?.abort();
     finishStream();
     showError('Response took too long. Please try again.');
@@ -223,61 +199,45 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
   // ── Voice message helpers (Story 5-20) ──────────────────────────────
 
   const addUserMessage = useCallback((text: string) => {
-    const userMsg: ChatMessage = {
-      id: generateId('user'),
+    const userMsg: Message = {
+      id: generateMessageId('user'),
       role: 'user',
       content: text,
       timestamp: new Date(),
     };
-    setMessages((prev) => [...prev, userMsg]);
+    addMessage(userMsg);
   }, []);
 
   const createBotMessage = useCallback((): string => {
-    const botMsgId = generateId('bot');
-    const botMsg: ChatMessage = {
+    const botMsgId = generateMessageId('bot');
+    const botMsg: Message = {
       id: botMsgId,
       role: 'assistant',
       content: '',
       timestamp: new Date(),
       isStreaming: true,
     };
-    setMessages((prev) => [...prev, botMsg]);
+    addMessage(botMsg);
     return botMsgId;
   }, []);
 
   const appendBotMessageText = useCallback((botMsgId: string, text: string) => {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === botMsgId
-          ? { ...m, content: m.content ? `${m.content} ${text}` : text }
-          : m,
-      ),
-    );
+    appendMessageContent(botMsgId, text);
   }, []);
 
   const finalizeBotMessage = useCallback((botMsgId: string, fullText?: string) => {
-    setMessages((prev) =>
-      prev.map((m) =>
-        m.id === botMsgId
-          ? { ...m, isStreaming: false, ...(fullText !== undefined ? { content: fullText } : {}) }
-          : m,
-      ),
-    );
+    updateMessage(botMsgId, {
+      isStreaming: false,
+      ...(fullText !== undefined ? { content: fullText } : {}),
+    });
   }, []);
 
   const setVoiceLoading = useCallback((loading: boolean) => {
-    setIsLoading(loading);
-    if (!loading) {
-      loadingRef.current = false;
-    }
+    isLoading.value = loading;
+    loadingRef.current = loading;
   }, []);
 
   return {
-    messages,
-    isLoading,
-    isStreaming,
-    isRateLimited,
-    error,
     sendMessage,
     stopStream,
     clearError,

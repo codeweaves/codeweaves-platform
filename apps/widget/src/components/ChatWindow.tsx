@@ -11,28 +11,22 @@ import { VoiceErrorBanner } from './VoiceErrorBanner';
 import { lockScroll, unlockScroll } from '../shadow-dom';
 import { useChat } from '../hooks/useChat';
 import { useVoice, getErrorSeverity } from '../hooks/useVoice';
+import {
+  widgetState,
+  isLoading,
+  isStreaming,
+  isRateLimited,
+  error as errorSignal,
+} from '../state/chat-store';
 
 const ANIMATION_DURATION_MS = 300;
 const MOBILE_BREAKPOINT = 480;
-/** Cap keyboard height to 60% of viewport to filter orientation-change spikes */
 const MAX_KEYBOARD_RATIO = 0.6;
 
 export interface ChatWindowProps {
-  /** Agent ID for API calls */
   agentId: string;
-  /** Agent configuration */
   agentConfig: AgentConfig;
-  /** Theme object for header/chat styling */
   theme: Record<string, unknown> | null;
-  /** Called when close button is clicked */
-  onClose: () => void;
-  /** Called when minimize button is clicked */
-  onMinimize: () => void;
-  /** Called when expanding from minimized state */
-  onExpand: () => void;
-  /** Whether the window is in minimized (header-only) state */
-  isMinimized: boolean;
-  /** Trigger button position — determines transform-origin */
   position: 'left' | 'right';
 }
 
@@ -72,10 +66,6 @@ export function ChatWindow({
   agentId,
   agentConfig,
   theme,
-  onClose,
-  onMinimize,
-  onExpand,
-  isMinimized,
   position,
 }: ChatWindowProps) {
   const [animating, setAnimating] = useState(true);
@@ -88,28 +78,33 @@ export function ChatWindow({
   const headerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
 
-  // Core chat state from useChat hook (Story 5-18, 5-19)
+  // Read store signals
+  const state = widgetState.value;
+  const isMinimized = state === 'minimized';
+  const loading = isLoading.value;
+  const streaming = isStreaming.value;
+  const rateLimited = isRateLimited.value;
+  const chatError = errorSignal.value;
+
+  // Chat actions from hook (streaming orchestration)
   const {
-    messages, isLoading, isStreaming, isRateLimited, error,
     sendMessage, stopStream, clearError, handleTimeout,
     addUserMessage, createBotMessage, appendBotMessageText, finalizeBotMessage, setVoiceLoading,
   } = useChat({ agentId });
 
   const chatConfig = extractChatConfig(theme);
 
-  // ── Voice configuration from theme (Story 5-20) ──
-  // P6: Default to disabled when theme has no voice config — prevents mic button
-  // from showing for agents without voice capability
+  // Voice configuration from theme (Story 5-20)
   const voiceConfig = useMemo(() => {
     const voice = (theme as Record<string, unknown> | null)?.voice as Record<string, unknown> | undefined;
     return {
-      enabled: voice?.enabled === true, // Default: disabled unless explicitly enabled
+      enabled: voice?.enabled === true,
       language: typeof voice?.language === 'string' ? voice.language : undefined,
-      autoPlay: voice?.autoPlay !== false, // Default: auto-play
+      autoPlay: voice?.autoPlay !== false,
     };
   }, [theme]);
 
-  // Typewriter buffer for progressive text display (synced with audio chunks)
+  // Typewriter buffer for progressive text display
   const typewriterBufferRef = useRef('');
   const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voiceBotMsgIdRef = useRef<string | null>(null);
@@ -133,7 +128,7 @@ export function ChatWindow({
   }, [stopTypewriter, appendBotMessageText]);
 
   const startTypewriter = useCallback(() => {
-    if (typewriterIntervalRef.current) return; // Already running
+    if (typewriterIntervalRef.current) return;
     typewriterIntervalRef.current = setInterval(() => {
       if (!typewriterBufferRef.current || !voiceBotMsgIdRef.current) return;
       const chars = typewriterBufferRef.current.slice(0, TYPEWRITER_CHARS);
@@ -170,20 +165,17 @@ export function ChatWindow({
     }, [addUserMessage, setVoiceLoading]),
     onAudioSentence: useCallback((text: string, sentenceIndex: number) => {
       if (sentenceIndex === 0) {
-        // First sentence — create bot message, start typewriter
         const id = createBotMessage();
         voiceBotMsgIdRef.current = id;
         typewriterBufferRef.current = text;
         startTypewriter();
         setVoiceLoading(false);
       } else {
-        // Subsequent sentences — feed into typewriter buffer
         typewriterBufferRef.current += ' ' + text;
         startTypewriter();
       }
     }, [createBotMessage, startTypewriter, setVoiceLoading]),
     onComplete: useCallback((fullText: string) => {
-      // Flush remaining typewriter buffer and finalize
       flushTypewriter();
       if (voiceBotMsgIdRef.current) {
         finalizeBotMessage(voiceBotMsgIdRef.current, fullText);
@@ -192,7 +184,6 @@ export function ChatWindow({
       setVoiceLoading(false);
     }, [flushTypewriter, finalizeBotMessage, setVoiceLoading]),
     onError: useCallback(() => {
-      // If we have a partial bot message, finalize it
       flushTypewriter();
       if (voiceBotMsgIdRef.current) {
         finalizeBotMessage(voiceBotMsgIdRef.current);
@@ -202,14 +193,13 @@ export function ChatWindow({
     }, [flushTypewriter, finalizeBotMessage, setVoiceLoading]),
   });
 
-  // P2: Cleanup typewriter interval on unmount to prevent leaked setInterval
+  // Cleanup typewriter interval on unmount
   useEffect(() => {
     return () => {
       stopTypewriter();
     };
   }, [stopTypewriter]);
 
-  // Show voice mic button when voice is supported and enabled
   const showVoice = voiceConfig.enabled && voiceIsSupported;
   const isVoiceActive = voiceState !== 'idle';
 
@@ -217,12 +207,7 @@ export function ChatWindow({
     cancelRecording();
   }, [cancelRecording]);
 
-  // Conversation starters: visible only when no user messages exist
-  const hasUserMessages = useMemo(
-    () => messages.some((m) => m.role === 'user'),
-    [messages],
-  );
-
+  // Conversation starters
   const starterItems = useMemo<StarterItem[]>(
     () =>
       (agentConfig.starters ?? [])
@@ -231,7 +216,6 @@ export function ChatWindow({
     [agentConfig.starters],
   );
 
-  // Conversation starter click uses same sendMessage flow as manual typing (AC 7)
   const handleStarterSelect = useCallback(
     (message: string) => {
       sendMessage(message);
@@ -239,16 +223,26 @@ export function ChatWindow({
     [sendMessage],
   );
 
-  /** Called when typing indicator times out after 30s with no response */
   const handleTypingTimeout = useCallback(() => {
     handleTimeout();
   }, [handleTimeout]);
 
-  // Input disabled when loading/streaming, rate limited, or voice active (AC #6)
-  const inputDisabled = isLoading || isStreaming || isRateLimited || isVoiceActive;
+  // Input disabled when loading/streaming, rate limited, or voice active
+  const inputDisabled = loading || streaming || rateLimited || isVoiceActive;
+  const inputPlaceholder = rateLimited ? 'Please wait...' : undefined;
 
-  // Placeholder changes during rate limit cooldown
-  const inputPlaceholder = isRateLimited ? 'Please wait...' : undefined;
+  // Widget state handlers (write directly to store)
+  const handleClose = useCallback(() => {
+    widgetState.value = 'closed';
+  }, []);
+
+  const handleMinimize = useCallback(() => {
+    widgetState.value = 'minimized';
+  }, []);
+
+  const handleExpand = useCallback(() => {
+    widgetState.value = 'expanded';
+  }, []);
 
   // Open animation + auto-focus input after animation
   useEffect(() => {
@@ -259,7 +253,7 @@ export function ChatWindow({
     return () => clearTimeout(timer);
   }, []);
 
-  // P1: Reactive mobile detection via resize listener
+  // Reactive mobile detection via resize listener
   useEffect(() => {
     const checkMobile = () => {
       setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
@@ -283,7 +277,6 @@ export function ChatWindow({
 
     const handleResize = () => {
       const kbHeight = window.innerHeight - vv.height;
-      // P6: Cap to MAX_KEYBOARD_RATIO to filter orientation-change spikes
       const maxKb = window.innerHeight * MAX_KEYBOARD_RATIO;
       setKeyboardHeight(kbHeight > 50 && kbHeight < maxKb ? kbHeight : 0);
     };
@@ -296,10 +289,8 @@ export function ChatWindow({
   useEffect(() => {
     if (isMinimized) {
       wasMinimizedRef.current = true;
-      // Focus header when minimized (prevents focus on hidden elements)
       headerRef.current?.focus();
     } else if (wasMinimizedRef.current) {
-      // Expanding from minimized: add transition class, scroll to bottom and focus input
       wasMinimizedRef.current = false;
       const el = windowRef.current;
       if (el) {
@@ -309,7 +300,6 @@ export function ChatWindow({
           el.removeEventListener('transitionend', onEnd);
         };
         el.addEventListener('transitionend', onEnd, { once: true });
-        // Fallback removal if transitionend doesn't fire (e.g. reduced motion)
         setTimeout(onEnd, ANIMATION_DURATION_MS + 50);
       }
       requestAnimationFrame(() => {
@@ -322,52 +312,48 @@ export function ChatWindow({
     }
   }, [isMinimized]);
 
-  /** Handle header click to expand from minimized (AC #3) */
+  /** Handle header click to expand from minimized */
   const handleHeaderClick = useCallback(
     (e: MouseEvent) => {
       if (!isMinimized) return;
-      // Don't expand if clicking a button (close/minimize)
       const target = e.target as HTMLElement;
       if (target.closest('button')) return;
-      onExpand();
+      handleExpand();
     },
-    [isMinimized, onExpand],
+    [isMinimized, handleExpand],
   );
 
-  /** Handle header keyboard to toggle minimized (AC #3 accessibility) */
+  /** Handle header keyboard to toggle minimized */
   const handleHeaderKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (!isMinimized) return;
       if (e.key === 'Enter' || e.key === ' ') {
         e.preventDefault();
-        onExpand();
+        handleExpand();
       }
     },
-    [isMinimized, onExpand],
+    [isMinimized, handleExpand],
   );
 
-  // Escape key closes (ignored when minimized to prevent accidental conversation loss)
+  // Escape key closes; Tab focus trap
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
-        if (isMinimized) return; // Don't destroy conversation from minimized state
+        if (isMinimized) return;
         e.preventDefault();
-        onClose();
+        handleClose();
         return;
       }
 
-      // Focus trap: Tab cycles within the dialog (skip when minimized — only header is interactive)
       if (e.key === 'Tab') {
         const container = windowRef.current;
         if (!container) return;
 
-        // When minimized, only trap focus within the header (visible elements)
         const scope = isMinimized
           ? container.querySelector('.cw-chat-header')
           : container;
         if (!scope) return;
 
-        // Collect focusable elements inside shadow DOM component
         const focusableSelector =
           'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
         const focusables = Array.from(
@@ -379,20 +365,17 @@ export function ChatWindow({
         const first = focusables[0]!;
         const last = focusables[focusables.length - 1]!;
 
-        // Find deepest active element — traverse nested shadow roots
         let active: HTMLElement | null = (container.getRootNode() as ShadowRoot | Document).activeElement as HTMLElement | null;
         while (active?.shadowRoot?.activeElement) {
           active = active.shadowRoot.activeElement as HTMLElement;
         }
 
         if (e.shiftKey) {
-          // Shift+Tab from first → wrap to last
           if (active === first || !container.contains(active)) {
             e.preventDefault();
             last.focus();
           }
         } else {
-          // Tab from last → wrap to first
           if (active === last) {
             e.preventDefault();
             first.focus();
@@ -400,7 +383,7 @@ export function ChatWindow({
         }
       }
     },
-    [onClose, isMinimized],
+    [handleClose, isMinimized],
   );
 
   const transformOrigin =
@@ -417,11 +400,7 @@ export function ChatWindow({
     ? { maxHeight: `calc(100% - ${keyboardHeight}px)` }
     : undefined;
 
-  // Show typing indicator when loading but NOT yet streaming (AC #2: hide on first chunk)
-  // Also show during voice processing (after transcription, before first audio chunk)
-  const showTyping = isLoading && !isStreaming && messages.length > 0 && messages[messages.length - 1]?.role === 'user';
-
-  // Voice recorder slot for ChatInput (shown when voice enabled + no text typed)
+  // Voice recorder slot for ChatInput
   const voiceSlot = showVoice ? (
     <VoiceRecorder
       voiceState={voiceState}
@@ -430,7 +409,7 @@ export function ChatWindow({
       onStopRecording={stopRecording}
       onStopPlayback={stopPlayback}
       onCancelRecording={handleCancelRecording}
-      disabled={isLoading || isStreaming || isRateLimited}
+      disabled={loading || streaming || rateLimited}
     />
   ) : undefined;
 
@@ -448,27 +427,24 @@ export function ChatWindow({
         agentConfig={agentConfig}
         theme={theme}
         isMinimized={isMinimized}
-        onMinimize={onMinimize}
-        onClose={onClose}
+        onMinimize={handleMinimize}
+        onClose={handleClose}
         onHeaderClick={handleHeaderClick}
         onHeaderKeyDown={handleHeaderKeyDown}
       />
       <div class="cw-chat-body">
         <MessageArea
-          messages={messages}
           showTimestamp={chatConfig.showTimestamp}
           avatarShape={chatConfig.avatarShape}
           botAvatarUrl={chatConfig.botAvatarUrl}
           userAvatarUrl={chatConfig.userAvatarUrl}
           greeting={agentConfig.greeting}
-          isTyping={showTyping}
           onTypingTimeout={handleTypingTimeout}
         />
         {starterItems.length > 0 && (
           <ConversationStarters
             starters={starterItems}
             onSelect={handleStarterSelect}
-            visible={!hasUserMessages}
           />
         )}
         {voiceError && (
@@ -483,13 +459,13 @@ export function ChatWindow({
           onSend={sendMessage}
           disabled={inputDisabled}
           placeholder={inputPlaceholder}
-          isStreaming={isStreaming}
+          isStreaming={streaming}
           onStop={stopStream}
           voiceSlot={voiceSlot}
         />
-        {error && (
+        {chatError && (
           <div class="cw-chat-error" role="alert" aria-live="assertive">
-            <span class="cw-chat-error-text">{error}</span>
+            <span class="cw-chat-error-text">{chatError}</span>
             <button
               type="button"
               class="cw-chat-error-dismiss"

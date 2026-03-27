@@ -1,4 +1,5 @@
 import { useState, useEffect, useRef } from 'preact/hooks';
+import { showStarters } from '../state/chat-store';
 
 const FADE_OUT_MS = 150;
 
@@ -11,19 +12,19 @@ export interface ConversationStartersProps {
   starters: StarterItem[];
   /** Called when user clicks a starter */
   onSelect: (message: string) => void;
-  /** Whether starters should be visible (false triggers fade-out then unmount) */
-  visible: boolean;
 }
 
 /**
  * Renders up to 4 conversation starter pill buttons.
- * Fades out and unmounts when `visible` becomes false.
+ * Reads visibility from the centralized store's showStarters signal (Story 5-21).
+ * Fades out and unmounts when showStarters becomes false.
  */
 export function ConversationStarters({
   starters,
   onSelect,
-  visible,
 }: ConversationStartersProps) {
+  const visible = showStarters.value;
+
   const [mounted, setMounted] = useState(true);
   const fadingRef = useRef(false);
   const fadeTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);

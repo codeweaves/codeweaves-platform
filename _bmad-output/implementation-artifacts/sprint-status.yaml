@@ -35,7 +35,7 @@
 # - Dev moves story to 'review', then runs code-review (fresh context, different LLM recommended)
 
 generated: 2026-03-14
-last_updated: 2026-03-27 # Story 5-20 voice message integration done
+last_updated: 2026-03-27 # Story 5-21 message history state management done
 project: codeweaves-platform
 project_key: NOKEY
 tracking_system: file-system
@@ -199,7 +199,7 @@ development_status:
   5-18-chat-input-api-integration: done
   5-19-sse-streaming-integration: done
   5-20-voice-message-integration: done
-  5-21-message-history-state-management: ready-for-dev
+  5-21-message-history-state-management: done
   5-22-html-sanitization-xss-prevention: ready-for-dev
   5-23-widget-ui-gaps-branding-avatars: ready-for-dev
   epic-5-retrospective: optional
