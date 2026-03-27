@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks';
-import type { AgentConfig, ChatMessage } from '../types';
+import type { AgentConfig } from '../types';
 import { ChatHeader } from './ChatHeader';
 import { MessageArea } from './MessageArea';
 import { ChatInput } from './ChatInput';
@@ -7,6 +7,7 @@ import type { ChatInputHandle } from './ChatInput';
 import { ConversationStarters } from './ConversationStarters';
 import type { StarterItem } from './ConversationStarters';
 import { lockScroll, unlockScroll } from '../shadow-dom';
+import { useChat } from '../hooks/useChat';
 
 const ANIMATION_DURATION_MS = 300;
 const MOBILE_BREAKPOINT = 480;
@@ -14,6 +15,8 @@ const MOBILE_BREAKPOINT = 480;
 const MAX_KEYBOARD_RATIO = 0.6;
 
 export interface ChatWindowProps {
+  /** Agent ID for API calls */
+  agentId: string;
   /** Agent configuration */
   agentConfig: AgentConfig;
   /** Theme object for header/chat styling */
@@ -63,6 +66,7 @@ function extractChatConfig(theme: Record<string, unknown> | null): {
 
 /** Chat window — the expanded chat interface */
 export function ChatWindow({
+  agentId,
   agentConfig,
   theme,
   onClose,
@@ -76,12 +80,13 @@ export function ChatWindow({
     typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT,
   );
   const [keyboardHeight, setKeyboardHeight] = useState(0);
-  const [messages, setMessages] = useState<ChatMessage[]>([]);
-  const [isTyping, setIsTyping] = useState(false);
   const wasMinimizedRef = useRef(false);
   const windowRef = useRef<HTMLDivElement>(null);
   const headerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
+
+  // Core chat state from useChat hook (Story 5-18)
+  const { messages, isLoading, isRateLimited, error, sendMessage, clearError, handleTimeout } = useChat({ agentId });
 
   const chatConfig = extractChatConfig(theme);
 
@@ -99,32 +104,24 @@ export function ChatWindow({
     [agentConfig.starters],
   );
 
+  // Conversation starter click uses same sendMessage flow as manual typing (AC 7)
   const handleStarterSelect = useCallback(
     (message: string) => {
-      const userMsg: ChatMessage = {
-        id: `user-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        role: 'user',
-        content: message,
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, userMsg]);
-      setIsTyping(true);
-      // TODO: send message to API (future story 5-18/5-19)
+      sendMessage(message);
     },
-    [setMessages],
+    [sendMessage],
   );
 
   /** Called when typing indicator times out after 30s with no response */
   const handleTypingTimeout = useCallback(() => {
-    setIsTyping(false);
-    const errorMsg: ChatMessage = {
-      id: `error-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-      role: 'assistant',
-      content: 'Response taking too long, please try again',
-      timestamp: new Date(),
-    };
-    setMessages((prev) => [...prev, errorMsg]);
-  }, []);
+    handleTimeout();
+  }, [handleTimeout]);
+
+  // Input disabled when loading or rate limited
+  const inputDisabled = isLoading || isRateLimited;
+
+  // Placeholder changes during rate limit cooldown
+  const inputPlaceholder = isRateLimited ? 'Please wait...' : undefined;
 
   // Open animation + auto-focus input after animation
   useEffect(() => {
@@ -293,6 +290,9 @@ export function ChatWindow({
     ? { maxHeight: `calc(100% - ${keyboardHeight}px)` }
     : undefined;
 
+  // Show typing indicator when loading and last message is from user (AC 3)
+  const showTyping = isLoading && messages.length > 0 && messages[messages.length - 1]?.role === 'user';
+
   return (
     <div
       ref={windowRef}
@@ -320,7 +320,7 @@ export function ChatWindow({
           botAvatarUrl={chatConfig.botAvatarUrl}
           userAvatarUrl={chatConfig.userAvatarUrl}
           greeting={agentConfig.greeting}
-          isTyping={isTyping}
+          isTyping={showTyping}
           onTypingTimeout={handleTypingTimeout}
         />
         {starterItems.length > 0 && (
@@ -330,7 +330,25 @@ export function ChatWindow({
             visible={!hasUserMessages}
           />
         )}
-        <ChatInput ref={inputRef} />
+        <ChatInput
+          ref={inputRef}
+          onSend={sendMessage}
+          disabled={inputDisabled}
+          placeholder={inputPlaceholder}
+        />
+        {error && (
+          <div class="cw-chat-error" role="alert" aria-live="assertive">
+            <span class="cw-chat-error-text">{error}</span>
+            <button
+              type="button"
+              class="cw-chat-error-dismiss"
+              aria-label="Dismiss error"
+              onClick={clearError}
+            >
+              &times;
+            </button>
+          </div>
+        )}
       </div>
     </div>
   );

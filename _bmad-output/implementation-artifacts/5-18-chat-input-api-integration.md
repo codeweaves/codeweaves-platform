@@ -1,6 +1,6 @@
 # Story 5-18: Chat Input API Integration
 
-Status: pending
+Status: done
 
 ## Story
 
@@ -40,10 +40,10 @@ So that I can have a conversation with the agent through the chat widget.
 
 ## Tasks / Subtasks
 
-- [ ] Task 1: Create useChat hook (AC: 1, 2, 3, 5, 6)
-  - [ ] Create `apps/widget/src/hooks/useChat.ts`
-  - [ ] Define Preact signals: `messages` (array of `ChatMessage`), `isLoading` (boolean), `error` (string | null)
-  - [ ] Implement `sendMessage(text: string)` function:
+- [x] Task 1: Create useChat hook (AC: 1, 2, 3, 5, 6)
+  - [x] Create `apps/widget/src/hooks/useChat.ts`
+  - [x] Define Preact signals: `messages` (array of `ChatMessage`), `isLoading` (boolean), `error` (string | null)
+  - [x] Implement `sendMessage(text: string)` function:
     1. Guard: if `isLoading` is true or `text.trim()` is empty, return early
     2. Set `isLoading` to `true`, clear `error`
     3. Add user message to `messages` array immediately (optimistic UI)
@@ -51,49 +51,49 @@ So that I can have a conversation with the agent through the chat widget.
     5. On success: add bot message to `messages` array, update session ID via session-manager
     6. On failure: set `error` signal with user-friendly message
     7. Set `isLoading` to `false` in finally block
-  - [ ] Implement `clearError()` to reset error signal to null
-  - [ ] Accept `agentId` as parameter (from widget config)
+  - [x] Implement `clearError()` to reset error signal to null
+  - [x] Accept `agentId` as parameter (from widget config)
 
-- [ ] Task 2: Wire ChatInput component to useChat hook (AC: 1, 5)
-  - [ ] Import `useChat` hook in ChatWindow component
-  - [ ] On form submit / Enter key press: call `sendMessage(inputText)`
-  - [ ] Clear input text field after calling sendMessage (before API response)
-  - [ ] Disable input element and send button when `isLoading` is true
-  - [ ] Disable input for `retryAfterSeconds` duration on 429 rate limit (use setTimeout to re-enable)
-  - [ ] Prevent Shift+Enter from submitting (allow multiline if supported)
+- [x] Task 2: Wire ChatInput component to useChat hook (AC: 1, 5)
+  - [x] Import `useChat` hook in ChatWindow component
+  - [x] On form submit / Enter key press: call `sendMessage(inputText)`
+  - [x] Clear input text field after calling sendMessage (before API response)
+  - [x] Disable input element and send button when `isLoading` is true
+  - [x] Disable input for `retryAfterSeconds` duration on 429 rate limit (use setTimeout to re-enable)
+  - [x] Prevent Shift+Enter from submitting (allow multiline if supported)
 
-- [ ] Task 3: Wire bot response display (AC: 2, 3)
-  - [ ] Pass `messages` signal to MessageArea component (Story 5-9)
-  - [ ] User messages: role `'user'`, rendered immediately on send
-  - [ ] Bot messages: role `'assistant'`, added after API response received
-  - [ ] Show typing indicator (Story 5-11 component) when `isLoading` is true and last message is from user
-  - [ ] Auto-scroll to bottom on new message (MessageArea already handles this from Story 5-9)
+- [x] Task 3: Wire bot response display (AC: 2, 3)
+  - [x] Pass `messages` signal to MessageArea component (Story 5-9)
+  - [x] User messages: role `'user'`, rendered immediately on send
+  - [x] Bot messages: role `'assistant'`, added after API response received
+  - [x] Show typing indicator (Story 5-11 component) when `isLoading` is true and last message is from user
+  - [x] Auto-scroll to bottom on new message (MessageArea already handles this from Story 5-9)
 
-- [ ] Task 4: Wire conversation starters (AC: 7)
-  - [ ] Pass `sendMessage` function to ConversationStarters component (Story 5-10)
-  - [ ] On starter click: call `sendMessage(starterText)` — identical to manual message flow
-  - [ ] Starters component already handles its own fade-out after first message (Story 5-10)
-  - [ ] Show starters only when `messages` array is empty (or contains only greeting)
+- [x] Task 4: Wire conversation starters (AC: 7)
+  - [x] Pass `sendMessage` function to ConversationStarters component (Story 5-10)
+  - [x] On starter click: call `sendMessage(starterText)` — identical to manual message flow
+  - [x] Starters component already handles its own fade-out after first message (Story 5-10)
+  - [x] Show starters only when `messages` array is empty (or contains only greeting)
 
-- [ ] Task 5: Implement error display and auto-dismiss (AC: 4, 6)
-  - [ ] Render error message below input area when `error` signal is non-null
-  - [ ] Style error with `--cw-error-text` CSS variable, small font size, left-aligned
-  - [ ] Auto-dismiss: set a 5-second timeout on error display, call `clearError()` after timeout
-  - [ ] Clear timeout if user sends a new message before auto-dismiss
-  - [ ] Rate limit error: show backend-provided message text, disable input for `retryAfterSeconds`
+- [x] Task 5: Implement error display and auto-dismiss (AC: 4, 6)
+  - [x] Render error message below input area when `error` signal is non-null
+  - [x] Style error with `--cw-error-text` CSS variable, small font size, left-aligned
+  - [x] Auto-dismiss: set a 5-second timeout on error display, call `clearError()` after timeout
+  - [x] Clear timeout if user sends a new message before auto-dismiss
+  - [x] Rate limit error: show backend-provided message text, disable input for `retryAfterSeconds`
 
-- [ ] Task 6: Implement rate limit cooldown UX (AC: 4)
-  - [ ] On 429 `WidgetApiError`: extract `retryAfterSeconds` (default 5s if not provided)
-  - [ ] Set `isLoading` to false but add separate `isRateLimited` signal
-  - [ ] Disable input with visual indicator (e.g., placeholder text "Please wait...")
-  - [ ] Use `setTimeout` to re-enable after cooldown period
-  - [ ] Clear cooldown timeout on widget destroy
+- [x] Task 6: Implement rate limit cooldown UX (AC: 4)
+  - [x] On 429 `WidgetApiError`: extract `retryAfterSeconds` (default 5s if not provided)
+  - [x] Set `isLoading` to false but add separate `isRateLimited` signal
+  - [x] Disable input with visual indicator (e.g., placeholder text "Please wait...")
+  - [x] Use `setTimeout` to re-enable after cooldown period
+  - [x] Clear cooldown timeout on widget destroy
 
-- [ ] Task 7: Implement empty state and welcome flow (AC: 7)
-  - [ ] When `messages` array is empty, show greeting message from config as initial bot message
-  - [ ] Show conversation starters below greeting if configured (from `config.agent.starters`)
-  - [ ] After first message sent, starters fade out (handled by ConversationStarters component)
-  - [ ] If no starters configured, show only the greeting message
+- [x] Task 7: Implement empty state and welcome flow (AC: 7)
+  - [x] When `messages` array is empty, show greeting message from config as initial bot message
+  - [x] Show conversation starters below greeting if configured (from `config.agent.starters`)
+  - [x] After first message sent, starters fade out (handled by ConversationStarters component)
+  - [x] If no starters configured, show only the greeting message
 
 ## Dev Notes
 
@@ -206,3 +206,60 @@ apps/widget/src/
 - Validation schema: `packages/validation/src/chat.ts` — `SendMessageDto` (chatInput, agentId, sessionId)
 - Message display: `apps/widget/src/components/MessageBubble.tsx` (Story 5-9)
 - Conversation starters: `apps/widget/src/components/ConversationStarters.tsx` (Story 5-10)
+
+## Senior Developer Review (AI)
+
+- **Review Date:** 2026-03-27
+- **Outcome:** Changes Requested → Resolved
+- **Reviewers:** Blind Hunter, Edge Case Hunter, Acceptance Auditor (3-layer parallel review)
+- **Total Findings:** 12 raised, 5 patch, 1 bad_spec, 7 rejected as noise
+- **Action Items:**
+  - [x] **[High]** No timer cleanup on unmount — added `useEffect` cleanup in `useChat` for `errorTimerRef` and `rateLimitTimerRef`
+  - [x] **[High]** `handleTypingTimeout` was no-op causing 30s stale loading — added `handleTimeout()` to `useChat` that resets loading and shows error
+  - [x] **[Med]** Double-click race past `loadingRef` guard — moved `loadingRef.current = true` to top of `sendMessage` before any async work; added `rateLimitedRef` for stale-closure-proof rate limit check
+  - [x] **[Low]** No `maxLength` on ChatInput — added `maxLength={4000}` matching backend validation
+  - [x] **[Bad Spec]** Rate-limit message text mismatch — spec says exact string but backend already sends correct message; no code change needed
+
+### Code Review Bugs/Errors Found & Fixed
+
+| ID | Severity | Issue | Fix |
+|----|----------|-------|-----|
+| CR-1 | High | Timer refs never cleaned up on unmount — setState on unmounted component | Added `useEffect` cleanup that clears both `errorTimerRef` and `rateLimitTimerRef` |
+| CR-2 | High | `handleTypingTimeout` was empty — 30s hang leaves input disabled forever | Added `handleTimeout()` to useChat return; wired in ChatWindow |
+| CR-3 | Med | Two rapid calls to `sendMessage` could race past `loadingRef` guard | Moved `loadingRef.current = true` to first line of function; added `rateLimitedRef` |
+| CR-4 | Low | No `maxLength` on input — server rejects >4000 chars with validation error | Added `maxLength={4000}` to `<input>` element |
+| CR-5 | Bad Spec | AC 4 prescribes exact string but implementation uses backend message | No code change — backend sends the correct string |
+
+## Dev Agent Record
+
+### Implementation Plan
+- Used standard Preact hooks (useState, useCallback, useRef) instead of @preact/signals — consistent with existing codebase
+- Created useChat hook as single source of truth for chat state (messages, loading, error, rate limit)
+- Wired all existing components (ChatInput, MessageArea, ConversationStarters, TypingIndicator) through ChatWindow
+- API client and session manager initialized in Widget component on config load
+- Session ID and device ID auto-resolved by api-client (no manual passing needed)
+- Rate limit handled via separate `isRateLimited` state with setTimeout cooldown
+- Error auto-dismiss via 5-second timeout, clearable on new send
+
+### Completion Notes
+- All 7 tasks implemented and verified
+- Type check, lint, and build all pass
+- No new dependencies added — uses existing api-client, session-manager, device-id services
+- ChatInput upgraded from stub to fully functional with onSend, disabled, placeholder props
+- ChatWindow now receives agentId prop from Widget (needed for useChat hook)
+- Added initApiClient() and initSession() calls in Widget.tsx on config load
+- CSS for error display added to components.ts using --cw-error-text variable
+- Greeting message and conversation starters handled by existing MessageArea/ConversationStarters (no changes needed)
+
+## File List
+
+- `apps/widget/src/hooks/useChat.ts` — NEW: Core chat hook with messages, loading, error, rate limit state
+- `apps/widget/src/components/ChatWindow.tsx` — MODIFIED: Wire useChat hook, pass agentId, error display, rate limit UX
+- `apps/widget/src/components/ChatInput.tsx` — MODIFIED: Add onSend/disabled/placeholder props, form submission, Enter key
+- `apps/widget/src/components/Widget.tsx` — MODIFIED: Pass agentId to ChatWindow, init API client and session manager
+- `apps/widget/src/styles/components.ts` — MODIFIED: Add error display and disabled input CSS
+
+## Change Log
+
+- 2026-03-27: Story 5-18 implementation complete — chat input API integration with optimistic UI, error handling, rate limit cooldown, and conversation starter wiring
+- 2026-03-27: Code review fixes — timer cleanup on unmount, typing timeout recovery, double-click race guard, input maxLength
