@@ -8,6 +8,8 @@ import { applyTheme, setupPreviewMode, teardownPreviewMode } from '../services/t
 import { revealWidget } from '../shadow-dom';
 import { isDomainAllowed } from '../utils/domain-validator';
 import { debug, warn } from '../utils/debug';
+import { initApiClient } from '../services/api-client';
+import { initSession } from '../services/session-manager';
 
 /** Callback registration for external control (global API) */
 let externalOpenFn: (() => void) | null = null;
@@ -122,6 +124,10 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
             return;
           }
 
+          // Initialize API client and session manager (Story 5-18)
+          initApiClient(apiBaseUrl);
+          initSession(agentId);
+
           // Apply theme before widget becomes visible (before opacity transition)
           if (hostElement && result.theme) {
             applyTheme(hostElement, result.theme as Record<string, unknown>);
@@ -199,6 +205,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
         </>
       ) : (
         <ChatWindow
+          agentId={agentId}
           agentConfig={config.agent}
           theme={themeObj}
           onClose={handleClose}

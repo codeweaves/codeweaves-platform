@@ -731,4 +731,57 @@ export const componentCSS = `
   text-overflow: ellipsis;
   white-space: nowrap;
 }
+
+/* ── Chat Error Display (Story 5-18) ─────────────────────────────── */
+
+.cw-chat-error {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 12px;
+  background: transparent;
+}
+
+.cw-chat-error-text {
+  flex: 1;
+  font-size: 12px;
+  line-height: 1.3;
+  color: var(--cw-error-text, #ef4444);
+}
+
+.cw-chat-error-dismiss {
+  pointer-events: auto;
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  border: none;
+  background: transparent;
+  color: var(--cw-error-text, #ef4444);
+  cursor: pointer;
+  padding: 0;
+  border-radius: 50%;
+  font-size: 16px;
+  line-height: 1;
+  opacity: 0.6;
+  flex-shrink: 0;
+  transition: opacity 150ms ease;
+}
+
+.cw-chat-error-dismiss:hover {
+  opacity: 1;
+}
+
+.cw-chat-error-dismiss:focus-visible {
+  outline: 2px solid var(--cw-error-text, #ef4444);
+  outline-offset: 1px;
+  opacity: 1;
+}
+
+/* Disabled input visual feedback */
+.cw-chat-input-field:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
 `;
