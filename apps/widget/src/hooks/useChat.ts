@@ -25,6 +25,16 @@ export interface UseChatReturn {
   clearError: () => void;
   /** Reset loading state on typing indicator timeout (30s with no API response) */
   handleTimeout: () => void;
+  /** Add a user message bubble (for voice transcription) */
+  addUserMessage: (text: string) => void;
+  /** Create an empty bot message and return its ID (for voice progressive text) */
+  createBotMessage: () => string;
+  /** Append text to an existing bot message (for voice sentence-by-sentence display) */
+  appendBotMessageText: (botMsgId: string, text: string) => void;
+  /** Finalize a bot message (mark streaming complete) */
+  finalizeBotMessage: (botMsgId: string, fullText?: string) => void;
+  /** Set loading state externally (for voice processing) */
+  setVoiceLoading: (loading: boolean) => void;
 }
 
 function generateId(prefix: string): string {
@@ -210,6 +220,58 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     showError('Response took too long. Please try again.');
   }, [finishStream, showError]);
 
+  // ── Voice message helpers (Story 5-20) ──────────────────────────────
+
+  const addUserMessage = useCallback((text: string) => {
+    const userMsg: ChatMessage = {
+      id: generateId('user'),
+      role: 'user',
+      content: text,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, userMsg]);
+  }, []);
+
+  const createBotMessage = useCallback((): string => {
+    const botMsgId = generateId('bot');
+    const botMsg: ChatMessage = {
+      id: botMsgId,
+      role: 'assistant',
+      content: '',
+      timestamp: new Date(),
+      isStreaming: true,
+    };
+    setMessages((prev) => [...prev, botMsg]);
+    return botMsgId;
+  }, []);
+
+  const appendBotMessageText = useCallback((botMsgId: string, text: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === botMsgId
+          ? { ...m, content: m.content ? `${m.content} ${text}` : text }
+          : m,
+      ),
+    );
+  }, []);
+
+  const finalizeBotMessage = useCallback((botMsgId: string, fullText?: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === botMsgId
+          ? { ...m, isStreaming: false, ...(fullText !== undefined ? { content: fullText } : {}) }
+          : m,
+      ),
+    );
+  }, []);
+
+  const setVoiceLoading = useCallback((loading: boolean) => {
+    setIsLoading(loading);
+    if (!loading) {
+      loadingRef.current = false;
+    }
+  }, []);
+
   return {
     messages,
     isLoading,
@@ -220,5 +282,10 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     stopStream,
     clearError,
     handleTimeout,
+    addUserMessage,
+    createBotMessage,
+    appendBotMessageText,
+    finalizeBotMessage,
+    setVoiceLoading,
   };
 }
