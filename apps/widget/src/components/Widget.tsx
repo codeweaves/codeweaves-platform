@@ -77,14 +77,15 @@ function extractBubbleConfig(theme: Record<string, unknown> | null): {
 
 /** Main widget container — renders trigger button and conditionally renders chat window */
 export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
-  const [state, setState] = useState<WidgetState>('minimized');
+  const [state, setState] = useState<WidgetState>('closed');
   const [config, setConfig] = useState<LoadedWidgetConfig | null>(null);
   const [configError, setConfigError] = useState(false);
   const [domainBlocked, setDomainBlocked] = useState(false);
 
-  const handleOpen = () => setState('open');
-  const handleClose = () => setState('minimized');
+  const handleOpen = () => setState('expanded');
+  const handleClose = () => setState('closed');
   const handleMinimize = () => setState('minimized');
+  const handleExpand = () => setState('expanded');
 
   // Use refs so registered callbacks always point to latest handlers
   const openRef = useRef(handleOpen);
@@ -182,15 +183,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
 
   return (
     <div class="cw-widget" data-position={iconConfig.position}>
-      {state === 'open' ? (
-        <ChatWindow
-          agentConfig={config.agent}
-          theme={themeObj}
-          onClose={handleClose}
-          onMinimize={handleMinimize}
-          position={iconConfig.position}
-        />
-      ) : (
+      {state === 'closed' ? (
         <>
           <BubbleNotification
             agentId={agentId}
@@ -204,6 +197,16 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
             pulse={iconConfig.pulse}
           />
         </>
+      ) : (
+        <ChatWindow
+          agentConfig={config.agent}
+          theme={themeObj}
+          onClose={handleClose}
+          onMinimize={handleMinimize}
+          onExpand={handleExpand}
+          isMinimized={state === 'minimized'}
+          position={iconConfig.position}
+        />
       )}
     </div>
   );

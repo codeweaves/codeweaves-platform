@@ -103,6 +103,27 @@ export const componentCSS = `
   right: 0;
 }
 
+/* Height transition only for minimize/expand toggle — avoids animating keyboard/resize changes */
+.cw-chat-window--minimized,
+.cw-chat-window--expanding {
+  transition: height 300ms ease;
+}
+
+/* Minimized state — header-only view (AC #1) */
+.cw-chat-window--minimized {
+  height: 80px;
+  max-height: 80px;
+}
+
+/* Chat body wrapper — hidden in minimized state via overflow on parent */
+.cw-chat-body {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  min-height: 0;
+  overflow: hidden;
+}
+
 .cw-widget[data-position="left"] .cw-chat-window {
   right: auto;
   left: 0;
@@ -144,6 +165,28 @@ export const componentCSS = `
     padding-top: env(safe-area-inset-top, 0px);
     padding-bottom: env(safe-area-inset-bottom, 0px);
   }
+
+  /* Minimized on mobile: not fullscreen, positioned at bottom */
+  .cw-chat-window.cw-chat-mobile.cw-chat-window--minimized {
+    position: absolute;
+    top: auto;
+    bottom: calc(var(--cw-trigger-size, 64px) + 12px);
+    width: var(--cw-chat-width, 380px);
+    max-width: calc(100vw - 16px);
+    height: 80px;
+    max-height: 80px;
+    border-radius: var(--cw-chat-radius, 12px);
+    padding-top: 0;
+    padding-bottom: 0;
+  }
+}
+
+/* Reduced motion: disable height transition */
+@media (prefers-reduced-motion: reduce) {
+  .cw-chat-window--minimized,
+  .cw-chat-window--expanding {
+    transition: none;
+  }
 }
 
 /* ── Chat Header ──────────────────────────────────────────────────── */
@@ -158,6 +201,12 @@ export const componentCSS = `
   background: var(--cw-header-bg, #3b82f6);
   color: var(--cw-header-fg, #ffffff);
   border-radius: var(--cw-chat-radius, 12px) var(--cw-chat-radius, 12px) 0 0;
+  flex-shrink: 0;
+}
+
+/* When minimized, header gets full border-radius */
+.cw-chat-window--minimized .cw-chat-header {
+  border-radius: var(--cw-chat-radius, 12px);
 }
 
 @media (max-width: 479px) {

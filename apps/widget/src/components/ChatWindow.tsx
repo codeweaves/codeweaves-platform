@@ -22,6 +22,10 @@ export interface ChatWindowProps {
   onClose: () => void;
   /** Called when minimize button is clicked */
   onMinimize: () => void;
+  /** Called when expanding from minimized state */
+  onExpand: () => void;
+  /** Whether the window is in minimized (header-only) state */
+  isMinimized: boolean;
   /** Trigger button position — determines transform-origin */
   position: 'left' | 'right';
 }
@@ -63,6 +67,8 @@ export function ChatWindow({
   theme,
   onClose,
   onMinimize,
+  onExpand,
+  isMinimized,
   position,
 }: ChatWindowProps) {
   const [animating, setAnimating] = useState(true);
@@ -72,7 +78,9 @@ export function ChatWindow({
   const [keyboardHeight, setKeyboardHeight] = useState(0);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [isTyping, setIsTyping] = useState(false);
+  const wasMinimizedRef = useRef(false);
   const windowRef = useRef<HTMLDivElement>(null);
+  const headerRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<ChatInputHandle>(null);
 
   const chatConfig = extractChatConfig(theme);
@@ -136,13 +144,13 @@ export function ChatWindow({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Mobile scroll lock
+  // Mobile scroll lock — only when expanded (not minimized)
   useEffect(() => {
-    if (isMobile) {
+    if (isMobile && !isMinimized) {
       lockScroll();
       return () => unlockScroll();
     }
-  }, [isMobile]);
+  }, [isMobile, isMinimized]);
 
   // iOS keyboard handling via VisualViewport API
   useEffect(() => {
@@ -160,25 +168,86 @@ export function ChatWindow({
     return () => vv.removeEventListener('resize', handleResize);
   }, []);
 
-  // Escape key closes
+  // Track minimize/expand transitions for focus management and scroll restore
+  useEffect(() => {
+    if (isMinimized) {
+      wasMinimizedRef.current = true;
+      // Focus header when minimized (prevents focus on hidden elements)
+      headerRef.current?.focus();
+    } else if (wasMinimizedRef.current) {
+      // Expanding from minimized: add transition class, scroll to bottom and focus input
+      wasMinimizedRef.current = false;
+      const el = windowRef.current;
+      if (el) {
+        el.classList.add('cw-chat-window--expanding');
+        const onEnd = () => {
+          el.classList.remove('cw-chat-window--expanding');
+          el.removeEventListener('transitionend', onEnd);
+        };
+        el.addEventListener('transitionend', onEnd, { once: true });
+        // Fallback removal if transitionend doesn't fire (e.g. reduced motion)
+        setTimeout(onEnd, ANIMATION_DURATION_MS + 50);
+      }
+      requestAnimationFrame(() => {
+        const msgArea = windowRef.current?.querySelector('.cw-message-area');
+        if (msgArea) {
+          msgArea.scrollTop = msgArea.scrollHeight;
+        }
+        inputRef.current?.focus();
+      });
+    }
+  }, [isMinimized]);
+
+  /** Handle header click to expand from minimized (AC #3) */
+  const handleHeaderClick = useCallback(
+    (e: MouseEvent) => {
+      if (!isMinimized) return;
+      // Don't expand if clicking a button (close/minimize)
+      const target = e.target as HTMLElement;
+      if (target.closest('button')) return;
+      onExpand();
+    },
+    [isMinimized, onExpand],
+  );
+
+  /** Handle header keyboard to toggle minimized (AC #3 accessibility) */
+  const handleHeaderKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (!isMinimized) return;
+      if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        onExpand();
+      }
+    },
+    [isMinimized, onExpand],
+  );
+
+  // Escape key closes (ignored when minimized to prevent accidental conversation loss)
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
       if (e.key === 'Escape') {
+        if (isMinimized) return; // Don't destroy conversation from minimized state
         e.preventDefault();
         onClose();
         return;
       }
 
-      // Focus trap: Tab cycles within the dialog
+      // Focus trap: Tab cycles within the dialog (skip when minimized — only header is interactive)
       if (e.key === 'Tab') {
         const container = windowRef.current;
         if (!container) return;
+
+        // When minimized, only trap focus within the header (visible elements)
+        const scope = isMinimized
+          ? container.querySelector('.cw-chat-header')
+          : container;
+        if (!scope) return;
 
         // Collect focusable elements inside shadow DOM component
         const focusableSelector =
           'button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
         const focusables = Array.from(
-          container.querySelectorAll<HTMLElement>(focusableSelector),
+          scope.querySelectorAll<HTMLElement>(focusableSelector),
         );
 
         if (focusables.length === 0) return;
@@ -207,7 +276,7 @@ export function ChatWindow({
         }
       }
     },
-    [onClose],
+    [onClose, isMinimized],
   );
 
   const transformOrigin =
@@ -217,6 +286,7 @@ export function ChatWindow({
     ? 'cw-chat-window cw-chat-opening'
     : 'cw-chat-window cw-chat-open';
 
+  const minimizedClass = isMinimized ? ' cw-chat-window--minimized' : '';
   const mobileClass = isMobile ? ' cw-chat-mobile' : '';
 
   const windowStyle = keyboardHeight > 0
@@ -226,36 +296,42 @@ export function ChatWindow({
   return (
     <div
       ref={windowRef}
-      class={animationClass + mobileClass}
+      class={animationClass + minimizedClass + mobileClass}
       style={{ ...windowStyle, transformOrigin }}
       role="dialog"
       aria-label={`Chat with ${agentConfig.name}`}
       onKeyDown={handleKeyDown}
     >
       <ChatHeader
+        ref={headerRef}
         agentConfig={agentConfig}
         theme={theme}
+        isMinimized={isMinimized}
         onMinimize={onMinimize}
         onClose={onClose}
+        onHeaderClick={handleHeaderClick}
+        onHeaderKeyDown={handleHeaderKeyDown}
       />
-      <MessageArea
-        messages={messages}
-        showTimestamp={chatConfig.showTimestamp}
-        avatarShape={chatConfig.avatarShape}
-        botAvatarUrl={chatConfig.botAvatarUrl}
-        userAvatarUrl={chatConfig.userAvatarUrl}
-        greeting={agentConfig.greeting}
-        isTyping={isTyping}
-        onTypingTimeout={handleTypingTimeout}
-      />
-      {starterItems.length > 0 && (
-        <ConversationStarters
-          starters={starterItems}
-          onSelect={handleStarterSelect}
-          visible={!hasUserMessages}
+      <div class="cw-chat-body">
+        <MessageArea
+          messages={messages}
+          showTimestamp={chatConfig.showTimestamp}
+          avatarShape={chatConfig.avatarShape}
+          botAvatarUrl={chatConfig.botAvatarUrl}
+          userAvatarUrl={chatConfig.userAvatarUrl}
+          greeting={agentConfig.greeting}
+          isTyping={isTyping}
+          onTypingTimeout={handleTypingTimeout}
         />
-      )}
-      <ChatInput ref={inputRef} />
+        {starterItems.length > 0 && (
+          <ConversationStarters
+            starters={starterItems}
+            onSelect={handleStarterSelect}
+            visible={!hasUserMessages}
+          />
+        )}
+        <ChatInput ref={inputRef} />
+      </div>
     </div>
   );
 }
