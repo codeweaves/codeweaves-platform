@@ -609,6 +609,22 @@ export const componentCSS = `
   animation: cw-bubble-in 200ms ease-out forwards;
 }
 
+/* ── Domain Error ────────────────────────────────────────────────── */
+
+.cw-domain-error {
+  pointer-events: auto;
+  padding: 10px 16px;
+  background: var(--cw-background, #ffffff);
+  color: var(--cw-foreground, #1f2937);
+  border: 1px solid var(--cw-border, #e5e7eb);
+  border-radius: 8px;
+  font-size: 13px;
+  line-height: 1.4;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+  max-width: 260px;
+  text-align: center;
+}
+
 /* ── Conversation Starters ───────────────────────────────────────── */
 
 .cw-starters {
