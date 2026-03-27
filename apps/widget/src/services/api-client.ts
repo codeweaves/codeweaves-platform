@@ -11,6 +11,7 @@ import type { SendMessageResponse } from '../types';
 import { getDeviceId } from '../utils/device-id';
 import { WidgetApiError, mapResponseError } from './api-errors';
 import { fetchWithRetry } from './fetch-utils';
+import { getSessionId, updateSession, handleSessionError } from './session-manager';
 
 // ── Internal state ──────────────────────────────────────────────────
 
@@ -62,12 +63,21 @@ export async function sendMessage(
 ): Promise<SendMessageResponse> {
   ensureInit();
 
+  // Auto-resolve session ID from session manager if not explicitly provided (Story 5-17)
+  const resolvedSessionId = sessionId ?? getSessionId() ?? undefined;
+
   const url = `${baseUrl}/api/public/chat/send`;
   const response = await fetchWithRetry(url, {
     method: 'POST',
-    headers: buildHeaders(deviceId, sessionId),
-    body: JSON.stringify({ chatInput: message, agentId, sessionId }),
+    headers: buildHeaders(deviceId, resolvedSessionId),
+    body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId }),
   });
+
+  // Session expired — clear stale session and throw (Story 5-17, AC 3)
+  if (response.status === 404 || response.status === 410) {
+    handleSessionError(agentId, response.status);
+    throw await mapResponseError(response);
+  }
 
   // Rate limit — backend returns 200 with { error: true }
   if (response.status === 200) {
@@ -80,7 +90,12 @@ export async function sendMessage(
         retryAfterSeconds: body.retryAfterSeconds,
       });
     }
-    return body as SendMessageResponse;
+    // Update session with the returned session ID (Story 5-17, Task 7)
+    const result = body as SendMessageResponse;
+    if (result.sessionId) {
+      updateSession(agentId, result.sessionId);
+    }
+    return result;
   }
 
   throw await mapResponseError(response);
@@ -95,6 +110,11 @@ export async function sendMessage(
  *
  * Returns the raw ReadableStreamDefaultReader for the caller to consume
  * with `parseSSEStream()` from `utils/sse-parser.ts`.
+ *
+ * NOTE: Session ID update is NOT handled here — the session ID arrives via
+ * SSE events in the stream body. The caller (Story 5-19) must call
+ * `updateSession()` from `session-manager` when it parses the session ID
+ * from the SSE stream.
  */
 export async function streamMessage(
   agentId: string,
@@ -104,18 +124,27 @@ export async function streamMessage(
 ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
   ensureInit();
 
+  // Auto-resolve session ID from session manager if not explicitly provided (Story 5-17)
+  const resolvedSessionId = sessionId ?? getSessionId() ?? undefined;
+
   const url = `${baseUrl}/api/public/chat/stream`;
-  const headers = buildHeaders(deviceId, sessionId);
+  const headers = buildHeaders(deviceId, resolvedSessionId);
   headers['Accept'] = 'text/event-stream';
 
   // Disable retry for streaming — POST is non-idempotent and server may
   // have already saved the message / triggered the AI pipeline.
   const response = await fetchWithRetry(
     url,
-    { method: 'POST', headers, body: JSON.stringify({ chatInput: message, agentId, sessionId }) },
+    { method: 'POST', headers, body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId }) },
     undefined,
     false,
   );
+
+  // Session expired — clear stale session and throw (Story 5-17, AC 3)
+  if (response.status === 404 || response.status === 410) {
+    handleSessionError(agentId, response.status);
+    throw await mapResponseError(response);
+  }
 
   if (response.status === 200 && response.body) {
     return response.body.getReader();

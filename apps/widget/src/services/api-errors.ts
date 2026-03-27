@@ -35,8 +35,16 @@ export async function mapResponseError(response: Response): Promise<WidgetApiErr
   if (status === 404) {
     return new WidgetApiError({
       status,
-      userMessage: 'Agent not found or inactive',
+      userMessage: 'The requested resource was not found. Please try again.',
       retryable: false,
+    });
+  }
+
+  if (status === 410) {
+    return new WidgetApiError({
+      status,
+      userMessage: 'Your session has expired. A new session will be started.',
+      retryable: true,
     });
   }
 
