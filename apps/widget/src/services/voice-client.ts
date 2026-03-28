@@ -69,7 +69,7 @@ export function initVoiceClient(apiBaseUrl: string): void {
 /**
  * Send a voice message and receive streaming NDJSON response.
  *
- * POST {baseUrl}/api/public/voice/conversation
+ * POST {baseUrl}/api/codeweaves/v1/public/voice/conversation
  * Accept: application/x-ndjson
  *
  * P5: Timeout is managed by the caller (useVoice hook) via the AbortSignal.
@@ -108,7 +108,7 @@ export async function sendVoiceMessage(
       headers['X-Session-Id'] = resolvedSessionId;
     }
 
-    const response = await fetch(`${baseUrl}/api/public/voice/conversation`, {
+    const response = await fetch(`${baseUrl}/api/codeweaves/v1/public/voice/conversation`, {
       method: 'POST',
       headers,
       body: formData,

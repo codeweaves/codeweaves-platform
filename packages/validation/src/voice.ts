@@ -62,7 +62,7 @@ export type VoiceConfigDto = z.infer<typeof voiceConfigSchema>;
 // ============================================
 
 export const voiceConversationSchema = z.object({
-  agentId: z.string().uuid('Invalid agent ID'),
+  agentId: z.string().min(1, 'Agent ID is required').max(128, 'Agent ID must be at most 128 characters'),
   deviceId: z.string().max(128, 'Device ID must be at most 128 characters').optional(),
   sessionId: z.string().max(128, 'Session ID must be at most 128 characters').optional(),
   languageHint: supportedLanguageEnum.optional(),
@@ -75,7 +75,7 @@ export type VoiceConversationDto = z.infer<typeof voiceConversationSchema>;
 // ============================================
 
 export const transcribeSchema = z.object({
-  agentId: z.string().uuid('Invalid agent ID'),
+  agentId: z.string().min(1, 'Agent ID is required').max(128, 'Agent ID must be at most 128 characters'),
   languageHint: supportedLanguageEnum.optional(),
 });
 
@@ -90,7 +90,7 @@ export const synthesizeSchema = z.object({
   language: supportedLanguageEnum,
   voiceId: z.string().max(255).optional(),
   speed: z.number().min(0.5).max(2.0).optional(),
-  agentId: z.string().uuid('Invalid agent ID'),
+  agentId: z.string().min(1, 'Agent ID is required').max(128, 'Agent ID must be at most 128 characters'),
 });
 
 export type SynthesizeDto = z.infer<typeof synthesizeSchema>;

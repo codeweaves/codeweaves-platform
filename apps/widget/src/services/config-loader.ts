@@ -12,7 +12,7 @@ import { debug, warn } from '../utils/debug';
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const DEFAULT_TTL_MS = 300_000; // 5 minutes
+const DEFAULT_TTL_MS = import.meta.env.DEV ? 0 : 300_000; // 0 in dev, 5 minutes in production
 const FETCH_TIMEOUT_MS = 5_000;
 
 const KEY_CONFIG = (id: string) => `cw_config_${id}`;
@@ -128,7 +128,7 @@ export async function loadConfig(
 
   // Build fetch URL (strip trailing slash from apiBaseUrl)
   const base = apiBaseUrl.replace(/\/+$/, '');
-  const url = `${base}/api/public/agents/${encodeURIComponent(agentId)}/config`;
+  const url = `${base}/api/codeweaves/v1/public/agents/${encodeURIComponent(agentId)}/config`;
 
   // Task 3: Include If-None-Match header when ETag is cached
   const headers: Record<string, string> = {};

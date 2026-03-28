@@ -188,6 +188,8 @@ export const updateAgentSchema = z
     allowedDomains: allowedDomainsSchema.optional(),
     voiceEnabled: z.boolean().optional(),
     voiceConfig: voiceConfigSchema.nullable().optional(),
+    welcomeMessage: z.string().max(500).nullable().optional(),
+    systemPrompt: z.string().max(10000).nullable().optional(),
   })
   .refine(
     (data) =>
@@ -195,7 +197,9 @@ export const updateAgentSchema = z
       data.status !== undefined ||
       data.allowedDomains !== undefined ||
       data.voiceEnabled !== undefined ||
-      data.voiceConfig !== undefined,
+      data.voiceConfig !== undefined ||
+      data.welcomeMessage !== undefined ||
+      data.systemPrompt !== undefined,
     { message: 'At least one field must be provided' },
   );
 

@@ -55,12 +55,12 @@ export const THEME_MAP: Record<string, ThemeMapEntry> = {
   // ── User Message Bubbles ────────────────────────────────────────────
   'userMessage.backgroundColor': { variable: '--cw-msg-user-bg',       default: '#3b82f6', type: 'color' },
   'userMessage.textColor':       { variable: '--cw-msg-user-text',     default: '#ffffff', type: 'color' },
-  'userMessage.borderRadius':    { variable: '--cw-msg-user-radius',   default: '16px',    type: 'number-px' },
+  'userMessage.borderRadius':    { variable: '--cw-msg-user-radius',   default: '14px',    type: 'number-px' },
 
   // ── Bot Message Bubbles ─────────────────────────────────────────────
   'botMessage.backgroundColor':  { variable: '--cw-msg-bot-bg',        default: '#f3f4f6', type: 'color' },
   'botMessage.textColor':        { variable: '--cw-msg-bot-text',      default: '#1f2937', type: 'color' },
-  'botMessage.borderRadius':     { variable: '--cw-msg-bot-radius',    default: '16px',    type: 'number-px' },
+  'botMessage.borderRadius':     { variable: '--cw-msg-bot-radius',    default: '14px',    type: 'number-px' },
 
   // ── Bot Avatar ──────────────────────────────────────────────────────
   'botAvatar.backgroundColor':   { variable: '--cw-avatar-bot-bg',     default: '#e0e7ff', type: 'color' },
@@ -75,13 +75,13 @@ export const THEME_MAP: Record<string, ThemeMapEntry> = {
   'input.textColor':           { variable: '--cw-input-text',          default: '#1f2937', type: 'color' },
   'input.placeholderColor':    { variable: '--cw-input-placeholder',   default: '#9ca3af', type: 'color' },
   'input.borderColor':         { variable: '--cw-input-border',        default: '#e5e7eb', type: 'color' },
-  'input.borderRadius':        { variable: '--cw-input-radius',        default: '12px',    type: 'number-px' },
+  'input.borderRadius':        { variable: '--cw-input-radius',        default: '14px',    type: 'number-px' },
 
   // ── Send Button ─────────────────────────────────────────────────────
   'sendButton.backgroundColor':      { variable: '--cw-send-bg',       default: '#3b82f6', type: 'color' },
   'sendButton.hoverBackgroundColor': { variable: '--cw-send-hover-bg', default: '#2563eb', type: 'color' },
   'sendButton.iconColor':            { variable: '--cw-send-icon',     default: '#ffffff', type: 'color' },
-  'sendButton.borderRadius':         { variable: '--cw-send-radius',   default: '12px',    type: 'number-px' },
+  'sendButton.borderRadius':         { variable: '--cw-send-radius',   default: '14px',    type: 'number-px' },
 
   // ── Body / Chat Area ────────────────────────────────────────────────
   'body.backgroundColor':      { variable: '--cw-body-bg',             default: '#ffffff', type: 'color' },

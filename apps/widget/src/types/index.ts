@@ -26,6 +26,14 @@ export interface AgentConfig {
   name: string;
   greeting: string;
   starters: string[];
+  voiceEnabled?: boolean;
+  voiceConfig?: {
+    sttEnabled?: boolean;
+    ttsEnabled?: boolean;
+    defaultLanguage?: string;
+    supportedLanguages?: string[];
+    autoDetectLanguage?: boolean;
+  } | null;
 }
 
 /** Full widget configuration loaded from the API */

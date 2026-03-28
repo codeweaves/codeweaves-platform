@@ -26,7 +26,7 @@ interface EmbedCodeDialogProps {
 export function EmbedCodeDialog({ publicId, open, onOpenChange, trigger }: EmbedCodeDialogProps) {
   const [copied, setCopied] = useState(false);
 
-  const embedSnippet = `<script src="${WIDGET_URL}/widget.js" data-agent-id="${publicId}"></script>`;
+  const embedSnippet = `<script src="${WIDGET_URL}/${publicId}"></script>`;
 
   const handleCopy = async () => {
     await navigator.clipboard.writeText(embedSnippet);

@@ -16,6 +16,7 @@ import type { ComponentChild } from 'preact';
 import { resetCSS } from './styles/reset';
 import { themeCSS } from './styles/theme';
 import { componentCSS } from './styles/components';
+import tailwindCSS from './styles/tailwind.css?inline';
 
 // ── Constants ──────────────────────────────────────────────────────────
 
@@ -35,10 +36,12 @@ const SYSTEM_FONT_STACK =
 const CRITICAL_STYLES = [
   'position: fixed !important',
   'z-index: 2147483647 !important',
-  'bottom: calc(24px + env(safe-area-inset-bottom, 0px)) !important',
-  'right: calc(24px + env(safe-area-inset-right, 0px)) !important',
-  'width: auto !important',
-  'height: auto !important',
+  'top: 0 !important',
+  'left: 0 !important',
+  'right: 0 !important',
+  'bottom: 0 !important',
+  'width: 100% !important',
+  'height: 100% !important',
   'margin: 0 !important',
   'padding: 0 !important',
   'border: none !important',
@@ -51,7 +54,66 @@ const CRITICAL_STYLES = [
   'overflow: visible !important',
   'display: block !important',
   'visibility: visible !important',
+  'font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important',
+  'font-size: 14px !important',
+  'font-weight: 400 !important',
+  'font-style: normal !important',
+  'line-height: 1.5 !important',
+  'color: #1f2937 !important',
+  'text-transform: none !important',
+  'text-decoration: none !important',
+  'letter-spacing: normal !important',
+  'word-spacing: normal !important',
+  'text-shadow: none !important',
+  'text-align: left !important',
+  'white-space: normal !important',
+  'direction: ltr !important',
+  'cursor: default !important',
 ].join('; ');
+
+/**
+ * Apply critical styles using individual setProperty calls.
+ * This preserves CSS custom properties (--cw-*) already set on the element,
+ * unlike setAttribute('style', ...) which wipes the entire style attribute.
+ */
+function applyCriticalStyles(el: HTMLElement): void {
+  el.style.setProperty('position', 'fixed', 'important');
+  el.style.setProperty('z-index', '2147483647', 'important');
+  el.style.setProperty('top', '0', 'important');
+  el.style.setProperty('left', '0', 'important');
+  el.style.setProperty('right', '0', 'important');
+  el.style.setProperty('bottom', '0', 'important');
+  el.style.setProperty('width', '100%', 'important');
+  el.style.setProperty('height', '100%', 'important');
+  el.style.setProperty('margin', '0', 'important');
+  el.style.setProperty('padding', '0', 'important');
+  el.style.setProperty('border', 'none', 'important');
+  el.style.setProperty('background', 'transparent', 'important');
+  el.style.setProperty('pointer-events', 'none', 'important');
+  el.style.setProperty('isolation', 'isolate', 'important');
+  el.style.setProperty('transform', 'none', 'important');
+  el.style.setProperty('transition', 'opacity 0.2s ease-in', 'important');
+  el.style.setProperty('overflow', 'visible', 'important');
+  el.style.setProperty('display', 'block', 'important');
+  el.style.setProperty('visibility', 'visible', 'important');
+  el.style.setProperty('opacity', revealed ? '1' : '0', 'important');
+  // Block inherited CSS properties from host page (these leak through Shadow DOM)
+  el.style.setProperty('font-family', 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', 'important');
+  el.style.setProperty('font-size', '14px', 'important');
+  el.style.setProperty('font-weight', '400', 'important');
+  el.style.setProperty('font-style', 'normal', 'important');
+  el.style.setProperty('line-height', '1.5', 'important');
+  el.style.setProperty('color', '#1f2937', 'important');
+  el.style.setProperty('text-transform', 'none', 'important');
+  el.style.setProperty('text-decoration', 'none', 'important');
+  el.style.setProperty('letter-spacing', 'normal', 'important');
+  el.style.setProperty('word-spacing', 'normal', 'important');
+  el.style.setProperty('text-shadow', 'none', 'important');
+  el.style.setProperty('text-align', 'left', 'important');
+  el.style.setProperty('white-space', 'normal', 'important');
+  el.style.setProperty('direction', 'ltr', 'important');
+  el.style.setProperty('cursor', 'default', 'important');
+}
 
 // ── Module State ───────────────────────────────────────────────────────
 
@@ -110,10 +172,14 @@ function adoptStylesheets(root: ShadowRoot): void {
   const themeSheet = new CSSStyleSheet();
   themeSheet.replaceSync(themeCSS);
 
+  const twSheet = new CSSStyleSheet();
+  twSheet.replaceSync(tailwindCSS);
+
   const componentSheet = new CSSStyleSheet();
   componentSheet.replaceSync(componentCSS);
 
-  root.adoptedStyleSheets = [resetSheet, themeSheet, componentSheet];
+  // Order: reset → theme vars → tailwind utilities → component overrides
+  root.adoptedStyleSheets = [resetSheet, themeSheet, twSheet, componentSheet];
 }
 
 // ── Task 5: MutationObserver Protection ────────────────────────────────
@@ -127,10 +193,7 @@ function setupMutationObservers(hostEl: HTMLElement): void {
     for (const mutation of mutations) {
       if (mutation.type === 'attributes' && mutation.target === hostEl) {
         isReapplying = true;
-        const styles = revealed
-          ? CRITICAL_STYLES.replace('opacity: 0 !important', 'opacity: 1 !important')
-          : CRITICAL_STYLES;
-        hostEl.setAttribute('style', styles);
+        applyCriticalStyles(hostEl);
         requestAnimationFrame(() => {
           isReapplying = false;
         });
@@ -315,7 +378,7 @@ export function destroy(): void {
 export function revealWidget(): void {
   revealed = true;
   if (host) {
-    host.style.setProperty('opacity', '1', 'important');
+    applyCriticalStyles(host);
   }
 }
 

@@ -125,13 +125,12 @@ export function ChatWindow({
 
   // Voice configuration from theme (Story 5-20)
   const voiceConfig = useMemo(() => {
-    const voice = (theme as Record<string, unknown> | null)?.voice as Record<string, unknown> | undefined;
     return {
-      enabled: voice?.enabled === true,
-      language: typeof voice?.language === 'string' ? voice.language : undefined,
-      autoPlay: voice?.autoPlay !== false,
+      enabled: agentConfig.voiceEnabled === true,
+      language: agentConfig.voiceConfig?.defaultLanguage,
+      autoPlay: true,
     };
-  }, [theme]);
+  }, [agentConfig.voiceEnabled, agentConfig.voiceConfig]);
 
   // Typewriter buffer for progressive text display
   const typewriterBufferRef = useRef('');
@@ -258,7 +257,12 @@ export function ChatWindow({
 
   // Input disabled when loading/streaming, rate limited, or voice active
   const inputDisabled = loading || streaming || rateLimited || isVoiceActive;
-  const inputPlaceholder = rateLimited ? 'Please wait...' : undefined;
+  const themePlaceholder = useMemo(() => {
+    const input = theme?.input as Record<string, unknown> | undefined;
+    const text = typeof input?.placeholderText === 'string' ? input.placeholderText.trim() : '';
+    return text || undefined;
+  }, [theme]);
+  const inputPlaceholder = rateLimited ? 'Please wait...' : themePlaceholder;
 
   // Widget state handlers (write directly to store)
   const handleClose = useCallback(() => {

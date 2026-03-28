@@ -22,29 +22,24 @@ export interface ChatHeaderProps {
 
 /** Extract header-specific fields from theme */
 function getHeaderFields(theme: Record<string, unknown> | null): {
+  title: string;
   subtitle: string;
   logoUrl: string;
+  showLogo: boolean;
 } {
-  if (!theme) return { subtitle: '', logoUrl: '' };
+  if (!theme) return { title: '', subtitle: '', logoUrl: '', showLogo: false };
 
   const header = theme.header as Record<string, unknown> | undefined;
+  const title =
+    typeof header?.title === 'string' ? header.title.trim() : '';
   const subtitle =
     typeof header?.subtitle === 'string' ? header.subtitle.trim() : '';
   const rawLogoUrl =
     typeof header?.logoUrl === 'string' ? header.logoUrl.trim() : '';
   const logoUrl = rawLogoUrl && isSafeUrl(rawLogoUrl) ? rawLogoUrl : '';
+  const showLogo = header?.showLogo === true;
 
-  return { subtitle, logoUrl };
-}
-
-/** First-letter avatar fallback when no logo is provided */
-function LetterAvatar({ name }: { name: string }) {
-  const letter = name.charAt(0).toUpperCase() || '?';
-  return (
-    <div class="cw-header-avatar" aria-hidden="true">
-      {letter}
-    </div>
-  );
+  return { title, subtitle, logoUrl, showLogo };
 }
 
 /** Chat window header — displays agent info and window controls */
@@ -61,10 +56,10 @@ export const ChatHeader = forwardRef<HTMLDivElement, ChatHeaderProps>(
     },
     ref,
   ) {
-    const { subtitle, logoUrl } = getHeaderFields(theme);
+    const { title: themeTitle, subtitle, logoUrl, showLogo: showLogoConfig } = getHeaderFields(theme);
     const [logoFailed, setLogoFailed] = useState(false);
 
-    const showLogo = logoUrl && !logoFailed;
+    const showLogo = showLogoConfig && logoUrl && !logoFailed;
 
     return (
       <div
@@ -79,7 +74,7 @@ export const ChatHeader = forwardRef<HTMLDivElement, ChatHeaderProps>(
         style={isMinimized ? { cursor: 'pointer' } : undefined}
       >
         <div class="cw-header-info">
-          {showLogo ? (
+          {showLogo && (
             <img
               class="cw-header-logo"
               src={logoUrl}
@@ -87,11 +82,9 @@ export const ChatHeader = forwardRef<HTMLDivElement, ChatHeaderProps>(
               aria-hidden="true"
               onError={() => setLogoFailed(true)}
             />
-          ) : (
-            <LetterAvatar name={agentConfig.name} />
           )}
           <div class="cw-header-text">
-            <span class="cw-header-name">{agentConfig.name}</span>
+            <span class="cw-header-name">{themeTitle || agentConfig.name}</span>
             {subtitle && (
               <span class="cw-header-subtitle">{subtitle}</span>
             )}
@@ -108,13 +101,18 @@ export const ChatHeader = forwardRef<HTMLDivElement, ChatHeaderProps>(
               <svg
                 width="16"
                 height="16"
-                viewBox="0 0 16 16"
+                viewBox="0 0 24 24"
                 fill="none"
                 stroke="currentColor"
                 stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
                 aria-hidden="true"
               >
-                <path d="M3 8h10" />
+                <polyline points="4 14 10 14 10 20" />
+                <polyline points="20 10 14 10 14 4" />
+                <line x1="14" y1="10" x2="21" y2="3" />
+                <line x1="3" y1="21" x2="10" y2="14" />
               </svg>
             </button>
           )}

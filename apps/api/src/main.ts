@@ -54,11 +54,10 @@ async function bootstrap() {
     SwaggerModule.setup('api/docs', app, document);
   }
 
-  // Enable CORS for frontend
-  app.enableCors({
-    origin: process.env.CORS_ORIGIN || 'http://localhost:3000',
-    credentials: true,
-  });
+  // CORS is handled entirely by middleware:
+  // - WidgetCorsMiddleware: public routes → per-agent allowedDomains validation
+  // - DashboardCorsMiddleware: authenticated routes → dashboard origin only
+  // Do NOT use app.enableCors() — it conflicts with per-route middleware.
 
   const port = process.env.PORT || 3001;
   await app.listen(port);
