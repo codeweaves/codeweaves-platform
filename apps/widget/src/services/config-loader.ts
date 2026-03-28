@@ -12,7 +12,7 @@ import { debug, warn } from '../utils/debug';
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const DEFAULT_TTL_MS = import.meta.env.DEV ? 0 : 300_000; // 0 in dev, 5 minutes in production
+const DEFAULT_TTL_MS = 0; // TODO: restore to 300_000 (5 min) for production
 const FETCH_TIMEOUT_MS = 5_000;
 
 const KEY_CONFIG = (id: string) => `cw_config_${id}`;
