@@ -1,4 +1,4 @@
-import { useState } from 'preact/hooks';
+import { useState, useEffect } from 'preact/hooks';
 import { forwardRef } from 'preact/compat';
 import type { AgentConfig } from '../types';
 import { isSafeUrl } from '../utils/url';
@@ -58,6 +58,9 @@ export const ChatHeader = forwardRef<HTMLDivElement, ChatHeaderProps>(
   ) {
     const { title: themeTitle, subtitle, logoUrl, showLogo: showLogoConfig } = getHeaderFields(theme);
     const [logoFailed, setLogoFailed] = useState(false);
+
+    // Reset failure state when the logo URL changes (e.g. theme update)
+    useEffect(() => { setLogoFailed(false); }, [logoUrl]);
 
     const showLogo = showLogoConfig && logoUrl && !logoFailed;
 

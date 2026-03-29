@@ -12,7 +12,10 @@ import { debug, warn } from '../utils/debug';
 
 // ── Constants ────────────────────────────────────────────────────────
 
-const DEFAULT_TTL_MS = 0; // TODO: restore to 300_000 (5 min) for production
+// Cache TTL intentionally set to 0 during development/testing in hosted env.
+// This ensures config changes are immediately reflected without stale cache.
+// TODO: restore to 300_000 (5 min) for production release.
+const DEFAULT_TTL_MS = 0;
 const FETCH_TIMEOUT_MS = 5_000;
 
 const KEY_CONFIG = (id: string) => `cw_config_${id}`;

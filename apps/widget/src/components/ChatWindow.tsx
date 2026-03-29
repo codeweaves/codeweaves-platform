@@ -126,9 +126,9 @@ export function ChatWindow({
   // Voice configuration from theme (Story 5-20)
   const voiceConfig = useMemo(() => {
     return {
-      enabled: agentConfig.voiceEnabled === true,
+      enabled: agentConfig.voiceEnabled === true && agentConfig.voiceConfig?.sttEnabled !== false,
       language: agentConfig.voiceConfig?.defaultLanguage,
-      autoPlay: true,
+      autoPlay: agentConfig.voiceConfig?.ttsEnabled !== false,
     };
   }, [agentConfig.voiceEnabled, agentConfig.voiceConfig]);
 

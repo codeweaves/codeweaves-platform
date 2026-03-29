@@ -108,7 +108,9 @@ export async function sendVoiceMessage(
       headers['X-Session-Id'] = resolvedSessionId;
     }
 
-    const response = await fetch(`${baseUrl}/api/codeweaves/v1/public/voice/conversation`, {
+    // Include agentId as query parameter so the CORS middleware can validate
+    // the origin against the agent's allowedDomains (multipart body isn't parsed in middleware)
+    const response = await fetch(`${baseUrl}/api/codeweaves/v1/public/voice/conversation?agentId=${encodeURIComponent(agentId)}`, {
       method: 'POST',
       headers,
       body: formData,

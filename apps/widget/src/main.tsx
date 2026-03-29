@@ -20,7 +20,12 @@ let originalReplaceState: typeof history.replaceState | null = null;
 let popstateHandler: (() => void) | null = null;
 let navigationHandler: (() => void) | null = null;
 
-/** Resolve API base URL: VITE_API_BASE_URL env var (baked at build time) */
+/**
+ * Resolve API base URL: VITE_API_BASE_URL env var (baked at build time).
+ * Returns empty string when unset, which causes requests to go to the embed
+ * page's origin — correct for production (widget served from same origin as API).
+ * For local dev, set VITE_API_BASE_URL in .env to point at the API server.
+ */
 function resolveApiBaseUrl(): string {
   return import.meta.env.VITE_API_BASE_URL ?? '';
 }

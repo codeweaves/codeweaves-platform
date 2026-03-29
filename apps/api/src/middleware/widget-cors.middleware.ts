@@ -75,6 +75,7 @@ export class WidgetCorsMiddleware implements NestMiddleware {
 
   private setCorsHeaders(res: Response, origin: string, credentials: boolean): void {
     res.setHeader('Access-Control-Allow-Origin', origin);
+    res.setHeader('Vary', 'Origin');
     res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
     res.setHeader(
       'Access-Control-Allow-Headers',
@@ -110,10 +111,16 @@ export class WidgetCorsMiddleware implements NestMiddleware {
     }
 
     // Voice endpoints use multipart/form-data — body not parsed yet in middleware.
-    // Fall through to preflight-style handling for these routes; the actual request
-    // will be validated by the controller after multer parses the body.
+    // Try to read agentId from query parameter (widget sends ?agentId=xxx).
+    // If not available, fall through to preflight-style handling; the voice controller
+    // validates the agent after multer parses the body, so this is defense-in-depth only.
     const isVoiceRoute = url.includes('/public/voice/');
     if (req.method === 'POST' && isVoiceRoute) {
+      const queryAgentId = req.query?.agentId;
+      if (typeof queryAgentId === 'string' && queryAgentId.trim()) {
+        return queryAgentId.trim();
+      }
+      // No agentId in query — allow through; controller enforces agent validation
       return '__preflight__';
     }
 

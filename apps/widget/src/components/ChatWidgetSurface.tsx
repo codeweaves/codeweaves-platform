@@ -27,8 +27,6 @@ import { useVoice } from '../hooks/useVoice';
 import { isSafeUrl } from '../utils/url';
 import type { AgentConfig } from '../types';
 
-const MOBILE_BREAKPOINT = 480;
-
 export interface ChatWidgetSurfaceProps {
   agentId: string;
   agentConfig: AgentConfig;
@@ -102,7 +100,6 @@ function formatTimestamp(ts: Date): string {
 export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: ChatWidgetSurfaceProps) {
   const [inputValue, setInputValue] = useState('');
   const [isWindowMinimized, setIsWindowMinimized] = useState(false);
-  const [, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
@@ -246,13 +243,6 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
       ...msgs,
     ];
   }, [greeting, msgs]);
-
-  // Mobile detection
-  useEffect(() => {
-    const check = () => setIsMobile(window.innerWidth < MOBILE_BREAKPOINT);
-    window.addEventListener('resize', check);
-    return () => window.removeEventListener('resize', check);
-  }, []);
 
   // Auto-scroll
   useEffect(() => {
@@ -509,12 +499,14 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
               )}
               <button
                 onClick={handleSend}
+                disabled={loading || streaming || rateLimited || isVoiceActive}
                 aria-label="Send message"
                 class="flex h-10 w-10 items-center justify-center p-0"
                 style={{
                   backgroundColor: str(sendBtn, 'backgroundColor', '#3b82f6'),
                   borderRadius: `${num(sendBtn, 'borderRadius', 14)}px`,
                   color: str(sendBtn, 'iconColor', '#ffffff'),
+                  opacity: (loading || streaming || rateLimited || isVoiceActive) ? 0.5 : 1,
                 }}
               >
                 <SendIcon class="h-4 w-4" />

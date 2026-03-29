@@ -340,7 +340,7 @@ export class AgentsService {
           name: agent.name,
           greeting: agent.welcomeMessage ?? '',
           starters,
-          voiceEnabled: agent.voiceEnabled,
+          voiceEnabled: agent.voiceEnabled && !!agent.voiceConfig,
           voiceConfig: agent.voiceEnabled && agent.voiceConfig
             ? this.sanitizeVoiceConfigForWidget(agent.voiceConfig as Record<string, unknown>)
             : null,
