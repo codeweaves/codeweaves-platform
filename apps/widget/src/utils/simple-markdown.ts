@@ -66,7 +66,7 @@ export function renderMarkdown(text: string): string {
         htmlParts.push('<ul style="list-style:disc;padding-left:1.25rem;margin:0.25rem 0;">');
         inUl = true;
       }
-      htmlParts.push(`<li style="margin:2px 0;">${parseInline(ulMatch[1])}</li>`);
+      htmlParts.push(`<li style="margin:2px 0;">${parseInline(ulMatch[1]!)}</li>`);
       continue;
     }
 
@@ -78,7 +78,7 @@ export function renderMarkdown(text: string): string {
         htmlParts.push('<ol style="list-style:decimal;padding-left:1.25rem;margin:0.25rem 0;">');
         inOl = true;
       }
-      htmlParts.push(`<li style="margin:2px 0;">${parseInline(olMatch[1])}</li>`);
+      htmlParts.push(`<li style="margin:2px 0;">${parseInline(olMatch[1]!)}</li>`);
       continue;
     }
 
