@@ -299,7 +299,7 @@ describe('PublicChatController', () => {
       await controller.stream(dto, req, res);
 
       expect(mockChatService.resolveAgent).toHaveBeenCalledWith(dto.agentId);
-      expect(mockChatService.resolveOrCreateSession).toHaveBeenCalledWith(dto.agentId, undefined);
+      expect(mockChatService.resolveOrCreateSession).toHaveBeenCalledWith(mockAgent.id, undefined);
       expect(mockAgentsService.getEffectiveWebhookUrl).toHaveBeenCalledWith(mockAgent.id);
     });
 

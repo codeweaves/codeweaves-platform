@@ -20,13 +20,52 @@ let originalReplaceState: typeof history.replaceState | null = null;
 let popstateHandler: (() => void) | null = null;
 let navigationHandler: (() => void) | null = null;
 
+/**
+ * Resolve API base URL: VITE_API_BASE_URL env var (baked at build time).
+ * Returns empty string when unset, which causes requests to go to the embed
+ * page's origin — correct for production (widget served from same origin as API).
+ * For local dev, set VITE_API_BASE_URL in .env to point at the API server.
+ */
+function resolveApiBaseUrl(): string {
+  return import.meta.env.VITE_API_BASE_URL ?? '';
+}
+
+/**
+ * Extract agent ID from the script src URL path.
+ * Production URL: https://widget.codeweaves.com/<agentId>
+ * Fallback: data-agent-id attribute (for dev / Vite)
+ */
+function resolveAgentId(script: HTMLOrSVGScriptElement | Element | null): string | null {
+  // 1. Try extracting from script src URL path (production pattern)
+  if (script && 'src' in script) {
+    const src = (script as HTMLScriptElement).src;
+    if (src) {
+      try {
+        const url = new URL(src);
+        // Last non-empty segment of the path = agent ID
+        const segments = url.pathname.split('/').filter(Boolean);
+        const lastSegment = segments[segments.length - 1];
+        // Skip if it looks like a JS file (dev mode: /src/main.tsx)
+        if (lastSegment && !lastSegment.includes('.')) {
+          return lastSegment;
+        }
+      } catch {
+        // Invalid URL — fall through to data attribute
+      }
+    }
+  }
+
+  // 2. Fallback: data-agent-id attribute (dev mode)
+  return script?.getAttribute?.('data-agent-id')?.trim() || null;
+}
+
 // ── Task 1: IIFE entry with singleton guard + script tag reading ──────
 
 (function autoInit() {
   // Task 1a: Singleton guard
   if (window.__codeweaves_loaded) return;
 
-  // Task 1c/1d: Read data-agent-id from script tag
+  // Task 1c/1d: Read agent ID from script src URL or data attribute
   const script = document.currentScript || document.querySelector('script[data-agent-id]');
 
   // Task 7: Detect debug mode (data-debug attribute or Vite dev mode)
@@ -35,12 +74,12 @@ let navigationHandler: (() => void) | null = null;
     enableDebug();
   }
 
-  const agentId = script?.getAttribute('data-agent-id')?.trim() || null;
-  const apiBaseUrl = script?.getAttribute('data-api-url')?.trim() || '';
+  const agentId = resolveAgentId(script);
+  const apiBaseUrl = resolveApiBaseUrl();
 
   // Task 6: Handle missing agent-id gracefully
   if (!agentId) {
-    warn('Missing data-agent-id attribute on script tag');
+    warn('Missing agent ID — use <script src="https://widget.codeweaves.com/<agentId>"> or data-agent-id attribute');
     // Expose stub API so programmatic init is still possible
     exposeStubAPI();
     return;
@@ -74,11 +113,7 @@ function onReady(callback: () => void): void {
 
 // ── Core initialization (used by auto-init and programmatic init) ─────
 
-// Track apiBaseUrl for re-init scenarios
-let currentApiBaseUrl = '';
-
 function initWidget(agentId: string, apiBaseUrl: string = ''): void {
-  currentApiBaseUrl = apiBaseUrl;
   onReady(() => bootstrap(agentId, apiBaseUrl));
 }
 
@@ -140,7 +175,7 @@ function exposeStubAPI(): void {
 }
 
 /** Programmatic init — alternative to data-agent-id attribute (for SPAs). */
-function programmaticInit(agentId: string, apiBaseUrl?: string): void {
+function programmaticInit(agentId: string): void {
   if (!agentId || typeof agentId !== 'string') {
     warn('init() requires a non-empty agentId string');
     return;
@@ -158,7 +193,7 @@ function programmaticInit(agentId: string, apiBaseUrl?: string): void {
     fullDestroy();
   }
 
-  initWidget(trimmed, apiBaseUrl ?? currentApiBaseUrl);
+  initWidget(trimmed, resolveApiBaseUrl());
 }
 
 // ── Task 5 (destroy): Full cleanup ───────────────────────────────────

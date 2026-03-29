@@ -88,10 +88,14 @@ export class VoiceController {
       return audioValidationError;
     }
 
+    // Resolve publicId → internal UUID (widget sends publicId, not UUID)
+    const agent = await this.chatService.resolveAgent(dto.agentId);
+    const resolvedAgentId = agent.id;
+
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
-      dto.agentId,
+      resolvedAgentId,
     );
     if (!rateLimitResult.allowed) {
       res.status(HttpStatus.TOO_MANY_REQUESTS);
@@ -113,14 +117,14 @@ export class VoiceController {
         audio: audioFile.buffer,
         audioFormat: audioFile.mimetype,
         languageHint: dto.languageHint as SupportedLanguage | undefined,
-        agentId: dto.agentId,
+        agentId: resolvedAgentId,
       });
     } catch (error) {
       const { errorCode, status } = this.classifyVoiceError(error);
       this.reportVoiceErrorToSentry(error, {
         provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
         language: dto.languageHint ?? 'unknown',
-        agentId: dto.agentId,
+        agentId: resolvedAgentId,
         operation: 'stt',
         errorType: 'stt_failure',
       });
@@ -148,11 +152,11 @@ export class VoiceController {
     let webhookUrl: string | null = null;
     if (clientAcceptsNdjson) {
       try {
-        webhookUrl = await this.agentsService.getEffectiveWebhookUrl(dto.agentId);
+        webhookUrl = await this.agentsService.getEffectiveWebhookUrl(resolvedAgentId);
       } catch (error) {
         if (!(error instanceof NotFoundException)) {
           this.logger.error(
-            `Failed to fetch webhook URL for agent ${dto.agentId}: ${error instanceof Error ? error.message : 'unknown'}`,
+            `Failed to fetch webhook URL for agent ${resolvedAgentId}: ${error instanceof Error ? error.message : 'unknown'}`,
           );
         }
         // No webhook URL or error — fall through to legacy sequential path
@@ -161,17 +165,17 @@ export class VoiceController {
 
     let voiceConfig: VoiceConfigDto;
     try {
-      voiceConfig = await this.voiceService.getVoiceConfig(dto.agentId);
+      voiceConfig = await this.voiceService.getVoiceConfig(resolvedAgentId);
     } catch (error) {
       this.logger.warn(
-        `Failed to fetch voice config for agent ${dto.agentId}, defaulting to TTS enabled: ${error instanceof Error ? error.message : 'unknown'}`,
+        `Failed to fetch voice config for agent ${resolvedAgentId}, defaulting to TTS enabled: ${error instanceof Error ? error.message : 'unknown'}`,
       );
       voiceConfig = { ttsEnabled: true } as VoiceConfigDto;
     }
 
     if (webhookUrl && voiceConfig.ttsEnabled !== false && clientAcceptsNdjson) {
       await this.handleStreamingVoice(
-        dto, sttResult, sttLatencyMs, webhookUrl, voiceConfig, startTime, res,
+        dto, sttResult, sttLatencyMs, webhookUrl, voiceConfig, startTime, res, resolvedAgentId,
       );
       return;
     }
@@ -181,18 +185,18 @@ export class VoiceController {
     let chatResult;
     try {
       chatResult = await this.chatService.sendMessage({
-        agentId: dto.agentId,
+        agentId: resolvedAgentId,
         chatInput: sttResult.transcript,
         sessionId: dto.sessionId,
       });
     } catch (error) {
       this.logger.error(
-        `Chat service failed for agent ${dto.agentId}: ${error instanceof Error ? error.message : 'unknown'}`,
+        `Chat service failed for agent ${resolvedAgentId}: ${error instanceof Error ? error.message : 'unknown'}`,
       );
       this.reportVoiceErrorToSentry(error, {
         provider: 'chat',
         language: sttResult.detectedLanguage,
-        agentId: dto.agentId,
+        agentId: resolvedAgentId,
         operation: 'stt',
         errorType: 'chat_failure',
       });
@@ -219,7 +223,7 @@ export class VoiceController {
         const ttsResult = await this.voiceService.synthesize({
           text: chatResult.reply,
           language: sttResult.detectedLanguage,
-          agentId: dto.agentId,
+          agentId: resolvedAgentId,
         });
         ttsLatencyMs = Date.now() - ttsStart;
         ttsAudio = ttsResult.audio.toString('base64');
@@ -234,7 +238,7 @@ export class VoiceController {
           {
             provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
             language: sttResult.detectedLanguage,
-            agentId: dto.agentId,
+            agentId: resolvedAgentId,
             operation: 'tts',
             errorType: 'tts_failure',
             fallbackAttempted: true,
@@ -246,7 +250,7 @@ export class VoiceController {
           message: 'Voice playback unavailable',
         };
         this.logger.warn(
-          `TTS failed for agent ${dto.agentId}, returning text-only response: ${error instanceof Error ? error.message : 'unknown'}`,
+          `TTS failed for agent ${resolvedAgentId}, returning text-only response: ${error instanceof Error ? error.message : 'unknown'}`,
         );
       }
     }
@@ -339,10 +343,13 @@ export class VoiceController {
       return audioValidationError;
     }
 
+    const agent = await this.chatService.resolveAgent(dto.agentId);
+    const resolvedAgentId = agent.id;
+
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
-      dto.agentId,
+      resolvedAgentId,
     );
     if (!rateLimitResult.allowed) {
       res.status(HttpStatus.TOO_MANY_REQUESTS);
@@ -359,7 +366,7 @@ export class VoiceController {
         audio: audioFile.buffer,
         audioFormat: audioFile.mimetype,
         languageHint: dto.languageHint as SupportedLanguage | undefined,
-        agentId: dto.agentId,
+        agentId: resolvedAgentId,
       });
 
       return {
@@ -373,7 +380,7 @@ export class VoiceController {
       this.reportVoiceErrorToSentry(error, {
         provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
         language: dto.languageHint ?? 'unknown',
-        agentId: dto.agentId,
+        agentId: resolvedAgentId,
         operation: 'stt',
         errorType: 'stt_failure',
       });
@@ -396,10 +403,13 @@ export class VoiceController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    const agent = await this.chatService.resolveAgent(dto.agentId);
+    const resolvedAgentId = agent.id;
+
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
-      dto.agentId,
+      resolvedAgentId,
     );
     if (!rateLimitResult.allowed) {
       res.status(HttpStatus.TOO_MANY_REQUESTS);
@@ -417,7 +427,7 @@ export class VoiceController {
         language: dto.language as SupportedLanguage,
         voiceId: dto.voiceId,
         speed: dto.speed,
-        agentId: dto.agentId,
+        agentId: resolvedAgentId,
       });
 
       return {
@@ -431,7 +441,7 @@ export class VoiceController {
       this.reportVoiceErrorToSentry(error, {
         provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
         language: dto.language,
-        agentId: dto.agentId,
+        agentId: resolvedAgentId,
         operation: 'tts',
         errorType: 'tts_failure',
       });
@@ -459,9 +469,10 @@ export class VoiceController {
     voiceConfig: VoiceConfigDto,
     startTime: number,
     res: Response,
+    resolvedAgentId: string,
   ): Promise<void> {
     // Resolve session for message storage
-    const session = await this.chatService.resolveOrCreateSession(dto.agentId, dto.sessionId);
+    const session = await this.chatService.resolveOrCreateSession(resolvedAgentId, dto.sessionId);
     const userMessage = await this.chatService.saveUserMessage(session.id, sttResult.transcript);
 
     // Set chunked response headers
@@ -521,7 +532,7 @@ export class VoiceController {
       const voiceStream = this.voiceService.streamingTTS(
         tokenStream,
         sttResult.detectedLanguage,
-        dto.agentId,
+        resolvedAgentId,
         voiceConfig,
       );
 
@@ -543,12 +554,12 @@ export class VoiceController {
     } catch (error) {
       if (!closed) {
         this.logger.error(
-          `Streaming voice failed for agent ${dto.agentId}: ${error instanceof Error ? error.message : 'unknown'}`,
+          `Streaming voice failed for agent ${resolvedAgentId}: ${error instanceof Error ? error.message : 'unknown'}`,
         );
         this.reportVoiceErrorToSentry(error, {
           provider: 'streaming',
           language: sttResult.detectedLanguage,
-          agentId: dto.agentId,
+          agentId: resolvedAgentId,
           operation: 'tts',
           errorType: 'streaming_voice_failure',
         });

@@ -22,6 +22,8 @@ import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { UserSyncGuard } from '../guards/user-sync.guard';
 import { RateLimitGuard } from '../guards/rate-limit.guard';
 import { CorrelationIdMiddleware } from '../middleware/correlation-id.middleware';
+import { WidgetCorsMiddleware } from '../middleware/widget-cors.middleware';
+import { DashboardCorsMiddleware } from '../middleware/dashboard-cors.middleware';
 import { LoggingInterceptor } from '../interceptors/logging.interceptor';
 import { SentryInterceptor } from '../common/sentry/sentry.interceptor';
 import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
@@ -80,5 +82,10 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
 export class AppModule implements NestModule {
   configure(consumer: MiddlewareConsumer) {
     consumer.apply(CorrelationIdMiddleware).forRoutes('*');
+    consumer.apply(WidgetCorsMiddleware).forRoutes('public/*');
+    consumer
+      .apply(DashboardCorsMiddleware)
+      .exclude('public/(.*)')
+      .forRoutes('*');
   }
 }

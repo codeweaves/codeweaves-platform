@@ -24,28 +24,29 @@ export const componentCSS = `
 
 .cw-trigger-button {
   pointer-events: auto;
-  width: var(--cw-trigger-size, 64px);
-  height: var(--cw-trigger-size, 64px);
-  border-radius: var(--cw-trigger-radius, 50%);
+  width: var(--cw-icon-size, 56px);
+  height: var(--cw-icon-size, 56px);
+  border-radius: var(--cw-icon-radius, 50%);
   border: none;
   cursor: pointer;
-  background: var(--cw-trigger-bg, #3b82f6);
-  color: var(--cw-trigger-fg, #ffffff);
-  box-shadow: var(--cw-trigger-shadow, 0 4px 12px rgba(0, 0, 0, 0.15));
+  background: var(--cw-icon-bg, #3b82f6);
+  color: #ffffff;
+  box-shadow: var(--cw-icon-shadow, 0 4px 12px rgba(0, 0, 0, 0.15));
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
-  transition: transform 150ms ease;
+  transition: background 150ms ease, transform 150ms ease;
   outline: none;
 }
 
 .cw-trigger-button:hover {
+  background: var(--cw-icon-hover-bg, #2563eb);
   transform: scale(1.1);
 }
 
 .cw-trigger-button:focus-visible {
-  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline: 2px solid var(--cw-icon-bg, #3b82f6);
   outline-offset: 2px;
 }
 
@@ -91,15 +92,15 @@ export const componentCSS = `
   height: var(--cw-chat-height, 520px);
   max-height: var(--cw-chat-max-height, 80vh);
   background: var(--cw-background, #ffffff);
-  border-radius: var(--cw-chat-radius, 12px);
-  border: 1px solid var(--cw-border, #e5e7eb);
-  box-shadow: 0 8px 30px rgba(0, 0, 0, 0.2);
+  border-radius: var(--cw-header-radius, 14px);
+  border: none;
+  box-shadow: 0 25px 50px rgba(0, 0, 0, 0.25);
   display: flex;
   flex-direction: column;
   overflow: hidden;
   overscroll-behavior: contain;
   position: absolute;
-  bottom: calc(var(--cw-trigger-size, 64px) + 12px);
+  bottom: calc(var(--cw-icon-size, 56px) + 12px);
   right: 0;
 }
 
@@ -170,12 +171,12 @@ export const componentCSS = `
   .cw-chat-window.cw-chat-mobile.cw-chat-window--minimized {
     position: absolute;
     top: auto;
-    bottom: calc(var(--cw-trigger-size, 64px) + 12px);
+    bottom: calc(var(--cw-icon-size, 56px) + 12px);
     width: var(--cw-chat-width, 380px);
     max-width: calc(100vw - 16px);
     height: 80px;
     max-height: 80px;
-    border-radius: var(--cw-chat-radius, 12px);
+    border-radius: var(--cw-header-radius, 14px);
     padding-top: 0;
     padding-bottom: 0;
   }
@@ -195,18 +196,18 @@ export const componentCSS = `
   display: flex;
   align-items: center;
   justify-content: space-between;
-  height: var(--cw-header-height, 56px);
-  min-height: var(--cw-header-height, 56px);
-  padding: 0 12px;
+  height: var(--cw-header-height, 80px);
+  min-height: var(--cw-header-height, 80px);
+  padding: 0 16px;
   background: var(--cw-header-bg, #3b82f6);
   color: var(--cw-header-fg, #ffffff);
-  border-radius: var(--cw-chat-radius, 12px) var(--cw-chat-radius, 12px) 0 0;
+  border-radius: var(--cw-header-radius, 14px) var(--cw-header-radius, 14px) 0 0;
   flex-shrink: 0;
 }
 
 /* When minimized, header gets full border-radius */
 .cw-chat-window--minimized .cw-chat-header {
-  border-radius: var(--cw-chat-radius, 12px);
+  border-radius: var(--cw-header-radius, 14px);
 }
 
 @media (max-width: 479px) {
@@ -224,10 +225,10 @@ export const componentCSS = `
 }
 
 .cw-header-logo {
-  max-height: 32px;
-  width: auto;
-  border-radius: 4px;
-  object-fit: contain;
+  height: 48px;
+  width: 48px;
+  border-radius: 50%;
+  object-fit: cover;
   flex-shrink: 0;
 }
 
@@ -253,7 +254,7 @@ export const componentCSS = `
 
 .cw-header-name {
   font-weight: 600;
-  font-size: 15px;
+  font-size: 18px;
   line-height: 1.2;
   white-space: nowrap;
   overflow: hidden;
@@ -263,8 +264,8 @@ export const componentCSS = `
 .cw-header-subtitle {
   font-size: 12px;
   line-height: 1.2;
-  opacity: 0.85;
-  color: var(--cw-header-subtitle, #e0e7ff);
+  opacity: 0.9;
+  color: var(--cw-header-subtitle, inherit);
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -313,15 +314,17 @@ export const componentCSS = `
   overflow-y: auto;
   overscroll-behavior: contain;
   -webkit-overflow-scrolling: touch;
-  background: var(--cw-chat-bg, var(--cw-body-bg, var(--cw-background, #ffffff)));
-  padding: 16px;
+  background: var(--cw-body-bg, #F9FAFB);
+  padding: 20px;
+  scrollbar-width: thin;
+  scrollbar-color: #E5E7EB transparent;
 }
 
 .cw-message-area-inner {
   min-height: 100%;
   display: flex;
   flex-direction: column;
-  gap: 12px;
+  gap: 16px;
 }
 
 /* ── Message Bubbles ──────────────────────────────────────────────── */
@@ -329,7 +332,7 @@ export const componentCSS = `
 .cw-msg {
   display: flex;
   align-items: flex-end;
-  gap: 8px;
+  gap: 12px;
   max-width: 100%;
 }
 
@@ -343,14 +346,14 @@ export const componentCSS = `
 
 /* Avatar */
 .cw-msg-avatar {
-  width: 32px;
-  height: 32px;
-  min-width: 32px;
+  width: 40px;
+  height: 40px;
+  min-width: 40px;
   border-radius: 50%;
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 13px;
+  font-size: 14px;
   font-weight: 600;
   flex-shrink: 0;
 }
@@ -382,7 +385,7 @@ export const componentCSS = `
 
 /* Content wrapper */
 .cw-msg-content {
-  max-width: 80%;
+  max-width: 70%;
   min-width: 0;
   overflow: hidden;
 }
@@ -395,23 +398,23 @@ export const componentCSS = `
 
 /* Bubble */
 .cw-msg-bubble {
-  padding: 10px 14px;
+  padding: 12px 16px;
   word-break: break-word;
   overflow-wrap: break-word;
   white-space: pre-wrap;
-  line-height: 1.45;
+  line-height: 1.625;
 }
 
 .cw-msg-user .cw-msg-bubble {
   background: var(--cw-msg-user-bg, #3b82f6);
   color: var(--cw-msg-user-fg, var(--cw-msg-user-text, #ffffff));
-  border-radius: var(--cw-msg-user-radius, 16px) var(--cw-msg-user-radius, 16px) 4px var(--cw-msg-user-radius, 16px);
+  border-radius: var(--cw-msg-user-radius, 14px);
 }
 
 .cw-msg-bot .cw-msg-bubble {
   background: var(--cw-msg-bot-bg, #f3f4f6);
   color: var(--cw-msg-bot-fg, var(--cw-msg-bot-text, #1f2937));
-  border-radius: var(--cw-msg-bot-radius, 16px) var(--cw-msg-bot-radius, 16px) var(--cw-msg-bot-radius, 16px) 4px;
+  border-radius: var(--cw-msg-bot-radius, 14px);
 }
 
 /* Message text — explicit resets for host page inheritance */
@@ -461,24 +464,25 @@ export const componentCSS = `
 .cw-typing-bubble {
   display: flex;
   align-items: center;
-  gap: 5px;
-  padding: 12px 16px;
+  gap: 4px;
+  padding: 8px 16px;
+  background: #ffffff !important;
 }
 
 .cw-typing-dot {
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: var(--cw-msg-bot-fg, var(--cw-msg-bot-text, #1f2937));
-  animation: cw-bounce 1.2s infinite;
+  background: #9ca3af;
+  animation: cw-bounce 1s infinite;
 }
 
 .cw-typing-dot:nth-child(2) {
-  animation-delay: 0.15s;
+  animation-delay: 0.1s;
 }
 
 .cw-typing-dot:nth-child(3) {
-  animation-delay: 0.3s;
+  animation-delay: 0.2s;
 }
 
 @keyframes cw-bounce {
@@ -496,15 +500,15 @@ export const componentCSS = `
 /* ── Branding Footer (Story 5-23) ──────────────────────────────────── */
 
 .cw-branding {
-  padding: 6px 12px;
+  padding: 8px 16px;
   text-align: center;
-  border-top: 1px solid var(--cw-border, #e5e7eb);
-  background: var(--cw-body-bg, #ffffff);
+  border-top: 1px solid #f3f4f6;
+  background: #f9fafb;
 }
 
 .cw-branding-text {
   margin: 0;
-  font-size: 11px;
+  font-size: 12px;
   line-height: 1.4;
   color: var(--cw-branding-text, #9ca3af);
 }
@@ -535,8 +539,8 @@ export const componentCSS = `
 .cw-chat-input {
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding: 10px 12px;
+  gap: 12px;
+  padding: 16px;
   border-top: 1px solid var(--cw-border, #e5e7eb);
   background: var(--cw-input-bg, #ffffff);
 }
@@ -544,16 +548,16 @@ export const componentCSS = `
 .cw-chat-input-field {
   pointer-events: auto;
   flex: 1;
-  height: 38px;
-  padding: 0 12px;
+  height: 40px;
+  padding: 0 16px;
   border: 1px solid var(--cw-input-border, #e5e7eb);
-  border-radius: var(--cw-input-radius, 12px);
+  border-radius: var(--cw-input-radius, 14px);
   background: var(--cw-input-bg, #ffffff);
   color: var(--cw-input-fg, var(--cw-input-text, #1f2937));
   font-family: inherit;
   font-size: inherit;
   outline: none;
-  transition: border-color 150ms ease;
+  transition: border-color 150ms ease, box-shadow 150ms ease;
 }
 
 .cw-chat-input-field::placeholder {
@@ -561,15 +565,16 @@ export const componentCSS = `
 }
 
 .cw-chat-input-field:focus {
-  border-color: var(--cw-primary, #3b82f6);
+  border-color: var(--cw-send-bg, #3b82f6);
+  box-shadow: 0 0 0 2px rgba(59, 130, 246, 0.15);
 }
 
 .cw-chat-send-btn {
   pointer-events: auto;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border: none;
-  border-radius: var(--cw-send-radius, 12px);
+  border-radius: var(--cw-send-radius, 14px);
   background: var(--cw-send-bg, #3b82f6);
   color: var(--cw-send-icon, #ffffff);
   cursor: pointer;
@@ -598,10 +603,10 @@ export const componentCSS = `
 /* Stop button — shown during active streaming (Story 5-19) */
 .cw-chat-stop-btn {
   pointer-events: auto;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border: none;
-  border-radius: var(--cw-send-radius, 12px);
+  border-radius: var(--cw-send-radius, 14px);
   background: var(--cw-stop-bg, #ef4444);
   color: var(--cw-stop-icon, #ffffff);
   cursor: pointer;
@@ -630,12 +635,17 @@ export const componentCSS = `
   background: var(--cw-bubble-bg, #ffffff);
   color: var(--cw-bubble-fg, #1f2937);
   box-shadow: var(--cw-bubble-shadow, 0 4px 16px rgba(0, 0, 0, 0.12));
-  border-radius: var(--cw-bubble-radius, var(--cw-border-radius, 0.5rem));
-  padding: 10px 32px 10px 14px;
-  max-width: 280px;
+  border-radius: 16px;
+  padding: 12px 40px 12px 16px;
+  max-width: 320px;
   margin-bottom: 12px;
   cursor: pointer;
   word-break: break-word;
+  transition: transform 150ms ease;
+}
+
+.cw-bubble-notification:hover {
+  transform: scale(1.05);
 }
 
 @media (max-width: 320px) {
@@ -652,7 +662,8 @@ export const componentCSS = `
   overflow: hidden;
   text-overflow: ellipsis;
   line-height: 1.4;
-  font-size: 13px;
+  font-size: 14px;
+  font-weight: 500;
 }
 
 /* Close (X) button */
@@ -764,34 +775,35 @@ export const componentCSS = `
   align-items: center;
   max-width: 100%;
   min-width: 0;
-  padding: 6px 14px;
-  border: 1px solid var(--cw-primary, #3b82f6);
-  border-radius: 9999px;
-  background: transparent;
-  color: var(--cw-primary, #3b82f6);
+  padding: 8px 12px;
+  border: 1px solid #e5e7eb;
+  border-radius: var(--cw-msg-bot-radius, 14px);
+  background: #ffffff;
+  color: var(--cw-foreground, #1f2937);
   font-family: inherit;
-  font-size: 13px;
+  font-size: 12px;
   line-height: 1.4;
   cursor: pointer;
-  transition: background 150ms ease, color 150ms ease;
+  box-shadow: 0 1px 2px rgba(0, 0, 0, 0.05);
+  transition: background 150ms ease;
   outline: none;
 }
 
 @media (hover: hover) {
   .cw-starter-btn:hover {
-    background: var(--cw-primary, #3b82f6);
-    color: #ffffff;
+    background: #f9fafb;
+    color: var(--cw-foreground, #1f2937);
   }
 }
 
 .cw-starter-btn:focus-visible {
-  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline: 2px solid var(--cw-send-bg, #3b82f6);
   outline-offset: 2px;
 }
 
 .cw-starter-btn:active {
-  background: var(--cw-primary, #3b82f6);
-  color: #ffffff;
+  background: #f3f4f6;
+  color: var(--cw-foreground, #1f2937);
 }
 
 .cw-starter-text {
@@ -865,10 +877,10 @@ export const componentCSS = `
 /* Voice button — shared base */
 .cw-voice-btn {
   pointer-events: auto;
-  width: 36px;
-  height: 36px;
+  width: 40px;
+  height: 40px;
   border: none;
-  border-radius: var(--cw-send-radius, 12px);
+  border-radius: var(--cw-send-radius, 14px);
   cursor: pointer;
   display: flex;
   align-items: center;
@@ -888,14 +900,14 @@ export const componentCSS = `
   opacity: 0.6;
 }
 
-/* idle: primary color, mic icon */
+/* idle: filled like send button */
 .cw-voice-btn--idle {
-  background: transparent;
-  color: var(--cw-primary, #3b82f6);
+  background: var(--cw-send-bg, #3b82f6);
+  color: var(--cw-send-icon, #ffffff);
 }
 
 .cw-voice-btn--idle:hover:not(:disabled) {
-  background: rgba(59, 130, 246, 0.1);
+  background: var(--cw-send-hover-bg, #2563eb);
 }
 
 /* listening: red, stop icon, pulse animation */

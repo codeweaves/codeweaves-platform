@@ -1,8 +1,7 @@
-import { useEffect, useRef } from 'preact/hooks';
+import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
 import type { LoadedWidgetConfig } from '../types';
-import { ChatWindow } from './ChatWindow';
-import { TriggerButton } from './TriggerButton';
-import { BubbleNotification } from './BubbleNotification';
+import { ChatWidgetSurface } from './ChatWidgetSurface';
+import { MessageCircleIcon, XIcon } from './icons';
 import { loadConfig } from '../services/config-loader';
 import { applyTheme, setupPreviewMode, teardownPreviewMode } from '../services/theme-engine';
 import { revealWidget } from '../shadow-dom';
@@ -195,6 +194,29 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   const state = widgetState.value;
   const currentConfig = config.value;
 
+  // Hooks must be called unconditionally (before any early returns)
+  const [showBubble, setShowBubble] = useState(false);
+  const bubbleDismissed = useRef(false);
+
+  const themeObj = currentConfig?.theme as Record<string, unknown> | null ?? null;
+  const bubbleConfig = extractBubbleConfig(themeObj);
+
+  useEffect(() => {
+    if (!bubbleConfig.enabled || state !== 'closed' || bubbleDismissed.current) return;
+    const t = setTimeout(() => setShowBubble(true), bubbleConfig.delayMs);
+    return () => clearTimeout(t);
+  }, [bubbleConfig.enabled, bubbleConfig.delayMs, state]);
+
+  useEffect(() => {
+    if (state !== 'closed') setShowBubble(false);
+  }, [state]);
+
+  const dismissBubble = useCallback((e?: MouseEvent) => {
+    e?.stopPropagation();
+    bubbleDismissed.current = true;
+    setShowBubble(false);
+  }, []);
+
   if (configError.value) {
     return (
       <div class="cw-widget">
@@ -217,28 +239,97 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
 
   if (!currentConfig) return null;
 
-  const themeObj = currentConfig.theme as Record<string, unknown> | null;
   const iconConfig = extractIconConfig(themeObj);
-  const bubbleConfig = extractBubbleConfig(themeObj);
+  const iconOnRight = iconConfig.position === 'right';
+
+  // Icon theme
+  const iconTheme = themeObj?.icon as Record<string, unknown> | undefined;
+  const iconBg = typeof iconTheme?.backgroundColor === 'string' ? iconTheme.backgroundColor : '#3b82f6';
+  const iconRadius = typeof iconTheme?.borderRadius === 'number' ? iconTheme.borderRadius : 50;
+  const iconSize = typeof iconTheme?.size === 'number' ? iconTheme.size : 56;
+  const iconShadow = typeof iconTheme?.shadow === 'string' ? iconTheme.shadow : '0 4px 12px rgba(0,0,0,0.15)';
+
+  // Bubble theme
+  const bubbleTheme = themeObj?.bubble as Record<string, unknown> | undefined;
+  const bubbleBg = typeof bubbleTheme?.backgroundColor === 'string' ? bubbleTheme.backgroundColor : '#ffffff';
+  const bubbleTextColor = typeof bubbleTheme?.textColor === 'string' ? bubbleTheme.textColor : '#1f2937';
 
   return (
-    <div class="cw-widget" data-position={iconConfig.position}>
-      {state === 'closed' ? (
-        <>
-          <BubbleNotification
-            agentId={agentId}
-            bubbleConfig={bubbleConfig}
-            isOpen={false}
-            onOpen={handleOpen}
-          />
-          <TriggerButton
-            onClick={handleOpen}
-            iconCustomImage={iconConfig.customImage}
-            pulse={iconConfig.pulse}
-          />
-        </>
-      ) : (
-        <ChatWindow
+    <div
+      class="cw-widget-root pointer-events-none"
+      style={{
+        fontFamily: 'Inter, system-ui, sans-serif',
+        fontSize: '14px',
+        lineHeight: '1.5',
+        color: '#1f2937',
+        textTransform: 'none',
+        textDecoration: 'none',
+        fontWeight: '400',
+        fontStyle: 'normal',
+        letterSpacing: 'normal',
+        wordSpacing: 'normal',
+        textShadow: 'none',
+        zIndex: 2147483647,
+      }}
+    >
+      {/* Bubble notification */}
+      {showBubble && state === 'closed' && (
+        <div
+          class={`pointer-events-auto absolute ${iconOnRight ? 'bottom-24 right-6' : 'bottom-24 left-6'} z-10 max-w-xs cursor-pointer rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 hover:scale-105`}
+          style={{
+            backgroundColor: bubbleBg,
+            color: bubbleTextColor,
+            boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)',
+          }}
+          onClick={() => { dismissBubble(); handleOpen(); }}
+        >
+          <div class="flex items-center justify-between">
+            <span class="pr-2 text-sm font-medium">{bubbleConfig.text}</span>
+            <button
+              onClick={(e) => dismissBubble(e as unknown as MouseEvent)}
+              class="ml-2 text-current opacity-60 hover:opacity-100"
+              type="button"
+            >
+              <XIcon class="h-4 w-4" />
+            </button>
+          </div>
+          <div class={`absolute top-full ${iconOnRight ? 'right-6' : 'left-6'}`}>
+            <div
+              class="h-0 w-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent"
+              style={{ borderTopColor: bubbleBg }}
+            />
+          </div>
+        </div>
+      )}
+
+      {/* Trigger icon */}
+      {state === 'closed' && (
+        <div
+          role="button"
+          tabIndex={0}
+          aria-label="Open chat widget"
+          class={`pointer-events-auto absolute ${iconOnRight ? 'bottom-6 right-6' : 'bottom-6 left-6'} z-20 flex cursor-pointer items-center justify-center transition-all duration-300 hover:scale-110`}
+          style={{
+            backgroundColor: iconBg,
+            borderRadius: `${iconRadius}%`,
+            width: `${iconSize}px`,
+            height: `${iconSize}px`,
+            boxShadow: iconShadow,
+          }}
+          onClick={handleOpen}
+          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); } }}
+        >
+          {iconConfig.customImage ? (
+            <img src={iconConfig.customImage} alt="Chat" class="h-3/5 w-3/5 rounded-full object-cover" />
+          ) : (
+            <MessageCircleIcon class="h-7 w-7 text-white" />
+          )}
+        </div>
+      )}
+
+      {/* Expanded chat */}
+      {state !== 'closed' && (
+        <ChatWidgetSurface
           agentId={agentId}
           agentConfig={currentConfig.agent}
           theme={themeObj}

@@ -46,6 +46,12 @@ CLAUDE.md
 
 AgentEditor/
 
+# Old standalone widget (replaced by apps/widget)
+/widget/
+
+# Test pages (local dev only)
+test-pages/
+
 # Bmad Agents files
 _bmad/
 # docs/

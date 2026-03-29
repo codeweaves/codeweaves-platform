@@ -189,6 +189,8 @@ export class AgentsService {
           ...(normalizedDomains !== undefined && { allowedDomains: normalizedDomains }),
           ...(dto.voiceEnabled !== undefined && { voiceEnabled: dto.voiceEnabled }),
           ...(voiceConfigData !== undefined && { voiceConfig: voiceConfigData }),
+          ...(dto.welcomeMessage !== undefined && { welcomeMessage: dto.welcomeMessage }),
+          ...(dto.systemPrompt !== undefined && { systemPrompt: dto.systemPrompt }),
         },
         include: { organization: { select: { id: true, name: true } } },
       });
@@ -311,6 +313,8 @@ export class AgentsService {
         name: true,
         welcomeMessage: true,
         allowedDomains: true,
+        voiceEnabled: true,
+        voiceConfig: true,
       },
     });
 
@@ -336,6 +340,10 @@ export class AgentsService {
           name: agent.name,
           greeting: agent.welcomeMessage ?? '',
           starters,
+          voiceEnabled: agent.voiceEnabled && !!agent.voiceConfig,
+          voiceConfig: agent.voiceEnabled && agent.voiceConfig
+            ? this.sanitizeVoiceConfigForWidget(agent.voiceConfig as Record<string, unknown>)
+            : null,
         },
         allowedDomains: agent.allowedDomains,
       },

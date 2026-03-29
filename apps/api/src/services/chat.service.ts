@@ -40,8 +40,14 @@ export class ChatService {
   }
 
   async resolveAgent(agentId: string) {
+    // Support both internal UUID and public short ID (widget sends publicId)
+    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agentId);
     const agent = await this.prisma.agent.findFirst({
-      where: { id: agentId, deletedAt: null, status: 'ACTIVE' },
+      where: {
+        ...(isUuid ? { id: agentId } : { publicId: agentId }),
+        deletedAt: null,
+        status: 'ACTIVE',
+      },
       select: { id: true, hmacEnabled: true },
     });
     if (!agent) {
@@ -124,15 +130,15 @@ export class ChatService {
     const backendReceivedAt = new Date();
 
     const agent = await this.resolveAgent(dto.agentId);
-    const session = await this.resolveOrCreateSession(dto.agentId, dto.sessionId);
+    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId);
 
     // Call n8n webhook BEFORE storing messages to avoid orphaned user messages on failure
-    const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(dto.agentId);
+    const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
     const n8nResponse = await this.callN8nWebhook(
       webhookUrl,
       dto.chatInput,
       session.sessionId,
-      dto.agentId,
+      agent.id,
       agent.hmacEnabled,
     );
 
@@ -198,7 +204,7 @@ export class ChatService {
     const backendReceivedAt = new Date();
 
     const agent = await this.resolveAgent(dto.agentId);
-    const session = await this.resolveOrCreateSession(dto.agentId, dto.sessionId);
+    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId);
 
     // Store user message BEFORE calling n8n
     const userMessage = await this.prisma.chatMessage.create({

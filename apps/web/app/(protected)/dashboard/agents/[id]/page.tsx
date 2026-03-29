@@ -26,12 +26,12 @@ export default function AgentDetailPage({ params }: AgentDetailPageProps) {
   const isAdmin =
     profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
 
-  // Fetch webhook URL (admins only) and theme data in parallel
+  // Fetch webhook URL (admins only) and theme data in parallel.
+  // Must wait for profile before running — isAdmin depends on profile which
+  // loads async. Without this guard, isAdmin is false on first run and the
+  // webhook fetch is skipped entirely, leaving the input empty.
   useEffect(() => {
-    if (!agent) {
-      setExtrasLoaded(true);
-      return;
-    }
+    if (!agent || !profile) return;
     let cancelled = false;
 
     const webhookPromise = isAdmin
@@ -57,7 +57,7 @@ export default function AgentDetailPage({ params }: AgentDetailPageProps) {
     return () => {
       cancelled = true;
     };
-  }, [agent, isAdmin, api]);
+  }, [agent, profile, isAdmin, api]);
 
   if (isLoading || !extrasLoaded) {
     return (
