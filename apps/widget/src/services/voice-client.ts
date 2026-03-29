@@ -118,14 +118,18 @@ export async function sendVoiceMessage(
     });
 
     if (!response.ok) {
-      // Try to parse error body
+      // Parse error body and throw — caller's catch block handles state reset
+      let errorCode = 'UNKNOWN';
+      let errorMessage = `Voice request failed (${response.status})`;
       try {
         const errBody = await response.json();
-        callbacks.onError?.(errBody.errorCode ?? 'UNKNOWN', errBody.message ?? `Voice request failed (${response.status})`);
+        errorCode = errBody.errorCode ?? 'UNKNOWN';
+        errorMessage = errBody.message ?? errorMessage;
       } catch {
-        callbacks.onError?.('UNKNOWN', `Voice request failed (${response.status})`);
+        // Response body not JSON
       }
-      return {};
+      callbacks.onError?.(errorCode, errorMessage);
+      throw new Error(errorMessage);
     }
 
     const contentType = response.headers.get('content-type') ?? '';
