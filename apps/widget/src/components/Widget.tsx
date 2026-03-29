@@ -194,6 +194,29 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   const state = widgetState.value;
   const currentConfig = config.value;
 
+  // Hooks must be called unconditionally (before any early returns)
+  const [showBubble, setShowBubble] = useState(false);
+  const bubbleDismissed = useRef(false);
+
+  const themeObj = currentConfig?.theme as Record<string, unknown> | null ?? null;
+  const bubbleConfig = extractBubbleConfig(themeObj);
+
+  useEffect(() => {
+    if (!bubbleConfig.enabled || state !== 'closed' || bubbleDismissed.current) return;
+    const t = setTimeout(() => setShowBubble(true), bubbleConfig.delayMs);
+    return () => clearTimeout(t);
+  }, [bubbleConfig.enabled, bubbleConfig.delayMs, state]);
+
+  useEffect(() => {
+    if (state !== 'closed') setShowBubble(false);
+  }, [state]);
+
+  const dismissBubble = useCallback((e?: MouseEvent) => {
+    e?.stopPropagation();
+    bubbleDismissed.current = true;
+    setShowBubble(false);
+  }, []);
+
   if (configError.value) {
     return (
       <div class="cw-widget">
@@ -216,31 +239,8 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
 
   if (!currentConfig) return null;
 
-  const themeObj = currentConfig.theme as Record<string, unknown> | null;
   const iconConfig = extractIconConfig(themeObj);
-  const bubbleConfig = extractBubbleConfig(themeObj);
   const iconOnRight = iconConfig.position === 'right';
-
-  // Bubble notification
-  const [showBubble, setShowBubble] = useState(false);
-  const bubbleDismissed = useRef(false);
-
-  useEffect(() => {
-    if (!bubbleConfig.enabled || state !== 'closed' || bubbleDismissed.current) return;
-    const t = setTimeout(() => setShowBubble(true), bubbleConfig.delayMs);
-    return () => clearTimeout(t);
-  }, [bubbleConfig.enabled, bubbleConfig.delayMs, state]);
-
-  // Hide bubble when chat opens
-  useEffect(() => {
-    if (state !== 'closed') setShowBubble(false);
-  }, [state]);
-
-  const dismissBubble = useCallback((e?: MouseEvent) => {
-    e?.stopPropagation();
-    bubbleDismissed.current = true;
-    setShowBubble(false);
-  }, []);
 
   // Icon theme
   const iconTheme = themeObj?.icon as Record<string, unknown> | undefined;

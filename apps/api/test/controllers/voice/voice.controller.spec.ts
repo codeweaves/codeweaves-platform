@@ -58,6 +58,7 @@ describe('VoiceController', () => {
 
   const mockChatService = {
     sendMessage: jest.fn(),
+    resolveAgent: jest.fn(),
     resolveOrCreateSession: jest.fn(),
     saveUserMessage: jest.fn(),
     saveAssistantMessage: jest.fn(),
@@ -160,6 +161,9 @@ describe('VoiceController', () => {
     }).compile();
 
     controller = module.get<VoiceController>(VoiceController);
+
+    // Default: resolve agent (publicId → UUID)
+    mockChatService.resolveAgent.mockResolvedValue({ id: AGENT_ID, hmacEnabled: false });
 
     // Default: rate limit allowed
     mockMessageRateLimitService.getDeviceIdentifier.mockReturnValue('test-device');

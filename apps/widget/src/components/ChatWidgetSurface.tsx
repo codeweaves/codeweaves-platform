@@ -102,7 +102,7 @@ function formatTimestamp(ts: Date): string {
 export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: ChatWidgetSurfaceProps) {
   const [inputValue, setInputValue] = useState('');
   const [isWindowMinimized, setIsWindowMinimized] = useState(false);
-  const [_isMobile, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT);
+  const [, setIsMobile] = useState(typeof window !== 'undefined' && window.innerWidth < MOBILE_BREAKPOINT);
   const scrollRef = useRef<HTMLDivElement>(null);
   const bottomRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
