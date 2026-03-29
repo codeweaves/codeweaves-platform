@@ -268,6 +268,7 @@ export function useVoice({
           onError: (errCode: string, message: string) => {
             const mapped = ERROR_MESSAGES[errCode] ?? message;
             setErrorWithAutoDismiss(mapped, errCode);
+            onErrorRef.current?.(mapped);
           },
         },
         controller.signal,
@@ -285,6 +286,14 @@ export function useVoice({
       // Update session if returned
       if (result.sessionId) {
         updateSession(agentId, result.sessionId);
+      }
+
+      // If no audio was received (e.g. API returned 422/error before streaming),
+      // the playback queue completion handler won't fire — reset to idle manually.
+      if (!receivedFirstAudio && voiceStateRef.current !== 'idle') {
+        queue.stop();
+        playbackQueueRef.current = null;
+        setVoiceStateSynced('idle');
       }
     } catch (err) {
       if (timeoutRef.current) {

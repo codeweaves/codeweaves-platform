@@ -25,6 +25,7 @@ import { messages as messagesSignal, showTyping, widgetState, isLoading, isStrea
 import { useChat } from '../hooks/useChat';
 import { useVoice } from '../hooks/useVoice';
 import { isSafeUrl } from '../utils/url';
+import { renderMarkdown } from '../utils/simple-markdown';
 import type { AgentConfig } from '../types';
 
 export interface ChatWidgetSurfaceProps {
@@ -400,7 +401,11 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                         borderRadius: `${isUser ? num(userMessage, 'borderRadius', 14) : num(botMessage, 'borderRadius', 14)}px`,
                       }}
                     >
-                      <p class="text-sm leading-relaxed">{message.content}</p>
+                      {isUser ? (
+                        <p class="text-sm leading-relaxed">{message.content}</p>
+                      ) : (
+                        <div class="text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+                      )}
                     </div>
                     {showTimestamp && (
                       <p class="mt-1 px-2 text-xs" style={{ color: str(timestamps, 'color', '#9ca3af') }}>
