@@ -101,8 +101,8 @@ export function ChatSettings() {
         <div className="col-span-2">
           <ImageUpload
             value={themeData.header.logoUrl}
-            onUpload={(url) => updateThemeData('header.logoUrl', url)}
-            onRemove={() => updateThemeData('header.logoUrl', undefined)}
+            onUpload={(url) => { updateThemeData('header.logoUrl', url); updateThemeData('header.showLogo', true); }}
+            onRemove={() => { updateThemeData('header.logoUrl', undefined); updateThemeData('header.showLogo', false); }}
             agentId={agent.id}
             purpose="header-logo"
             previewShape="circle"

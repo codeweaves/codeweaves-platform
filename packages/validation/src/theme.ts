@@ -41,7 +41,7 @@ export type HeaderConfig = z.infer<typeof headerConfigSchema>;
 export const messageConfigSchema = z.object({
   backgroundColor: colorString,
   textColor: colorString,
-  borderRadius: z.number().int().min(0).max(24),
+  borderRadius: z.number().int().min(0).max(50),
 });
 export type MessageConfig = z.infer<typeof messageConfigSchema>;
 
@@ -60,7 +60,7 @@ export const inputConfigSchema = z.object({
   placeholderText: z.string(),
   placeholderColor: colorString,
   borderColor: colorString,
-  borderRadius: z.number().int().min(0).max(24),
+  borderRadius: z.number().int().min(0).max(50),
 });
 export type InputConfig = z.infer<typeof inputConfigSchema>;
 
@@ -68,7 +68,7 @@ export const sendButtonConfigSchema = z.object({
   backgroundColor: colorString,
   hoverBackgroundColor: colorString,
   iconColor: colorString,
-  borderRadius: z.number().int().min(0).max(24),
+  borderRadius: z.number().int().min(0).max(50),
 });
 export type SendButtonConfig = z.infer<typeof sendButtonConfigSchema>;
 

@@ -1,29 +1,33 @@
 /**
- * useVoice hook — voice recording, streaming, and playback state for the widget (Story 5-20).
+ * useVoice hook — voice recording, streaming, and playback state for the widget.
  *
- * Manages the voice state machine: idle → listening → processing → playing → idle.
- * Integrates with AudioPlaybackQueue for sequential audio playback and
- * typewriter buffer for progressive text display in sync with audio.
+ * Ported from apps/web/hooks/use-voice.ts with widget-specific adaptations:
+ * - Preact hooks instead of React
+ * - No Sentry
+ * - Uses getSessionId() from session-manager
+ * - Widget-specific callbacks (onAudioSentence, onComplete)
  */
 
 import { useState, useCallback, useRef, useEffect } from 'preact/hooks';
 import { AudioPlaybackQueue } from '../utils/audio-playback-queue';
-import { sendVoiceMessage } from '../services/voice-client';
-import type { VoiceAudioChunk } from '../services/voice-client';
-import { updateSession } from '../services/session-manager';
+import {
+  streamVoiceConversation,
+  VoiceApiError,
+  type VoiceAudioChunk,
+} from '../services/voice-client';
+import { getSessionId, updateSession } from '../services/session-manager';
 
 export type VoiceState = 'idle' | 'listening' | 'processing' | 'playing';
 
 export type VoiceErrorSeverity = 'error' | 'warning' | 'info';
 
 const MAX_RECORDING_MS = 60_000;
-const MIN_RECORDING_MS = 500;
 const DURATION_UPDATE_MS = 100;
-const API_TIMEOUT_MS = 60_000;
+const API_TIMEOUT_MS = 30_000;
 
 // ── Error message mapping (matches demo page) ──
 
-const ERROR_MESSAGES: Record<string, string> = {
+const ERROR_MESSAGES: { [key: string]: string | undefined } = {
   STT_FAILED: "Couldn't understand audio. Please try again or type your message.",
   TTS_FAILED: 'Voice playback unavailable',
   TTS_ALL_PROVIDERS_FAILED: 'Voice synthesis unavailable for this sentence',
@@ -33,14 +37,13 @@ const ERROR_MESSAGES: Record<string, string> = {
   INVALID_AUDIO: 'Audio recording was not valid. Please try again.',
   AUDIO_TOO_SHORT: 'Recording was too short. Please speak longer.',
   RATE_LIMITED: 'Too many voice requests. Please wait.',
-  NETWORK_ERROR: 'Connection issue. Please try again.',
 };
 
-const WARNING_CODES = new Set(['TTS_FAILED', 'TTS_ALL_PROVIDERS_FAILED', 'RATE_LIMITED']);
+const WARNING_ERROR_CODES = new Set(['TTS_FAILED', 'TTS_ALL_PROVIDERS_FAILED', 'RATE_LIMITED']);
 
 export function getErrorSeverity(errorCode: string | null): VoiceErrorSeverity {
   if (!errorCode) return 'error';
-  if (WARNING_CODES.has(errorCode)) return 'warning';
+  if (WARNING_ERROR_CODES.has(errorCode)) return 'warning';
   return 'error';
 }
 
@@ -81,10 +84,24 @@ function detectMimeType(): string | undefined {
   return undefined;
 }
 
-/** Check if voice recording APIs are available */
-function checkVoiceSupport(): boolean {
-  if (typeof window === 'undefined') return false;
-  return !!navigator.mediaDevices?.getUserMedia && typeof MediaRecorder !== 'undefined';
+function mapErrorToMessage(err: unknown): { message: string; errorCode: string | null } {
+  if (err instanceof VoiceApiError) {
+    const mapped = err.errorCode ? ERROR_MESSAGES[err.errorCode] : undefined;
+    if (mapped) {
+      return { message: mapped, errorCode: err.errorCode };
+    }
+    if (err.status === 429) {
+      return { message: 'Too many voice requests. Please wait.', errorCode: 'RATE_LIMITED' };
+    }
+    if (err.status === 504) {
+      return { message: 'Voice processing timed out. Please try again.', errorCode: 'PROVIDER_TIMEOUT' };
+    }
+    return { message: "Couldn't understand audio. Please try again or type your message.", errorCode: err.errorCode };
+  }
+  if (err instanceof TypeError) {
+    return { message: 'Connection issue. Please try again.', errorCode: 'NETWORK_ERROR' };
+  }
+  return { message: 'Voice processing failed. Please try again.', errorCode: null };
 }
 
 export function useVoice({
@@ -101,10 +118,11 @@ export function useVoice({
   const [recordingDurationMs, setRecordingDurationMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
-  // D2: Reactive isSupported — updated when permissions change
-  const [isSupported, setIsSupported] = useState(checkVoiceSupport);
+  const [isSupported] = useState(() => {
+    if (typeof window === 'undefined') return false;
+    return !!navigator.mediaDevices?.getUserMedia && !!window.MediaRecorder;
+  });
 
-  // Refs for voice state (avoids stale closures)
   const voiceStateRef = useRef<VoiceState>('idle');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
@@ -116,14 +134,10 @@ export function useVoice({
   const abortRef = useRef<AbortController | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timedOutRef = useRef(false);
-  const activeMimeRef = useRef('audio/webm');
-  const recordStartRef = useRef(0);
+  const activeMimeRef = useRef<string>('audio/webm');
   // P3: Flag to distinguish cancel from normal stop
   const cancelledRef = useRef(false);
-  // P7: Flag to prevent API calls after unmount
-  const mountedRef = useRef(true);
 
-  // Stable callback refs
   const onTranscriptionRef = useRef(onTranscription);
   const onAudioSentenceRef = useRef(onAudioSentence);
   const onCompleteRef = useRef(onComplete);
@@ -134,32 +148,37 @@ export function useVoice({
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
 
-  // D2: Listen for permission changes to update isSupported reactively
-  useEffect(() => {
-    if (typeof navigator.permissions === 'undefined') return;
-    let status: PermissionStatus | null = null;
-    const handleChange = () => {
-      if (status?.state === 'denied') {
-        setIsSupported(false);
-      } else {
-        setIsSupported(checkVoiceSupport());
-      }
-    };
-    navigator.permissions.query({ name: 'microphone' as PermissionName }).then((s) => {
-      status = s;
-      handleChange(); // Sync initial state
-      s.addEventListener('change', handleChange);
-    }).catch(() => {
-      // permissions.query not supported for microphone in some browsers — ignore
-    });
-    return () => {
-      status?.removeEventListener('change', handleChange);
-    };
-  }, []);
-
   const setVoiceStateSynced = useCallback((state: VoiceState) => {
     voiceStateRef.current = state;
     setVoiceState(state);
+  }, []);
+
+  const cleanup = useCallback(() => {
+    if (autoStopTimerRef.current) {
+      clearTimeout(autoStopTimerRef.current);
+      autoStopTimerRef.current = null;
+    }
+    if (durationTimerRef.current) {
+      clearInterval(durationTimerRef.current);
+      durationTimerRef.current = null;
+    }
+    if (timeoutRef.current) {
+      clearTimeout(timeoutRef.current);
+      timeoutRef.current = null;
+    }
+    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+      recorderRef.current.stop();
+    }
+    recorderRef.current = null;
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach((track) => track.stop());
+      streamRef.current = null;
+    }
+    chunksRef.current = [];
+    abortRef.current?.abort();
+    abortRef.current = null;
+    playbackQueueRef.current?.stop();
+    playbackQueueRef.current = null;
   }, []);
 
   const clearError = useCallback(() => {
@@ -184,49 +203,23 @@ export function useVoice({
     }, timeout);
   }, []);
 
-  // P7: Cleanup recording without triggering onstop → handleApiCall
-  const cleanupRecording = useCallback(() => {
-    if (autoStopTimerRef.current) {
-      clearTimeout(autoStopTimerRef.current);
-      autoStopTimerRef.current = null;
-    }
-    if (durationTimerRef.current) {
-      clearInterval(durationTimerRef.current);
-      durationTimerRef.current = null;
-    }
-    // Detach onstop before stopping to prevent triggering handleApiCall during cleanup
-    if (recorderRef.current) {
-      recorderRef.current.onstop = null;
-      if (recorderRef.current.state !== 'inactive') {
-        recorderRef.current.stop();
-      }
-    }
-    recorderRef.current = null;
-    if (streamRef.current) {
-      streamRef.current.getTracks().forEach((track) => track.stop());
-      streamRef.current = null;
-    }
-    chunksRef.current = [];
-  }, []);
-
   const handleApiCall = useCallback(async (audioBlob: Blob) => {
-    // P7: Don't fire API calls after unmount
-    if (!mountedRef.current) return;
-
     setVoiceStateSynced('processing');
 
     const controller = new AbortController();
     abortRef.current = controller;
     timedOutRef.current = false;
 
-    // P5: Single timeout here — voice-client.ts no longer has its own
     timeoutRef.current = setTimeout(() => {
       timedOutRef.current = true;
       controller.abort();
     }, API_TIMEOUT_MS);
 
     let receivedFirstAudio = false;
+    let fullResponseText = '';
+    let responseSessionId = getSessionId() ?? '';
 
+    // Create playback queue — transitions to 'idle' when all audio finishes
     const queue = new AudioPlaybackQueue(() => {
       playbackQueueRef.current = null;
       setVoiceStateSynced('idle');
@@ -234,21 +227,24 @@ export function useVoice({
     playbackQueueRef.current = queue;
 
     try {
-      const result = await sendVoiceMessage(
+      const result = await streamVoiceConversation({
+        audio: audioBlob,
         agentId,
-        audioBlob,
-        {
+        sessionId: getSessionId() ?? undefined,
+        languageHint: voiceLanguage,
+        signal: controller.signal,
+        callbacks: {
           onTranscription: (text: string) => {
             onTranscriptionRef.current?.(text);
           },
           onAudioChunk: (chunk: VoiceAudioChunk) => {
             if (!receivedFirstAudio) {
               receivedFirstAudio = true;
-              // P4: Only transition to 'playing' when autoPlay is on
               if (voiceAutoPlay) {
                 setVoiceStateSynced('playing');
               }
             }
+            // Deliver sentence text in sync with audio so UI shows text as voice plays
             if (chunk.text) {
               onAudioSentenceRef.current?.(chunk.text, chunk.sentenceIndex);
             }
@@ -257,6 +253,7 @@ export function useVoice({
             }
           },
           onComplete: (fullText: string) => {
+            fullResponseText = fullText;
             onCompleteRef.current?.(fullText);
             queue.markStreamComplete();
 
@@ -271,10 +268,7 @@ export function useVoice({
             onErrorRef.current?.(mapped);
           },
         },
-        controller.signal,
-        undefined,
-        voiceLanguage,
-      );
+      });
 
       if (timeoutRef.current) {
         clearTimeout(timeoutRef.current);
@@ -283,17 +277,20 @@ export function useVoice({
 
       if (controller.signal.aborted) return;
 
+      responseSessionId = result.sessionId ?? responseSessionId;
+
       // Update session if returned
-      if (result.sessionId) {
-        updateSession(agentId, result.sessionId);
+      if (responseSessionId) {
+        updateSession(agentId, responseSessionId);
       }
 
-      // If no audio was received (e.g. API returned 422/error before streaming),
-      // the playback queue completion handler won't fire — reset to idle manually.
-      if (!receivedFirstAudio && voiceStateRef.current !== 'idle') {
-        queue.stop();
-        playbackQueueRef.current = null;
-        setVoiceStateSynced('idle');
+      // If no audio was received at all, go idle
+      if (!receivedFirstAudio) {
+        queue.markStreamComplete();
+        if (fullResponseText) {
+          // Text-only response (TTS failed for all sentences)
+          setVoiceStateSynced('idle');
+        }
       }
     } catch (err) {
       if (timeoutRef.current) {
@@ -309,18 +306,14 @@ export function useVoice({
           const msg = 'Voice processing timed out. Please try again.';
           setErrorWithAutoDismiss(msg, 'PROVIDER_TIMEOUT');
           onErrorRef.current?.(msg);
+          setVoiceStateSynced('idle');
         }
-        // P1: Always reset to idle on any abort (timeout or external)
-        setVoiceStateSynced('idle');
         return;
       }
 
-      const msg = err instanceof TypeError
-        ? 'Connection issue. Please try again.'
-        : 'Voice processing failed. Please try again.';
-      const code = err instanceof TypeError ? 'NETWORK_ERROR' : null;
-      setErrorWithAutoDismiss(msg, code);
-      onErrorRef.current?.(msg);
+      const { message, errorCode: code } = mapErrorToMessage(err);
+      setErrorWithAutoDismiss(message, code);
+      onErrorRef.current?.(message);
       setVoiceStateSynced('idle');
     } finally {
       if (abortRef.current === controller) {
@@ -355,7 +348,8 @@ export function useVoice({
 
     // P3: Reset cancelled flag
     cancelledRef.current = false;
-    clearError();
+    setError(null);
+    setErrorCode(null);
 
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
@@ -382,21 +376,18 @@ export function useVoice({
           return;
         }
 
-        const elapsed = Date.now() - recordStartRef.current;
-        const blob = new Blob(chunksRef.current, { type: activeMimeRef.current });
+        const actualMime = activeMimeRef.current;
+        const blob = new Blob(chunksRef.current, { type: actualMime });
         chunksRef.current = [];
 
-        if (elapsed < MIN_RECORDING_MS || blob.size === 0) {
-          setErrorWithAutoDismiss('Hold longer to record', null, 3_000);
+        if (blob.size > 0) {
+          handleApiCall(blob);
+        } else {
           setVoiceStateSynced('idle');
-          return;
         }
-
-        handleApiCall(blob);
       };
 
       recorder.start();
-      recordStartRef.current = Date.now();
       setVoiceStateSynced('listening');
       setRecordingDurationMs(0);
 
@@ -417,7 +408,7 @@ export function useVoice({
       onErrorRef.current?.(message);
       setVoiceStateSynced('idle');
     }
-  }, [isSupported, voiceEnabled, handleApiCall, stopRecording, clearError, setErrorWithAutoDismiss, setVoiceStateSynced]);
+  }, [isSupported, voiceEnabled, handleApiCall, stopRecording, setErrorWithAutoDismiss, setVoiceStateSynced]);
 
   const stopPlayback = useCallback(() => {
     playbackQueueRef.current?.stop();
@@ -425,21 +416,16 @@ export function useVoice({
     setVoiceStateSynced('idle');
   }, [setVoiceStateSynced]);
 
-  // Cleanup on unmount
   useEffect(() => {
-    mountedRef.current = true;
     return () => {
-      // P7: Mark unmounted to prevent API calls from onstop
-      mountedRef.current = false;
-      cleanupRecording();
-      abortRef.current?.abort();
-      abortRef.current = null;
+      cleanup();
       playbackQueueRef.current?.stop();
       playbackQueueRef.current = null;
-      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      if (errorTimerRef.current) {
+        clearTimeout(errorTimerRef.current);
+      }
     };
-  }, [cleanupRecording]);
+  }, [cleanup]);
 
   return {
     voiceState,
