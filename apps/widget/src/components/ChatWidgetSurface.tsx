@@ -152,37 +152,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
   const voiceEnabled = agentConfig.voiceEnabled === true;
 
   // Typewriter state for voice
-  const typewriterBufferRef = useRef('');
-  const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const voiceBotMsgIdRef = useRef<string | null>(null);
-  const TYPEWRITER_MS = 12;
-  const TYPEWRITER_CHARS = 2;
-
-  const stopTypewriter = useCallback(() => {
-    if (typewriterIntervalRef.current) {
-      clearInterval(typewriterIntervalRef.current);
-      typewriterIntervalRef.current = null;
-    }
-  }, []);
-
-  const flushTypewriter = useCallback(() => {
-    stopTypewriter();
-    if (voiceBotMsgIdRef.current && typewriterBufferRef.current) {
-      appendBotMessageText(voiceBotMsgIdRef.current, typewriterBufferRef.current);
-      typewriterBufferRef.current = '';
-    }
-  }, [stopTypewriter, appendBotMessageText]);
-
-  const startTypewriter = useCallback(() => {
-    if (typewriterIntervalRef.current) return;
-    typewriterIntervalRef.current = setInterval(() => {
-      if (!typewriterBufferRef.current || !voiceBotMsgIdRef.current) return;
-      const chars = typewriterBufferRef.current.slice(0, TYPEWRITER_CHARS);
-      typewriterBufferRef.current = typewriterBufferRef.current.slice(TYPEWRITER_CHARS);
-      if (chars) appendBotMessageText(voiceBotMsgIdRef.current, chars);
-      if (!typewriterBufferRef.current) stopTypewriter();
-    }, TYPEWRITER_MS);
-  }, [appendBotMessageText, stopTypewriter]);
 
   // Voice hook
   const {
@@ -191,10 +161,13 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
     startRecording,
     stopRecording,
     stopPlayback,
+    error: voiceError,
+    clearError: clearVoiceError,
   } = useVoice({
     agentId,
     voiceEnabled,
-    voiceLanguage: agentConfig.voiceConfig?.defaultLanguage,
+    // Don't send language hint — let the backend route to Sarvam for auto-detect
+    voiceLanguage: undefined,
     voiceAutoPlay: true,
     onTranscription: useCallback((text: string) => {
       addUserMessage(text);
@@ -204,33 +177,29 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
       if (sentenceIndex === 0) {
         const id = createBotMessage();
         voiceBotMsgIdRef.current = id;
-        typewriterBufferRef.current = text;
-        startTypewriter();
+        // Show first sentence immediately — no typewriter delay
+        appendBotMessageText(id, text);
         setVoiceLoading(false);
-      } else {
-        typewriterBufferRef.current += ' ' + text;
-        startTypewriter();
+      } else if (voiceBotMsgIdRef.current) {
+        // Append subsequent sentences with a space
+        appendBotMessageText(voiceBotMsgIdRef.current, ' ' + text);
       }
-    }, [createBotMessage, startTypewriter, setVoiceLoading]),
+    }, [createBotMessage, appendBotMessageText, setVoiceLoading]),
     onComplete: useCallback((fullText: string) => {
-      flushTypewriter();
       if (voiceBotMsgIdRef.current) {
         finalizeBotMessage(voiceBotMsgIdRef.current, fullText);
         voiceBotMsgIdRef.current = null;
       }
       setVoiceLoading(false);
-    }, [flushTypewriter, finalizeBotMessage, setVoiceLoading]),
+    }, [finalizeBotMessage, setVoiceLoading]),
     onError: useCallback(() => {
-      flushTypewriter();
       if (voiceBotMsgIdRef.current) {
         finalizeBotMessage(voiceBotMsgIdRef.current);
         voiceBotMsgIdRef.current = null;
       }
       setVoiceLoading(false);
-    }, [flushTypewriter, finalizeBotMessage, setVoiceLoading]),
+    }, [finalizeBotMessage, setVoiceLoading]),
   });
-
-  useEffect(() => () => stopTypewriter(), [stopTypewriter]);
 
   const showVoice = voiceEnabled && voiceIsSupported;
   const isVoiceActive = voiceState !== 'idle';
@@ -403,6 +372,8 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                     >
                       {isUser ? (
                         <p class="text-sm leading-relaxed">{message.content}</p>
+                      ) : message.isStreaming ? (
+                        <p class="text-sm leading-relaxed">{message.content}</p>
                       ) : (
                         <div class="text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
                       )}
@@ -460,6 +431,21 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
           </div>
         )}
 
+        {/* Voice error banner */}
+        {voiceError && (
+          <div class="flex items-center gap-2 border-t border-red-100 bg-red-50 px-4 py-2">
+            <p class="flex-1 text-xs" style={{ color: '#ef4444' }}>{voiceError}</p>
+            <button
+              onClick={clearVoiceError}
+              class="text-xs font-medium opacity-60 hover:opacity-100"
+              style={{ color: '#ef4444' }}
+              type="button"
+            >
+              ✕
+            </button>
+          </div>
+        )}
+
         {/* Input area */}
         {!isWindowMinimized && (
           <div class="border-t border-gray-200 p-4" style={{ backgroundColor: str(input, 'backgroundColor', '#ffffff') }}>
@@ -504,14 +490,14 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
               )}
               <button
                 onClick={handleSend}
-                disabled={loading || streaming || rateLimited || isVoiceActive}
+                disabled={!inputValue.trim() || loading || streaming || rateLimited || isVoiceActive}
                 aria-label="Send message"
                 class="flex h-10 w-10 items-center justify-center p-0"
                 style={{
                   backgroundColor: str(sendBtn, 'backgroundColor', '#3b82f6'),
                   borderRadius: `${num(sendBtn, 'borderRadius', 14)}px`,
                   color: str(sendBtn, 'iconColor', '#ffffff'),
-                  opacity: (loading || streaming || rateLimited || isVoiceActive) ? 0.5 : 1,
+                  opacity: (!inputValue.trim() || loading || streaming || rateLimited || isVoiceActive) ? 0.5 : 1,
                 }}
               >
                 <SendIcon class="h-4 w-4" />

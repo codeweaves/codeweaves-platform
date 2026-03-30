@@ -196,9 +196,9 @@ describe('Theme Validation Schemas', () => {
       expect(messageConfigSchema.parse(data)).toEqual(data);
     });
 
-    it('should reject borderRadius above 24', () => {
+    it('should reject borderRadius above 50', () => {
       expect(() =>
-        messageConfigSchema.parse({ backgroundColor: '#000', textColor: '#fff', borderRadius: 25 }),
+        messageConfigSchema.parse({ backgroundColor: '#000', textColor: '#fff', borderRadius: 51 }),
       ).toThrow();
     });
 
@@ -303,7 +303,7 @@ describe('Theme Validation Schemas', () => {
       expect(inputConfigSchema.parse(data)).toEqual(data);
     });
 
-    it('should reject borderRadius above 24', () => {
+    it('should reject borderRadius above 50', () => {
       expect(() =>
         inputConfigSchema.parse({
           backgroundColor: '#fff',
@@ -311,7 +311,7 @@ describe('Theme Validation Schemas', () => {
           placeholderText: 'Type...',
           placeholderColor: '#aaa',
           borderColor: '#ccc',
-          borderRadius: 25,
+          borderRadius: 51,
         }),
       ).toThrow();
     });
@@ -328,13 +328,13 @@ describe('Theme Validation Schemas', () => {
       expect(sendButtonConfigSchema.parse(data)).toEqual(data);
     });
 
-    it('should reject borderRadius above 24', () => {
+    it('should reject borderRadius above 50', () => {
       expect(() =>
         sendButtonConfigSchema.parse({
           backgroundColor: '#000',
           hoverBackgroundColor: '#111',
           iconColor: '#fff',
-          borderRadius: 25,
+          borderRadius: 51,
         }),
       ).toThrow();
     });

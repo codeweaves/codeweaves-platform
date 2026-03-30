@@ -1,28 +1,48 @@
 /**
- * Voice client service for the widget (Story 5-20).
+ * Voice client service for the widget.
  *
- * Sends voice recordings to the backend and parses NDJSON streaming responses.
- * Uses native fetch only (no external libraries — bundle size constraint).
+ * Ported from apps/web/lib/voice-api.ts with widget-specific adaptations:
+ * - Uses baseUrl pattern (no apiUrl helper)
+ * - Includes agentId query param for CORS
+ * - Imports getSessionId/getDeviceId from widget services
  */
 
 import { getDeviceId } from '../utils/device-id';
 import { getSessionId } from './session-manager';
 
-// ── NDJSON chunk types (mirrors backend voice-stream.interface.ts) ──
+// ── Types (mirrors backend voice-stream.interface.ts) ──
 
-export interface VoiceTranscriptionChunk {
-  type: 'transcription';
-  text: string;
-  detectedLanguage: string;
-  confidence: number;
-  sttLatencyMs: number;
+export interface VoiceConversationResponse {
+  transcription: {
+    text: string;
+    detectedLanguage: string;
+    confidence: number;
+  };
+  response: {
+    text: string;
+    audio: string | null;
+    audioFormat: string | null;
+    audioDurationMs: number | null;
+  };
+  sessionId: string;
+  messageId: string;
+  metrics: {
+    sttLatencyMs: number;
+    aiLatencyMs: number;
+    ttsLatencyMs: number;
+    totalLatencyMs: number;
+  };
+  ttsError?: {
+    errorCode: string;
+    message: string;
+  };
 }
 
 export interface VoiceAudioChunk {
   type: 'audio';
   sentenceIndex: number;
   text: string;
-  audio: string; // base64-encoded
+  audio: string; // base64
   audioFormat: string;
   audioDurationMs: number | null;
   ttsLatencyMs: number;
@@ -34,6 +54,14 @@ export interface VoiceEndChunk {
   totalSentences: number;
 }
 
+export interface VoiceTranscriptionChunk {
+  type: 'transcription';
+  text: string;
+  detectedLanguage: string;
+  confidence: number;
+  sttLatencyMs: number;
+}
+
 export interface VoiceErrorChunk {
   type: 'error';
   errorCode: string;
@@ -41,19 +69,27 @@ export interface VoiceErrorChunk {
   sentenceIndex?: number;
 }
 
-export type VoiceStreamChunk =
-  | VoiceTranscriptionChunk
-  | VoiceAudioChunk
-  | VoiceEndChunk
-  | VoiceErrorChunk;
+export type VoiceStreamChunk = VoiceTranscriptionChunk | VoiceAudioChunk | VoiceEndChunk | VoiceErrorChunk;
 
-// ── Callbacks for streaming voice response ──
-
-export interface VoiceStreamCallbacks {
-  onTranscription?: (text: string, detectedLanguage: string) => void;
+export interface StreamVoiceCallbacks {
+  onTranscription?: (text: string) => void;
   onAudioChunk?: (chunk: VoiceAudioChunk) => void;
   onComplete?: (fullText: string, totalSentences: number) => void;
   onError?: (errorCode: string, message: string) => void;
+}
+
+export class VoiceApiError extends Error {
+  status: number;
+  statusText: string;
+  errorCode: string | null;
+
+  constructor(response: Response, errorCode?: string) {
+    super(`Voice API error: ${response.status} ${response.statusText}`);
+    this.name = 'VoiceApiError';
+    this.status = response.status;
+    this.statusText = response.statusText;
+    this.errorCode = errorCode ?? null;
+  }
 }
 
 // ── Internal state ──
@@ -64,115 +100,128 @@ export function initVoiceClient(apiBaseUrl: string): void {
   baseUrl = apiBaseUrl.replace(/\/+$/, '');
 }
 
+// ── Helpers ──
+
+function blobExtension(blob: Blob): string {
+  const type = blob.type;
+  if (type.includes('webm')) return 'webm';
+  if (type.includes('mp4') || type.includes('aac')) return 'mp4';
+  if (type.includes('ogg')) return 'ogg';
+  return 'webm';
+}
+
+function buildFormData(params: {
+  audio: Blob;
+  agentId: string;
+  sessionId?: string;
+  languageHint?: string;
+}): FormData {
+  const formData = new FormData();
+  const ext = blobExtension(params.audio);
+  formData.append('audio', params.audio, `recording.${ext}`);
+  formData.append('agentId', params.agentId);
+  if (params.sessionId) formData.append('sessionId', params.sessionId);
+  if (params.languageHint) formData.append('languageHint', params.languageHint);
+  return formData;
+}
+
+function voiceUrl(agentId: string): string {
+  return `${baseUrl}/api/codeweaves/v1/public/voice/conversation?agentId=${encodeURIComponent(agentId)}`;
+}
+
+function buildHeaders(sessionId?: string): Record<string, string> {
+  const headers: Record<string, string> = {
+    'X-Device-Id': getDeviceId(),
+  };
+  if (sessionId) {
+    headers['X-Session-Id'] = sessionId;
+  }
+  return headers;
+}
+
 // ── Public API ──
 
 /**
- * Send a voice message and receive streaming NDJSON response.
- *
- * POST {baseUrl}/api/codeweaves/v1/public/voice/conversation
- * Accept: application/x-ndjson
- *
- * P5: Timeout is managed by the caller (useVoice hook) via the AbortSignal.
- * This avoids double-timeout race conditions.
+ * Streaming voice conversation — reads NDJSON audio chunks progressively.
+ * Returns session/message IDs from response headers.
  */
-export async function sendVoiceMessage(
-  agentId: string,
-  audioBlob: Blob,
-  callbacks: VoiceStreamCallbacks,
-  signal?: AbortSignal,
-  sessionId?: string,
-  languageHint?: string,
-): Promise<{ sessionId?: string }> {
+export async function streamVoiceConversation(params: {
+  audio: Blob;
+  agentId: string;
+  sessionId?: string;
+  languageHint?: string;
+  signal?: AbortSignal;
+  callbacks: StreamVoiceCallbacks;
+}): Promise<{ sessionId: string | null; messageId: string | null }> {
   if (!baseUrl) {
     throw new Error('Voice client not initialised');
   }
 
-  if (signal?.aborted) {
-    throw new DOMException('The operation was aborted.', 'AbortError');
+  const resolvedSessionId = params.sessionId ?? getSessionId() ?? undefined;
+  const formData = buildFormData({
+    audio: params.audio,
+    agentId: params.agentId,
+    sessionId: resolvedSessionId,
+    languageHint: params.languageHint,
+  });
+
+  const response = await fetch(voiceUrl(params.agentId), {
+    method: 'POST',
+    headers: {
+      Accept: 'application/x-ndjson',
+      ...buildHeaders(resolvedSessionId),
+    },
+    body: formData,
+    signal: params.signal,
+  });
+
+  if (!response.ok) {
+    let errorCode: string | undefined;
+    try {
+      const body = await response.json();
+      errorCode = body?.errorCode;
+    } catch {
+      // Response body not JSON
+    }
+    throw new VoiceApiError(response, errorCode);
   }
 
-  const resolvedSessionId = sessionId ?? getSessionId() ?? undefined;
+  const sessionId = response.headers.get('X-Session-Id');
+  const messageId = response.headers.get('X-Message-Id');
+  const contentType = response.headers.get('Content-Type') ?? '';
 
-  const formData = new FormData();
-  formData.append('audio', audioBlob, 'recording.webm');
-  formData.append('agentId', agentId);
-  if (resolvedSessionId) formData.append('sessionId', resolvedSessionId);
-  if (languageHint) formData.append('languageHint', languageHint);
-
-  try {
-    const headers: Record<string, string> = {
-      Accept: 'application/x-ndjson',
-      'X-Device-Id': getDeviceId(),
-    };
-    if (resolvedSessionId) {
-      headers['X-Session-Id'] = resolvedSessionId;
+  // If backend returned JSON (legacy fallback), parse and map to callbacks
+  if (contentType.includes('application/json')) {
+    const result: VoiceConversationResponse = await response.json();
+    if (result.transcription) {
+      params.callbacks.onTranscription?.(result.transcription.text);
     }
-
-    // Include agentId as query parameter so the CORS middleware can validate
-    // the origin against the agent's allowedDomains (multipart body isn't parsed in middleware)
-    const response = await fetch(`${baseUrl}/api/codeweaves/v1/public/voice/conversation?agentId=${encodeURIComponent(agentId)}`, {
-      method: 'POST',
-      headers,
-      body: formData,
-      signal,
-    });
-
-    if (!response.ok) {
-      // Parse error body and throw — caller's catch block handles state reset
-      let errorCode = 'UNKNOWN';
-      let errorMessage = `Voice request failed (${response.status})`;
-      try {
-        const errBody = await response.json();
-        errorCode = errBody.errorCode ?? 'UNKNOWN';
-        errorMessage = errBody.message ?? errorMessage;
-      } catch {
-        // Response body not JSON
-      }
-      callbacks.onError?.(errorCode, errorMessage);
-      throw new Error(errorMessage);
-    }
-
-    const contentType = response.headers.get('content-type') ?? '';
-    const returnedSessionId = response.headers.get('x-session-id') ?? undefined;
-
-    if (contentType.includes('application/x-ndjson') && response.body) {
-      // Streaming NDJSON path
-      await parseNdjsonStream(response.body, callbacks);
-      return { sessionId: returnedSessionId };
-    }
-
-    // Legacy JSON fallback
-    const json = await response.json();
-    if (json.transcription) {
-      callbacks.onTranscription?.(json.transcription, json.detectedLanguage ?? '');
-    }
-    if (json.audio) {
-      callbacks.onAudioChunk?.({
+    if (result.response?.audio) {
+      params.callbacks.onAudioChunk?.({
         type: 'audio',
         sentenceIndex: 0,
-        text: json.text ?? json.reply ?? '',
-        audio: json.audio,
-        audioFormat: json.audioFormat ?? 'audio/mp3',
-        audioDurationMs: json.audioDurationMs ?? null,
-        ttsLatencyMs: 0,
+        text: result.response.text,
+        audio: result.response.audio,
+        audioFormat: result.response.audioFormat ?? 'audio/mp3',
+        audioDurationMs: result.response.audioDurationMs,
+        ttsLatencyMs: result.metrics?.ttsLatencyMs ?? 0,
       });
     }
-    callbacks.onComplete?.(json.text ?? json.reply ?? '', 1);
-    return { sessionId: returnedSessionId ?? json.sessionId };
-  } catch (err) {
-    if (err instanceof DOMException && err.name === 'AbortError') {
-      throw err; // Let caller handle abort
+    if (result.response?.text) {
+      params.callbacks.onComplete?.(result.response.text, 1);
     }
-    throw err;
+    if (result.ttsError) {
+      params.callbacks.onError?.(result.ttsError.errorCode, result.ttsError.message);
+    }
+    return { sessionId: result.sessionId ?? sessionId, messageId: result.messageId ?? messageId };
   }
-}
 
-// ── NDJSON parser ──
+  // NDJSON streaming path
+  const body = response.body;
+  if (!body) {
+    throw new Error('No response body for streaming voice');
+  }
 
-async function parseNdjsonStream(
-  body: ReadableStream<Uint8Array>,
-  callbacks: VoiceStreamCallbacks,
-): Promise<void> {
   const reader = body.getReader();
   const decoder = new TextDecoder();
   let buffer = '';
@@ -183,52 +232,52 @@ async function parseNdjsonStream(
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
+      const lines = buffer.split('\n');
+      buffer = lines.pop() ?? '';
 
-      // Process complete lines
-      let newlineIdx: number;
-      while ((newlineIdx = buffer.indexOf('\n')) !== -1) {
-        const line = buffer.slice(0, newlineIdx).trim();
-        buffer = buffer.slice(newlineIdx + 1);
+      for (const line of lines) {
+        const trimmed = line.trim();
+        if (!trimmed) continue;
 
-        if (!line) continue;
-
+        let chunk: VoiceStreamChunk;
         try {
-          const chunk = JSON.parse(line) as VoiceStreamChunk;
-          dispatchChunk(chunk, callbacks);
+          chunk = JSON.parse(trimmed) as VoiceStreamChunk;
         } catch {
-          // Skip malformed JSON lines
+          continue;
+        }
+
+        switch (chunk.type) {
+          case 'transcription':
+            params.callbacks.onTranscription?.(chunk.text);
+            break;
+          case 'audio':
+            params.callbacks.onAudioChunk?.(chunk);
+            break;
+          case 'end':
+            params.callbacks.onComplete?.(chunk.fullText, chunk.totalSentences);
+            break;
+          case 'error':
+            params.callbacks.onError?.(chunk.errorCode, chunk.message);
+            break;
         }
       }
     }
 
-    // Process any remaining buffer
-    const remaining = buffer.trim();
-    if (remaining) {
+    // Process remaining buffer
+    if (buffer.trim()) {
       try {
-        const chunk = JSON.parse(remaining) as VoiceStreamChunk;
-        dispatchChunk(chunk, callbacks);
+        const chunk = JSON.parse(buffer.trim()) as VoiceStreamChunk;
+        if (chunk.type === 'transcription') params.callbacks.onTranscription?.(chunk.text);
+        else if (chunk.type === 'audio') params.callbacks.onAudioChunk?.(chunk);
+        else if (chunk.type === 'end') params.callbacks.onComplete?.(chunk.fullText, chunk.totalSentences);
+        else if (chunk.type === 'error') params.callbacks.onError?.(chunk.errorCode, chunk.message);
       } catch {
-        // Skip malformed final chunk
+        // ignore malformed trailing chunk
       }
     }
   } finally {
     reader.releaseLock();
   }
-}
 
-function dispatchChunk(chunk: VoiceStreamChunk, callbacks: VoiceStreamCallbacks): void {
-  switch (chunk.type) {
-    case 'transcription':
-      callbacks.onTranscription?.(chunk.text, chunk.detectedLanguage);
-      break;
-    case 'audio':
-      callbacks.onAudioChunk?.(chunk);
-      break;
-    case 'end':
-      callbacks.onComplete?.(chunk.fullText, chunk.totalSentences);
-      break;
-    case 'error':
-      callbacks.onError?.(chunk.errorCode, chunk.message);
-      break;
-  }
+  return { sessionId, messageId };
 }

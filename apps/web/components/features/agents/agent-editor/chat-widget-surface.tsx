@@ -521,12 +521,14 @@ export function ChatWidgetSurface({
                 )}
                 <button
                   onClick={handleSend}
+                  disabled={!inputValue.trim()}
                   aria-label="Send message"
                   className="flex h-10 w-10 items-center justify-center p-0"
                   style={{
                     backgroundColor: formData.sendButtonBg,
                     borderRadius: `${formData.sendButtonBorderRadius || 14}px`,
                     color: formData.sendButtonIconColor || '#FFFFFF',
+                    opacity: !inputValue.trim() ? 0.5 : 1,
                   }}
                 >
                   <Send className="h-4 w-4" />
