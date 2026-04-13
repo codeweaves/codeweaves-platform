@@ -1,6 +1,6 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { Prisma, Role, ChatSource } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import type { AnalyticsQuery, AgentAnalyticsQuery, ExportLogBody } from '../models/analytics.dto';
 
