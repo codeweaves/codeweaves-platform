@@ -188,6 +188,7 @@ export class VoiceController {
         agentId: resolvedAgentId,
         chatInput: sttResult.transcript,
         sessionId: dto.sessionId,
+        source: dto.source ?? 'WIDGET',
       });
     } catch (error) {
       this.logger.error(
@@ -472,7 +473,7 @@ export class VoiceController {
     resolvedAgentId: string,
   ): Promise<void> {
     // Resolve session for message storage
-    const session = await this.chatService.resolveOrCreateSession(resolvedAgentId, dto.sessionId);
+    const session = await this.chatService.resolveOrCreateSession(resolvedAgentId, dto.sessionId, dto.source ?? 'WIDGET');
     const userMessage = await this.chatService.saveUserMessage(session.id, sttResult.transcript);
 
     // Set chunked response headers

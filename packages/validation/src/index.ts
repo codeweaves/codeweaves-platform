@@ -124,7 +124,7 @@ export const slugSchema = z
 
 export const organizationListQuerySchema = paginationSchema.extend({
   search: z.string().optional(),
-  sortBy: z.enum(['name', 'slug', 'createdAt', 'usersCount']).default('createdAt'),
+  sortBy: z.enum(['name', 'slug', 'createdAt', 'usersCount', 'agentsCount']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });
 

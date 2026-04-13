@@ -5,7 +5,6 @@ import {
   SelectContent,
   SelectItem,
   SelectTrigger,
-  SelectValue,
 } from '@/components/ui/select';
 import {
   DropdownMenu,
@@ -30,18 +29,23 @@ function SingleSelectFilter({
   value: string;
   onChange: (value: string) => void;
 }) {
+  const selectedLabel =
+    value && value !== 'all'
+      ? filter.options.find((o) => o.value === value)?.label
+      : null;
+
   return (
-    <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-[160px] cursor-pointer">
-        <SelectValue placeholder={filter.placeholder || filter.label} />
+    <Select value={value === 'all' ? undefined : value} onValueChange={onChange}>
+      <SelectTrigger className="w-40 cursor-pointer">
+        <span className={selectedLabel ? 'truncate' : 'text-muted-foreground truncate'}>
+          {selectedLabel || filter.placeholder || filter.label}
+        </span>
       </SelectTrigger>
-      <SelectContent>
+      <SelectContent className="w-40 max-w-40">
+        <SelectItem value="all">All</SelectItem>
         {filter.options.map((option) => (
-          <SelectItem key={option.value} value={option.value}>
-            <div className="flex items-center gap-2">
-              {option.icon && <option.icon className="size-4" />}
-              {option.label}
-            </div>
+          <SelectItem key={option.value} value={option.value} className="[&>span:last-child]:truncate [&>span:last-child]:block">
+            {option.label}
           </SelectItem>
         ))}
       </SelectContent>
@@ -136,12 +140,12 @@ function MultiSelectFilter({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="w-[160px] justify-between">
-          <span className="truncate">{displayText}</span>
+        <Button variant="outline" className="h-auto min-h-9 w-40 justify-between">
+          <span className="whitespace-normal text-left leading-tight">{displayText}</span>
           <ChevronDown className="ml-2 size-4 shrink-0 opacity-50" />
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="w-[160px]">
+      <DropdownMenuContent align="start" className="w-40">
         {filter.options.map((option) => (
           <DropdownMenuCheckboxItem
             key={option.value}
@@ -171,10 +175,10 @@ export function DataTableToolbar({
   exportConfig,
 }: DataTableToolbarProps) {
   return (
-    <div className="flex flex-wrap items-center justify-between gap-4">
+    <div className="flex flex-wrap items-center gap-2">
       {/* Search Input */}
       {searchConfig && (
-        <div className="relative min-w-[200px] max-w-sm flex-1">
+        <div className="relative min-w-50 max-w-sm flex-1">
           <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
           <Input
             id="data-table-search"

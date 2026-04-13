@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useProfile } from '@/hooks/use-profile';
+import { usePageHeader } from '@/components/layout/page-header';
 import { useTabVisible } from '@/hooks/use-tab-visible';
 import { useAgents, type Agent } from '@/hooks/use-agents';
 import { useOrganizations, type Organization } from '@/hooks/use-organizations';
@@ -57,7 +58,13 @@ export function AnalyticsPageClient() {
   const searchParams = useSearchParams();
   const { profile, isLoading: profileLoading } = useProfile();
 
+  const { setTitle } = usePageHeader();
   const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+
+  useEffect(() => {
+    setTitle('Analytics');
+    return () => setTitle('');
+  }, [setTitle]);
 
   // 8-9: Polling — pause when tab is inactive
   const isTabVisible = useTabVisible();
@@ -89,6 +96,11 @@ export function AnalyticsPageClient() {
     searchParams.get('orgId') ?? undefined,
   );
 
+  const [source, setSource] = useState<'WIDGET' | 'WHATSAPP' | undefined>(() => {
+    const s = searchParams.get('source');
+    return s === 'WIDGET' || s === 'WHATSAPP' ? s : undefined;
+  });
+
   // Sync filter state to URL (Task 3.5) — M1 fix: no router in deps
   const syncUrl = useCallback(() => {
     const params = new URLSearchParams();
@@ -97,8 +109,9 @@ export function AnalyticsPageClient() {
     params.set('end', formatDateLocal(endDate));
     if (agentId) params.set('agentId', agentId);
     if (orgId) params.set('orgId', orgId);
+    if (source) params.set('source', source);
     routerRef.current.replace(`?${params.toString()}`, { scroll: false });
-  }, [datePreset, startDate, endDate, agentId, orgId]);
+  }, [datePreset, startDate, endDate, agentId, orgId, source]);
 
   useEffect(() => {
     syncUrl();
@@ -120,6 +133,7 @@ export function AnalyticsPageClient() {
     endDate: formatDateLocal(endDate),
     agentId,
     orgId: isAdmin ? orgId : undefined,
+    source,
   };
 
   const pollingOptions = { refetchInterval };
@@ -162,14 +176,6 @@ export function AnalyticsPageClient() {
 
   return (
     <div className="space-y-6">
-      {/* Header (Task 1.3) */}
-      <div>
-        <h1 className="text-2xl font-bold tracking-tight">Analytics</h1>
-        <p className="text-muted-foreground">
-          View performance metrics across your agents.
-        </p>
-      </div>
-
       {/* Filters Bar */}
       <div className="flex flex-wrap items-center gap-4">
         <DateRangeFilter
@@ -189,9 +195,9 @@ export function AnalyticsPageClient() {
           <SelectTrigger className="w-45">
             <SelectValue placeholder="All agents" />
           </SelectTrigger>
-          <SelectContent allowClear clearLabel="All agents">
+          <SelectContent allowClear clearLabel="All agents" className="w-45 max-w-45">
             {agents.map((agent) => (
-              <SelectItem key={agent.id} value={agent.id}>
+              <SelectItem key={agent.id} value={agent.id} className="[&>span:last-child]:truncate [&>span:last-child]:block">
                 {agent.name}
               </SelectItem>
             ))}
@@ -207,15 +213,29 @@ export function AnalyticsPageClient() {
             <SelectTrigger className="w-45">
               <SelectValue placeholder="All organizations" />
             </SelectTrigger>
-            <SelectContent allowClear clearLabel="All organizations">
+            <SelectContent allowClear clearLabel="All organizations" className="w-45 max-w-45">
               {organizations.map((org) => (
-                <SelectItem key={org.id} value={org.id}>
+                <SelectItem key={org.id} value={org.id} className="[&>span:last-child]:truncate [&>span:last-child]:block">
                   {org.name}
                 </SelectItem>
               ))}
             </SelectContent>
           </Select>
         )}
+
+        {/* Source Filter */}
+        <Select
+          value={source ?? ''}
+          onValueChange={(v) => setSource(v === '__select_clear__' || !v ? undefined : v as 'WIDGET' | 'WHATSAPP')}
+        >
+          <SelectTrigger className="w-40">
+            <SelectValue placeholder="All channels" />
+          </SelectTrigger>
+          <SelectContent allowClear clearLabel="All channels">
+            <SelectItem value="WIDGET">Widget</SelectItem>
+            <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
+          </SelectContent>
+        </Select>
 
         {/* 8-11: Export button */}
         <div className="ml-auto">

@@ -7,11 +7,12 @@ import {
   LayoutDashboard,
   Bot,
   Building2,
-  Palette,
+
   BarChart3,
   Settings,
   Users,
   ChevronsUpDown,
+  ChevronRight,
   LogOut,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
@@ -51,10 +52,9 @@ const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: 'all' },
   { name: 'Organizations', href: '/dashboard/organizations', icon: Building2, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { name: 'Agents', href: '/dashboard/agents', icon: Bot, roles: 'all' },
-  { name: 'Theme Editor', href: '/dashboard/theme', icon: Palette, roles: 'all' },
+
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: 'all' },
   { name: 'Team', href: '/dashboard/team', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN'] },
-  { name: 'Settings', href: '/dashboard/settings', icon: Settings, roles: 'all' },
 ];
 
 function NavUser() {
@@ -91,7 +91,7 @@ function NavUser() {
           <DropdownMenuTrigger asChild>
             <SidebarMenuButton
               size="lg"
-              className="data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
+              className="cursor-pointer data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
             >
               <Avatar className="h-8 w-8 rounded-lg">
                 <AvatarFallback className="rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">
@@ -142,7 +142,7 @@ function NavUser() {
             <DropdownMenuSeparator />
             <DropdownMenuGroup>
               <DropdownMenuItem
-                onClick={() => router.push('/dashboard/settings')}
+                onClick={() => router.push('/dashboard/profile-settings')}
               >
                 <Settings />
                 Profile Settings
@@ -199,7 +199,8 @@ export function AppSidebar() {
                     >
                       <Link href={item.href}>
                         <item.icon />
-                        <span>{item.name}</span>
+                        <span className="flex-1">{item.name}</span>
+                        <ChevronRight className="ml-auto size-4 opacity-40" />
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

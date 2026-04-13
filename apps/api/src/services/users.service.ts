@@ -4,6 +4,7 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
+import { Auth0ManagementService } from './auth0-management.service';
 import { User, Role, InvitationStatus, Prisma } from '@prisma/client';
 import type { UpdateUserProfileDto, UserProfileResponse } from '../models/user.dto';
 import { buildTenantFilter, TenantFilterUser } from '../utils/tenant-filter';
@@ -26,6 +27,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private readonly userLogger: UserLoggerService,
+    private readonly auth0Management: Auth0ManagementService,
   ) {}
 
   async findByAuth0Id(auth0Id: string): Promise<User | null> {
@@ -105,6 +107,10 @@ export class UsersService {
       }
       throw error;
     }
+  }
+
+  async requestPasswordReset(auth0Id: string): Promise<string> {
+    return this.auth0Management.createPasswordChangeTicket(auth0Id);
   }
 
   async findByOrganization(organizationId: string): Promise<User[]> {

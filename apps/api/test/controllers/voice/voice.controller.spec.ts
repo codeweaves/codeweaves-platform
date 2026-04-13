@@ -266,6 +266,7 @@ describe('VoiceController', () => {
         agentId: AGENT_ID,
         chatInput: 'Hello, how are you?',
         sessionId: SESSION_ID,
+        source: 'WIDGET',
       });
     });
 

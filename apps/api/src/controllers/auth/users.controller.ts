@@ -1,4 +1,4 @@
-import { Controller, Get, Patch, Body } from '@nestjs/common';
+import { Controller, Get, Patch, Post, Body } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { UsersService } from '../../services/users.service';
 import {
@@ -36,5 +36,16 @@ export class UsersController {
     dto: UpdateUserProfileDto,
   ): Promise<UserProfileResponse> {
     return this.usersService.updateProfile(user.id, dto);
+  }
+
+  @Post('me/password-reset')
+  @ApiOperation({ summary: 'Request password reset link' })
+  @ApiResponse({ status: 200, description: 'Password reset link generated' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  async requestPasswordReset(
+    @CurrentUser() user: CurrentUserData,
+  ): Promise<{ url: string }> {
+    const url = await this.usersService.requestPasswordReset(user.auth0Id);
+    return { url };
   }
 }

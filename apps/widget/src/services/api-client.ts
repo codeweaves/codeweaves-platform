@@ -70,7 +70,7 @@ export async function sendMessage(
   const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: buildHeaders(deviceId, resolvedSessionId),
-    body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId }),
+    body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId, source: 'WIDGET' }),
   });
 
   // Session expired — clear stale session and throw (Story 5-17, AC 3)
@@ -138,7 +138,7 @@ export async function streamMessage(
   // saved the message / triggered the AI pipeline.
   const response = await fetchWithRetry(
     url,
-    { method: 'POST', headers, body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId }), signal },
+    { method: 'POST', headers, body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId, source: 'WIDGET' }), signal },
     90_000,
     false,
   );

@@ -81,7 +81,9 @@ export class OrganizationsService {
     const orderBy: Prisma.OrganizationOrderByWithRelationInput =
       sortBy === 'usersCount'
         ? { users: { _count: sortOrder } }
-        : { [sortBy]: sortOrder };
+        : sortBy === 'agentsCount'
+          ? { agents: { _count: sortOrder } }
+          : { [sortBy]: sortOrder };
 
     const [data, total] = await Promise.all([
       this.prisma.organization.findMany({
@@ -90,6 +92,7 @@ export class OrganizationsService {
           _count: {
             select: {
               users: true,
+              agents: true,
             },
           },
         },
@@ -118,6 +121,7 @@ export class OrganizationsService {
         _count: {
           select: {
             users: true,
+            agents: true,
           },
         },
       },

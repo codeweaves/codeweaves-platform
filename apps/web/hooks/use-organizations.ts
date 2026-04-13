@@ -12,6 +12,7 @@ export interface Organization {
   updatedAt: string;
   _count: {
     users: number;
+    agents: number;
   };
 }
 
@@ -29,7 +30,7 @@ export interface OrganizationListParams {
   page?: number;
   limit?: number;
   search?: string;
-  sortBy?: 'name' | 'slug' | 'createdAt' | 'usersCount';
+  sortBy?: 'name' | 'slug' | 'createdAt' | 'usersCount' | 'agentsCount';
   sortOrder?: 'asc' | 'desc';
 }
 
