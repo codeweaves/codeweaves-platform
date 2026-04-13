@@ -140,7 +140,7 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
       cell: ({ row }) => {
         const status = row.original.status;
         return (
-          <Badge variant={status === 'ACTIVE' ? 'default' : 'secondary'}>
+          <Badge className='text-sm' variant={status === 'ACTIVE' ? 'success' : 'error'}>
             {status === 'ACTIVE' ? 'Active' : 'Inactive'}
           </Badge>
         );
@@ -227,6 +227,7 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
     {
       id: 'status',
       label: 'Status',
+      placeholder: 'Status',
       options: [
         { label: 'Active', value: 'ACTIVE' },
         { label: 'Inactive', value: 'INACTIVE' },
@@ -238,6 +239,7 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
           {
             id: 'organizationId',
             label: 'Organization',
+            placeholder: 'Organization',
             options: orgsData.data.map((org) => ({
               label: org.name,
               value: org.id,

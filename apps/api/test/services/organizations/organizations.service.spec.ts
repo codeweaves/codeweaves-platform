@@ -30,7 +30,7 @@ describe('OrganizationsService', () => {
 
   const mockOrgWithCounts = {
     ...mockOrganization,
-    _count: { users: 5 },
+    _count: { users: 5, agents: 0 },
   };
 
   const p2002Error = new Prisma.PrismaClientKnownRequestError(
@@ -187,7 +187,7 @@ describe('OrganizationsService', () => {
           id: '223e4567-e89b-12d3-a456-426614174000',
           name: 'Beta Inc',
           slug: 'beta-inc',
-          _count: { users: 3 },
+          _count: { users: 3, agents: 0 },
         },
       ];
 
@@ -206,6 +206,7 @@ describe('OrganizationsService', () => {
           _count: {
             select: {
               users: true,
+              agents: true,
             },
           },
         },
@@ -316,6 +317,7 @@ describe('OrganizationsService', () => {
           _count: {
             select: {
               users: true,
+              agents: true,
             },
           },
         },

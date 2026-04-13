@@ -1,12 +1,27 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, Role, ChatSource } from '@prisma/client';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import type { AnalyticsQuery, AgentAnalyticsQuery, ExportLogBody } from '../models/analytics.dto';
 
 @Injectable()
 export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * Build SQL fragment to filter chat_sessions by source.
+   * Always excludes DEMO; optionally narrows to a specific source.
+   */
+  private getSourceFilter(source?: string): Prisma.Sql {
+    if (source === 'WIDGET') {
+      return Prisma.sql`AND "source" = 'WIDGET'`;
+    }
+    if (source === 'WHATSAPP') {
+      return Prisma.sql`AND "source" = 'WHATSAPP'`;
+    }
+    // Default: exclude DEMO
+    return Prisma.sql`AND "source" != 'DEMO'`;
+  }
 
   /**
    * Build agent IDs scoped to user's role and query filters.
@@ -59,7 +74,7 @@ export class AnalyticsService {
    * Get session-level metrics for a given period and agent set.
    * Uses SQL aggregation instead of loading all sessions into memory.
    */
-  private async getSessionMetrics(agentIds: string[], startDate: Date, endDate: Date) {
+  private async getSessionMetrics(agentIds: string[], startDate: Date, endDate: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
     if (agentIds.length === 0) {
       return { totalConversations: 0, totalUsers: 0, newUsers: 0, returningUsers: 0 };
     }
@@ -77,12 +92,14 @@ export class AnalyticsService {
             WHERE "agentId" = ANY(${agentIds}::text[])
               AND "createdAt" < ${startDate}
               AND "visitorId" IS NOT NULL
+              ${sourceFilter}
           )
         ) as returning_users
       FROM chat_sessions
       WHERE "agentId" = ANY(${agentIds}::text[])
         AND "createdAt" >= ${startDate}
         AND "createdAt" <= ${endDate}
+        ${sourceFilter}
     `;
 
     const row = result[0];
@@ -98,7 +115,7 @@ export class AnalyticsService {
    * Get message-level metrics for a given period and agent set.
    * Uses SQL subquery instead of loading session IDs into memory.
    */
-  private async getMessageMetrics(agentIds: string[], startDate: Date, endDate: Date) {
+  private async getMessageMetrics(agentIds: string[], startDate: Date, endDate: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
     if (agentIds.length === 0) {
       return { totalMessagesSent: 0, totalMessagesReceived: 0 };
     }
@@ -115,6 +132,7 @@ export class AnalyticsService {
         WHERE "agentId" = ANY(${agentIds}::text[])
           AND "createdAt" >= ${startDate}
           AND "createdAt" <= ${endDate}
+          ${sourceFilter}
       )
     `;
 
@@ -129,7 +147,7 @@ export class AnalyticsService {
    * Calculate user retention rate: visitors who appear in sessions > 60 days apart / total unique visitors.
    * Scoped to sessions up to endDate so we can compare across periods for trend calculation.
    */
-  private async getUserRetentionRate(agentIds: string[], endDate: Date): Promise<number> {
+  private async getUserRetentionRate(agentIds: string[], endDate: Date, sourceFilter: Prisma.Sql = Prisma.empty): Promise<number> {
     if (agentIds.length === 0) return 0;
 
     const result = await this.prisma.$queryRaw<{ retained: bigint; total: bigint }[]>`
@@ -142,6 +160,7 @@ export class AnalyticsService {
         WHERE "agentId" = ANY(${agentIds}::text[])
           AND "visitorId" IS NOT NULL
           AND "createdAt" <= ${endDate}
+          ${sourceFilter}
         GROUP BY "visitorId"
       ) sub
     `;
@@ -158,6 +177,7 @@ export class AnalyticsService {
     agentIds: string[],
     startDate: Date,
     endDate: Date,
+    sourceFilter: Prisma.Sql = Prisma.empty,
   ): Promise<{ avg: number; p50: number; p95: number; p99: number; avgTimeToFirstToken: number | null }> {
     if (agentIds.length === 0) {
       return { avg: 0, p50: 0, p95: 0, p99: 0, avgTimeToFirstToken: null };
@@ -184,6 +204,7 @@ export class AnalyticsService {
           WHERE "agentId" = ANY(${agentIds}::text[])
             AND "createdAt" >= ${startDate}
             AND "createdAt" <= ${endDate}
+            ${sourceFilter}
         )
     `;
 
@@ -205,16 +226,17 @@ export class AnalyticsService {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
     const { prevStart, prevEnd } = this.getPreviousPeriod(startDate, endDate);
+    const sf = this.getSourceFilter(query.source);
 
     const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime, retentionRate, prevRetentionRate] = await Promise.all([
-      this.getSessionMetrics(agentIds, startDate, endDate),
-      this.getMessageMetrics(agentIds, startDate, endDate),
-      this.getResponseTimeMetrics(agentIds, startDate, endDate),
-      this.getSessionMetrics(agentIds, prevStart, prevEnd),
-      this.getMessageMetrics(agentIds, prevStart, prevEnd),
-      this.getResponseTimeMetrics(agentIds, prevStart, prevEnd),
-      this.getUserRetentionRate(agentIds, endDate),
-      this.getUserRetentionRate(agentIds, prevEnd),
+      this.getSessionMetrics(agentIds, startDate, endDate, sf),
+      this.getMessageMetrics(agentIds, startDate, endDate, sf),
+      this.getResponseTimeMetrics(agentIds, startDate, endDate, sf),
+      this.getSessionMetrics(agentIds, prevStart, prevEnd, sf),
+      this.getMessageMetrics(agentIds, prevStart, prevEnd, sf),
+      this.getResponseTimeMetrics(agentIds, prevStart, prevEnd, sf),
+      this.getUserRetentionRate(agentIds, endDate, sf),
+      this.getUserRetentionRate(agentIds, prevEnd, sf),
     ]);
 
     const userGrowthRate = prevSessions.newUsers === 0
@@ -254,6 +276,7 @@ export class AnalyticsService {
   async getConversationsChart(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const sf = this.getSourceFilter(query.source);
 
     if (agentIds.length === 0) return { data: [] };
 
@@ -263,6 +286,7 @@ export class AnalyticsService {
       WHERE "agentId" = ANY(${agentIds}::text[])
         AND "createdAt" >= ${startDate}
         AND "createdAt" <= ${endDate}
+        ${sf}
       GROUP BY DATE("createdAt")
       ORDER BY date ASC
     `;
@@ -278,6 +302,7 @@ export class AnalyticsService {
   async getResponseTimeDistribution(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const sf = this.getSourceFilter(query.source);
 
     const emptyBuckets = [
       { label: '<1s', min: 0, max: 1000, count: 0, percentage: 0 },
@@ -310,6 +335,7 @@ export class AnalyticsService {
             WHERE "agentId" = ANY(${agentIds}::text[])
               AND "createdAt" >= ${startDate}
               AND "createdAt" <= ${endDate}
+              ${sf}
           )
       ),
       percentiles AS (
@@ -367,6 +393,7 @@ export class AnalyticsService {
   async getMessageVolumeHeatmap(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const sf = this.getSourceFilter(query.source);
 
     if (agentIds.length === 0) return { data: [] };
 
@@ -380,6 +407,7 @@ export class AnalyticsService {
       WHERE cs."agentId" = ANY(${agentIds}::text[])
         AND cs."createdAt" >= ${startDate}
         AND cs."createdAt" <= ${endDate}
+        ${sf}
       GROUP BY day, hour
       ORDER BY day, hour
     `;
@@ -396,6 +424,7 @@ export class AnalyticsService {
   async getAgentMetrics(query: AgentAnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate, page = 1, limit = 20, sortBy = 'conversations', sortOrder = 'desc' } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const sf = this.getSourceFilter(query.source);
 
     if (agentIds.length === 0) {
       return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
@@ -408,6 +437,7 @@ export class AnalyticsService {
       WHERE a.id = ANY(${agentIds}::text[])
         AND cs."createdAt" >= ${startDate}
         AND cs."createdAt" <= ${endDate}
+        ${sf}
     `;
 
     const total = Number(countResult[0]?.total ?? 0);
@@ -470,6 +500,7 @@ export class AnalyticsService {
       WHERE a.id = ANY(${agentIds}::text[])
         AND cs."createdAt" >= ${startDate}
         AND cs."createdAt" <= ${endDate}
+        ${sf}
       GROUP BY a.id, a.name
       ${orderByClause}
       LIMIT ${limit}
@@ -497,6 +528,7 @@ export class AnalyticsService {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
     const { prevStart, prevEnd } = this.getPreviousPeriod(startDate, endDate);
+    const sf = this.getSourceFilter(query.source);
 
     if (agentIds.length === 0) {
       return {
@@ -511,8 +543,8 @@ export class AnalyticsService {
     }
 
     const [current, previous] = await Promise.all([
-      this.getVoiceMetrics(agentIds, startDate, endDate),
-      this.getVoiceMetrics(agentIds, prevStart, prevEnd),
+      this.getVoiceMetrics(agentIds, startDate, endDate, sf),
+      this.getVoiceMetrics(agentIds, prevStart, prevEnd, sf),
     ]);
 
     const total = current.voiceCount + current.textCount;
@@ -529,7 +561,7 @@ export class AnalyticsService {
     };
   }
 
-  private async getVoiceMetrics(agentIds: string[], startDate: Date, endDate: Date) {
+  private async getVoiceMetrics(agentIds: string[], startDate: Date, endDate: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
     const result = await this.prisma.$queryRaw<
       {
         voice_count: bigint;
@@ -551,6 +583,7 @@ export class AnalyticsService {
         WHERE "agentId" = ANY(${agentIds}::text[])
           AND "createdAt" >= ${startDate}
           AND "createdAt" <= ${endDate}
+          ${sourceFilter}
       )
     `;
 
@@ -567,6 +600,7 @@ export class AnalyticsService {
   async getLanguageDistribution(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const sf = this.getSourceFilter(query.source);
 
     if (agentIds.length === 0) {
       return { languages: [] };
@@ -587,6 +621,7 @@ export class AnalyticsService {
           WHERE "agentId" = ANY(${agentIds}::text[])
             AND "createdAt" >= ${startDate}
             AND "createdAt" <= ${endDate}
+            ${sf}
         )
       GROUP BY cm.metadata->>'detectedLanguage'
       ORDER BY count DESC
@@ -605,6 +640,7 @@ export class AnalyticsService {
   async getVoiceLatencyByProvider(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const sf = this.getSourceFilter(query.source);
 
     if (agentIds.length === 0) {
       return { stt: [], tts: [] };
@@ -631,6 +667,7 @@ export class AnalyticsService {
             WHERE "agentId" = ANY(${agentIds}::text[])
               AND "createdAt" >= ${startDate}
               AND "createdAt" <= ${endDate}
+              ${sf}
           )
         GROUP BY cm.metadata->>'sttProvider'
       `,
@@ -654,6 +691,7 @@ export class AnalyticsService {
             WHERE "agentId" = ANY(${agentIds}::text[])
               AND "createdAt" >= ${startDate}
               AND "createdAt" <= ${endDate}
+              ${sf}
           )
         GROUP BY cm.metadata->>'ttsProvider'
       `,

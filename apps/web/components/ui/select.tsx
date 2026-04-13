@@ -75,7 +75,7 @@ function SelectContent({
       >
         <SelectPrimitive.Viewport
           className={cn(
-            'max-h-48 overflow-y-auto p-1 [scrollbar-width:thin]!',
+            'max-h-48 overflow-y-auto p-1 [scrollbar-width:thin]',
             position === 'popper' && 'w-full min-w-(--radix-select-trigger-width)',
           )}
           onWheel={(e) => e.stopPropagation()}

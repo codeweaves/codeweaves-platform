@@ -94,6 +94,7 @@ function buildFormData(params: {
   agentId: string;
   sessionId?: string;
   languageHint?: string;
+  source?: string;
 }): FormData {
   const formData = new FormData();
   const ext = blobExtension(params.audio);
@@ -101,6 +102,7 @@ function buildFormData(params: {
   formData.append('agentId', params.agentId);
   if (params.sessionId) formData.append('sessionId', params.sessionId);
   if (params.languageHint) formData.append('languageHint', params.languageHint);
+  if (params.source) formData.append('source', params.source);
   return formData;
 }
 
@@ -113,6 +115,7 @@ export async function sendVoiceConversation(params: {
   agentId: string;
   sessionId?: string;
   languageHint?: string;
+  source?: string;
   signal?: AbortSignal;
 }): Promise<VoiceConversationResponse> {
   const formData = buildFormData(params);
@@ -146,6 +149,7 @@ export async function streamVoiceConversation(params: {
   agentId: string;
   sessionId?: string;
   languageHint?: string;
+  source?: string;
   signal?: AbortSignal;
   callbacks: StreamVoiceCallbacks;
 }): Promise<{ sessionId: string | null; messageId: string | null }> {

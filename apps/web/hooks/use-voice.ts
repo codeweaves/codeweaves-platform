@@ -39,6 +39,7 @@ export function getErrorSeverity(errorCode: string | null): VoiceErrorSeverity {
 export interface UseVoiceOptions {
   agentId: string;
   sessionId?: string;
+  source?: 'DEMO' | 'WIDGET';
   onTranscription?: (text: string, language: string) => void;
   onResponse?: (reply: string, sessionId: string) => void;
   /** Called per sentence as audio chunks arrive — use to progressively display text in sync with audio */
@@ -201,6 +202,7 @@ class AudioPlaybackQueue {
 export function useVoice({
   agentId,
   sessionId,
+  source,
   onTranscription,
   onResponse,
   onResponseTextChunk,
@@ -323,6 +325,7 @@ export function useVoice({
         audio: audioBlob,
         agentId,
         sessionId: sessionIdRef.current,
+        source,
         signal: controller.signal,
         callbacks: {
           onTranscription: (text: string) => {
@@ -419,7 +422,7 @@ export function useVoice({
         abortRef.current = null;
       }
     }
-  }, [agentId, setErrorWithAutoDismiss, setVoiceStateSynced]);
+  }, [agentId, source, setErrorWithAutoDismiss, setVoiceStateSynced]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state === 'recording') {

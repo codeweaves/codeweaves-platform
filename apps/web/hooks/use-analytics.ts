@@ -9,6 +9,7 @@ export interface AnalyticsParams {
   endDate: string;
   agentId?: string;
   orgId?: string;
+  source?: 'WIDGET' | 'WHATSAPP';
 }
 
 // Matches API: analytics.service.ts → getSummary()
@@ -101,6 +102,7 @@ function buildQueryString(params: AnalyticsParams, extra?: Record<string, string
   qp.set('endDate', params.endDate);
   if (params.agentId) qp.set('agentId', params.agentId);
   if (params.orgId) qp.set('orgId', params.orgId);
+  if (params.source) qp.set('source', params.source);
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v !== undefined) qp.set(k, String(v));

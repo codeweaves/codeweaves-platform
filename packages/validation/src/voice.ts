@@ -66,6 +66,7 @@ export const voiceConversationSchema = z.object({
   deviceId: z.string().max(128, 'Device ID must be at most 128 characters').optional(),
   sessionId: z.string().max(128, 'Session ID must be at most 128 characters').optional(),
   languageHint: supportedLanguageEnum.optional(),
+  source: z.enum(['DEMO', 'WIDGET', 'WHATSAPP']).optional(),
 });
 
 export type VoiceConversationDto = z.infer<typeof voiceConversationSchema>;

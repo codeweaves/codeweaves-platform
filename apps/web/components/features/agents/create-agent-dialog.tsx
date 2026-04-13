@@ -3,7 +3,7 @@
 import { useState, useEffect } from 'react';
 import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
-import { Plus } from 'lucide-react';
+
 import {
   Dialog,
   DialogContent,
@@ -80,9 +80,11 @@ export function CreateAgentDialog() {
   return (
     <Dialog open={open} onOpenChange={handleOpenChange}>
       <DialogTrigger asChild>
-        <Button>
-          <Plus className="mr-2 h-4 w-4" />
-          Create Agent
+        <Button
+          variant="ghost"
+          className="rounded-full bg-[#642D91] px-4 py-2 text-sm font-medium text-white hover:bg-[#642D91]/90 hover:text-white"
+        >
+          Create New Agent
         </Button>
       </DialogTrigger>
       <DialogContent className="sm:max-w-[425px]">

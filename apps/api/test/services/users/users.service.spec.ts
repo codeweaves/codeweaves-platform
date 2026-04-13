@@ -3,6 +3,7 @@ import { ForbiddenException, NotFoundException, UnauthorizedException } from '@n
 import { UsersService } from '../../../src/services/users.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { UserLoggerService } from '../../../src/common/logger/user.logger';
+import { Auth0ManagementService } from '../../../src/services/auth0-management.service';
 import { Role, InvitationStatus, Prisma } from '@prisma/client';
 
 describe('UsersService', () => {
@@ -80,6 +81,12 @@ describe('UsersService', () => {
             logUserFirstLogin: jest.fn(),
             logMemberAssigned: jest.fn(),
             logMemberRemoved: jest.fn(),
+          },
+        },
+        {
+          provide: Auth0ManagementService,
+          useValue: {
+            createPasswordChangeTicket: jest.fn(),
           },
         },
       ],

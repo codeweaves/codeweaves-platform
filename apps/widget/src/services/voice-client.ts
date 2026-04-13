@@ -120,6 +120,7 @@ function buildFormData(params: {
   const ext = blobExtension(params.audio);
   formData.append('audio', params.audio, `recording.${ext}`);
   formData.append('agentId', params.agentId);
+  formData.append('source', 'WIDGET');
   if (params.sessionId) formData.append('sessionId', params.sessionId);
   if (params.languageHint) formData.append('languageHint', params.languageHint);
   return formData;

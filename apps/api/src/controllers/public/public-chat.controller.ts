@@ -97,7 +97,7 @@ export class PublicChatController {
 
     try {
       const agent = await this.chatService.resolveAgent(dto.agentId);
-      const session = await this.chatService.resolveOrCreateSession(agent.id, dto.sessionId);
+      const session = await this.chatService.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'WIDGET');
       const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
 
       // IG1: Warn when HMAC is enabled — streaming responses cannot be HMAC-verified

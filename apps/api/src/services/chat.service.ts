@@ -56,7 +56,7 @@ export class ChatService {
     return agent;
   }
 
-  async resolveOrCreateSession(agentId: string, sessionId?: string): Promise<ChatSession> {
+  async resolveOrCreateSession(agentId: string, sessionId?: string, source: 'DEMO' | 'WIDGET' | 'WHATSAPP' = 'DEMO'): Promise<ChatSession> {
     if (sessionId) {
       const existing = await this.prisma.chatSession.findFirst({
         where: { sessionId, agentId, status: 'ACTIVE' },
@@ -70,7 +70,7 @@ export class ChatService {
       data: {
         agentId,
         sessionId: randomUUID(),
-        source: 'DEMO',
+        source,
       },
     });
   }
@@ -130,7 +130,7 @@ export class ChatService {
     const backendReceivedAt = new Date();
 
     const agent = await this.resolveAgent(dto.agentId);
-    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId);
+    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO');
 
     // Call n8n webhook BEFORE storing messages to avoid orphaned user messages on failure
     const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
@@ -204,7 +204,7 @@ export class ChatService {
     const backendReceivedAt = new Date();
 
     const agent = await this.resolveAgent(dto.agentId);
-    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId);
+    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO');
 
     // Store user message BEFORE calling n8n
     const userMessage = await this.prisma.chatMessage.create({

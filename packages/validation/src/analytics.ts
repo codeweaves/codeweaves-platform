@@ -9,6 +9,7 @@ export const analyticsQuerySchema = z.object({
   endDate: z.coerce.date(),
   agentId: z.string().uuid().optional(),
   orgId: z.string().uuid().optional(),
+  source: z.enum(['WIDGET', 'WHATSAPP']).optional(),
 }).refine((data) => data.startDate <= data.endDate, {
   message: 'startDate must be before or equal to endDate',
   path: ['startDate'],
@@ -23,6 +24,7 @@ export const agentAnalyticsQuerySchema = z.object({
   endDate: z.coerce.date(),
   agentId: z.string().uuid().optional(),
   orgId: z.string().uuid().optional(),
+  source: z.enum(['WIDGET', 'WHATSAPP']).optional(),
   sortBy: z.enum(['conversations', 'messages', 'avgResponseTimeMs', 'queriesRaised', 'agentName']).default('conversations'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 }).refine((data) => data.startDate <= data.endDate, {

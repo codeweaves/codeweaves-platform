@@ -21,31 +21,31 @@ const columns: ColumnDef<Organization, unknown>[] = [
       <DataTableColumnHeader column={column} title="Name" />
     ),
     cell: ({ row }) => (
-      <span className="break-all">{row.getValue('name')}</span>
+      <span className="block max-w-xs break-all font-semibold py-1">{row.getValue('name')}</span>
     ),
   },
   {
-    accessorKey: 'slug',
-    header: 'Slug',
-    cell: ({ row }) => (
-      <span className="break-all">{row.getValue('slug')}</span>
+    id: 'agentsCount',
+    accessorFn: (row) => row._count.agents,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Agents" className="justify-center" />
     ),
-    enableSorting: false,
+    cell: ({ row }) => <div className="text-center py-1">{row.original._count.agents}</div>,
+  },
+  {
+    id: 'usersCount',
+    accessorFn: (row) => row._count.users,
+    header: ({ column }) => (
+      <DataTableColumnHeader column={column} title="Users" className="justify-center" />
+    ),
+    cell: ({ row }) => <div className="text-center py-1">{row.original._count.users}</div>,
   },
   {
     accessorKey: 'createdAt',
     header: ({ column }) => (
       <DataTableColumnHeader column={column} title="Created" />
     ),
-    cell: ({ row }) => formatDate(row.getValue('createdAt')),
-  },
-  {
-    id: 'usersCount',
-    accessorFn: (row) => row._count.users,
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Users" />
-    ),
-    cell: ({ row }) => row.original._count.users,
+    cell: ({ row }) => <div className="py-1">{formatDate(row.getValue('createdAt'))}</div>,
   },
 ];
 
@@ -53,6 +53,7 @@ const SORTABLE_COLUMNS: Record<string, string> = {
   name: 'name',
   createdAt: 'createdAt',
   usersCount: 'usersCount',
+  agentsCount: 'agentsCount',
 };
 
 interface OrganizationsDataTableProps {
@@ -81,7 +82,7 @@ export function OrganizationsDataTable({
     page: fetchParams.page + 1, // API is 1-based
     limit: fetchParams.pageSize,
     search: fetchParams.search || undefined,
-    sortBy: sortBy as 'name' | 'slug' | 'createdAt' | 'usersCount',
+    sortBy: sortBy as 'name' | 'slug' | 'createdAt' | 'usersCount' | 'agentsCount',
     sortOrder,
   });
 

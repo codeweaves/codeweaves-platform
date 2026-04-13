@@ -125,6 +125,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   } = useVoice({
     agentId,
     sessionId: voiceSessionId,
+    source: 'DEMO',
     onTranscription: useCallback((text: string) => {
       setStartersVisible(false);
       setMessages((prev) => [
@@ -226,6 +227,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
           body: JSON.stringify({
             agentId: agent.id,
             chatInput: content,
+            source: 'DEMO',
             ...(sessionIdRef.current && { sessionId: sessionIdRef.current }),
           }),
           signal: AbortSignal.any([
