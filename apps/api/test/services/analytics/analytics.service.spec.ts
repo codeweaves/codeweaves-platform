@@ -170,7 +170,7 @@ describe('AnalyticsService', () => {
       expect(mockPrismaService.agent.findMany).toHaveBeenCalledWith({
         where: expect.objectContaining({
           deletedAt: null,
-          organizationId: otherOrgId,
+          organizationId: { in: [otherOrgId] },
         }),
         select: { id: true },
       });
@@ -213,7 +213,7 @@ describe('AnalyticsService', () => {
       expect(mockPrismaService.agent.findMany).toHaveBeenCalledWith({
         where: expect.objectContaining({
           deletedAt: null,
-          id: agentId1,
+          id: { in: [agentId1] },
         }),
         select: { id: true },
       });

@@ -6,7 +6,6 @@ import {
   SortingState,
   FilterFn,
 } from '@tanstack/react-table';
-import { Loader2 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 
 // Module augmentation to add custom filter function
@@ -25,6 +24,7 @@ import {
 } from '@/components/ui/table';
 import { DataTableToolbar } from './data-table-toolbar';
 import { DataTablePagination } from './data-table-pagination';
+import { DataTableSkeleton } from './data-table-skeleton';
 import { DataTableExpandToggle } from './data-table-expand-toggle';
 import {
   DataTableProps,
@@ -42,7 +42,7 @@ const DEFAULT_TEXTS: Required<DataTableTexts> = {
   page: 'Page',
 };
 
-const DEFAULT_PAGE_SIZE_OPTIONS = [5, 10, 50, 100];
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100];
 
 export function DataTable<TData, TValue, TSubRow = unknown>({
   columns,
@@ -105,7 +105,11 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
   const [internalFilterValues, setInternalFilterValues] = useState<
     Record<string, string | string[]>
   >({});
-
+  // Ref to always have the latest filter values in callbacks (avoids stale closure)
+  const internalFilterValuesRef = useRef<Record<string, string | string[]>>({});
+  useEffect(() => {
+    internalFilterValuesRef.current = internalFilterValues;
+  }, [internalFilterValues]);
   // Expandable rows state
   const [internalExpanded, setInternalExpanded] = useState<Record<string, boolean>>(defaultExpanded);
 
@@ -262,21 +266,31 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [internalSearchValue]);
 
+  // Coalesce back-to-back filter changes (e.g. DateRangeFilter sets from + to)
+  // into a single fetch on the next microtask.
+  const pendingFetchRef = useRef<boolean>(false);
   const handleFilterChange = useCallback(
     (filterId: string, value: string | string[]) => {
       if (isControlled) {
         controlledOnFilterChange?.(filterId, value);
       } else {
-        const newFilters = { ...internalFilterValues, [filterId]: value };
+        const newFilters = { ...internalFilterValuesRef.current, [filterId]: value };
+        internalFilterValuesRef.current = newFilters;
         setInternalFilterValues(newFilters);
         setInternalPageIndex(0); // Reset to first page
-        triggerFetch({
-          page: 0,
-          pageSize: internalPageSize,
-          sorting: internalSorting,
-          search: internalSearchValue,
-          filters: newFilters,
-        });
+        if (!pendingFetchRef.current) {
+          pendingFetchRef.current = true;
+          queueMicrotask(() => {
+            pendingFetchRef.current = false;
+            triggerFetch({
+              page: 0,
+              pageSize: internalPageSize,
+              sorting: internalSorting,
+              search: internalSearchValue,
+              filters: internalFilterValuesRef.current,
+            });
+          });
+        }
       }
     },
     [
@@ -286,7 +300,6 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       internalPageSize,
       internalSorting,
       internalSearchValue,
-      internalFilterValues,
     ]
   );
 
@@ -295,6 +308,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       controlledOnClearAll?.();
     } else {
       setInternalSearchValue('');
+      internalFilterValuesRef.current = {};
       setInternalFilterValues({});
       setInternalSorting([]);
       setInternalPageIndex(0);
@@ -381,6 +395,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
           rows.push(
             <TableRow
               key={subRowId}
+              data-slot={depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row'}
               className={cn(
                 'bg-muted/30',
                 depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row',
@@ -422,6 +437,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
           rows.push(
             <TableRow
               key={subRowId}
+              data-slot={depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row'}
               className={cn(
                 'bg-muted/30',
                 depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row',
@@ -461,6 +477,19 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
     },
     [expandableConfig, expanded, handleExpandChange, getAnyRowId, columns.length]
   );
+
+  // Track the visible width of the scroll container for centering empty state
+  const borderRef = useRef<HTMLDivElement>(null);
+  const [containerWidth, setContainerWidth] = useState(0);
+  useEffect(() => {
+    const el = borderRef.current;
+    if (!el) return;
+    const observer = new ResizeObserver(([entry]) => {
+      if (entry) setContainerWidth(entry.contentRect.width);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, []);
 
   const table = useReactTable({
     data,
@@ -542,22 +571,9 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
   // Calculate total columns including expand toggle
   const totalColumns = columns.length + (expandableConfig ? 1 : 0);
 
-  // Default empty state renderer (simple text in table cell)
-  const defaultEmptyCell = (
-    <TableRow>
-      <TableCell colSpan={totalColumns} className="h-32 text-center">
-        <span className="text-sm text-muted-foreground">{mergedTexts.noResults}</span>
-      </TableCell>
-    </TableRow>
-  );
-
-  // Default loading renderer — spinner inside the table body
+  // Default loading renderer
   const defaultLoading = (
-    <TableRow>
-      <TableCell colSpan={totalColumns} className="h-32 text-center">
-        <Loader2 className="mx-auto h-6 w-6 animate-spin text-muted-foreground" />
-      </TableCell>
-    </TableRow>
+    <DataTableSkeleton columnCount={totalColumns} rowCount={pageSize} />
   );
 
   // Default toolbar renderer
@@ -588,19 +604,27 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
   );
 
   return (
-    <div className="space-y-4">
+    <div data-slot="data-table" className="space-y-4">
       {/* Header */}
-      {showHeader && (renderHeader ? renderHeader(headerRenderProps) : defaultHeader)}
+      {showHeader && (
+        <div data-slot="data-table-header">
+          {renderHeader ? renderHeader(headerRenderProps) : defaultHeader}
+        </div>
+      )}
 
       {/* Toolbar: Search + Filters */}
-      {showToolbar && (renderToolbar ? renderToolbar(toolbarRenderProps) : defaultToolbar)}
+      {showToolbar && (
+        <div data-slot="data-table-toolbar-wrapper">
+          {renderToolbar ? renderToolbar(toolbarRenderProps) : defaultToolbar}
+        </div>
+      )}
 
       {/* Table */}
-      <div className="rounded-md border">
-        <Table className={fixedLayout ? 'table-fixed' : undefined}>
-          <TableHeader>
+      <div ref={borderRef} data-slot="data-table-border" className="rounded-md border">
+        <Table data-slot="data-table-table" className={fixedLayout ? 'table-fixed' : undefined}>
+          <TableHeader data-slot="data-table-thead">
             {table.getHeaderGroups().map((headerGroup) => (
-              <TableRow key={headerGroup.id}>
+              <TableRow key={headerGroup.id} data-slot="data-table-header-row">
                 {/* Empty header cell for expand toggle column */}
                 {expandableConfig && (
                   <TableHead className="w-10" />
@@ -610,6 +634,8 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                   return (
                     <TableHead
                       key={header.id}
+                      data-slot="data-table-th"
+                      data-column-id={header.id}
                       style={size ? { width: size } : undefined}
                     >
                       {header.isPlaceholder
@@ -624,12 +650,14 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
               </TableRow>
             ))}
           </TableHeader>
-          <TableBody>
+          <TableBody data-slot="data-table-tbody">
             {isLoading ? (
               renderLoading ? (
                 <TableRow>
                   <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0">
-                    {renderLoading()}
+                    <div data-slot="data-table-loading" className="sticky left-0 flex items-center justify-center" style={containerWidth ? { width: containerWidth } : undefined}>
+                      {renderLoading()}
+                    </div>
                   </TableCell>
                 </TableRow>
               ) : (
@@ -646,6 +674,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                   <Fragment key={row.id}>
                     {/* Parent Row */}
                     <TableRow
+                      data-slot="data-table-row"
                       data-state={row.getIsSelected() && 'selected'}
                       data-expanded={isRowExpanded && hasChildren ? 'true' : undefined}
                       className={cn(
@@ -655,7 +684,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                     >
                       {/* Expand toggle cell */}
                       {expandableConfig && (
-                        <TableCell className="w-10 px-2">
+                        <TableCell data-slot="data-table-expand-toggle" className="w-10 px-2">
                           <DataTableExpandToggle
                             isExpanded={isRowExpanded}
                             onToggle={() => handleExpandChange(rowId, !isRowExpanded)}
@@ -664,7 +693,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                         </TableCell>
                       )}
                       {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id}>
+                        <TableCell key={cell.id} data-slot="data-table-td" data-column-id={cell.column.id}>
                           {flexRender(cell.column.columnDef.cell, cell.getContext())}
                         </TableCell>
                       ))}
@@ -677,21 +706,29 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                   </Fragment>
                 );
               })
-            ) : renderEmpty ? (
+            ) : (
               <TableRow>
                 <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0">
-                  {renderEmpty()}
+                  <div data-slot="data-table-empty" className="sticky left-0 flex items-center justify-center" style={containerWidth ? { width: containerWidth } : undefined}>
+                    {renderEmpty ? renderEmpty() : (
+                      <div className="flex h-32 items-center justify-center">
+                        <span className="text-sm text-muted-foreground">{mergedTexts.noResults}</span>
+                      </div>
+                    )}
+                  </div>
                 </TableCell>
               </TableRow>
-            ) : (
-              defaultEmptyCell
             )}
           </TableBody>
         </Table>
       </div>
 
       {/* Pagination */}
-      {showPagination && (renderFooter ? renderFooter(footerRenderProps) : defaultFooter)}
+      {showPagination && (
+        <div data-slot="data-table-footer">
+          {renderFooter ? renderFooter(footerRenderProps) : defaultFooter}
+        </div>
+      )}
     </div>
   );
 }

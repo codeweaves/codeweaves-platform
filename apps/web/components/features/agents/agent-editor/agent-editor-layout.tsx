@@ -1,7 +1,8 @@
 'use client';
 
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Save, RotateCcw, ChevronDown, Loader2, RotateCw } from 'lucide-react';
+import { Save, RotateCcw, ChevronDown, Loader2, RotateCw, ExternalLink, ArrowLeft } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 import { toast } from 'sonner';
 import { defaultWidgetTheme, voiceConfigSchema } from '@repo/validation';
 import { Button } from '@/components/ui/button';
@@ -59,6 +60,7 @@ function AgentEditorContent() {
   const resetTheme = useResetAgentTheme();
   const { setOpen, open } = useSidebar();
   const { setTitle, setActions } = usePageHeader();
+  const router = useRouter();
 
   const [selectedCategory, setSelectedCategory] =
     useState<CategoryId>('general');
@@ -114,13 +116,26 @@ function AgentEditorContent() {
     }
   };
 
-  // Set page header title, clear on unmount
+  // Set page header title (with back button), clear on unmount
   useEffect(() => {
-    setTitle(formData.name || agent.name);
+    setTitle(
+      <div className="flex items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          onClick={() => router.push('/dashboard/agents')}
+          aria-label="Back to agents"
+          className="h-8 w-8 shrink-0"
+        >
+          <ArrowLeft className="h-4 w-4" />
+        </Button>
+        <span>{formData.name || agent.name}</span>
+      </div>,
+    );
     return () => {
       setTitle('');
     };
-  }, [formData.name, agent.name, setTitle]);
+  }, [formData.name, agent.name, setTitle, router]);
 
   // Set page header actions (toggle + embed), update when status changes
   useEffect(() => {
@@ -149,11 +164,20 @@ function AgentEditorContent() {
             </>
           )}
         </div>
+        <Button
+          variant="outline"
+          size="sm"
+          onClick={() => window.open(`/agents/demo/${agent.id}`, '_blank')}
+          aria-label="Open demo"
+        >
+          <ExternalLink className="mr-2 h-4 w-4" />
+          Demo
+        </Button>
         <EmbedCodeDialog publicId={agent.publicId} />
       </div>,
     );
     return cleanup;
-  }, [status, statusPending, pendingDirection, agent.publicId, setActions]);
+  }, [status, statusPending, pendingDirection, agent.publicId, agent.id, setActions]);
 
   // Update greeting in preview when welcomeMessage changes
   useEffect(() => {

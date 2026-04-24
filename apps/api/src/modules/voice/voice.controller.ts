@@ -173,9 +173,11 @@ export class VoiceController {
       voiceConfig = { ttsEnabled: true } as VoiceConfigDto;
     }
 
+    const visitorIp = ChatService.extractVisitorIp(req);
+
     if (webhookUrl && voiceConfig.ttsEnabled !== false && clientAcceptsNdjson) {
       await this.handleStreamingVoice(
-        dto, sttResult, sttLatencyMs, webhookUrl, voiceConfig, startTime, res, resolvedAgentId,
+        dto, sttResult, sttLatencyMs, webhookUrl, voiceConfig, startTime, res, resolvedAgentId, visitorIp,
       );
       return;
     }
@@ -189,7 +191,7 @@ export class VoiceController {
         chatInput: sttResult.transcript,
         sessionId: dto.sessionId,
         source: dto.source ?? 'WIDGET',
-      });
+      }, visitorIp);
     } catch (error) {
       this.logger.error(
         `Chat service failed for agent ${resolvedAgentId}: ${error instanceof Error ? error.message : 'unknown'}`,
@@ -471,9 +473,10 @@ export class VoiceController {
     startTime: number,
     res: Response,
     resolvedAgentId: string,
+    visitorIp?: string,
   ): Promise<void> {
     // Resolve session for message storage
-    const session = await this.chatService.resolveOrCreateSession(resolvedAgentId, dto.sessionId, dto.source ?? 'WIDGET');
+    const session = await this.chatService.resolveOrCreateSession(resolvedAgentId, dto.sessionId, dto.source ?? 'WIDGET', visitorIp);
     const userMessage = await this.chatService.saveUserMessage(session.id, sttResult.transcript);
 
     // Set chunked response headers

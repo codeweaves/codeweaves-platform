@@ -106,6 +106,7 @@ export interface PreviewFormData {
   iconBorderRadius: number;
   iconShadow: string;
   iconCustomImage: string;
+  bubbleEnabled: boolean;
   bubbleText: string;
   bubbleBg: string;
   bubbleTextColor: string;
@@ -121,11 +122,13 @@ export interface PreviewFormData {
   headerSubtitleColor: string;
   headerBorderRadius: number;
   // Chat Interface
+  botAvatarShow: boolean;
   botAvatarType: 'robot' | 'machine' | 'bot' | 'support' | 'custom';
   botCustomImage: string;
   botAvatarShape: string;
   botAvatarBg: string;
   botAvatarColor: string;
+  userAvatarShow: boolean;
   userAvatarType: string;
   userAvatarShape: string;
   userAvatarBg: string;
@@ -182,6 +185,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     iconShadow: themeData.icon.shadow,
     iconCustomImage: themeData.icon.customImageUrl ?? '',
     // Bubble
+    bubbleEnabled: themeData.bubble.enabled,
     bubbleText: themeData.bubble.text,
     bubbleBg: themeData.bubble.backgroundColor,
     bubbleTextColor: themeData.bubble.textColor,
@@ -197,6 +201,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     headerSubtitleColor: themeData.header.subtitleColor,
     headerBorderRadius: themeData.header.borderRadius,
     // Bot messages
+    botAvatarShow: themeData.botAvatar.show ?? false,
     botAvatarType: themeData.botAvatar.type as PreviewFormData['botAvatarType'],
     botCustomImage: themeData.botAvatar.customImageUrl ?? '',
     botAvatarShape: themeData.botAvatar.shape,
@@ -206,6 +211,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     systemMessageTextColor: themeData.botMessage.textColor,
     systemMessageBorderRadius: themeData.botMessage.borderRadius,
     // User messages
+    userAvatarShow: themeData.userAvatar.show ?? false,
     userAvatarType: themeData.userAvatar.type,
     userAvatarShape: themeData.userAvatar.shape,
     userAvatarBg: themeData.userAvatar.backgroundColor,

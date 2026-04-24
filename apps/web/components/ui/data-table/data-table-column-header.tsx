@@ -28,11 +28,11 @@ export function DataTableColumnHeader<TData, TValue>({
       >
         <span className="text-sm font-semibold">{title}</span>
         {column.getIsSorted() === 'desc' ? (
-          <ArrowDown className="ml-2 size-4" />
+          <ArrowDown className="ml-1 size-4" />
         ) : column.getIsSorted() === 'asc' ? (
-          <ArrowUp className="ml-2 size-4" />
+          <ArrowUp className="ml-1 size-4" />
         ) : (
-          <ChevronsUpDown className="ml-2 size-4" />
+          <ChevronsUpDown className="ml-1 size-4" />
         )}
       </Button>
     </div>

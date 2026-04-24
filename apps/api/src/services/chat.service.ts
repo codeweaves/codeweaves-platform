@@ -56,13 +56,31 @@ export class ChatService {
     return agent;
   }
 
-  async resolveOrCreateSession(agentId: string, sessionId?: string, source: 'DEMO' | 'WIDGET' | 'WHATSAPP' = 'DEMO'): Promise<ChatSession> {
+  async resolveOrCreateSession(
+    agentId: string,
+    sessionId?: string,
+    source: 'DEMO' | 'WIDGET' | 'WHATSAPP' = 'DEMO',
+    visitorId?: string,
+  ): Promise<ChatSession> {
     if (sessionId) {
       const existing = await this.prisma.chatSession.findFirst({
         where: { sessionId, agentId, status: 'ACTIVE' },
       });
       if (!existing) {
         throw new NotFoundException('Session not found or does not belong to this agent');
+      }
+      // Backfill visitorId on an existing session when missing, OR when the
+      // stored value is a loopback address (::1, 127.0.0.1) — this happens
+      // when the first request arrived before the widget's public-IP lookup
+      // resolved, so req.ip fell back to localhost.
+      const isLoopback = existing.visitorId === '::1'
+        || existing.visitorId === '127.0.0.1'
+        || existing.visitorId?.startsWith('::ffff:127.');
+      if (visitorId && (!existing.visitorId || isLoopback)) {
+        return this.prisma.chatSession.update({
+          where: { id: existing.id },
+          data: { visitorId },
+        });
       }
       return existing;
     }
@@ -71,8 +89,20 @@ export class ChatService {
         agentId,
         sessionId: randomUUID(),
         source,
+        visitorId: visitorId ?? null,
       },
     });
+  }
+
+  /** Extract client IP from an Express request (req.ip → X-Forwarded-For). */
+  static extractVisitorIp(request: { headers: Record<string, string | string[] | undefined>; ip?: string }): string | undefined {
+    if (request.ip) return request.ip;
+    const forwarded = request.headers['x-forwarded-for'];
+    if (forwarded) {
+      const first = Array.isArray(forwarded) ? forwarded[0]! : String(forwarded).split(',')[0]!;
+      return first.trim() || undefined;
+    }
+    return undefined;
   }
 
   /**
@@ -126,11 +156,11 @@ export class ChatService {
   /**
    * Send a message to an agent and get an AI response via n8n webhook.
    */
-  async sendMessage(dto: SendMessageDto) {
+  async sendMessage(dto: SendMessageDto, visitorIp?: string) {
     const backendReceivedAt = new Date();
 
     const agent = await this.resolveAgent(dto.agentId);
-    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO');
+    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
 
     // Call n8n webhook BEFORE storing messages to avoid orphaned user messages on failure
     const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
@@ -200,11 +230,11 @@ export class ChatService {
    * Stores user message before calling n8n, stores AI message after response.
    * Returns data for SSE streaming by the controller.
    */
-  async streamMessage(dto: SendMessageDto) {
+  async streamMessage(dto: SendMessageDto, visitorIp?: string) {
     const backendReceivedAt = new Date();
 
     const agent = await this.resolveAgent(dto.agentId);
-    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO');
+    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
 
     // Store user message BEFORE calling n8n
     const userMessage = await this.prisma.chatMessage.create({

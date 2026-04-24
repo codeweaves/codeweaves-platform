@@ -226,7 +226,7 @@ describe('Theme Validation Schemas', () => {
         backgroundColor: '#e0e7ff',
         color: '#3b82f6',
       };
-      expect(avatarConfigSchema.parse(data)).toEqual(data);
+      expect(avatarConfigSchema.parse(data)).toEqual({ ...data, show: false });
     });
 
     it('should accept all valid types', () => {

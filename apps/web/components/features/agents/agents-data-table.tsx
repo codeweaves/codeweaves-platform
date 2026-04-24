@@ -75,7 +75,10 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
     : 'createdAt';
   const sortOrder = sortField ? (sortField.desc ? 'desc' : 'asc') : 'desc';
 
-  const statusFilter = fetchParams.filters?.status as string | undefined;
+  const statusRaw = fetchParams.filters?.status;
+  const statusFilter = Array.isArray(statusRaw)
+    ? (statusRaw.length === 1 ? statusRaw[0] : undefined)
+    : statusRaw;
   const orgFilter = fetchParams.filters?.organizationId as string | undefined;
 
   const { data, isLoading } = useAgents({
@@ -224,22 +227,14 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
 
   // Build filters based on role
   const filters: DataTableFilterConfig[] = [
-    {
-      id: 'status',
-      label: 'Status',
-      placeholder: 'Status',
-      options: [
-        { label: 'Active', value: 'ACTIVE' },
-        { label: 'Inactive', value: 'INACTIVE' },
-      ],
-    },
-    // Organization filter only for admins
+    // Organization filter only for admins — shown first
     ...(isAdmin && orgsData?.data
       ? [
           {
             id: 'organizationId',
             label: 'Organization',
             placeholder: 'Organization',
+            type: 'combobox' as const,
             options: orgsData.data.map((org) => ({
               label: org.name,
               value: org.id,
@@ -247,6 +242,16 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
           },
         ]
       : []),
+    {
+      id: 'status',
+      label: 'Status',
+      placeholder: 'Status',
+      multiSelect: true,
+      options: [
+        { label: 'Active', value: 'ACTIVE' },
+        { label: 'Inactive', value: 'INACTIVE' },
+      ],
+    },
   ];
 
   const isEmpty =

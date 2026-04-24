@@ -46,6 +46,7 @@ export const messageConfigSchema = z.object({
 export type MessageConfig = z.infer<typeof messageConfigSchema>;
 
 export const avatarConfigSchema = z.object({
+  show: z.boolean().default(false),
   type: z.enum(['robot', 'machine', 'bot', 'support', 'custom', 'user']),
   shape: z.enum(['circle', 'square', 'rounded']),
   backgroundColor: colorString,
@@ -186,12 +187,14 @@ export const defaultWidgetTheme: WidgetTheme = {
     borderRadius: 16,
   },
   botAvatar: {
+    show: false,
     type: 'robot',
     shape: 'circle',
     backgroundColor: '#e0e7ff',
     color: '#3b82f6',
   },
   userAvatar: {
+    show: false,
     type: 'user',
     shape: 'circle',
     backgroundColor: '#dbeafe',
