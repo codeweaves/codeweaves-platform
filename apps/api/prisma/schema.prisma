@@ -108,10 +108,15 @@ model Agent {
   hmacEnabled    Boolean       @default(false)
   voiceEnabled   Boolean       @default(false)
   voiceConfig    Json?         @db.JsonB
+  // Per-agent AI orchestration config: routing mode (n8n | direct), model,
+  // temperature, context strategy, fallback models, RAG settings.
+  // Null/absent = defaults to 'n8n' routing for backwards compatibility.
+  aiConfig       Json?         @db.JsonB
   systemPrompt   String?       @db.Text
   welcomeMessage String?
   secret         AgentSecret?
   theme          AgentTheme?
+  knowledge      AgentKnowledge?
   chatSessions   ChatSession[]
   createdAt      DateTime      @default(now())
   updatedAt      DateTime      @updatedAt
@@ -149,6 +154,46 @@ model AgentTheme {
   @@map("agent_themes")
 }
 
+/// Per-agent "static knowledge base" — text that gets prepended to the system
+/// prompt on every chat. This is the NON-RAG approach for small knowledge
+/// bases: paste some text or upload a file (we extract and discard), and the
+/// agent sees it on every message. For large KBs (many files, tens of thousands
+/// of tokens), use the RAG pipeline (Phase 3) instead.
+///
+/// Stored as a separate table (not a column on Agent) because the content can
+/// be large (up to ~500 KB / ~125K tokens) and we don't want every agent-list
+/// query dragging it across the wire.
+model AgentKnowledge {
+  id              String   @id @default(uuid())
+  agentId         String   @unique
+  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// Extracted / pasted text. Prepended to the agent's system prompt at chat time.
+  content         String   @db.Text
+
+  /// Cached token count (computed via TokenCounterService on write). Lets the
+  /// dashboard display "12,400 tokens" without tokenising on every read.
+  contentTokens   Int?
+
+  /// Filename of the uploaded source, if any. Helpful in the UI: "Knowledge
+  /// extracted from refund-policy.pdf · 12,400 tokens". Null when admin pasted
+  /// text directly.
+  sourceFileName  String?  @db.VarChar(255)
+
+  /// MIME type of the uploaded source, if any. Used only for UI labels.
+  sourceMimeType  String?  @db.VarChar(127)
+
+  /// Size of the original file before text extraction, in bytes. Null when
+  /// admin pasted text directly.
+  sourceSizeBytes Int?
+
+  createdAt       DateTime @default(now())
+  updatedAt       DateTime @updatedAt
+
+  @@index([agentId])
+  @@map("agent_knowledge")
+}
+
 model ChatSession {
   id            String        @id @default(uuid())
   agentId       String
@@ -157,6 +202,15 @@ model ChatSession {
   source        ChatSource    @default(DEMO)
   visitorId     String?       // IP address (web/widget) or phone number (WhatsApp)
   status        SessionStatus @default(ACTIVE)
+  // Auto-generated concise title (5-8 words) derived from the first few
+  // exchanges. Populated asynchronously after the 2nd assistant reply.
+  // Used by conversation list UIs and analytics. Null until generated.
+  title         String?       @db.VarChar(200)
+  // Running summary of earlier conversation (populated by HybridContextStrategy
+  // when the conversation outgrows the token budget). Complements the
+  // in-memory cache — DB persistence survives restarts so Redis/memory cache
+  // loss doesn't force re-summarisation on every turn.
+  summary       String?       @db.Text
   messages      ChatMessage[]
   createdAt     DateTime      @default(now())
   updatedAt     DateTime      @updatedAt
@@ -222,4 +276,65 @@ model AuditLog {
   @@index([correlationId])
   @@index([createdAt])
   @@map("audit_logs")
+}
+
+// AI orchestration trace: one row per conversation turn with all intermediate steps
+// captured as a JSON array (context load, RAG retrieval, reranking, LLM call, etc.).
+// Enables "replay" of exactly what happened for any message: what was retrieved,
+// what was sent to the LLM, what came back, how long each step took.
+model ChatTrace {
+  id              String    @id @default(uuid())
+  traceId         String    @unique                    // short ID (t_xxxxxxxxxx) for log correlation
+  correlationId   String?                              // matches HTTP request correlation ID
+  agentId         String
+  sessionId       String?
+  messageId       String?                              // ChatMessage.id once persisted
+  userMessage     String?   @db.Text
+  response        String?   @db.Text
+  model           String?                              // actual model used (may differ from requested if fallback)
+  steps           Json                                 // TraceStep[] — each step's name, timing, and data
+  startedAt       DateTime
+  completedAt     DateTime?
+  totalDurationMs Int?
+  success         Boolean   @default(true)
+  errorMessage    String?   @db.Text
+  createdAt       DateTime  @default(now())
+
+  @@index([agentId, createdAt])
+  @@index([sessionId])
+  @@index([correlationId])
+  @@index([traceId])
+  @@map("chat_traces")
+}
+
+// Per-LLM-call usage record. One row per generateText/streamText call.
+// Powers: per-org cost tracking, model usage analytics, quota enforcement,
+// cache hit rate measurement, retry/fallback monitoring.
+model LlmUsage {
+  id               String   @id @default(uuid())
+  organizationId   String
+  agentId          String
+  sessionId        String?
+  messageId        String?
+  traceId          String?                              // link back to ChatTrace
+  model            String                               // actual model used
+  requestedModel   String                               // model requested (differs when fallback)
+  promptTokens     Int
+  completionTokens Int
+  totalTokens      Int
+  cachedInputTokens Int?                                // tokens served from provider prompt cache (OpenAI/Gemini); null = unknown/not supported
+  reasoningTokens   Int?                                // reasoning tokens consumed (Gemini thinking / OpenAI o1); null = none / N/A
+  cost             Float?                               // USD, from OpenRouter response
+  feature          String                               // 'chat' | 'voice' | 'rag-query' | 'embedding' | 'summarization' | 'rag-contextual' | 'rag-evaluation'
+  latencyMs        Int
+  cached           Boolean  @default(false)
+  retryCount       Int      @default(0)
+  finishReason     String?
+  createdAt        DateTime @default(now())
+
+  @@index([organizationId, createdAt])
+  @@index([agentId, createdAt])
+  @@index([feature])
+  @@index([traceId])
+  @@map("llm_usage")
 }
