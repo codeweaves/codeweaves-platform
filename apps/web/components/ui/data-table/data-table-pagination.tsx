@@ -8,6 +8,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { ChevronFirst, ChevronLast, ChevronLeft, ChevronRight } from 'lucide-react';
+import { cn } from '@/lib/utils';
 import { DataTableTexts } from './types';
 
 interface DataTablePaginationProps<TData> {
@@ -20,7 +21,7 @@ interface DataTablePaginationProps<TData> {
   hideSelectionCount?: boolean;
 }
 
-const DEFAULT_PAGE_SIZE_OPTIONS = [5, 10, 50, 100];
+const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100];
 
 const DEFAULT_TEXTS: Required<DataTableTexts> = {
   selected: 'row(s) selected',
@@ -56,18 +57,18 @@ export function DataTablePagination<TData>({
   };
 
   return (
-    <div className={`flex flex-wrap items-center gap-4 px-2 ${hideSelectionCount ? 'justify-end' : 'justify-between'}`}>
+    <div data-slot="data-table-pagination" className={cn("flex flex-wrap items-center gap-4 px-2", hideSelectionCount ? "justify-end" : "justify-between")}>
       {/* Selection info - hidden on mobile */}
       {!hideSelectionCount && (
-        <div className="hidden text-sm text-muted-foreground sm:flex">
+        <div data-slot="data-table-selection-count" className="hidden text-sm text-muted-foreground sm:flex">
           {selectedCount} {mergedTexts.of} {totalItems} {mergedTexts.selected}.
         </div>
       )}
 
       <div className="flex w-full items-center gap-6 sm:w-fit">
         {/* Rows per page - hidden on mobile */}
-        <div className="hidden items-center gap-2 sm:flex">
-          <span className="text-sm text-muted-foreground">
+        <div data-slot="data-table-page-size" className="hidden items-center gap-2 sm:flex">
+          <span className="text-sm font-semibold">
             {mergedTexts.rowsPerPage}
           </span>
           <Select value={pageSize.toString()} onValueChange={handlePageSizeChange}>
@@ -85,14 +86,14 @@ export function DataTablePagination<TData>({
         </div>
 
         {/* Page info - always visible */}
-        <span className="text-sm text-muted-foreground">
+        <span data-slot="data-table-page-info" className="text-sm font-semibold">
           {mergedTexts.page} {pageIndex + 1} {mergedTexts.of} {pageCount || 1}
         </span>
 
         {/* Navigation buttons */}
-        <div className="ml-auto flex items-center gap-1 sm:ml-0">
-          {/* First page - hidden on mobile */}
+        <div data-slot="data-table-nav" className="ml-auto flex items-center gap-1 sm:ml-0">
           <Button
+            data-slot="data-table-nav-first"
             variant="outline"
             size="icon"
             className="hidden size-8 sm:flex"
@@ -101,8 +102,8 @@ export function DataTablePagination<TData>({
           >
             <ChevronFirst className="size-4" />
           </Button>
-          {/* Previous page - always visible */}
           <Button
+            data-slot="data-table-nav-prev"
             variant="outline"
             size="icon"
             className="size-8"
@@ -111,8 +112,8 @@ export function DataTablePagination<TData>({
           >
             <ChevronLeft className="size-4" />
           </Button>
-          {/* Next page - always visible */}
           <Button
+            data-slot="data-table-nav-next"
             variant="outline"
             size="icon"
             className="size-8"
@@ -121,8 +122,8 @@ export function DataTablePagination<TData>({
           >
             <ChevronRight className="size-4" />
           </Button>
-          {/* Last page - hidden on mobile */}
           <Button
+            data-slot="data-table-nav-last"
             variant="outline"
             size="icon"
             className="hidden size-8 sm:flex"

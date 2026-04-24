@@ -267,7 +267,7 @@ describe('VoiceController', () => {
         chatInput: 'Hello, how are you?',
         sessionId: SESSION_ID,
         source: 'WIDGET',
-      });
+      }, '127.0.0.1');
     });
 
     it('should pass STT detected language to TTS synthesis', async () => {

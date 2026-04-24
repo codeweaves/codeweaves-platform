@@ -10,17 +10,21 @@ export class AnalyticsService {
 
   /**
    * Build SQL fragment to filter chat_sessions by source.
-   * Always excludes DEMO; optionally narrows to a specific source.
+   * Supports both single `source` and multi-select `sources`.
+   * When nothing is specified, includes all sources (no filter).
    */
-  private getSourceFilter(source?: string): Prisma.Sql {
-    if (source === 'WIDGET') {
-      return Prisma.sql`AND "source" = 'WIDGET'`;
+  private getSourceFilter(source?: string, sources?: string[]): Prisma.Sql {
+    const list = [
+      ...(source ? [source] : []),
+      ...(sources ?? []),
+    ].filter((s): s is 'WIDGET' | 'WHATSAPP' | 'DEMO' =>
+      s === 'WIDGET' || s === 'WHATSAPP' || s === 'DEMO',
+    );
+    if (list.length === 0) {
+      // No filter — include all sources (WIDGET + WHATSAPP + DEMO)
+      return Prisma.empty;
     }
-    if (source === 'WHATSAPP') {
-      return Prisma.sql`AND "source" = 'WHATSAPP'`;
-    }
-    // Default: exclude DEMO
-    return Prisma.sql`AND "source" != 'DEMO'`;
+    return Prisma.sql`AND "source"::text = ANY(${list}::text[])`;
   }
 
   /**
@@ -28,18 +32,30 @@ export class AnalyticsService {
    * CLIENT users only see their own org. ADMIN/SUPER_ADMIN see all (or filter by orgId).
    */
   private async getAgentIds(
-    query: { agentId?: string; orgId?: string },
+    query: { agentId?: string; agentIds?: string[]; orgId?: string; orgIds?: string[] },
     user: CurrentUserData,
   ): Promise<string[]> {
     if (user.role === Role.CLIENT && !user.organizationId) {
       throw new ForbiddenException('Client user must be associated with an organization');
     }
 
+    // Combine single + array forms for backward compat
+    const agentIdList = [
+      ...(query.agentId ? [query.agentId] : []),
+      ...(query.agentIds ?? []),
+    ];
+    const orgIdList = [
+      ...(query.orgId ? [query.orgId] : []),
+      ...(query.orgIds ?? []),
+    ];
+
     const agentFilter: Prisma.AgentWhereInput = {
       deletedAt: null,
       ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
-      ...(user.role !== Role.CLIENT && query.orgId && { organizationId: query.orgId }),
-      ...(query.agentId && { id: query.agentId }),
+      ...(user.role !== Role.CLIENT && orgIdList.length > 0 && {
+        organizationId: { in: orgIdList },
+      }),
+      ...(agentIdList.length > 0 && { id: { in: agentIdList } }),
     };
 
     const agents = await this.prisma.agent.findMany({
@@ -79,19 +95,23 @@ export class AnalyticsService {
       return { totalConversations: 0, totalUsers: 0, newUsers: 0, returningUsers: 0 };
     }
 
+    // DEMO sessions are excluded from visitor-based metrics (new/returning users)
+    // because they represent the agent owner testing their own widget.
     const result = await this.prisma.$queryRaw<
       { total_conversations: bigint; total_users: bigint; returning_users: bigint }[]
     >`
       SELECT
         COUNT(*) as total_conversations,
-        COUNT(DISTINCT "visitorId") FILTER (WHERE "visitorId" IS NOT NULL) as total_users,
+        COUNT(DISTINCT "visitorId") FILTER (WHERE "visitorId" IS NOT NULL AND "source"::text != 'DEMO') as total_users,
         COUNT(DISTINCT "visitorId") FILTER (
           WHERE "visitorId" IS NOT NULL
+          AND "source"::text != 'DEMO'
           AND "visitorId" IN (
             SELECT DISTINCT "visitorId" FROM chat_sessions
             WHERE "agentId" = ANY(${agentIds}::text[])
               AND "createdAt" < ${startDate}
               AND "visitorId" IS NOT NULL
+              AND "source"::text != 'DEMO'
               ${sourceFilter}
           )
         ) as returning_users
@@ -159,6 +179,7 @@ export class AnalyticsService {
         FROM chat_sessions
         WHERE "agentId" = ANY(${agentIds}::text[])
           AND "visitorId" IS NOT NULL
+          AND "source"::text != 'DEMO'
           AND "createdAt" <= ${endDate}
           ${sourceFilter}
         GROUP BY "visitorId"
@@ -226,7 +247,7 @@ export class AnalyticsService {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
     const { prevStart, prevEnd } = this.getPreviousPeriod(startDate, endDate);
-    const sf = this.getSourceFilter(query.source);
+    const sf = this.getSourceFilter(query.source, query.sources);
 
     const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime, retentionRate, prevRetentionRate] = await Promise.all([
       this.getSessionMetrics(agentIds, startDate, endDate, sf),
@@ -276,7 +297,7 @@ export class AnalyticsService {
   async getConversationsChart(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
-    const sf = this.getSourceFilter(query.source);
+    const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) return { data: [] };
 
@@ -302,7 +323,7 @@ export class AnalyticsService {
   async getResponseTimeDistribution(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
-    const sf = this.getSourceFilter(query.source);
+    const sf = this.getSourceFilter(query.source, query.sources);
 
     const emptyBuckets = [
       { label: '<1s', min: 0, max: 1000, count: 0, percentage: 0 },
@@ -393,7 +414,7 @@ export class AnalyticsService {
   async getMessageVolumeHeatmap(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
-    const sf = this.getSourceFilter(query.source);
+    const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) return { data: [] };
 
@@ -424,7 +445,7 @@ export class AnalyticsService {
   async getAgentMetrics(query: AgentAnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate, page = 1, limit = 20, sortBy = 'conversations', sortOrder = 'desc' } = query;
     const agentIds = await this.getAgentIds(query, user);
-    const sf = this.getSourceFilter(query.source);
+    const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
       return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
@@ -528,7 +549,7 @@ export class AnalyticsService {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
     const { prevStart, prevEnd } = this.getPreviousPeriod(startDate, endDate);
-    const sf = this.getSourceFilter(query.source);
+    const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
       return {
@@ -600,7 +621,7 @@ export class AnalyticsService {
   async getLanguageDistribution(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
-    const sf = this.getSourceFilter(query.source);
+    const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
       return { languages: [] };
@@ -640,7 +661,7 @@ export class AnalyticsService {
   async getVoiceLatencyByProvider(query: AnalyticsQuery, user: CurrentUserData) {
     const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
-    const sf = this.getSourceFilter(query.source);
+    const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
       return { stt: [], tts: [] };

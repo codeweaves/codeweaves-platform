@@ -669,32 +669,33 @@ export const componentCSS = `
 /* Close (X) button */
 .cw-bubble-close {
   position: absolute;
-  top: 4px;
-  right: 4px;
-  width: 22px;
-  height: 22px;
+  top: -4px;
+  right: -4px;
+  width: 20px;
+  height: 20px;
   display: flex;
   align-items: center;
   justify-content: center;
   border: none;
-  background: transparent;
+  background: var(--cw-bubble-bg, #ffffff);
   color: var(--cw-bubble-text, var(--cw-bubble-fg, #1f2937));
-  opacity: 0.5;
   cursor: pointer;
   padding: 0;
   border-radius: 50%;
   pointer-events: auto;
+}
+
+.cw-bubble-close > svg {
   transition: opacity 150ms ease;
 }
 
-.cw-bubble-close:hover {
-  opacity: 1;
+.cw-bubble-close:hover > svg {
+  opacity: 0.6;
 }
 
 .cw-bubble-close:focus-visible {
   outline: 2px solid var(--cw-primary, #3b82f6);
   outline-offset: 1px;
-  opacity: 1;
 }
 
 /* CSS triangle arrow pointing toward trigger button */
@@ -703,9 +704,9 @@ export const componentCSS = `
   bottom: -6px;
   width: 0;
   height: 0;
-  border-left: 6px solid transparent;
-  border-right: 6px solid transparent;
-  border-top: 6px solid var(--cw-bubble-bg, #ffffff);
+  border-left: 8px solid transparent;
+  border-right: 8px solid transparent;
+  border-top: 8px solid var(--cw-bubble-bg, #ffffff);
   pointer-events: none;
 }
 
@@ -877,17 +878,15 @@ export const componentCSS = `
 /* Voice button — shared base */
 .cw-voice-btn {
   pointer-events: auto;
-  width: 40px;
-  height: 40px;
   border: none;
-  border-radius: var(--cw-send-radius, 14px);
+  background: transparent;
   cursor: pointer;
   display: flex;
   align-items: center;
   justify-content: center;
   padding: 0;
   flex-shrink: 0;
-  transition: background 150ms ease, opacity 150ms ease;
+  transition: color 150ms ease, opacity 150ms ease;
 }
 
 .cw-voice-btn:focus-visible {
@@ -900,41 +899,33 @@ export const componentCSS = `
   opacity: 0.6;
 }
 
-/* idle: filled like send button */
+/* idle: subtle icon only, no background */
 .cw-voice-btn--idle {
-  background: var(--cw-send-bg, #3b82f6);
-  color: var(--cw-send-icon, #ffffff);
+  background: transparent;
+  color: #6b7280;
 }
 
 .cw-voice-btn--idle:hover:not(:disabled) {
-  background: var(--cw-send-hover-bg, #2563eb);
+  color: #1f2937;
 }
 
-/* listening: red, stop icon, pulse animation */
+/* listening: red icon, pulse animation */
 .cw-voice-btn--listening {
-  background: #ef4444;
-  color: #ffffff;
+  background: transparent;
+  color: #ef4444;
   animation: cw-voice-pulse 1.5s ease-in-out infinite;
 }
 
-.cw-voice-btn--listening:hover {
-  background: #dc2626;
-}
-
-/* processing: gray, spinner, disabled */
+/* processing: gray icon spinner */
 .cw-voice-btn--processing {
-  background: #9ca3af;
-  color: #ffffff;
+  background: transparent;
+  color: #9ca3af;
 }
 
-/* playing: orange, stop icon */
+/* playing: orange icon */
 .cw-voice-btn--playing {
-  background: #f97316;
-  color: #ffffff;
-}
-
-.cw-voice-btn--playing:hover {
-  background: #ea580c;
+  background: transparent;
+  color: #f97316;
 }
 
 /* Pulse animation for recording state */
@@ -1084,6 +1075,46 @@ export const componentCSS = `
   }
   .cw-voice-red-dot {
     animation: none;
+  }
+}
+
+/* Chat body — hide scrollbar entirely (content still scrolls via wheel/trackpad/keyboard) */
+.cw-body {
+  scrollbar-width: none;
+}
+.cw-body::-webkit-scrollbar {
+  display: none;
+}
+
+/* Chat input textarea — scrollbar completely hidden; content still scrolls via wheel/keyboard */
+textarea.cw-input {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  overflow-x: hidden;
+}
+textarea.cw-input::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
+}
+
+/* ── Mobile fullscreen (≤ 480px) ──────────────────────────────────── */
+@media (max-width: 480px) {
+  .cw-window {
+    width: 100vw !important;
+    height: calc(100vh - var(--cw-keyboard-height, 0px)) !important;
+    height: calc(100dvh - var(--cw-keyboard-height, 0px)) !important;
+    max-width: 100vw !important;
+    max-height: calc(100vh - var(--cw-keyboard-height, 0px)) !important;
+    max-height: calc(100dvh - var(--cw-keyboard-height, 0px)) !important;
+    top: 0 !important;
+    right: 0 !important;
+    bottom: auto !important;
+    left: 0 !important;
+    border-radius: 0 !important;
+  }
+  .cw-bubble {
+    display: none !important;
   }
 }
 `;

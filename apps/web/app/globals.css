@@ -98,12 +98,13 @@
   }
 }
 
-/* Agent editor scrollbar — hidden by default, visible while scrolling */
+/* Agent editor scrollbar — space always reserved, thumb fades in while scrolling */
 .scrollarea {
-  scrollbar-width: none;
+  scrollbar-width: thin;
+  scrollbar-color: transparent transparent;
+  scrollbar-gutter: stable;
 }
 .scrollarea.scrolling {
-  scrollbar-width: thin;
   scrollbar-color: rgba(0, 0, 0, 0.35) transparent;
 }
 .scrollarea::-webkit-scrollbar {
@@ -115,7 +116,28 @@
 .scrollarea::-webkit-scrollbar-thumb {
   background-color: transparent;
   border-radius: 8px;
+  transition: background-color 0.2s;
 }
 .scrollarea.scrolling::-webkit-scrollbar-thumb {
   background-color: rgba(0, 0, 0, 0.35);
+}
+
+/* Chat body — hide scrollbar entirely (content still scrolls via wheel/trackpad/keyboard) */
+.cw-body {
+  scrollbar-width: none;
+}
+.cw-body::-webkit-scrollbar {
+  display: none;
+}
+
+/* Chat input textarea — scrollbar completely hidden; content still scrolls via wheel/keyboard */
+textarea.cw-input {
+  scrollbar-width: none;
+  -ms-overflow-style: none;
+  overflow-x: hidden;
+}
+textarea.cw-input::-webkit-scrollbar {
+  display: none;
+  width: 0;
+  height: 0;
 }

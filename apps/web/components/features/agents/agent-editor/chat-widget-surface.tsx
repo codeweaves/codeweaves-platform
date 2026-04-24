@@ -5,7 +5,6 @@ import { useEffect, useRef, useState } from 'react';
 import type { KeyboardEvent } from 'react';
 import {
   MessageCircle,
-  Minimize2,
   X,
   Bot,
   Settings as SettingsIcon,
@@ -13,7 +12,7 @@ import {
   Headphones,
   User as UserIcon,
   UserCheck,
-  Send,
+  ArrowUp,
   Mic,
   Square,
   Loader2,
@@ -28,13 +27,43 @@ export type ChatWidgetMessage = {
   timestamp: Date;
 };
 
+type GroupPosition = 'standalone' | 'first' | 'middle' | 'last';
+
+/** Compute iMessage-style grouping for consecutive same-sender messages */
+function computeGroupPositions(msgs: ChatWidgetMessage[]): GroupPosition[] {
+  return msgs.map((msg, i) => {
+    const prev = i > 0 ? msgs[i - 1] : null;
+    const next = i < msgs.length - 1 ? msgs[i + 1] : null;
+    const isUser = msg.role === 'user';
+    const samePrev = prev && isUser === (prev.role === 'user');
+    const sameNext = next && isUser === (next.role === 'user');
+    if (samePrev && sameNext) return 'middle';
+    if (!samePrev && sameNext) return 'first';
+    if (samePrev && !sameNext) return 'last';
+    return 'standalone';
+  });
+}
+
+/** iMessage-style asymmetric border-radius for grouped messages */
+function getBubbleRadius(isUser: boolean, pos: GroupPosition, r: number): string {
+  const s = `${r}px`;
+  const t = '4px';
+  if (pos === 'standalone') return s;
+  if (isUser) {
+    if (pos === 'first') return `${s} ${s} ${t} ${s}`;
+    if (pos === 'middle') return `${s} ${t} ${t} ${s}`;
+    return `${s} ${t} ${s} ${s}`;
+  }
+  if (pos === 'first') return `${s} ${s} ${s} ${t}`;
+  if (pos === 'middle') return `${t} ${s} ${s} ${t}`;
+  return `${t} ${s} ${s} ${s}`;
+}
+
 interface ChatWidgetSurfaceProps {
   formData: PreviewFormData;
   messages: ChatWidgetMessage[];
   isMinimized: boolean;
   onMinimizedChange: (value: boolean) => void;
-  isWindowMinimized: boolean;
-  onWindowMinimizedChange: (value: boolean) => void;
   showBubble: boolean;
   onBubbleChange: (value: boolean) => void;
   onSendMessage: (value: string) => void;
@@ -46,18 +75,18 @@ export function ChatWidgetSurface({
   messages,
   isMinimized,
   onMinimizedChange,
-  isWindowMinimized,
-  onWindowMinimizedChange,
   showBubble,
   onBubbleChange,
   onSendMessage,
   typingIndicator,
 }: ChatWidgetSurfaceProps) {
   const [inputValue, setInputValue] = useState('');
+  const [isInputFocused, setIsInputFocused] = useState(false);
   const [previewVoiceState, setPreviewVoiceState] = useState<'idle' | 'listening' | 'processing' | 'playing'>('idle');
   const scrollRef = useRef<HTMLDivElement | null>(null);
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const msgRefs = useRef<Map<string, HTMLDivElement>>(new Map());
+  const inputRef = useRef<HTMLTextAreaElement | null>(null);
 
   const cycleVoiceState = () => {
     setPreviewVoiceState((prev) => {
@@ -71,9 +100,10 @@ export function ChatWidgetSurface({
     if (!inputValue.trim()) return;
     onSendMessage(inputValue.trim());
     setInputValue('');
+    requestAnimationFrame(() => inputRef.current?.focus());
   };
 
-  const handleKeyPress = (event: KeyboardEvent<HTMLInputElement>) => {
+  const handleKeyPress = (event: KeyboardEvent<HTMLTextAreaElement>) => {
     if (event.key === 'Enter' && !event.shiftKey) {
       event.preventDefault();
       handleSend();
@@ -86,15 +116,15 @@ export function ChatWidgetSurface({
       shape === 'circle'
         ? 'rounded-full'
         : shape === 'rounded'
-          ? 'rounded-lg'
+          ? 'rounded-md'
           : shape === 'square'
             ? 'rounded-none'
             : 'rounded-full';
-    return `w-10 h-10 ${shapeClass} flex items-center justify-center text-sm font-medium`;
+    return `w-8 h-8 ${shapeClass} shrink-0 flex items-center justify-center text-xs font-medium`;
   };
 
   const getBotAvatarContent = () => {
-    const iconProps = { className: 'w-6 h-6' } as const;
+    const iconProps = { className: 'w-4 h-4' } as const;
     switch (formData.botAvatarType) {
       case 'machine':
         return <SettingsIcon {...iconProps} />;
@@ -107,7 +137,7 @@ export function ChatWidgetSurface({
           <img
             src={formData.botCustomImage}
             alt="Bot"
-            className="w-8 h-8 rounded-full object-cover"
+            className="h-full w-full rounded-[inherit] object-cover"
           />
         ) : (
           'B'
@@ -119,7 +149,7 @@ export function ChatWidgetSurface({
   };
 
   const getUserAvatarContent = () => {
-    const iconProps = { className: 'w-6 h-6' } as const;
+    const iconProps = { className: 'w-4 h-4' } as const;
     switch (formData.userAvatarType) {
       case 'female':
         return <UserCheck {...iconProps} />;
@@ -128,7 +158,7 @@ export function ChatWidgetSurface({
           <img
             src={formData.userCustomImage}
             alt="User"
-            className="w-8 h-8 rounded-full object-cover"
+            className="h-full w-full rounded-[inherit] object-cover"
           />
         ) : (
           'U'
@@ -150,24 +180,38 @@ export function ChatWidgetSurface({
           color: formData.systemMessageTextColor,
         };
 
-  const formatTimestamp = (timestamp: Date) =>
-    timestamp.toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+  const formatTimestamp = (timestamp: Date) => {
+    const diff = Date.now() - timestamp.getTime();
+    const minutes = Math.floor(diff / 60_000);
+    if (minutes < 1) return 'Just now';
+    if (minutes < 60) return `${minutes}m`;
+    const hours = Math.floor(minutes / 60);
+    if (hours < 24) return `${hours}h`;
+    const days = Math.floor(hours / 24);
+    if (days < 7) return `${days}d`;
+    return timestamp.toLocaleDateString(undefined, { month: 'short', day: 'numeric' });
+  };
 
   const iconOnRight = formData.iconPosition === 'right';
 
   const handleOpen = () => {
     onMinimizedChange(false);
-    onWindowMinimizedChange(false);
   };
 
   const handleClose = () => {
     onMinimizedChange(true);
-    onWindowMinimizedChange(false);
   };
+
+  // Auto-resize textarea based on content (max 144px ≈ 6 lines)
+  useEffect(() => {
+    const el = inputRef.current;
+    if (!el) return;
+    el.style.height = 'auto';
+    el.style.height = `${Math.min(el.scrollHeight, 144)}px`;
+  }, [inputValue]);
 
   // Auto-scroll: prefer AI reply after last user message, then user message, then bottom
   useEffect(() => {
-    if (isWindowMinimized) return;
     const lastUserIdx = (() => {
       for (let i = messages.length - 1; i >= 0; i--) {
         if (messages[i]?.role === 'user') return i;
@@ -202,23 +246,23 @@ export function ChatWidgetSurface({
     if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [messages, isWindowMinimized]);
+  }, [messages]);
 
   return (
     <div
-      className="pointer-events-none"
+      className="cw-widget-root pointer-events-none"
       style={{
         fontFamily: formData.fontFamily,
         fontSize: `${formData.defaultFontSize}px`,
       }}
     >
       {/* Bubble prompt */}
-      {showBubble && isMinimized && (
+      {showBubble && isMinimized && formData.bubbleEnabled && formData.bubbleText.trim().length > 0 && (
         <div
           role="button"
           tabIndex={0}
           aria-label="Open chat"
-          className={`pointer-events-auto absolute ${iconOnRight ? 'bottom-24 right-6' : 'bottom-24 left-6'} z-10 max-w-xs cursor-pointer rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 hover:scale-105`}
+          className={`cw-bubble pointer-events-auto absolute ${iconOnRight ? 'bottom-22 right-5' : 'bottom-22 left-5'} z-10 max-w-xs cursor-pointer rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 hover:scale-105`}
           style={{
             backgroundColor: formData.bubbleBg,
             color: formData.bubbleTextColor,
@@ -226,28 +270,33 @@ export function ChatWidgetSurface({
           onClick={handleOpen}
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); } }}
         >
-          <div className="flex items-center justify-between">
-            <span className="pr-2 text-sm font-medium">
+          <div className="cw-bubble-content">
+            <span className="cw-bubble-text text-sm font-medium leading-snug">
               {formData.bubbleText}
             </span>
-            <button
-              onClick={(e) => {
-                e.stopPropagation();
-                onBubbleChange(false);
-              }}
-              className="ml-2 text-current opacity-60 hover:opacity-100"
-            >
-              <X className="h-4 w-4" />
-            </button>
           </div>
-          <div
-            className={`absolute top-full ${iconOnRight ? 'right-6' : 'left-6'}`}
+          <button
+            onClick={(e) => {
+              e.stopPropagation();
+              onBubbleChange(false);
+            }}
+            className="cw-bubble-close absolute -right-1 -top-1 flex h-5 w-5 cursor-pointer items-center justify-center"
+            aria-label="Dismiss"
+            style={{
+              borderRadius: '50%',
+              backgroundColor: formData.bubbleBg,
+              border: 'none',
+              color: formData.bubbleTextColor,
+              padding: 0,
+            }}
           >
-            <div
-              className="h-0 w-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent"
-              style={{ borderTopColor: formData.bubbleBg }}
-            />
-          </div>
+            <X className="block h-3 w-3" />
+          </button>
+          <div
+            className={`cw-bubble-arrow absolute -bottom-1.5 h-0 w-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent ${iconOnRight ? 'right-6' : 'left-6'}`}
+            style={{ borderTopColor: formData.bubbleBg }}
+            aria-hidden="true"
+          />
         </div>
       )}
 
@@ -257,12 +306,12 @@ export function ChatWidgetSurface({
           role="button"
           tabIndex={0}
           aria-label="Open chat widget"
-          className={`pointer-events-auto absolute ${iconOnRight ? 'bottom-6 right-6' : 'bottom-6 left-6'} z-20 flex cursor-pointer items-center justify-center transition-all duration-300`}
+          className={`cw-launcher pointer-events-auto absolute ${iconOnRight ? 'bottom-5 right-5' : 'bottom-5 left-5'} z-20 flex cursor-pointer items-center justify-center transition-all duration-300`}
           style={{
             backgroundColor: formData.iconBg,
             borderRadius: `${formData.iconBorderRadius}%`,
-            width: `${formData.iconSize ?? 56}px`,
-            height: `${formData.iconSize ?? 56}px`,
+            width: `${formData.iconSize ?? 60}px`,
+            height: `${formData.iconSize ?? 60}px`,
             boxShadow: formData.iconShadow || '0 4px 12px rgba(0,0,0,0.15)',
           }}
           onClick={handleOpen}
@@ -272,10 +321,10 @@ export function ChatWidgetSurface({
             <img
               src={formData.iconCustomImage}
               alt="Chat"
-              className="h-3/5 w-3/5 rounded-full object-cover"
+              className="cw-launcher-image h-3/5 w-3/5 rounded-full object-cover"
             />
           ) : (
-            <MessageCircle className="h-7 w-7 text-white" />
+            <MessageCircle className="cw-launcher-icon h-7 w-7 text-white" />
           )}
         </div>
       )}
@@ -283,65 +332,64 @@ export function ChatWidgetSurface({
       {/* Expanded chat window */}
       {!isMinimized && (
         <div
-          className={`pointer-events-auto absolute ${iconOnRight ? 'bottom-6 right-6' : 'bottom-6 left-6'} z-30 flex flex-col overflow-hidden bg-white shadow-2xl transition-all duration-300`}
+          className={`cw-window pointer-events-auto absolute ${iconOnRight ? 'bottom-5 right-5' : 'bottom-5 left-5'} z-30 flex flex-col overflow-hidden bg-white shadow-2xl transition-all duration-300`}
           style={{
-            width: 380,
-            height: isWindowMinimized ? 80 : 520,
-            borderRadius: `${formData.headerBorderRadius}px`,
+            width: 400,
+            height: 'clamp(520px, 58vh, 800px)',
+            borderRadius: `${formData.headerBorderRadius ?? 16}px`,
             fontFamily: formData.fontFamily,
             fontSize: `${formData.defaultFontSize}px`,
           }}
         >
           {/* Header */}
           <div
-            className="flex cursor-pointer items-center justify-between p-4"
+            className="cw-header flex items-center justify-between p-4"
             style={{
               backgroundColor: formData.headerBg,
               color: formData.headerTextColor,
-              height: 80,
+              height: 64,
             }}
-            onClick={() => isWindowMinimized && onWindowMinimizedChange(false)}
           >
-            <div className="flex items-center gap-3">
-              {formData.headerShowLogo && formData.companyLogo && (
+            <div className="cw-header-info flex items-center gap-3">
+              {formData.headerShowLogo && formData.companyLogo ? (
                 <img
                   src={formData.companyLogo}
                   alt="Logo"
-                  className="h-12 w-12 rounded-full object-cover"
+                  className="cw-header-logo h-8 w-8 rounded-full object-cover"
                 />
+              ) : (
+                <div
+                  className="cw-header-avatar relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+                  style={{ backgroundColor: 'rgba(255,255,255,0.2)' }}
+                >
+                  <MessageCircle className="cw-header-avatar-icon h-4 w-4" />
+                  <span
+                    className="cw-header-online-dot absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 bg-green-400"
+                    style={{ borderColor: formData.headerBg }}
+                  />
+                </div>
               )}
-              <div>
+              <div className="cw-header-text">
                 <h4
-                  className="font-semibold leading-tight"
-                  style={{ fontSize: 18 }}
+                  className="cw-header-title font-semibold leading-tight"
+                  style={{ fontSize: 15 }}
                 >
                   {formData.headerTitle}
                 </h4>
                 {formData.headerSubtitle && (
                   <p
-                    className="text-xs"
-                    style={{ color: formData.headerSubtitleColor || 'inherit', opacity: formData.headerSubtitleColor ? 1 : 0.9 }}
+                    className="cw-header-subtitle"
+                    style={{ fontSize: 13, color: formData.headerSubtitleColor || 'inherit', opacity: formData.headerSubtitleColor ? 1 : 0.9 }}
                   >
                     {formData.headerSubtitle}
                   </p>
                 )}
               </div>
             </div>
-            <div className="flex gap-2">
-              <button
-                aria-label="Minimize chat"
-                className="flex h-8 w-8 items-center justify-center rounded-full p-0 hover:bg-white/20"
-                style={{ color: formData.headerTextColor }}
-                onClick={(e) => {
-                  e.stopPropagation();
-                  onWindowMinimizedChange(true);
-                }}
-              >
-                <Minimize2 className="h-4 w-4" />
-              </button>
+            <div className="cw-header-actions flex gap-2">
               <button
                 aria-label="Close chat"
-                className="flex h-8 w-8 items-center justify-center rounded-full p-0 hover:bg-white/20"
+                className="cw-header-btn cw-header-btn--close flex h-8 w-8 cursor-pointer items-center justify-center rounded-full p-0 hover:opacity-80"
                 style={{ color: formData.headerTextColor }}
                 onClick={(e) => {
                   e.stopPropagation();
@@ -354,81 +402,104 @@ export function ChatWidgetSurface({
           </div>
 
           {/* Messages area */}
-          {!isWindowMinimized && (
-            <div
-              ref={scrollRef}
-              className="flex-1 space-y-4 overflow-y-auto p-5"
-              style={{
-                scrollbarColor: '#E5E7EB transparent',
-                scrollbarWidth: 'thin',
-                backgroundColor: formData.chatBodyBg || '#F9FAFB',
-              }}
-            >
-              {messages.map((message) => {
-                const isUser = message.role === 'user';
-                return (
-                  <div
-                    key={message.id}
-                    ref={(el) => {
-                      const map = msgRefs.current;
-                      if (el) map.set(message.id, el);
-                      else map.delete(message.id);
-                    }}
-                    className={`flex gap-3 ${isUser ? 'flex-row-reverse' : 'flex-row'}`}
-                  >
+          <div
+            ref={scrollRef}
+            className="cw-body flex-1 overflow-y-auto p-5"
+            style={{
+              backgroundColor: formData.chatBodyBg || '#F9FAFB',
+            }}
+          >
+              {(() => {
+                const positions = computeGroupPositions(messages);
+                const botAvatarShow = formData.botAvatarShow;
+                const userAvatarShow = formData.userAvatarShow;
+                return messages.map((message, i) => {
+                  const isUser = message.role === 'user';
+                  const pos = positions[i] ?? 'standalone';
+                  const isLastInGroup = pos === 'last' || pos === 'standalone';
+                  const avatarEnabled = isUser ? userAvatarShow : botAvatarShow;
+                  const showAvatar = avatarEnabled && isLastInGroup;
+                  const showTime = formData.showTimestamp && isLastInGroup;
+                  const showBotMeta = !isUser && !botAvatarShow && isLastInGroup;
+                  const baseRadius = isUser
+                    ? formData.userMessageBorderRadius || 14
+                    : formData.systemMessageBorderRadius || 14;
+                  const marginTop = i === 0 ? 0 : pos === 'middle' || pos === 'last' ? 2 : 12;
+                  return (
                     <div
-                      className={getAvatarClass(isUser)}
-                      style={{
-                        backgroundColor: isUser
-                          ? formData.userAvatarBg
-                          : formData.botAvatarBg,
-                        color: isUser
-                          ? formData.userAvatarColor || '#FFFFFF'
-                          : formData.botAvatarColor || '#FFFFFF',
+                      key={message.id}
+                      ref={(el) => {
+                        const map = msgRefs.current;
+                        if (el) map.set(message.id, el);
+                        else map.delete(message.id);
                       }}
+                      className={`cw-message ${isUser ? 'cw-message--user flex-row-reverse' : 'cw-message--bot flex-row'} flex items-start gap-2`}
+                      style={{ marginTop }}
                     >
-                      {isUser ? getUserAvatarContent() : getBotAvatarContent()}
-                    </div>
-                    <div
-                      className={`max-w-[70%] ${isUser ? 'text-right' : 'text-left'}`}
-                    >
-                      <div
-                        className="px-4 py-3"
-                        style={{
-                          ...getMessageStyle(isUser),
-                          borderRadius: `${isUser ? formData.userMessageBorderRadius || 14 : formData.systemMessageBorderRadius || 14}px`,
-                        }}
-                      >
-                        <p className="text-sm leading-relaxed">{message.text}</p>
-                      </div>
-                      {formData.showTimestamp && (
-                        <p
-                          className="mt-1 px-2 text-xs"
+                      {avatarEnabled && (
+                        <div
+                          className={`${isUser ? 'cw-avatar cw-avatar--user' : 'cw-avatar cw-avatar--bot'} ${!showAvatar ? 'invisible' : ''} ${getAvatarClass(isUser)}`}
                           style={{
-                            color: formData.timestampColor || '#6B7280',
+                            backgroundColor: isUser
+                              ? formData.userAvatarBg
+                              : formData.botAvatarBg,
+                            color: isUser
+                              ? formData.userAvatarColor || '#FFFFFF'
+                              : formData.botAvatarColor || '#FFFFFF',
                           }}
                         >
-                          {formatTimestamp(message.timestamp)}
-                        </p>
+                          {isUser ? getUserAvatarContent() : getBotAvatarContent()}
+                        </div>
                       )}
+                      <div className="cw-message-content max-w-[80%]">
+                        <div
+                          className="cw-message-bubble px-3.5 py-2"
+                          style={{
+                            ...getMessageStyle(isUser),
+                            borderRadius: getBubbleRadius(isUser, pos, baseRadius),
+                          }}
+                        >
+                          <p className="cw-message-text text-sm leading-relaxed">{message.text}</p>
+                        </div>
+                        {showBotMeta ? (
+                          <p
+                            className="cw-message-meta mt-1 pl-3 text-xs"
+                            style={{
+                              color: formData.timestampColor || '#6B7280',
+                            }}
+                          >
+                            AI Agent &middot; {formatTimestamp(message.timestamp)}
+                          </p>
+                        ) : showTime && (
+                          <p
+                            className="cw-message-timestamp mt-1 px-2 text-xs"
+                            style={{
+                              color: formData.timestampColor || '#6B7280',
+                            }}
+                          >
+                            {formatTimestamp(message.timestamp)}
+                          </p>
+                        )}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                });
+              })()}
 
               {/* Conversation starters */}
               {messages.length === 1 &&
                 formData.conversationalStarters.length > 0 && (
-                  <div className="mt-4 flex flex-wrap gap-2">
+                  <div className="cw-starters mt-4 flex flex-wrap gap-2">
                     {formData.conversationalStarters
                       .slice(0, 4)
                       .map((starter, index) => (
                         <button
                           key={starter + index}
-                          onClick={() => onSendMessage(starter)}
-                          className="border border-gray-200 bg-white px-3 py-2 text-xs shadow-sm transition-colors hover:bg-gray-50"
+                          onClick={() => { onSendMessage(starter); requestAnimationFrame(() => inputRef.current?.focus()); }}
+                          className="cw-starter-btn cursor-pointer border border-gray-200 bg-white px-3 py-2 shadow-sm transition-colors hover:bg-gray-50"
                           style={{
                             borderRadius: `${formData.systemMessageBorderRadius || 14}px`,
+                            fontSize: 14,
                           }}
                         >
                           {starter}
@@ -439,29 +510,31 @@ export function ChatWidgetSurface({
 
               {/* Typing indicator */}
               {typingIndicator && (
-                <div className="flex gap-3">
+                <div className="cw-typing mt-3 flex items-start gap-2">
+                  {formData.botAvatarShow && (
+                    <div
+                      className={`cw-typing-avatar cw-avatar cw-avatar--bot ${getAvatarClass(false)}`}
+                      style={{
+                        backgroundColor: formData.botAvatarBg,
+                        color: formData.botAvatarColor || '#FFFFFF',
+                      }}
+                    >
+                      {getBotAvatarContent()}
+                    </div>
+                  )}
                   <div
-                    className={getAvatarClass(false)}
-                    style={{
-                      backgroundColor: formData.botAvatarBg,
-                      color: formData.botAvatarColor || '#FFFFFF',
-                    }}
-                  >
-                    {getBotAvatarContent()}
-                  </div>
-                  <div
-                    className="flex items-center space-x-1 bg-white px-4 py-2"
+                    className="cw-typing-bubble flex items-center space-x-1 bg-white px-3.5 py-2"
                     style={{
                       borderRadius: `${formData.systemMessageBorderRadius || 14}px`,
                     }}
                   >
-                    <div className="h-2 w-2 animate-bounce rounded-full bg-gray-400" />
+                    <div className="cw-typing-dot h-2 w-2 animate-bounce rounded-full bg-gray-400" />
                     <div
-                      className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
+                      className="cw-typing-dot h-2 w-2 animate-bounce rounded-full bg-gray-400"
                       style={{ animationDelay: '0.1s' }}
                     />
                     <div
-                      className="h-2 w-2 animate-bounce rounded-full bg-gray-400"
+                      className="cw-typing-dot h-2 w-2 animate-bounce rounded-full bg-gray-400"
                       style={{ animationDelay: '0.2s' }}
                     />
                   </div>
@@ -471,77 +544,87 @@ export function ChatWidgetSurface({
               {/* Scroll sentinel */}
               <div ref={bottomRef} aria-hidden="true" />
             </div>
-          )}
 
           {/* Input area */}
-          {!isWindowMinimized && (
+          <div
+            className="cw-input-area border-t border-gray-200 p-3"
+            style={{ backgroundColor: formData.inputBg }}
+          >
             <div
-              className="border-t border-gray-200 p-4"
-              style={{ backgroundColor: formData.inputBg }}
+              className="cw-input-wrapper flex flex-col border border-gray-300 px-3 py-2"
+              style={{
+                borderRadius: `${formData.inputBorderRadius || 16}px`,
+                boxShadow: isInputFocused
+                  ? `0 0 0 2px ${formData.sendButtonBg}`
+                  : 'none',
+              }}
             >
-              <div className="flex gap-3">
-                <input
-                  value={inputValue}
-                  onChange={(e) => setInputValue(e.target.value)}
-                  onKeyDown={handleKeyPress}
-                  placeholder={formData.inputPlaceholder}
-                  className="flex-1 border-gray-200 px-4 py-2 focus:ring-2 focus:ring-blue-500"
-                  style={{
-                    color: formData.inputTextColor,
-                    borderRadius: `${formData.inputBorderRadius || 14}px`,
-                  }}
-                />
-                {formData.voiceEnabled && (
-                  <button
-                    onClick={cycleVoiceState}
-                    aria-label={
-                      previewVoiceState === 'idle' ? 'Start recording' :
-                      previewVoiceState === 'listening' ? 'Stop recording' :
-                      previewVoiceState === 'processing' ? 'Processing voice' :
-                      'Stop playback'
-                    }
-                    className="relative flex h-10 w-10 items-center justify-center p-0"
-                    style={{
-                      backgroundColor: previewVoiceState === 'listening' ? '#EF4444' :
-                        previewVoiceState === 'playing' ? '#F97316' :
-                        formData.sendButtonBg,
-                      borderRadius: `${formData.sendButtonBorderRadius || 14}px`,
-                      color: formData.sendButtonIconColor || '#FFFFFF',
-                      opacity: previewVoiceState === 'processing' ? 0.6 : 1,
-                    }}
-                  >
-                    {previewVoiceState === 'listening' && (
-                      <span className="absolute inset-0 animate-ping rounded-lg bg-red-400 opacity-30" style={{ borderRadius: `${formData.sendButtonBorderRadius || 14}px` }} />
-                    )}
-                    {previewVoiceState === 'idle' && <Mic className="h-4 w-4" />}
-                    {previewVoiceState === 'listening' && <Square className="relative h-3.5 w-3.5 fill-current" />}
-                    {previewVoiceState === 'processing' && <Loader2 className="h-4 w-4 animate-spin" />}
-                    {previewVoiceState === 'playing' && <Volume2 className="h-4 w-4" />}
-                  </button>
-                )}
+              <textarea
+                ref={inputRef}
+                value={inputValue}
+                onChange={(e) => setInputValue(e.target.value)}
+                onKeyDown={handleKeyPress}
+                onFocus={() => setIsInputFocused(true)}
+                onBlur={() => setIsInputFocused(false)}
+                placeholder={formData.inputPlaceholder}
+                rows={1}
+                className="cw-input w-full resize-none border-0 bg-transparent p-0 leading-snug outline-none"
+                style={{
+                  color: formData.inputTextColor,
+                  maxHeight: '144px',
+                }}
+              />
+              <div className="cw-input-actions mt-2 flex items-center justify-between">
+                <div className="cw-input-left-actions flex items-center gap-1">
+                  {formData.voiceEnabled && (
+                    <button
+                      onClick={cycleVoiceState}
+                      aria-label={
+                        previewVoiceState === 'idle' ? 'Start recording' :
+                        previewVoiceState === 'listening' ? 'Stop recording' :
+                        previewVoiceState === 'processing' ? 'Processing voice' :
+                        'Stop playback'
+                      }
+                      className={`cw-voice-btn cw-voice-btn--${previewVoiceState} relative flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-gray-500 hover:text-gray-800`}
+                      style={{
+                        color: previewVoiceState === 'listening' ? '#EF4444' :
+                          previewVoiceState === 'playing' ? '#F97316' :
+                          undefined,
+                        opacity: previewVoiceState === 'processing' ? 0.6 : 1,
+                      }}
+                    >
+                      {previewVoiceState === 'listening' && (
+                        <span className="cw-voice-pulse absolute inset-0 animate-ping rounded-full bg-red-400 opacity-30" />
+                      )}
+                      {previewVoiceState === 'idle' && <Mic className="h-4 w-4" />}
+                      {previewVoiceState === 'listening' && <Square className="relative h-3.5 w-3.5 fill-current" />}
+                      {previewVoiceState === 'processing' && <Loader2 className="h-4 w-4 animate-spin" />}
+                      {previewVoiceState === 'playing' && <Volume2 className="h-4 w-4" />}
+                    </button>
+                  )}
+                </div>
                 <button
                   onClick={handleSend}
                   disabled={!inputValue.trim()}
                   aria-label="Send message"
-                  className="flex h-10 w-10 items-center justify-center p-0"
+                  className="cw-send-btn flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
                   style={{
                     backgroundColor: formData.sendButtonBg,
-                    borderRadius: `${formData.sendButtonBorderRadius || 14}px`,
                     color: formData.sendButtonIconColor || '#FFFFFF',
-                    opacity: !inputValue.trim() ? 0.5 : 1,
+                    opacity: !inputValue.trim() ? 0.4 : 1,
                   }}
                 >
-                  <Send className="h-4 w-4" />
+                  <ArrowUp className="h-4 w-4" />
                 </button>
               </div>
             </div>
-          )}
+          </div>
 
           {/* Branding footer */}
           {formData.brandingEnabled && (
-            <div className="border-t border-gray-100 bg-gray-50 px-4 py-2 text-center">
+            <div className="cw-branding border-t border-gray-100 bg-gray-50 px-4 py-2 text-center">
               <p
-                className="text-xs"
+                className="cw-branding-text text-xs"
                 style={{ color: formData.brandingTextColor || '#6B7280' }}
               >
                 {formData.brandingTextPrefix}{' '}
@@ -549,14 +632,14 @@ export function ChatWidgetSurface({
                   <img
                     src={formData.brandingLogo}
                     alt="Brand"
-                    className="inline-block h-4 align-[-2px]"
+                    className="cw-branding-logo inline-block h-4 align-[-2px]"
                   />
                 ) : (
                   <a
                     href={formData.brandingLinkUrl || '#'}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="font-medium"
+                    className="cw-branding-link font-medium"
                     style={{
                       color: formData.brandingLinkColor || '#2563EB',
                       textDecoration: 'none',

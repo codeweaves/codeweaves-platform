@@ -7,9 +7,16 @@ import { useAuth } from '@/hooks/use-auth';
 export interface AnalyticsParams {
   startDate: string;
   endDate: string;
+  /** Single agent filter (legacy, still supported) */
   agentId?: string;
+  /** Multiple agent filter */
+  agentIds?: string[];
+  /** Single org filter (legacy, still supported) */
   orgId?: string;
-  source?: 'WIDGET' | 'WHATSAPP';
+  /** Multiple org filter */
+  orgIds?: string[];
+  source?: 'WIDGET' | 'WHATSAPP' | 'DEMO';
+  sources?: Array<'WIDGET' | 'WHATSAPP' | 'DEMO'>;
 }
 
 // Matches API: analytics.service.ts → getSummary()
@@ -101,8 +108,11 @@ function buildQueryString(params: AnalyticsParams, extra?: Record<string, string
   qp.set('startDate', params.startDate);
   qp.set('endDate', params.endDate);
   if (params.agentId) qp.set('agentId', params.agentId);
+  if (params.agentIds && params.agentIds.length > 0) qp.set('agentIds', params.agentIds.join(','));
   if (params.orgId) qp.set('orgId', params.orgId);
+  if (params.orgIds && params.orgIds.length > 0) qp.set('orgIds', params.orgIds.join(','));
   if (params.source) qp.set('source', params.source);
+  if (params.sources && params.sources.length > 0) qp.set('sources', params.sources.join(','));
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v !== undefined) qp.set(k, String(v));

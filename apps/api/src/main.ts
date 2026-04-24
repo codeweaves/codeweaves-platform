@@ -26,6 +26,10 @@ if (process.env.SENTRY_DSN) {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Trust the reverse proxy in front of us (Vercel/Cloudflare/nginx) so
+  // req.ip resolves to the real client IP via X-Forwarded-For.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   // Security headers — must be first middleware applied (before CORS, prefix, pipes)
   app.use(helmet(getHelmetOptions(process.env.NODE_ENV)));
 

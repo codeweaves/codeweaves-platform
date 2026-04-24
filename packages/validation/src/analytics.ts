@@ -8,8 +8,23 @@ export const analyticsQuerySchema = z.object({
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
   agentId: z.string().uuid().optional(),
+  agentIds: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.string().uuid()).optional()),
   orgId: z.string().uuid().optional(),
-  source: z.enum(['WIDGET', 'WHATSAPP']).optional(),
+  orgIds: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.string().uuid()).optional()),
+  source: z.enum(['WIDGET', 'WHATSAPP', 'DEMO']).optional(),
+  sources: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.enum(['WIDGET', 'WHATSAPP', 'DEMO'])).optional()),
 }).refine((data) => data.startDate <= data.endDate, {
   message: 'startDate must be before or equal to endDate',
   path: ['startDate'],
@@ -23,8 +38,23 @@ export const agentAnalyticsQuerySchema = z.object({
   startDate: z.coerce.date(),
   endDate: z.coerce.date(),
   agentId: z.string().uuid().optional(),
+  agentIds: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.string().uuid()).optional()),
   orgId: z.string().uuid().optional(),
-  source: z.enum(['WIDGET', 'WHATSAPP']).optional(),
+  orgIds: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.string().uuid()).optional()),
+  source: z.enum(['WIDGET', 'WHATSAPP', 'DEMO']).optional(),
+  sources: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.enum(['WIDGET', 'WHATSAPP', 'DEMO'])).optional()),
   sortBy: z.enum(['conversations', 'messages', 'avgResponseTimeMs', 'queriesRaised', 'agentName']).default('conversations'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 }).refine((data) => data.startDate <= data.endDate, {

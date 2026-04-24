@@ -56,15 +56,18 @@ export function EmbedCodeDialog({ publicId, open, onOpenChange, trigger }: Embed
             Add this snippet to your website to display the chat widget.
           </DialogDescription>
         </DialogHeader>
-        <div className="relative">
-          <pre className="overflow-x-auto rounded-lg bg-muted p-4 text-sm">
+        <div className="flex items-stretch gap-2">
+          <pre
+            className="min-w-0 flex-1 overflow-x-auto rounded-lg bg-muted p-4 text-sm [&::-webkit-scrollbar]:hidden"
+            style={{ scrollbarWidth: 'none' }}
+          >
             <code>{embedSnippet}</code>
           </pre>
           <Button
-            variant="ghost"
-            size="icon"
-            className="absolute right-2 top-2"
+            variant="outline"
+            className="h-auto shrink-0 px-4"
             onClick={handleCopy}
+            aria-label="Copy embed code"
           >
             {copied ? (
               <Check className="h-4 w-4 text-green-500" />

@@ -15,18 +15,13 @@ import {
   useAgentAnalytics,
   type AnalyticsParams,
 } from '@/hooks/use-analytics';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
+import { MultiSelect } from '@/components/ui/multi-select';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle } from 'lucide-react';
 import { KpiSummaryCards } from './kpi-summary-cards';
-import { DateRangeFilter, type DatePreset } from './date-range-filter';
+import { DateRangePicker } from '@/components/ui/date-range-picker';
 import { ConversationsChart } from './conversations-chart';
 import { ResponseTimesChart } from './response-times-chart';
 import { MessageVolumeHeatmap } from './message-volume-heatmap';
@@ -71,11 +66,6 @@ export function AnalyticsPageClient() {
   const refetchInterval: number | false = isTabVisible ? 60_000 : false;
 
   // --- Filter State (Task 3) ---
-  const [datePreset, setDatePreset] = useState<DatePreset>(() => {
-    const p = searchParams.get('range');
-    return (p === '7' || p === '14' || p === '30' || p === 'custom') ? p : '7';
-  });
-
   const [startDate, setStartDate] = useState<Date>(() => {
     const s = searchParams.get('start');
     if (s) return new Date(s + 'T00:00:00');
@@ -88,41 +78,46 @@ export function AnalyticsPageClient() {
     return new Date();
   });
 
-  const [agentId, setAgentId] = useState<string | undefined>(
-    searchParams.get('agentId') ?? undefined,
-  );
+  const [agentIds, setAgentIds] = useState<string[]>(() => {
+    const raw = searchParams.get('agentIds') ?? searchParams.get('agentId');
+    return raw ? raw.split(',').filter(Boolean) : [];
+  });
 
-  const [orgId, setOrgId] = useState<string | undefined>(
-    searchParams.get('orgId') ?? undefined,
-  );
+  const [orgIds, setOrgIds] = useState<string[]>(() => {
+    const raw = searchParams.get('orgIds') ?? searchParams.get('orgId');
+    return raw ? raw.split(',').filter(Boolean) : [];
+  });
 
-  const [source, setSource] = useState<'WIDGET' | 'WHATSAPP' | undefined>(() => {
-    const s = searchParams.get('source');
-    return s === 'WIDGET' || s === 'WHATSAPP' ? s : undefined;
+  const [sources, setSources] = useState<Array<'WIDGET' | 'WHATSAPP' | 'DEMO'>>(() => {
+    const raw = searchParams.get('sources') ?? searchParams.get('source');
+    if (!raw) return [];
+    return raw
+      .split(',')
+      .filter((s): s is 'WIDGET' | 'WHATSAPP' | 'DEMO' => s === 'WIDGET' || s === 'WHATSAPP' || s === 'DEMO');
   });
 
   // Sync filter state to URL (Task 3.5) — M1 fix: no router in deps
   const syncUrl = useCallback(() => {
     const params = new URLSearchParams();
-    params.set('range', datePreset);
     params.set('start', formatDateLocal(startDate));
     params.set('end', formatDateLocal(endDate));
-    if (agentId) params.set('agentId', agentId);
-    if (orgId) params.set('orgId', orgId);
-    if (source) params.set('source', source);
+    if (agentIds.length > 0) params.set('agentIds', agentIds.join(','));
+    if (orgIds.length > 0) params.set('orgIds', orgIds.join(','));
+    if (sources.length > 0) params.set('sources', sources.join(','));
     routerRef.current.replace(`?${params.toString()}`, { scroll: false });
-  }, [datePreset, startDate, endDate, agentId, orgId, source]);
+  }, [startDate, endDate, agentIds, orgIds, sources]);
 
   useEffect(() => {
     syncUrl();
   }, [syncUrl]);
 
-  // Update dates when preset changes
-  const handlePresetChange = useCallback((preset: DatePreset) => {
-    setDatePreset(preset);
-    if (preset !== 'custom') {
-      const days = Number(preset);
-      setStartDate(subDays(new Date(), days));
+  const handleDateRangeChange = useCallback((from: string, to: string) => {
+    if (from && to) {
+      setStartDate(new Date(from + 'T00:00:00'));
+      setEndDate(new Date(to + 'T00:00:00'));
+    } else {
+      // Cleared — reset to last 7 days
+      setStartDate(subDays(new Date(), 7));
       setEndDate(new Date());
     }
   }, []);
@@ -131,9 +126,9 @@ export function AnalyticsPageClient() {
   const analyticsParams: AnalyticsParams = {
     startDate: formatDateLocal(startDate),
     endDate: formatDateLocal(endDate),
-    agentId,
-    orgId: isAdmin ? orgId : undefined,
-    source,
+    agentIds: agentIds.length > 0 ? agentIds : undefined,
+    orgIds: isAdmin && orgIds.length > 0 ? orgIds : undefined,
+    sources: sources.length > 0 ? sources : undefined,
   };
 
   const pollingOptions = { refetchInterval };
@@ -178,64 +173,53 @@ export function AnalyticsPageClient() {
     <div className="space-y-6">
       {/* Filters Bar */}
       <div className="flex flex-wrap items-center gap-4">
-        <DateRangeFilter
-          preset={datePreset}
-          startDate={startDate}
-          endDate={endDate}
-          onPresetChange={handlePresetChange}
-          onStartDateChange={setStartDate}
-          onEndDateChange={setEndDate}
+        <DateRangePicker
+          fromValue={formatDateLocal(startDate)}
+          toValue={formatDateLocal(endDate)}
+          onChange={handleDateRangeChange}
+          placeholder="Pick a date range"
+          showClear={false}
         />
 
         {/* Agent Filter */}
-        <Select
-          value={agentId ?? ''}
-          onValueChange={(v) => setAgentId(v === '__select_clear__' || !v ? undefined : v)}
-        >
-          <SelectTrigger className="w-45">
-            <SelectValue placeholder="All agents" />
-          </SelectTrigger>
-          <SelectContent allowClear clearLabel="All agents" className="w-45 max-w-45">
-            {agents.map((agent) => (
-              <SelectItem key={agent.id} value={agent.id} className="[&>span:last-child]:truncate [&>span:last-child]:block">
-                {agent.name}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <SearchableMultiSelect
+          triggerClassName="w-[250px]"
+          placeholder="All agents"
+          searchPlaceholder="Search agents..."
+          emptyMessage="No agents found"
+          values={agentIds}
+          onValuesChange={setAgentIds}
+          selectedLabel={(n) => `${n} agents`}
+          options={agents.map((agent) => ({ value: agent.id, label: agent.name }))}
+        />
 
         {/* Org Filter — admin only */}
         {isAdmin && (
-          <Select
-            value={orgId ?? ''}
-            onValueChange={(v) => setOrgId(v === '__select_clear__' || !v ? undefined : v)}
-          >
-            <SelectTrigger className="w-45">
-              <SelectValue placeholder="All organizations" />
-            </SelectTrigger>
-            <SelectContent allowClear clearLabel="All organizations" className="w-45 max-w-45">
-              {organizations.map((org) => (
-                <SelectItem key={org.id} value={org.id} className="[&>span:last-child]:truncate [&>span:last-child]:block">
-                  {org.name}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
+          <SearchableMultiSelect
+            triggerClassName="w-[250px]"
+            placeholder="All organizations"
+            searchPlaceholder="Search organizations..."
+            emptyMessage="No organizations found"
+            values={orgIds}
+            onValuesChange={setOrgIds}
+            selectedLabel={(n) => `${n} organizations`}
+            options={organizations.map((org) => ({ value: org.id, label: org.name }))}
+          />
         )}
 
         {/* Source Filter */}
-        <Select
-          value={source ?? ''}
-          onValueChange={(v) => setSource(v === '__select_clear__' || !v ? undefined : v as 'WIDGET' | 'WHATSAPP')}
-        >
-          <SelectTrigger className="w-40">
-            <SelectValue placeholder="All channels" />
-          </SelectTrigger>
-          <SelectContent allowClear clearLabel="All channels">
-            <SelectItem value="WIDGET">Widget</SelectItem>
-            <SelectItem value="WHATSAPP">WhatsApp</SelectItem>
-          </SelectContent>
-        </Select>
+        <MultiSelect
+          triggerClassName="w-[250px]"
+          placeholder="All channels"
+          values={sources}
+          onValuesChange={(v) => setSources(v as Array<'WIDGET' | 'WHATSAPP' | 'DEMO'>)}
+          selectedLabel={(n) => `${n} channels`}
+          options={[
+            { value: 'WIDGET', label: 'Widget' },
+            { value: 'WHATSAPP', label: 'WhatsApp' },
+            { value: 'DEMO', label: 'Demo' },
+          ]}
+        />
 
         {/* 8-11: Export button */}
         <div className="ml-auto">

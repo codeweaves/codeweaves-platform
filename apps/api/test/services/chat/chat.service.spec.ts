@@ -208,6 +208,7 @@ describe('ChatService', () => {
             agentId: MOCK_AGENT_ID,
             sessionId: expect.any(String),
             source: 'DEMO',
+            visitorId: null,
           },
         });
         expect(mockPrismaService.chatSession.findFirst).not.toHaveBeenCalled();
@@ -536,6 +537,7 @@ describe('ChatService', () => {
           agentId: MOCK_AGENT_ID,
           sessionId: expect.any(String),
           source: 'DEMO',
+          visitorId: null,
         },
       });
     });

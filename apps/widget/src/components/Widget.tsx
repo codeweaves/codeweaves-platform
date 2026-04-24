@@ -181,7 +181,10 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
         configError.value = true;
       })
       .finally(() => {
-        if (!cancelled && !blocked) revealWidget();
+        // Only reveal when config actually loaded and domain is allowed.
+        // On failure/block, leave the host element invisible — nothing shows
+        // on the customer's site.
+        if (!cancelled && !blocked && !configError.value) revealWidget();
       });
 
     return () => {
@@ -197,6 +200,42 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   // Hooks must be called unconditionally (before any early returns)
   const [showBubble, setShowBubble] = useState(false);
   const bubbleDismissed = useRef(false);
+
+  // Body scroll lock + iOS keyboard handling when widget is expanded on mobile
+  useEffect(() => {
+    if (state !== 'expanded') return;
+    const isMobile = window.matchMedia('(max-width: 480px)').matches;
+    if (!isMobile) return;
+
+    // Lock body scroll
+    const prevOverflow = document.body.style.overflow;
+    const prevPosition = document.body.style.position;
+    const scrollY = window.scrollY;
+    document.body.style.overflow = 'hidden';
+    document.body.style.position = 'fixed';
+    document.body.style.top = `-${scrollY}px`;
+    document.body.style.width = '100%';
+
+    // iOS keyboard handling via VisualViewport
+    const vv = window.visualViewport;
+    const handleViewportResize = () => {
+      if (!vv || !hostElement) return;
+      const keyboardHeight = Math.max(0, window.innerHeight - vv.height);
+      hostElement.style.setProperty('--cw-keyboard-height', `${keyboardHeight}px`);
+    };
+    vv?.addEventListener('resize', handleViewportResize);
+    handleViewportResize();
+
+    return () => {
+      document.body.style.overflow = prevOverflow;
+      document.body.style.position = prevPosition;
+      document.body.style.top = '';
+      document.body.style.width = '';
+      window.scrollTo(0, scrollY);
+      vv?.removeEventListener('resize', handleViewportResize);
+      hostElement?.style.removeProperty('--cw-keyboard-height');
+    };
+  }, [state, hostElement]);
 
   const themeObj = currentConfig?.theme as Record<string, unknown> | null ?? null;
   const bubbleConfig = extractBubbleConfig(themeObj);
@@ -217,25 +256,11 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
     setShowBubble(false);
   }, []);
 
-  if (configError.value) {
-    return (
-      <div class="cw-widget">
-        <div class="cw-config-error" style={{ pointerEvents: 'auto' }}>
-          Widget unavailable
-        </div>
-      </div>
-    );
-  }
-
-  if (domainBlocked.value) {
-    return (
-      <div class="cw-widget">
-        <div class="cw-domain-error">
-          This widget is not authorized for this domain
-        </div>
-      </div>
-    );
-  }
+  // If config can't load (API down, 404, network error) or domain is not
+  // authorized — render nothing so the customer's site stays clean. We also
+  // avoid calling revealWidget() in these branches so the host element stays
+  // invisible.
+  if (configError.value || domainBlocked.value) return null;
 
   if (!currentConfig) return null;
 
@@ -246,7 +271,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   const iconTheme = themeObj?.icon as Record<string, unknown> | undefined;
   const iconBg = typeof iconTheme?.backgroundColor === 'string' ? iconTheme.backgroundColor : '#3b82f6';
   const iconRadius = typeof iconTheme?.borderRadius === 'number' ? iconTheme.borderRadius : 50;
-  const iconSize = typeof iconTheme?.size === 'number' ? iconTheme.size : 56;
+  const iconSize = typeof iconTheme?.size === 'number' ? iconTheme.size : 60;
   const iconShadow = typeof iconTheme?.shadow === 'string' ? iconTheme.shadow : '0 4px 12px rgba(0,0,0,0.15)';
 
   // Bubble theme
@@ -275,7 +300,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
       {/* Bubble notification */}
       {showBubble && state === 'closed' && (
         <div
-          class={`pointer-events-auto absolute ${iconOnRight ? 'bottom-24 right-6' : 'bottom-24 left-6'} z-10 max-w-xs cursor-pointer rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 hover:scale-105`}
+          class={`cw-bubble pointer-events-auto absolute ${iconOnRight ? 'bottom-22 right-5' : 'bottom-22 left-5'} z-10 max-w-xs cursor-pointer rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 hover:scale-105`}
           style={{
             backgroundColor: bubbleBg,
             color: bubbleTextColor,
@@ -283,22 +308,38 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
           }}
           onClick={() => { dismissBubble(); handleOpen(); }}
         >
-          <div class="flex items-center justify-between">
-            <span class="pr-2 text-sm font-medium">{bubbleConfig.text}</span>
-            <button
-              onClick={(e) => dismissBubble(e as unknown as MouseEvent)}
-              class="ml-2 text-current opacity-60 hover:opacity-100"
-              type="button"
-            >
-              <XIcon class="h-4 w-4" />
-            </button>
+          <div class="cw-bubble-content">
+            <span class="cw-bubble-text text-sm font-medium leading-snug">{bubbleConfig.text}</span>
           </div>
-          <div class={`absolute top-full ${iconOnRight ? 'right-6' : 'left-6'}`}>
-            <div
-              class="h-0 w-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent"
-              style={{ borderTopColor: bubbleBg }}
-            />
-          </div>
+          <button
+            onClick={(e) => dismissBubble(e as unknown as MouseEvent)}
+            class="cw-bubble-close"
+            type="button"
+            aria-label="Dismiss"
+            style={{
+              position: 'absolute',
+              top: '-4px',
+              right: '-4px',
+              width: '20px',
+              height: '20px',
+              display: 'flex',
+              alignItems: 'center',
+              justifyContent: 'center',
+              borderRadius: '50%',
+              backgroundColor: bubbleBg,
+              border: 'none',
+              color: bubbleTextColor,
+              cursor: 'pointer',
+              padding: 0,
+            }}
+          >
+            <XIcon class="block h-3 w-3" />
+          </button>
+          <div
+            class={`cw-bubble-arrow absolute -bottom-2 h-0 w-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent ${iconOnRight ? 'right-6' : 'left-6'}`}
+            style={{ borderTopColor: bubbleBg }}
+            aria-hidden="true"
+          />
         </div>
       )}
 
@@ -308,7 +349,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
           role="button"
           tabIndex={0}
           aria-label="Open chat widget"
-          class={`pointer-events-auto absolute ${iconOnRight ? 'bottom-6 right-6' : 'bottom-6 left-6'} z-20 flex cursor-pointer items-center justify-center transition-all duration-300 hover:scale-110`}
+          class={`cw-launcher pointer-events-auto absolute ${iconOnRight ? 'bottom-5 right-5' : 'bottom-5 left-5'} z-20 flex cursor-pointer items-center justify-center transition-all duration-300 hover:scale-110`}
           style={{
             backgroundColor: iconBg,
             borderRadius: `${iconRadius}%`,
@@ -320,9 +361,9 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
           onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); } }}
         >
           {iconConfig.customImage ? (
-            <img src={iconConfig.customImage} alt="Chat" class="h-3/5 w-3/5 rounded-full object-cover" />
+            <img src={iconConfig.customImage} alt="Chat" class="cw-launcher-image h-3/5 w-3/5 rounded-full object-cover" />
           ) : (
-            <MessageCircleIcon class="h-7 w-7 text-white" />
+            <MessageCircleIcon class="cw-launcher-icon h-7 w-7 text-white" />
           )}
         </div>
       )}
