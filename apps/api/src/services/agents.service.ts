@@ -8,13 +8,17 @@ import {
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from './prisma.service';
 import { Prisma, Role, Agent } from '@prisma/client';
-import { voiceConfigSchema } from '@repo/validation';
+import {
+  agentAiConfigUpdateSchema,
+  voiceConfigSchema,
+} from '@repo/validation';
 import { ZodError } from 'zod';
 import type { CreateAgentDto, UpdateAgentDto, AgentListQuery } from '../models/agent.dto';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { generatePublicId } from '../utils/public-id';
 import { deduplicateDomains, isValidDomain } from '../utils/domain';
 import { AgentLoggerService } from '../common/logger/agent.logger';
+import { AgentCacheService } from '../common/cache/agent-cache.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 
 const MAX_PUBLIC_ID_RETRIES = 3;
@@ -29,6 +33,7 @@ export class AgentsService {
     private readonly agentLogger: AgentLoggerService,
     private readonly cryptoService: CryptoService,
     private readonly configService: ConfigService,
+    private readonly agentCache: AgentCacheService,
   ) {}
 
   async create(dto: CreateAgentDto, user: CurrentUserData) {
@@ -180,6 +185,31 @@ export class AgentsService {
       }
     }
 
+    // Validate aiConfig (Phase 1: AI orchestration layer). Stored as JSONB,
+    // null clears the override (agent falls back to n8n routing by default).
+    // Merge with existing config so partial PATCH updates don't blow away other fields.
+    let aiConfigData: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined;
+    if (dto.aiConfig !== undefined) {
+      if (dto.aiConfig === null) {
+        aiConfigData = Prisma.DbNull;
+      } else {
+        try {
+          const existingAiConfig =
+            (existing.aiConfig as Record<string, unknown> | null) ?? {};
+          const merged = { ...existingAiConfig, ...dto.aiConfig };
+          const parsed = agentAiConfigUpdateSchema.parse(merged);
+          aiConfigData = parsed as Prisma.InputJsonValue;
+        } catch (error) {
+          if (error instanceof ZodError) {
+            throw new BadRequestException(
+              `Invalid AI configuration: ${error.errors.map((e) => e.message).join(', ')}`,
+            );
+          }
+          throw error;
+        }
+      }
+    }
+
     try {
       const updated = await this.prisma.agent.update({
         where: { id },
@@ -191,6 +221,7 @@ export class AgentsService {
           ...(voiceConfigData !== undefined && { voiceConfig: voiceConfigData }),
           ...(dto.welcomeMessage !== undefined && { welcomeMessage: dto.welcomeMessage }),
           ...(dto.systemPrompt !== undefined && { systemPrompt: dto.systemPrompt }),
+          ...(aiConfigData !== undefined && { aiConfig: aiConfigData }),
         },
         include: { organization: { select: { id: true, name: true } } },
       });
@@ -228,7 +259,27 @@ export class AgentsService {
         });
       }
 
+      // Audit: AI config changes. Routing mode transitions (n8n↔direct) are
+      // significant enough to warrant a dedicated audit event so a dashboard
+      // timeline can show when an agent switched LLM backends.
+      if (dto.aiConfig !== undefined) {
+        const oldRoutingMode =
+          (existing.aiConfig as { routingMode?: string } | null)?.routingMode ??
+          'n8n';
+        const newRoutingMode = dto.aiConfig?.routingMode ?? oldRoutingMode;
+        await this.agentLogger.logAgentUpdated(updated.id, {
+          event: 'AGENT_AI_CONFIG_UPDATED',
+          oldRoutingMode,
+          newRoutingMode,
+          changedFields: Object.keys(dto.aiConfig ?? {}),
+          userId: user.id,
+        });
+      }
+
       await this.agentLogger.logAgentUpdated(updated.id, { agent: updated, request: dto, userId: user.id });
+      // Bust the cache so the next chat turn reads fresh aiConfig / systemPrompt /
+      // voiceConfig. Invalidation is best-effort (fail-open, see AgentCacheService).
+      await this.agentCache.invalidate(updated.id);
       return this.stripSensitiveFields(updated, user);
     } catch (error) {
       if (

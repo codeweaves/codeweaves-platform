@@ -38,6 +38,21 @@ export class ElevenLabsProvider implements VoiceProvider {
   private readonly apiKey: string;
   private readonly defaultVoiceId: string;
 
+  /**
+   * ElevenLabs enforces a subscription-tier concurrency cap on TTS (2 concurrent
+   * on the starter plan, higher on paid tiers). When we exceeded this, the
+   * provider returned 429 and fell back to Sarvam mid-response — causing an
+   * audible voice switch mid-reply. We gate synthesize() with a simple
+   * promise-chain semaphore sized to the plan limit, so concurrent callers
+   * queue at our edge instead of hitting the rate limit.
+   *
+   * Configurable via ELEVENLABS_MAX_CONCURRENT (default 2, matching starter plan).
+   * If you upgrade the plan, bump this env var accordingly.
+   */
+  private readonly maxConcurrent: number;
+  private inFlight = 0;
+  private readonly waitQueue: Array<() => void> = [];
+
   readonly name = 'elevenlabs';
   readonly supportedLanguages: SupportedLanguage[] = [
     'en', 'hi', 'ta', // Multilingual v2 only supports Hindi + Tamil from Indian languages
@@ -47,10 +62,37 @@ export class ElevenLabsProvider implements VoiceProvider {
     this.apiKey = this.configService.get<string>('ELEVENLABS_API_KEY') || '';
     this.defaultVoiceId =
       this.configService.get<string>('ELEVENLABS_DEFAULT_VOICE_ID') || 'Xb7hH8MSUJpSbSDYk0k2';
+    const configured = this.configService.get<string>('ELEVENLABS_MAX_CONCURRENT');
+    const parsed = configured ? parseInt(configured, 10) : NaN;
+    this.maxConcurrent = Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
 
     if (!this.apiKey) {
       this.logger.warn('ELEVENLABS_API_KEY not configured — ElevenLabs provider will not work');
     }
+  }
+
+  /**
+   * Acquire a concurrency slot. Resolves immediately if under the cap,
+   * otherwise queues until a prior call releases. FIFO ordering preserved so
+   * sentence 0 doesn't get starved by later sentences jumping the queue.
+   */
+  private async acquireSlot(): Promise<void> {
+    if (this.inFlight < this.maxConcurrent) {
+      this.inFlight++;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.waitQueue.push(() => {
+        this.inFlight++;
+        resolve();
+      });
+    });
+  }
+
+  private releaseSlot(): void {
+    this.inFlight--;
+    const next = this.waitQueue.shift();
+    if (next) next();
   }
 
   async transcribe(request: STTRequest): Promise<STTResponse> {
@@ -90,49 +132,56 @@ export class ElevenLabsProvider implements VoiceProvider {
   }
 
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
+    // Respect the subscription-tier concurrency cap. Blocks here until a slot
+    // is free — prevents the 429 cascade that caused sentences 2-3 to fall
+    // back to Sarvam (audible voice switch mid-reply).
+    await this.acquireSlot();
     const startTime = Date.now();
-    const voiceId = request.voiceId || this.defaultVoiceId;
+    try {
+      const voiceId = request.voiceId || this.defaultVoiceId;
+      const sanitizedVoiceId = encodeURIComponent(voiceId);
 
-    const sanitizedVoiceId = encodeURIComponent(voiceId);
-
-    const response = await fetch(
-      `https://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}?output_format=mp3_44100_128`,
-      {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'xi-api-key': this.apiKey,
-        },
-        body: JSON.stringify({
-          text: request.text,
-          model_id: 'eleven_multilingual_v2',
-          language_code: request.language,
-          voice_settings: {
-            stability: 0.5,
-            similarity_boost: 0.75,
-            speed: request.speed || 1.0,
+      const response = await fetch(
+        `https://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}?output_format=mp3_44100_128`,
+        {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'xi-api-key': this.apiKey,
           },
-        }),
-        signal: AbortSignal.timeout(15_000),
-      },
-    ).catch((error: Error) => {
-      throw this.handleNetworkError(error, 'synthesize');
-    });
+          body: JSON.stringify({
+            text: request.text,
+            model_id: 'eleven_multilingual_v2',
+            language_code: request.language,
+            voice_settings: {
+              stability: 0.5,
+              similarity_boost: 0.75,
+              speed: request.speed || 1.0,
+            },
+          }),
+          signal: AbortSignal.timeout(15_000),
+        },
+      ).catch((error: Error) => {
+        throw this.handleNetworkError(error, 'synthesize');
+      });
 
-    if (!response.ok) {
-      await this.handleErrorResponse(response, 'synthesize');
+      if (!response.ok) {
+        await this.handleErrorResponse(response, 'synthesize');
+      }
+
+      // CRITICAL: Response is raw binary audio, NOT JSON
+      const arrayBuffer = await response.arrayBuffer();
+      const audio = Buffer.from(arrayBuffer);
+
+      return {
+        audio,
+        audioFormat: 'audio/mp3',
+        provider: this.name,
+        latencyMs: Date.now() - startTime,
+      };
+    } finally {
+      this.releaseSlot();
     }
-
-    // CRITICAL: Response is raw binary audio, NOT JSON
-    const arrayBuffer = await response.arrayBuffer();
-    const audio = Buffer.from(arrayBuffer);
-
-    return {
-      audio,
-      audioFormat: 'audio/mp3',
-      provider: this.name,
-      latencyMs: Date.now() - startTime,
-    };
   }
 
   async detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse> {

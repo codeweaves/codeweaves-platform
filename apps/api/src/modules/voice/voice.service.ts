@@ -212,6 +212,22 @@ export class VoiceService {
     return firstProvider.detectLanguage(audio, audioFormat);
   }
 
+  /**
+   * Streams LLM tokens → sentence-bounded TTS audio chunks.
+   *
+   * PARALLEL TTS: Each sentence's TTS call is kicked off as soon as its
+   * boundary is detected — we do NOT wait for the previous sentence's TTS to
+   * complete. Audio chunks are still yielded IN ORDER (index 0, 1, 2, ...) so
+   * playback is correct. The key win: total time ≈ max(TTS latencies), not
+   * sum. On a typical 3-sentence response with ~2.5s TTS each, this is
+   * ~5s faster.
+   *
+   * Why not await each TTS? Previously the outer `for await` loop would
+   * BLOCK on each TTS call via `yield*`, which back-pressured the LLM token
+   * stream: the next token couldn't be consumed until the current sentence's
+   * TTS returned. That serialization was adding 5-8s of latency on top of
+   * real inference time.
+   */
   async *streamingTTS(
     tokenStream: AsyncGenerator<N8nStreamChunk>,
     language: string,
@@ -221,35 +237,130 @@ export class VoiceService {
     const resolvedConfig = config ?? await this.getVoiceConfig(agentId);
     const provider = this.resolveTTSProvider(resolvedConfig, language as SupportedLanguage);
     const sentenceBuffer = new SentenceBuffer();
-    let sentenceIndex = 0;
+    const lang = language as SupportedLanguage;
+
+    // Promises for each sentence's TTS call, in sentence-index order. We push
+    // as sentences form (parallel execution) and await in order (correct
+    // playback sequence in the output stream).
+    const ttsPromises: Promise<VoiceStreamChunk[]>[] = [];
     let fullText = '';
 
-    for await (const chunk of tokenStream) {
-      if (chunk.type === 'item' && chunk.content) {
-        fullText += chunk.content;
-        const sentences = sentenceBuffer.addToken(chunk.content);
+    // Signal used to wake up the yielder when new promises are pushed. Held
+    // as a single-element tuple so TS's control-flow narrowing doesn't collapse
+    // it to `never` inside the IIFE closure. (The original `let` + `?.()`
+    // pattern tripped TS 5.x's narrowing on unused captures.)
+    const wake: { fn: (() => void) | null } = { fn: null };
+    const waitForNewPromise = () =>
+      new Promise<void>((resolve) => {
+        wake.fn = resolve;
+      });
+    const notifyYielder = () => {
+      if (wake.fn) {
+        wake.fn();
+        wake.fn = null;
+      }
+    };
 
-        for (const sentence of sentences) {
-          const result = yield* this.synthesizeSentenceWithFallback(
-            sentence, language as SupportedLanguage, agentId,
-            resolvedConfig, provider, sentenceIndex,
-          );
-          if (result) sentenceIndex++;
+    let llmConsumerDone = false;
+    let llmConsumerError: unknown = null;
+
+    // ----- Background task: consume LLM tokens, push TTS promises -----
+    const llmConsumer = (async () => {
+      try {
+        for await (const chunk of tokenStream) {
+          if (chunk.type === 'item' && chunk.content) {
+            fullText += chunk.content;
+            const sentences = sentenceBuffer.addToken(chunk.content);
+            for (const sentence of sentences) {
+              ttsPromises.push(
+                this.synthesizeSentenceToChunks(
+                  sentence,
+                  lang,
+                  agentId,
+                  resolvedConfig,
+                  provider,
+                  ttsPromises.length,
+                ),
+              );
+              notifyYielder();
+            }
+          }
         }
+        // Flush tail text (partial sentence without terminator)
+        const remaining = sentenceBuffer.flush();
+        if (remaining) {
+          ttsPromises.push(
+            this.synthesizeSentenceToChunks(
+              remaining,
+              lang,
+              agentId,
+              resolvedConfig,
+              provider,
+              ttsPromises.length,
+            ),
+          );
+          notifyYielder();
+        }
+      } catch (err) {
+        llmConsumerError = err;
+      } finally {
+        llmConsumerDone = true;
+        notifyYielder();
+      }
+    })();
+
+    // ----- Foreground: yield TTS results in order -----
+    let yielded = 0;
+    let successCount = 0;
+    while (true) {
+      if (yielded < ttsPromises.length) {
+        // Next sentence's TTS promise exists — await + yield its chunks.
+        // Non-null assertion safe: we just checked yielded < length.
+        const chunks = await ttsPromises[yielded]!;
+        yielded++;
+        for (const c of chunks) {
+          if (c.type === 'audio') successCount++;
+          yield c;
+        }
+      } else if (llmConsumerDone) {
+        break;
+      } else {
+        // No work right now — wait for LLM consumer to push more or finish
+        await waitForNewPromise();
       }
     }
 
-    // Flush remaining buffer
-    const remaining = sentenceBuffer.flush();
-    if (remaining) {
-      const result = yield* this.synthesizeSentenceWithFallback(
-        remaining, language as SupportedLanguage, agentId,
-        resolvedConfig, provider, sentenceIndex,
-      );
-      if (result) sentenceIndex++;
-    }
+    await llmConsumer; // surface any LLM-stream error post-yield
+    if (llmConsumerError) throw llmConsumerError;
 
-    yield { type: 'end', fullText, totalSentences: sentenceIndex };
+    yield { type: 'end', fullText, totalSentences: successCount };
+  }
+
+  /**
+   * Adapter: collect a `synthesizeSentenceWithFallback` generator's yields
+   * into an array so the parent can run it as a Promise (for parallel
+   * scheduling). The existing generator yields 0-1 chunks per call.
+   */
+  private async synthesizeSentenceToChunks(
+    sentence: string,
+    language: SupportedLanguage,
+    agentId: string,
+    config: VoiceConfigDto,
+    primaryProvider: VoiceProvider,
+    sentenceIndex: number,
+  ): Promise<VoiceStreamChunk[]> {
+    const out: VoiceStreamChunk[] = [];
+    for await (const chunk of this.synthesizeSentenceWithFallback(
+      sentence,
+      language,
+      agentId,
+      config,
+      primaryProvider,
+      sentenceIndex,
+    )) {
+      out.push(chunk);
+    }
+    return out;
   }
 
   private async *synthesizeSentenceWithFallback(

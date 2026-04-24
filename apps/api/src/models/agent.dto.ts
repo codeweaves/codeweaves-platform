@@ -6,6 +6,11 @@ export {
   domainSchema,
   allowedDomainsSchema,
   updateWebhookSchema,
+  agentAiConfigSchema,
+  agentAiConfigUpdateSchema,
+  aiRoutingModeEnum,
+  aiContextStrategyEnum,
+  resolveRoutingMode,
 } from '@repo/validation';
 
 export type {
@@ -14,4 +19,8 @@ export type {
   AgentListQuery,
   AgentStatusEnum,
   UpdateWebhookDto,
+  AgentAiConfigDto,
+  AgentAiConfigUpdateDto,
+  AiRoutingMode,
+  AiContextStrategy,
 } from '@repo/validation';

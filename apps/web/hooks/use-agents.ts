@@ -16,6 +16,13 @@ export interface Agent {
   allowedDomains: string[];
   voiceEnabled: boolean;
   voiceConfig: import('@repo/validation').VoiceConfigDto | null;
+  /**
+   * AI orchestration config: routing mode (n8n vs direct LLM), model selection,
+   * sampling, context strategy. Stored as a JSONB blob on the agent row.
+   * Null or absent means "use n8n defaults" — agents pre-dating the direct-mode
+   * epic are grandfathered as n8n-mode.
+   */
+  aiConfig: import('@repo/validation').AgentAiConfigDto | null;
   createdAt: string;
   updatedAt: string;
 }

@@ -22,6 +22,10 @@ import { N8nStreamingService } from '../../services/n8n-streaming.service';
 import { AgentsService } from '../../services/agents.service';
 import { PrismaService } from '../../services/prisma.service';
 import { MessageRateLimitService } from '../../services/message-rate-limit.service';
+import { DirectChatService } from '../ai/direct-chat.service';
+import { directChatToN8nStream } from '../ai/adapters/voice-token-stream.adapter';
+import { resolveRoutingMode } from '@repo/validation';
+import type { N8nStreamChunk } from '../../services/n8n-stream.interface';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import {
   voiceConversationSchema,
@@ -65,6 +69,7 @@ export class VoiceController {
     private readonly agentsService: AgentsService,
     private readonly prisma: PrismaService,
     private readonly messageRateLimitService: MessageRateLimitService,
+    private readonly directChatService: DirectChatService,
   ) {}
 
   @Post('conversation')
@@ -146,11 +151,19 @@ export class VoiceController {
       };
     }
 
-    // Streaming path: requires webhookUrl + TTS enabled + client opt-in via Accept header
+    // Streaming path: requires (webhookUrl OR direct mode) + TTS enabled + client opt-in via Accept header
     const clientAcceptsNdjson = req.headers['accept']?.includes('application/x-ndjson');
 
+    // Resolve full agent for routing-mode + aiConfig inspection. ChatService.resolveAgent
+    // returns a stripped projection, so we hit the DB again for the full record.
+    // Cheap query (PK lookup) and only runs on the voice endpoint.
+    const fullAgent = await this.prisma.agent.findUniqueOrThrow({
+      where: { id: resolvedAgentId },
+    });
+    const routingMode = resolveRoutingMode(fullAgent.aiConfig);
+
     let webhookUrl: string | null = null;
-    if (clientAcceptsNdjson) {
+    if (clientAcceptsNdjson && routingMode === 'n8n') {
       try {
         webhookUrl = await this.agentsService.getEffectiveWebhookUrl(resolvedAgentId);
       } catch (error) {
@@ -173,9 +186,37 @@ export class VoiceController {
       voiceConfig = { ttsEnabled: true } as VoiceConfigDto;
     }
 
+    // Direct-mode streaming: agent has aiConfig.routingMode = 'direct', so we
+    // bypass n8n entirely and pipe DirectChatService → voice adapter → existing
+    // VoiceService.streamingTTS pipeline. No webhook URL needed.
+    if (routingMode === 'direct' && voiceConfig.ttsEnabled !== false && clientAcceptsNdjson) {
+      await this.handleStreamingVoice(
+        dto,
+        sttResult,
+        sttLatencyMs,
+        'direct',
+        fullAgent,
+        null,
+        voiceConfig,
+        startTime,
+        res,
+        resolvedAgentId,
+      );
+      return;
+    }
+
     if (webhookUrl && voiceConfig.ttsEnabled !== false && clientAcceptsNdjson) {
       await this.handleStreamingVoice(
-        dto, sttResult, sttLatencyMs, webhookUrl, voiceConfig, startTime, res, resolvedAgentId,
+        dto,
+        sttResult,
+        sttLatencyMs,
+        'n8n',
+        fullAgent,
+        webhookUrl,
+        voiceConfig,
+        startTime,
+        res,
+        resolvedAgentId,
       );
       return;
     }
@@ -466,7 +507,9 @@ export class VoiceController {
     dto: VoiceConversationDto,
     sttResult: STTResponse,
     sttLatencyMs: number,
-    webhookUrl: string,
+    mode: 'n8n' | 'direct',
+    fullAgent: Awaited<ReturnType<PrismaService['agent']['findUniqueOrThrow']>>,
+    webhookUrl: string | null,
     voiceConfig: VoiceConfigDto,
     startTime: number,
     res: Response,
@@ -517,12 +560,36 @@ export class VoiceController {
       }
     }, VOICE_STREAM_TIMEOUT_MS);
 
-    const tokenStream = this.n8nStreamingService.streamFromWebhookUrl(
-      webhookUrl,
-      sttResult.transcript,
-      session.sessionId,
-      abortController.signal,
-    );
+    // Build the token stream from either direct-mode LLM or the legacy n8n
+    // webhook, depending on the agent's routing mode. Both sources yield
+    // chunks in N8nStreamChunk format (the direct-mode path adapts via
+    // directChatToN8nStream) so the downstream voice pipeline is unchanged.
+    let tokenStream: AsyncGenerator<N8nStreamChunk>;
+    if (mode === 'direct') {
+      const directStream = this.directChatService.stream({
+        agent: fullAgent,
+        chatSessionId: session.id,
+        externalSessionId: session.sessionId,
+        newUserMessage: sttResult.transcript,
+        feature: 'voice',
+        abortSignal: abortController.signal,
+      });
+      tokenStream = directChatToN8nStream(directStream);
+    } else {
+      if (!webhookUrl) {
+        // Should never happen — routing mode was 'n8n' but webhookUrl absent.
+        // Defensive: surface a clear error rather than crashing mid-stream.
+        throw new Error(
+          'handleStreamingVoice called in n8n mode without a webhookUrl',
+        );
+      }
+      tokenStream = this.n8nStreamingService.streamFromWebhookUrl(
+        webhookUrl,
+        sttResult.transcript,
+        session.sessionId,
+        abortController.signal,
+      );
+    }
 
     const ttsLatencies: number[] = [];
     let fullText = '';

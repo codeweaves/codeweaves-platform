@@ -14,7 +14,20 @@
     "SENTRY_PROJECT",
     "SENTRY_AUTH_TOKEN",
     "ANALYZE",
-    "DEV"
+    "DEV",
+    "OPENROUTER_API_KEY",
+    "OPENROUTER_REFERER",
+    "OPENAI_API_KEY",
+    "OPENAI_ORGANIZATION",
+    "GOOGLE_API_KEY",
+    "GROQ_API_KEY",
+    "DASHBOARD_URL",
+    "DEFAULT_AI_MODEL",
+    "AI_STREAM_TIMEOUT_MS",
+    "AI_TRACE_LOG_LEVEL",
+    "AI_TRACE_LOG_DIR",
+    "AI_TRACE_LOG_STDOUT",
+    "AI_TRACE_LOG_FILE"
   ],
   "tasks": {
     "build": {
@@ -51,6 +64,9 @@
       "cache": false
     },
     "seed:analytics": {
+      "cache": false
+    },
+    "seed:demo-agents": {
       "cache": false
     }
   }

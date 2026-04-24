@@ -52,6 +52,10 @@ AgentEditor/
 # Test pages (local dev only)
 test-pages/
 
+# Pino AI trace log files (rotated daily, persisted locally only)
+logs/
+apps/api/logs/
+
 # Bmad Agents files
 _bmad/
 # docs/

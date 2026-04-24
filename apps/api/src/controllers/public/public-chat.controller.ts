@@ -1,14 +1,17 @@
 import { Controller, Post, Body, Res, Req, HttpException, Logger } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
+import { randomUUID } from 'node:crypto';
 import { Public } from '../../decorators/public.decorator';
 import { ChatService } from '../../services/chat.service';
+import { PrismaService } from '../../services/prisma.service';
 import { AgentsService } from '../../services/agents.service';
 import { N8nStreamingService } from '../../services/n8n-streaming.service';
 import { MessageRateLimitService } from '../../services/message-rate-limit.service';
+import { DirectChatService } from '../../modules/ai/direct-chat.service';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
-import { sendMessageSchema, type SendMessageDto } from '@repo/validation';
-import type { RealStreamingMetadata } from '../../services/chat-metadata.interface';
+import { sendMessageSchema, type SendMessageDto, resolveRoutingMode } from '@repo/validation';
+import type { ChatMessageMetadata } from '../../services/chat-metadata.interface';
 
 const STREAM_TIMEOUT_MS = 30_000;
 
@@ -23,6 +26,8 @@ export class PublicChatController {
     private readonly agentsService: AgentsService,
     private readonly n8nStreamingService: N8nStreamingService,
     private readonly messageRateLimitService: MessageRateLimitService,
+    private readonly directChatService: DirectChatService,
+    private readonly prisma: PrismaService,
   ) {}
 
   @Post('send')
@@ -98,10 +103,11 @@ export class PublicChatController {
     try {
       const agent = await this.chatService.resolveAgent(dto.agentId);
       const session = await this.chatService.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'WIDGET');
-      const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
+      const routingMode = resolveRoutingMode(agent.aiConfig);
 
-      // IG1: Warn when HMAC is enabled — streaming responses cannot be HMAC-verified
-      if (agent.hmacEnabled) {
+      // IG1: Warn when HMAC is enabled — streaming responses cannot be HMAC-verified.
+      // Direct mode has no webhook so HMAC is moot; only warn for n8n mode.
+      if (agent.hmacEnabled && routingMode === 'n8n') {
         this.logger.warn(
           `Agent ${agent.id} has HMAC enabled but streaming responses cannot be verified. ` +
           `HMAC verification only applies to non-streaming (sendMessage) path.`,
@@ -112,42 +118,131 @@ export class PublicChatController {
       const userMessage = await this.chatService.saveUserMessage(session.id, dto.chatInput);
       userMessageId = userMessage.id;
 
+      // ----- Routing fork ---------------------------------------------------
+      // Both branches eventually write `metadata: ChatMessageMetadata` with the
+      // same key names so analytics queries don't need to know which engine
+      // served the reply. The direct branch populates the richer native fields
+      // (traceId, cost, cachedInputTokens, ...) in addition.
       let fullResponse = '';
-      let n8nReceivedAt: number | null = null;
-      let agentRepliedAt: number | null = null;
-      let firstTokenTime: number | null = null;
-      let lastTokenTime: number | null = null;
-      let chunkCount = 0;
+      let metadata: ChatMessageMetadata;
 
-      const generator = this.n8nStreamingService.streamFromWebhookUrl(
-        webhookUrl,
-        dto.chatInput,
-        session.sessionId,
-        abortController.signal,
-      );
+      if (routingMode === 'direct') {
+        const fullAgent = await this.prisma.agent.findUniqueOrThrow({
+          where: { id: agent.id },
+        });
 
-      for await (const chunk of generator) {
-        if (closed) break;
+        let firstTokenTime: number | null = null;
+        let lastTokenTime: number | null = null;
+        let chunkCount = 0;
+        let finishPayload:
+          | { traceId: string; model: string | null; cost: number | null;
+              inputTokens: number; outputTokens: number; totalTokens: number;
+              cachedInputTokens: number | null; reasoningTokens: number | null;
+              finishReason: string | null; historyCount: number; historyTruncated: boolean }
+          | null = null;
 
-        if (chunk.type === 'begin') {
-          n8nReceivedAt = chunk.metadata?.timestamp ?? null;
-        } else if (chunk.type === 'item' && chunk.content) {
-          const now = Date.now();
-          if (firstTokenTime === null) {
-            firstTokenTime = now;
+        const directStream = this.directChatService.stream({
+          agent: fullAgent,
+          chatSessionId: session.id,
+          externalSessionId: session.sessionId,
+          newUserMessage: dto.chatInput,
+          // When the caller (widget / demo / any API consumer) sends history
+          // in the body, ContextAssemblyService uses it directly and skips
+          // the DB query — saves ~150-450ms per turn. Backend still trims
+          // to `aiConfig.maxContextMessages` and fits into `maxInputTokens`.
+          recentHistory: dto.recentHistory,
+          abortSignal: abortController.signal,
+          feature: 'chat-stream',
+        });
+
+        for await (const chunk of directStream) {
+          if (closed) break;
+          if (chunk.type === 'text-delta' && chunk.content) {
+            const now = Date.now();
+            if (firstTokenTime === null) firstTokenTime = now;
+            lastTokenTime = now;
+            chunkCount++;
+            fullResponse += chunk.content;
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.content })}\n\n`);
+          } else if (chunk.type === 'finish') {
+            finishPayload = {
+              traceId: chunk.result.traceId,
+              model: chunk.result.model,
+              cost: chunk.result.cost,
+              inputTokens: chunk.result.usage.inputTokens,
+              outputTokens: chunk.result.usage.outputTokens,
+              totalTokens: chunk.result.usage.totalTokens,
+              cachedInputTokens: chunk.result.usage.cachedInputTokens ?? null,
+              reasoningTokens: chunk.result.usage.reasoningTokens ?? null,
+              finishReason: chunk.result.finishReason,
+              historyCount: chunk.result.historyCount,
+              historyTruncated: chunk.result.historyTruncated,
+            };
+          } else if (chunk.type === 'error') {
+            // DirectChatService already logged + ended the trace. Surface to
+            // client as an SSE error and stop — the outer catch will clean up.
+            throw new HttpException(chunk.error, 502);
           }
-          lastTokenTime = now;
-          chunkCount++;
-          fullResponse += chunk.content;
-          res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.content })}\n\n`);
-        } else if (chunk.type === 'end') {
-          agentRepliedAt = chunk.metadata?.timestamp ?? null;
+          // 'trace' chunks are orchestration metadata — not forwarded to widgets.
         }
-      }
 
-      // P2: Send done event even when fullResponse is empty (e.g., n8n returns begin+end with no items)
-      if (!closed) {
-        const metadata: RealStreamingMetadata = {
+        metadata = {
+          streamingMode: 'direct',
+          backendReceivedAt: backendReceivedAt.toISOString(),
+          backendRespondedAt: new Date().toISOString(),
+          responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
+          timeToFirstToken: firstTokenTime ? firstTokenTime - backendReceivedAt.getTime() : null,
+          timeToLastToken: lastTokenTime ? lastTokenTime - backendReceivedAt.getTime() : null,
+          totalChunks: chunkCount,
+          streamDurationMs: firstTokenTime && lastTokenTime ? lastTokenTime - firstTokenTime : null,
+          // Direct-native richer fields (null-safe if `finish` never arrived
+          // because of early abort).
+          traceId: finishPayload?.traceId ?? null,
+          model: finishPayload?.model ?? null,
+          cost: finishPayload?.cost ?? null,
+          inputTokens: finishPayload?.inputTokens ?? null,
+          outputTokens: finishPayload?.outputTokens ?? null,
+          totalTokens: finishPayload?.totalTokens ?? null,
+          cachedInputTokens: finishPayload?.cachedInputTokens ?? null,
+          reasoningTokens: finishPayload?.reasoningTokens ?? null,
+          finishReason: finishPayload?.finishReason ?? null,
+          historyCount: finishPayload?.historyCount ?? null,
+          historyTruncated: finishPayload?.historyTruncated ?? null,
+        };
+      } else {
+        // n8n streaming path — unchanged behaviour, unified metadata shape.
+        const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
+
+        let n8nReceivedAt: number | null = null;
+        let agentRepliedAt: number | null = null;
+        let firstTokenTime: number | null = null;
+        let lastTokenTime: number | null = null;
+        let chunkCount = 0;
+
+        const generator = this.n8nStreamingService.streamFromWebhookUrl(
+          webhookUrl,
+          dto.chatInput,
+          session.sessionId,
+          abortController.signal,
+        );
+
+        for await (const chunk of generator) {
+          if (closed) break;
+          if (chunk.type === 'begin') {
+            n8nReceivedAt = chunk.metadata?.timestamp ?? null;
+          } else if (chunk.type === 'item' && chunk.content) {
+            const now = Date.now();
+            if (firstTokenTime === null) firstTokenTime = now;
+            lastTokenTime = now;
+            chunkCount++;
+            fullResponse += chunk.content;
+            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.content })}\n\n`);
+          } else if (chunk.type === 'end') {
+            agentRepliedAt = chunk.metadata?.timestamp ?? null;
+          }
+        }
+
+        metadata = {
           streamingMode: 'real',
           backendReceivedAt: backendReceivedAt.toISOString(),
           n8nReceivedAt: n8nReceivedAt ? new Date(n8nReceivedAt).toISOString() : null,
@@ -159,22 +254,42 @@ export class PublicChatController {
           totalChunks: chunkCount,
           streamDurationMs: agentRepliedAt && n8nReceivedAt ? agentRepliedAt - n8nReceivedAt : null,
         };
+      }
 
-        // Save assistant message AFTER stream completes (even if empty)
-        const assistantMessage = await this.chatService.saveAssistantMessage(
-          session.id,
-          fullResponse,
-          metadata,
-        );
-        await this.chatService.updateSessionTimestamp(session.id);
+      // P2: Send done event even when fullResponse is empty.
+      if (!closed) {
+        // Pre-generate the assistant message UUID so we can (a) send the
+        // client the `done` event with a real messageId immediately, and
+        // (b) fire-and-forget the DB writes. Previously the SSE connection
+        // stayed open waiting for two Supabase writes (~500-800ms round
+        // trip), which was the dominant tail in wall-clock time per turn.
+        const assistantMessageId = randomUUID();
 
-        // P1: Send assistant message ID (not user message ID) in done event
         res.write(`data: ${JSON.stringify({
           type: 'done',
           sessionId: session.sessionId,
-          messageId: assistantMessage.id,
+          messageId: assistantMessageId,
           metadata,
         })}\n\n`);
+
+        // Persist in the background. Errors log but don't leak to the user
+        // (the response is already closed at this point). If the write fails,
+        // the trace + pino logs still have the response so analytics isn't
+        // blind.
+        void this.chatService
+          .saveAssistantMessage(session.id, fullResponse, metadata, assistantMessageId)
+          .catch((err) => {
+            this.logger.warn(
+              `Assistant message persist failed (sessionId=${session.sessionId}, messageId=${assistantMessageId}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
+        void this.chatService
+          .updateSessionTimestamp(session.id)
+          .catch((err) => {
+            this.logger.warn(
+              `Session timestamp update failed (sessionId=${session.sessionId}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
       }
     } catch (error) {
       // D1: Clean up orphaned user message on stream failure

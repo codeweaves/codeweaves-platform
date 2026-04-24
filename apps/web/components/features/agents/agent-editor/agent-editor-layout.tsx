@@ -3,7 +3,12 @@
 import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
 import { Save, RotateCcw, ChevronDown, Loader2, RotateCw } from 'lucide-react';
 import { toast } from 'sonner';
-import { defaultWidgetTheme, voiceConfigSchema } from '@repo/validation';
+import { useQueryClient } from '@tanstack/react-query';
+import {
+  agentAiConfigUpdateSchema,
+  defaultWidgetTheme,
+  voiceConfigSchema,
+} from '@repo/validation';
 import { Button } from '@/components/ui/button';
 import { Switch } from '@/components/ui/switch';
 import { Badge } from '@/components/ui/badge';
@@ -29,6 +34,10 @@ import { useApiClient } from '@/lib/api-client';
 import { useUpdateAgent, type Agent } from '@/hooks/use-agents';
 import { useUpdateAgentTheme, useResetAgentTheme } from '@/hooks/use-agent-theme';
 import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning';
+import {
+  agentEditorConfigQueryKey,
+  type AgentEditorConfigResponse,
+} from '@/hooks/use-agent-editor-config';
 import { EmbedCodeDialog } from '../embed-code-dialog';
 import { AgentEditorSidebar, type CategoryId } from './agent-editor-sidebar';
 import { AgentEditorForm } from './agent-editor-form';
@@ -39,6 +48,7 @@ import {
   agentToFormData,
   toPreviewFormData,
   type AgentFormData,
+  type InitialAgentKnowledge,
 } from './agent-editor-context';
 
 // Inner component that uses context
@@ -54,6 +64,7 @@ function AgentEditorContent() {
     markSaved,
   } = useAgentEditor();
   const api = useApiClient();
+  const queryClient = useQueryClient();
   const updateAgent = useUpdateAgent();
   const updateTheme = useUpdateAgentTheme();
   const resetTheme = useResetAgentTheme();
@@ -195,6 +206,21 @@ function AgentEditorContent() {
         }
       }
 
+      // Validate AI config (Integration section) client-side so out-of-range
+      // numbers get a specific toast instead of a generic 400 from the server.
+      // The input fields deliberately accept any typing (including transient
+      // zero/empty states); this is where we actually enforce the bounds.
+      const aiResult = agentAiConfigUpdateSchema.safeParse(formData.aiConfig);
+      if (!aiResult.success) {
+        const firstError = aiResult.error.errors[0];
+        const path = firstError?.path.join('.') || 'integration';
+        toast.error(
+          `Integration config invalid — ${path}: ${firstError?.message ?? 'Unknown error'}`,
+        );
+        setSaving(false);
+        return;
+      }
+
       const payload: Record<string, unknown> = {
         name: formData.name,
         systemPrompt: formData.systemPrompt || null,
@@ -202,6 +228,10 @@ function AgentEditorContent() {
         allowedDomains: formData.allowedDomains,
         voiceEnabled: formData.voiceEnabled,
         voiceConfig: formData.voiceConfig,
+        // Whole aiConfig blob. Backend's `agentAiConfigUpdateSchema` is partial,
+        // so sending the full object is safe — each field is validated
+        // independently. Defaults are re-applied server-side on read.
+        aiConfig: formData.aiConfig,
       };
 
       // Save agent config, webhook, and theme in parallel
@@ -223,7 +253,85 @@ function AgentEditorContent() {
         );
       }
 
+      // Knowledge Base has its own endpoint (PUT for upsert, DELETE for removal)
+      // but behaviours are merged into this single Save flow so users don't
+      // have to click two different save buttons. State transitions:
+      //   prior → now       action
+      //   ''    → ''        skip
+      //   ''    → 'text'    PUT (create)
+      //   'old' → 'new'     PUT (update)
+      //   'old' → ''        DELETE (remove)
+      const kbChanged = formData.knowledgeContent !== savedFormData.knowledgeContent;
+      if (kbChanged) {
+        const newContent = formData.knowledgeContent.trim();
+        const oldContent = savedFormData.knowledgeContent.trim();
+        if (newContent) {
+          promises.push(
+            api.put(`/agents/${agent.id}/knowledge`, {
+              content: formData.knowledgeContent,
+              sourceFileName: formData.knowledgeSourceFileName,
+              sourceMimeType: formData.knowledgeSourceMimeType,
+            }),
+          );
+        } else if (oldContent) {
+          promises.push(api.delete(`/agents/${agent.id}/knowledge`));
+        }
+      }
+
       await Promise.all(promises);
+
+      // Optimistic-on-success cache update: write the known-new state into
+      // the editor-config query so the next render shows updated data WITHOUT
+      // triggering a refetch. The backend confirmed all pieces persisted; we
+      // already have the canonical values in formData/themeData locally.
+      //
+      // Hard page reload bypasses this and hits the real GET, which is the
+      // correct behaviour — no staleness windows beyond the tab's lifetime.
+      queryClient.setQueryData<AgentEditorConfigResponse>(
+        agentEditorConfigQueryKey(agent.id),
+        (old) => {
+          // Build an updated bundle. If there's no cached value (rare — only
+          // happens if the query was evicted mid-save), fall back to a
+          // synthesised bundle using the current agent + form state.
+          const baseAgent = old?.agent ?? agent;
+          const updatedAgent: Agent = {
+            ...baseAgent,
+            name: formData.name,
+            systemPrompt: formData.systemPrompt || null,
+            welcomeMessage: formData.welcomeMessage || null,
+            allowedDomains: formData.allowedDomains,
+            voiceEnabled: formData.voiceEnabled,
+            voiceConfig: formData.voiceConfig,
+            aiConfig: formData.aiConfig,
+          };
+
+          const newKnowledge = formData.knowledgeContent.trim()
+            ? {
+                id: old?.knowledge?.id ?? '',
+                content: formData.knowledgeContent,
+                sourceFileName: formData.knowledgeSourceFileName,
+                sourceMimeType: formData.knowledgeSourceMimeType,
+                contentTokens: old?.knowledge?.contentTokens ?? null,
+                sourceSizeBytes: old?.knowledge?.sourceSizeBytes ?? null,
+                createdAt: old?.knowledge?.createdAt ?? new Date().toISOString(),
+                updatedAt: new Date().toISOString(),
+              }
+            : null;
+
+          return {
+            agent: updatedAgent,
+            webhookUrl: formData.webhookUrl || null,
+            // Theme envelope: `{ config, version }`. Bump version on any
+            // change so consumers that rely on it (widget ETag caching) see
+            // the update. If theme didn't change, preserve whatever was
+            // cached — synthesise from `themeData` as a last-resort fallback.
+            theme: hasThemeChanges
+              ? { config: themeData, version: (old?.theme?.version ?? 0) + 1 }
+              : (old?.theme ?? { config: themeData, version: 0 }),
+            knowledge: newKnowledge,
+          };
+        },
+      );
 
       markSaved(formData, themeData);
       toast.success('Changes saved successfully');
@@ -237,7 +345,7 @@ function AgentEditorContent() {
     } finally {
       setSaving(false);
     }
-  }, [agent.id, formData, savedFormData.webhookUrl, hasThemeChanges, themeData, api, updateAgent, updateTheme, markSaved]);
+  }, [agent, formData, savedFormData, hasThemeChanges, themeData, api, updateAgent, updateTheme, markSaved, queryClient]);
 
   handleSaveRef.current = handleSave;
 
@@ -315,7 +423,11 @@ function AgentEditorContent() {
         {/* Form area */}
         <div className="flex min-h-0 min-w-0 flex-3 flex-col">
           <div
-            className="scrollarea flex-1 overflow-y-auto bg-white p-6 pb-20"
+            // `overflow-y` is deliberately managed in globals.css (.scrollarea)
+            // so `@supports (overflow: overlay)` can upgrade to an overlay
+            // scrollbar on WebKit/Blink. Don't re-apply `overflow-y-auto` here
+            // — Tailwind's utility would win specificity and kill the overlay.
+            className="scrollarea flex-1 bg-white p-6 pb-20"
             ref={scrollRef}
             onScroll={handleScrollBarVisibility}
           >
@@ -417,14 +529,24 @@ interface AgentEditorLayoutProps {
   agent: Agent;
   webhookUrl?: string;
   initialThemeData?: import('@repo/validation').WidgetTheme;
+  /**
+   * Stored AgentKnowledge (if any) fetched alongside the agent. `null` means
+   * no record yet — the knowledge section shows an empty textarea.
+   */
+  initialKnowledge?: InitialAgentKnowledge | null;
 }
 
 export function AgentEditorLayout({
   agent,
   webhookUrl,
   initialThemeData,
+  initialKnowledge,
 }: AgentEditorLayoutProps) {
-  const initialFormData: AgentFormData = agentToFormData(agent, webhookUrl);
+  const initialFormData: AgentFormData = agentToFormData(
+    agent,
+    webhookUrl,
+    initialKnowledge ?? null,
+  );
 
   return (
     <AgentEditorProvider agent={agent} initialFormData={initialFormData} initialThemeData={initialThemeData}>
