@@ -33,6 +33,9 @@ npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 
+# Runtime logs (AI traces, etc.)
+apps/api/logs/
+
 # Misc
 .DS_Store
 *.pem
