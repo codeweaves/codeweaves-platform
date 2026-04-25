@@ -540,6 +540,9 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
               style={{
                 color: str(input, 'textColor', '#1f2937'),
                 maxHeight: '144px',
+                // iOS Safari auto-zooms inputs whose computed font-size is < 16px on focus.
+                // Inline style guarantees the rule wins regardless of cascade order.
+                fontSize: '16px',
               }}
             />
             <div class="cw-input-actions mt-2 flex items-center justify-between">
