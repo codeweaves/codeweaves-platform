@@ -1099,32 +1099,19 @@ textarea.cw-input::-webkit-scrollbar {
 }
 
 /* ── Mobile fullscreen (≤ 480px) ──────────────────────────────────── */
-/*
- * Strategy: pin the widget to position: fixed and size it to the *visible*
- * viewport (visualViewport.height when the keyboard is up, else 100dvh).
- * CSS variables --cw-viewport-height / --cw-viewport-offset are set on the
- * shadow host by utils/mobile-viewport.ts; they're undefined when no keyboard
- * is open, so the dvh fallbacks kick in.
- */
 @media (max-width: 480px) {
   .cw-window {
-    position: fixed !important;
-    top: var(--cw-viewport-offset, 0px) !important;
-    left: 0 !important;
+    width: 100vw !important;
+    height: calc(100vh - var(--cw-keyboard-height, 0px)) !important;
+    height: calc(100dvh - var(--cw-keyboard-height, 0px)) !important;
+    max-width: 100vw !important;
+    max-height: calc(100vh - var(--cw-keyboard-height, 0px)) !important;
+    max-height: calc(100dvh - var(--cw-keyboard-height, 0px)) !important;
+    top: 0 !important;
     right: 0 !important;
     bottom: auto !important;
-    width: 100vw !important;
-    max-width: 100vw !important;
-    height: 100vh !important;
-    height: var(--cw-viewport-height, 100dvh) !important;
-    max-height: 100vh !important;
-    max-height: var(--cw-viewport-height, 100dvh) !important;
+    left: 0 !important;
     border-radius: 0 !important;
-  }
-  /* iOS Safari auto-zooms inputs with computed font-size < 16px on focus. */
-  .cw-window textarea.cw-input,
-  .cw-window input.cw-input {
-    font-size: 16px !important;
   }
   .cw-bubble {
     display: none !important;
