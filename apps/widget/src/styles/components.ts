@@ -1132,7 +1132,10 @@ textarea.cw-input::-webkit-scrollbar {
     max-height: 100svh !important;
     max-height: 100dvh !important;
     border-radius: 0 !important;
-    padding-bottom: env(keyboard-inset-height, 0px) !important;
+    /* env(keyboard-inset-height) is Chromium-only — iOS Safari treats it as
+     * unsupported, so we max() with safe-area-inset-bottom to preserve home
+     * indicator clearance there. iOS Safari relies on dvh for keyboard sizing. */
+    padding-bottom: max(env(keyboard-inset-height, 0px), env(safe-area-inset-bottom, 0px)) !important;
   }
   .cw-bubble {
     display: none !important;

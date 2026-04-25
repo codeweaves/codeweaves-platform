@@ -206,42 +206,74 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   // automatically — no visualViewport listener needed. We only need to (a) lock the
   // host page from scrolling behind us, and (b) opt into Chromium's VirtualKeyboard
   // API so env(keyboard-inset-height) reports a non-zero value on Android Chrome.
+  // The lock follows the matchMedia change event so rotation in/out of mobile
+  // breakpoint (e.g. tablet/foldable in landscape) applies/releases correctly.
   useEffect(() => {
     if (state !== 'expanded') return;
-    if (!window.matchMedia('(max-width: 480px)').matches) return;
 
-    // Lock <html> (not <body>) — Stripearmy/Jay Freestone pattern, more reliable on iOS 16+.
-    const html = document.documentElement;
-    const scrollY = window.scrollY;
-    const prev = {
-      position: html.style.position,
-      top: html.style.top,
-      left: html.style.left,
-      right: html.style.right,
-      overflow: html.style.overflow,
-    };
-    html.style.position = 'fixed';
-    html.style.top = `-${scrollY}px`;
-    html.style.left = '0';
-    html.style.right = '0';
-    html.style.overflow = 'hidden';
-
-    // Chromium VirtualKeyboard API: opting in makes env(keyboard-inset-height)
-    // expand to the keyboard's height when it's open, so our padding-bottom CSS
-    // pushes the input above the keyboard. iOS Safari ignores this; it relies on
-    // the layout-viewport-overlay behavior of dvh instead.
+    const mql = window.matchMedia('(max-width: 480px)');
     type VK = { overlaysContent: boolean };
     const vk = (navigator as Navigator & { virtualKeyboard?: VK }).virtualKeyboard;
-    if (vk) vk.overlaysContent = true;
+
+    let locked = false;
+    let savedScrollY = 0;
+    let savedStyles: {
+      position: string;
+      top: string;
+      left: string;
+      right: string;
+      overflow: string;
+    } | null = null;
+
+    const lock = () => {
+      if (locked) return;
+      const html = document.documentElement;
+      savedScrollY = window.scrollY;
+      savedStyles = {
+        position: html.style.position,
+        top: html.style.top,
+        left: html.style.left,
+        right: html.style.right,
+        overflow: html.style.overflow,
+      };
+      // Lock <html> (not <body>) — Stripearmy/Jay Freestone pattern, more reliable on iOS 16+.
+      html.style.position = 'fixed';
+      html.style.top = `-${savedScrollY}px`;
+      html.style.left = '0';
+      html.style.right = '0';
+      html.style.overflow = 'hidden';
+      // Chromium VirtualKeyboard API: opting in makes env(keyboard-inset-height)
+      // expand to the keyboard's height when it's open. iOS Safari ignores this;
+      // it relies on dvh shrinking on keyboard open instead.
+      if (vk) vk.overlaysContent = true;
+      locked = true;
+    };
+
+    const unlock = () => {
+      if (!locked || !savedStyles) return;
+      const html = document.documentElement;
+      html.style.position = savedStyles.position;
+      html.style.top = savedStyles.top;
+      html.style.left = savedStyles.left;
+      html.style.right = savedStyles.right;
+      html.style.overflow = savedStyles.overflow;
+      window.scrollTo(0, savedScrollY);
+      if (vk) vk.overlaysContent = false;
+      savedStyles = null;
+      locked = false;
+    };
+
+    const sync = () => {
+      if (mql.matches) lock();
+      else unlock();
+    };
+
+    sync();
+    mql.addEventListener('change', sync);
 
     return () => {
-      html.style.position = prev.position;
-      html.style.top = prev.top;
-      html.style.left = prev.left;
-      html.style.right = prev.right;
-      html.style.overflow = prev.overflow;
-      window.scrollTo(0, scrollY);
-      if (vk) vk.overlaysContent = false;
+      mql.removeEventListener('change', sync);
+      unlock();
     };
   }, [state]);
 

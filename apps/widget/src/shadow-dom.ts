@@ -124,7 +124,6 @@ let shadowRoot: ShadowRoot | null = null;
 let mountPoint: HTMLDivElement | null = null;
 let attributeObserver: MutationObserver | null = null;
 let bodyObserver: MutationObserver | null = null;
-let viewportResizeHandler: (() => void) | null = null;
 let savedScrollY = 0;
 let isScrollLocked = false;
 let savedBodyStyles: {
@@ -265,26 +264,10 @@ export async function loadCustomFont(
   }
 }
 
-// ── Task 10: iOS Keyboard Handling ─────────────────────────────────────
-
-function setupKeyboardHandling(root: ShadowRoot): void {
-  const vv = window.visualViewport;
-  if (!vv) return;
-
-  viewportResizeHandler = () => {
-    const keyboardHeight = window.innerHeight - vv.height;
-    const widgetRoot = root.querySelector(`.${MOUNT_CLASS}`) as HTMLElement;
-    if (!widgetRoot) return;
-
-    if (keyboardHeight > 50) {
-      widgetRoot.style.paddingBottom = `${keyboardHeight}px`;
-    } else {
-      widgetRoot.style.paddingBottom = '';
-    }
-  };
-
-  vv.addEventListener('resize', viewportResizeHandler);
-}
+// Mobile keyboard sizing is handled entirely by CSS (100dvh +
+// env(keyboard-inset-height)) — see styles/components.ts and Widget.tsx.
+// A previous JS-based visualViewport listener was removed because it
+// double-compensated against the new CSS approach.
 
 // ── Task 12: Mobile Scroll Locking ─────────────────────────────────────
 
@@ -331,12 +314,6 @@ export function destroy(): void {
   if (bodyObserver) {
     bodyObserver.disconnect();
     bodyObserver = null;
-  }
-
-  // Remove VisualViewport listener
-  if (viewportResizeHandler && window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', viewportResizeHandler);
-    viewportResizeHandler = null;
   }
 
   // Unlock scroll if locked
@@ -411,9 +388,6 @@ export function initShadowDom(): ShadowDomResult {
 
   // Task 5: Setup MutationObserver protection
   setupMutationObservers(host);
-
-  // Task 10: iOS keyboard handling
-  setupKeyboardHandling(shadowRoot);
 
   initialized = true;
 
