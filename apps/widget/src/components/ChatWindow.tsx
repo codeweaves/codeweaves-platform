@@ -10,6 +10,7 @@ import { ConversationStarters } from './ConversationStarters';
 import type { StarterItem } from './ConversationStarters';
 import { VoiceRecorder } from './VoiceRecorder';
 import { VoiceErrorBanner } from './VoiceErrorBanner';
+import { lockScroll, unlockScroll } from '../shadow-dom';
 import { isSafeUrl } from '../utils/url';
 import { useChat } from '../hooks/useChat';
 import { useVoice, getErrorSeverity } from '../hooks/useVoice';
@@ -294,8 +295,13 @@ export function ChatWindow({
     return () => window.removeEventListener('resize', checkMobile);
   }, []);
 
-  // Mobile scroll lock and keyboard tracking are handled by Widget.tsx via
-  // utils/mobile-viewport.ts when the widget opens. ChatWindow.tsx is legacy.
+  // Mobile scroll lock — only when expanded (not minimized)
+  useEffect(() => {
+    if (isMobile && !isMinimized) {
+      lockScroll();
+      return () => unlockScroll();
+    }
+  }, [isMobile, isMinimized]);
 
   // iOS keyboard handling via VisualViewport API
   useEffect(() => {
