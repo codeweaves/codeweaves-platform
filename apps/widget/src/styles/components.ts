@@ -1098,6 +1098,16 @@ textarea.cw-input::-webkit-scrollbar {
   height: 0;
 }
 
+/*
+ * iOS Safari auto-zooms inputs whose computed font-size is < 16px on focus.
+ * Apply 16px to the chat textarea on all viewports as a safety net — the
+ * authoritative fix is the inline style on the element itself. Industry
+ * standard chat widgets (Intercom, Crisp, Tidio) all ship 16px input text.
+ */
+.cw-window textarea.cw-input {
+  font-size: 16px !important;
+}
+
 /* ── Mobile fullscreen (≤ 480px) ──────────────────────────────────── */
 /*
  * Strategy: pin the widget to position: fixed and size it to the *visible*
@@ -1120,11 +1130,6 @@ textarea.cw-input::-webkit-scrollbar {
     max-height: 100vh !important;
     max-height: var(--cw-viewport-height, 100dvh) !important;
     border-radius: 0 !important;
-  }
-  /* iOS Safari auto-zooms inputs with computed font-size < 16px on focus. */
-  .cw-window textarea.cw-input,
-  .cw-window input.cw-input {
-    font-size: 16px !important;
   }
   .cw-bubble {
     display: none !important;
