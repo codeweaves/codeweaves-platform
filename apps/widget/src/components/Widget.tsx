@@ -10,6 +10,7 @@ import { debug, warn } from '../utils/debug';
 import { initApiClient } from '../services/api-client';
 import { initVoiceClient } from '../services/voice-client';
 import { initSession, getSessionId } from '../services/session-manager';
+import { setupMobileViewport } from '../utils/mobile-viewport';
 import {
   widgetState,
   setStarterCount,
@@ -201,40 +202,12 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   const [showBubble, setShowBubble] = useState(false);
   const bubbleDismissed = useRef(false);
 
-  // Body scroll lock + iOS keyboard handling when widget is expanded on mobile
+  // Body scroll lock + keyboard tracking when widget is expanded on mobile.
+  // Layered approach: VirtualKeyboard API → visualViewport → focusin/out fallback.
   useEffect(() => {
-    if (state !== 'expanded') return;
-    const isMobile = window.matchMedia('(max-width: 480px)').matches;
-    if (!isMobile) return;
-
-    // Lock body scroll
-    const prevOverflow = document.body.style.overflow;
-    const prevPosition = document.body.style.position;
-    const scrollY = window.scrollY;
-    document.body.style.overflow = 'hidden';
-    document.body.style.position = 'fixed';
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = '100%';
-
-    // iOS keyboard handling via VisualViewport
-    const vv = window.visualViewport;
-    const handleViewportResize = () => {
-      if (!vv || !hostElement) return;
-      const keyboardHeight = Math.max(0, window.innerHeight - vv.height);
-      hostElement.style.setProperty('--cw-keyboard-height', `${keyboardHeight}px`);
-    };
-    vv?.addEventListener('resize', handleViewportResize);
-    handleViewportResize();
-
-    return () => {
-      document.body.style.overflow = prevOverflow;
-      document.body.style.position = prevPosition;
-      document.body.style.top = '';
-      document.body.style.width = '';
-      window.scrollTo(0, scrollY);
-      vv?.removeEventListener('resize', handleViewportResize);
-      hostElement?.style.removeProperty('--cw-keyboard-height');
-    };
+    if (state !== 'expanded' || !hostElement) return;
+    const control = setupMobileViewport(hostElement);
+    return () => control.destroy();
   }, [state, hostElement]);
 
   const themeObj = currentConfig?.theme as Record<string, unknown> | null ?? null;

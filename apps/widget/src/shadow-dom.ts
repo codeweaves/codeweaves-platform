@@ -6,9 +6,10 @@
  * - Constructable stylesheets (CSP-safe, no inline <style> tags)
  * - MutationObserver protection against host element tampering
  * - Pointer-events pass-through for non-interactive areas
- * - iOS keyboard handling via VisualViewport API
- * - Mobile scroll locking
  * - SPA-safe destroy() cleanup
+ *
+ * Mobile viewport handling (body scroll lock, keyboard tracking) lives in
+ * utils/mobile-viewport.ts and is activated by Widget.tsx when the widget opens.
  */
 
 import { render } from 'preact';
@@ -22,7 +23,6 @@ import tailwindCSS from './styles/tailwind.css?inline';
 
 const HOST_ID = 'codeweaves-widget-host';
 const MOUNT_CLASS = 'cw-widget-root';
-const MOBILE_BREAKPOINT = 480;
 const FONT_LOAD_TIMEOUT_MS = 3000;
 const MAX_REAPPENDS = 5;
 const REAPPEND_RESET_MS = 5000;
@@ -124,15 +124,6 @@ let shadowRoot: ShadowRoot | null = null;
 let mountPoint: HTMLDivElement | null = null;
 let attributeObserver: MutationObserver | null = null;
 let bodyObserver: MutationObserver | null = null;
-let viewportResizeHandler: (() => void) | null = null;
-let savedScrollY = 0;
-let isScrollLocked = false;
-let savedBodyStyles: {
-  position: string;
-  top: string;
-  left: string;
-  right: string;
-} | null = null;
 let loadedFontFace: FontFace | null = null;
 
 // ── Task 1: Host Element Creation ──────────────────────────────────────
@@ -265,62 +256,7 @@ export async function loadCustomFont(
   }
 }
 
-// ── Task 10: iOS Keyboard Handling ─────────────────────────────────────
-
-function setupKeyboardHandling(root: ShadowRoot): void {
-  const vv = window.visualViewport;
-  if (!vv) return;
-
-  viewportResizeHandler = () => {
-    const keyboardHeight = window.innerHeight - vv.height;
-    const widgetRoot = root.querySelector(`.${MOUNT_CLASS}`) as HTMLElement;
-    if (!widgetRoot) return;
-
-    if (keyboardHeight > 50) {
-      widgetRoot.style.paddingBottom = `${keyboardHeight}px`;
-    } else {
-      widgetRoot.style.paddingBottom = '';
-    }
-  };
-
-  vv.addEventListener('resize', viewportResizeHandler);
-}
-
-// ── Task 12: Mobile Scroll Locking ─────────────────────────────────────
-
-export function lockScroll(): void {
-  if (isScrollLocked) return;
-  if (window.innerWidth > MOBILE_BREAKPOINT) return;
-
-  savedBodyStyles = {
-    position: document.body.style.position,
-    top: document.body.style.top,
-    left: document.body.style.left,
-    right: document.body.style.right,
-  };
-  savedScrollY = window.scrollY;
-  document.body.style.position = 'fixed';
-  document.body.style.top = `-${savedScrollY}px`;
-  document.body.style.left = '0';
-  document.body.style.right = '0';
-  isScrollLocked = true;
-}
-
-export function unlockScroll(): void {
-  if (!isScrollLocked) return;
-
-  document.body.style.position = savedBodyStyles?.position ?? '';
-  document.body.style.top = savedBodyStyles?.top ?? '';
-  document.body.style.left = savedBodyStyles?.left ?? '';
-  document.body.style.right = savedBodyStyles?.right ?? '';
-  if (!savedBodyStyles?.position) {
-    window.scrollTo(0, savedScrollY);
-  }
-  savedBodyStyles = null;
-  isScrollLocked = false;
-}
-
-// ── Task 11: SPA Navigation Cleanup ────────────────────────────────────
+// ── SPA Navigation Cleanup ─────────────────────────────────────────────
 
 export function destroy(): void {
   // Disconnect MutationObservers
@@ -332,15 +268,6 @@ export function destroy(): void {
     bodyObserver.disconnect();
     bodyObserver = null;
   }
-
-  // Remove VisualViewport listener
-  if (viewportResizeHandler && window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', viewportResizeHandler);
-    viewportResizeHandler = null;
-  }
-
-  // Unlock scroll if locked
-  unlockScroll();
 
   // Unmount Preact component tree
   if (shadowRoot && mountPoint) {
@@ -411,9 +338,6 @@ export function initShadowDom(): ShadowDomResult {
 
   // Task 5: Setup MutationObserver protection
   setupMutationObservers(host);
-
-  // Task 10: iOS keyboard handling
-  setupKeyboardHandling(shadowRoot);
 
   initialized = true;
 
