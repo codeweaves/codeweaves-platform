@@ -1098,20 +1098,44 @@ textarea.cw-input::-webkit-scrollbar {
   height: 0;
 }
 
+/* iOS Safari auto-zooms inputs whose computed font-size is < 16px on focus.
+ * Apply 16px to the textarea on all viewports (matches Intercom/Crisp/Tidio).
+ * The inline style on the element is the authoritative fix; this is a safety net. */
+.cw-window textarea.cw-input {
+  font-size: 16px !important;
+}
+
 /* ── Mobile fullscreen (≤ 480px) ──────────────────────────────────── */
+/*
+ * Pure-CSS approach (Path A — matches Chatwoot/Typebot/n8n/Papercups OSS pattern):
+ *   - height: 100dvh — dynamic viewport, shrinks when iOS Safari keyboard opens
+ *     (iOS Safari 16.4+, Android Chrome 108+). svh / vh are fallbacks.
+ *   - padding-bottom: env(keyboard-inset-height) — on Chromium browsers where
+ *     the widget has called navigator.virtualKeyboard.overlaysContent = true,
+ *     this expands to the keyboard height so the input stays above the keyboard.
+ *   - position: fixed pins the widget to the layout viewport so the customer's
+ *     page can't scroll behind it.
+ */
 @media (max-width: 480px) {
   .cw-window {
-    width: 100vw !important;
-    height: calc(100vh - var(--cw-keyboard-height, 0px)) !important;
-    height: calc(100dvh - var(--cw-keyboard-height, 0px)) !important;
-    max-width: 100vw !important;
-    max-height: calc(100vh - var(--cw-keyboard-height, 0px)) !important;
-    max-height: calc(100dvh - var(--cw-keyboard-height, 0px)) !important;
+    position: fixed !important;
     top: 0 !important;
-    right: 0 !important;
-    bottom: auto !important;
     left: 0 !important;
+    right: 0 !important;
+    bottom: 0 !important;
+    width: 100vw !important;
+    height: 100vh !important;
+    height: 100svh !important;
+    height: 100dvh !important;
+    max-width: 100vw !important;
+    max-height: 100vh !important;
+    max-height: 100svh !important;
+    max-height: 100dvh !important;
     border-radius: 0 !important;
+    /* env(keyboard-inset-height) is Chromium-only — iOS Safari treats it as
+     * unsupported, so we max() with safe-area-inset-bottom to preserve home
+     * indicator clearance there. iOS Safari relies on dvh for keyboard sizing. */
+    padding-bottom: max(env(keyboard-inset-height, 0px), env(safe-area-inset-bottom, 0px)) !important;
   }
   .cw-bubble {
     display: none !important;
