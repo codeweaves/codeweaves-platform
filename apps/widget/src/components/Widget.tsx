@@ -201,41 +201,49 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   const [showBubble, setShowBubble] = useState(false);
   const bubbleDismissed = useRef(false);
 
-  // Body scroll lock + iOS keyboard handling when widget is expanded on mobile
+  // Body scroll lock + VirtualKeyboard API opt-in when widget is expanded on mobile.
+  // Pure-CSS approach: 100dvh + env(keyboard-inset-height) handle keyboard sizing
+  // automatically — no visualViewport listener needed. We only need to (a) lock the
+  // host page from scrolling behind us, and (b) opt into Chromium's VirtualKeyboard
+  // API so env(keyboard-inset-height) reports a non-zero value on Android Chrome.
   useEffect(() => {
     if (state !== 'expanded') return;
-    const isMobile = window.matchMedia('(max-width: 480px)').matches;
-    if (!isMobile) return;
+    if (!window.matchMedia('(max-width: 480px)').matches) return;
 
-    // Lock body scroll
-    const prevOverflow = document.body.style.overflow;
-    const prevPosition = document.body.style.position;
+    // Lock <html> (not <body>) — Stripearmy/Jay Freestone pattern, more reliable on iOS 16+.
+    const html = document.documentElement;
     const scrollY = window.scrollY;
-    document.body.style.overflow = 'hidden';
-    document.body.style.position = 'fixed';
-    document.body.style.top = `-${scrollY}px`;
-    document.body.style.width = '100%';
-
-    // iOS keyboard handling via VisualViewport
-    const vv = window.visualViewport;
-    const handleViewportResize = () => {
-      if (!vv || !hostElement) return;
-      const keyboardHeight = Math.max(0, window.innerHeight - vv.height);
-      hostElement.style.setProperty('--cw-keyboard-height', `${keyboardHeight}px`);
+    const prev = {
+      position: html.style.position,
+      top: html.style.top,
+      left: html.style.left,
+      right: html.style.right,
+      overflow: html.style.overflow,
     };
-    vv?.addEventListener('resize', handleViewportResize);
-    handleViewportResize();
+    html.style.position = 'fixed';
+    html.style.top = `-${scrollY}px`;
+    html.style.left = '0';
+    html.style.right = '0';
+    html.style.overflow = 'hidden';
+
+    // Chromium VirtualKeyboard API: opting in makes env(keyboard-inset-height)
+    // expand to the keyboard's height when it's open, so our padding-bottom CSS
+    // pushes the input above the keyboard. iOS Safari ignores this; it relies on
+    // the layout-viewport-overlay behavior of dvh instead.
+    type VK = { overlaysContent: boolean };
+    const vk = (navigator as Navigator & { virtualKeyboard?: VK }).virtualKeyboard;
+    if (vk) vk.overlaysContent = true;
 
     return () => {
-      document.body.style.overflow = prevOverflow;
-      document.body.style.position = prevPosition;
-      document.body.style.top = '';
-      document.body.style.width = '';
+      html.style.position = prev.position;
+      html.style.top = prev.top;
+      html.style.left = prev.left;
+      html.style.right = prev.right;
+      html.style.overflow = prev.overflow;
       window.scrollTo(0, scrollY);
-      vv?.removeEventListener('resize', handleViewportResize);
-      hostElement?.style.removeProperty('--cw-keyboard-height');
+      if (vk) vk.overlaysContent = false;
     };
-  }, [state, hostElement]);
+  }, [state]);
 
   const themeObj = currentConfig?.theme as Record<string, unknown> | null ?? null;
   const bubbleConfig = extractBubbleConfig(themeObj);
