@@ -29,6 +29,7 @@ import { AgentAnalyticsTable } from './agent-analytics-table';
 import { AnalyticsEmptyState } from './analytics-empty-state';
 import { AnalyticsExportButton } from './analytics-export-button';
 import { VoiceAnalyticsSection } from './voice-analytics-section';
+import { resolveTimezone, type TzMode } from './timezone-toggle';
 
 // --- Date helpers (M3 fix: use local date, not UTC) ---
 function formatDateLocal(date: Date): string {
@@ -42,6 +43,15 @@ function subDays(date: Date, days: number): Date {
   const d = new Date(date);
   d.setDate(d.getDate() - days);
   return d;
+}
+
+// --- Timezone helpers ---
+const TZ_STORAGE_KEY = 'analytics:timezone-mode';
+
+function loadTzMode(): TzMode {
+  if (typeof window === 'undefined') return 'local';
+  const stored = window.localStorage.getItem(TZ_STORAGE_KEY);
+  return stored === 'utc' ? 'utc' : 'local';
 }
 
 // --- Main Component ---
@@ -96,6 +106,21 @@ export function AnalyticsPageClient() {
       .filter((s): s is 'WIDGET' | 'WHATSAPP' | 'DEMO' => s === 'WIDGET' || s === 'WHATSAPP' || s === 'DEMO');
   });
 
+  // Local vs UTC interpretation of the date range and timestamps. Persists in
+  // localStorage so the user's choice sticks across reloads. Default 'local'
+  // re-resolves the browser timezone every render so travelers/movers get the
+  // right zone even if their preference was saved months ago.
+  const [tzMode, setTzMode] = useState<TzMode>(() => loadTzMode());
+  const timezone = resolveTimezone(tzMode);
+  const handleTzModeChange = useCallback((mode: TzMode) => {
+    setTzMode(mode);
+    try {
+      window.localStorage.setItem(TZ_STORAGE_KEY, mode);
+    } catch {
+      // ignore storage failures (private mode, quota)
+    }
+  }, []);
+
   // Sync filter state to URL (Task 3.5) — M1 fix: no router in deps
   const syncUrl = useCallback(() => {
     const params = new URLSearchParams();
@@ -126,6 +151,7 @@ export function AnalyticsPageClient() {
   const analyticsParams: AnalyticsParams = {
     startDate: formatDateLocal(startDate),
     endDate: formatDateLocal(endDate),
+    timezone,
     agentIds: agentIds.length > 0 ? agentIds : undefined,
     orgIds: isAdmin && orgIds.length > 0 ? orgIds : undefined,
     sources: sources.length > 0 ? sources : undefined,
@@ -221,7 +247,7 @@ export function AnalyticsPageClient() {
           ]}
         />
 
-        {/* 8-11: Export button */}
+        {/* 8-11: Export button (TZ toggle lives inside the heatmap card) */}
         <div className="ml-auto">
           <AnalyticsExportButton
             summaryData={summaryQuery.data}
@@ -266,6 +292,8 @@ export function AnalyticsPageClient() {
               data={messageVolumeQuery.data}
               isLoading={messageVolumeQuery.isLoading}
               isError={messageVolumeQuery.isError}
+              tzMode={tzMode}
+              onTzModeChange={handleTzModeChange}
             />
           </div>
 
@@ -347,3 +375,4 @@ function AnalyticsPageSkeleton() {
     </div>
   );
 }
+

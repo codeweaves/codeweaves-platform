@@ -3,6 +3,22 @@ import { PrismaService } from './prisma.service';
 import { Prisma, Role } from '@prisma/client';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import type { AnalyticsQuery, AgentAnalyticsQuery, ExportLogBody } from '../models/analytics.dto';
+import { startOfDayUtc, startOfNextDayUtc, isValidIanaTimezone } from '../utils/date-range';
+
+/**
+ * Resolved date range used for SQL queries.
+ * - `startUtc` (inclusive) and `endUtc` (exclusive) are the UTC interval that
+ *   covers the user's local-day range in `timezone`.
+ * - `prevStartUtc` / `prevEndUtc` are the equivalent interval for the
+ *   immediately-preceding period (same UTC duration), used for trend deltas.
+ */
+interface ResolvedRange {
+  startUtc: Date;
+  endUtc: Date;
+  prevStartUtc: Date;
+  prevEndUtc: Date;
+  timezone: string;
+}
 
 @Injectable()
 export class AnalyticsService {
@@ -67,15 +83,40 @@ export class AnalyticsService {
   }
 
   /**
-   * Compute the previous period of equal duration for trend calculation.
+   * Resolve `{ startDate, endDate, timezone }` query params to UTC instants
+   * using IANA tzdata. The end bound is `start of next day in tz` (exclusive)
+   * so SQL `< endUtc` includes events on the user's local end-day.
+   *
+   * Falls back to UTC if the supplied timezone isn't a known IANA name —
+   * keeps existing single-tz callers working and prevents `EST`/`GMT`
+   * abbreviation footguns from leaking past the validation layer.
    */
-  private getPreviousPeriod(startDate: Date, endDate: Date): { prevStart: Date; prevEnd: Date } {
-    const durationMs = endDate.getTime() - startDate.getTime();
-    // Minimum 1 day duration to avoid zero-length window when startDate === endDate
-    const effectiveDurationMs = Math.max(durationMs, 86_400_000);
-    const prevEnd = new Date(startDate.getTime() - 1);
-    const prevStart = new Date(prevEnd.getTime() - effectiveDurationMs);
-    return { prevStart, prevEnd };
+  private resolveRange(query: { startDate: string; endDate: string; timezone?: string }): ResolvedRange {
+    const tz = isValidIanaTimezone(query.timezone) ? query.timezone : 'UTC';
+    const startUtc = startOfDayUtc(query.startDate, tz);
+    const endUtc = startOfNextDayUtc(query.endDate, tz);
+    // Previous period: equal UTC duration, ending right before startUtc.
+    // Minimum 1-day duration avoids a zero-length window when startDate === endDate.
+    const durationMs = Math.max(endUtc.getTime() - startUtc.getTime(), 86_400_000);
+    const prevEndUtc = new Date(startUtc.getTime());
+    const prevStartUtc = new Date(prevEndUtc.getTime() - durationMs);
+    return { startUtc, endUtc, prevStartUtc, prevEndUtc, timezone: tz };
+  }
+
+  /**
+   * Build a SQL fragment for an IANA timezone string literal, suitable for
+   * embedding in `AT TIME ZONE` expressions. Postgres treats parameterized
+   * `AT TIME ZONE $n` as different expressions in SELECT vs GROUP BY at
+   * parse time (even when the runtime values match), which causes
+   * "must appear in GROUP BY clause" errors. Injecting as a SQL literal
+   * sidesteps that — safe because the timezone passes `isValidIanaTimezone`
+   * before reaching here.
+   */
+  private tzLiteral(timezone: string): Prisma.Sql {
+    if (!isValidIanaTimezone(timezone)) {
+      throw new Error(`Refusing to inject non-IANA timezone literal: ${timezone}`);
+    }
+    return Prisma.raw(`'${timezone}'`);
   }
 
   /**
@@ -90,7 +131,7 @@ export class AnalyticsService {
    * Get session-level metrics for a given period and agent set.
    * Uses SQL aggregation instead of loading all sessions into memory.
    */
-  private async getSessionMetrics(agentIds: string[], startDate: Date, endDate: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
+  private async getSessionMetrics(agentIds: string[], startUtc: Date, endUtc: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
     if (agentIds.length === 0) {
       return { totalConversations: 0, totalUsers: 0, newUsers: 0, returningUsers: 0 };
     }
@@ -109,7 +150,7 @@ export class AnalyticsService {
           AND "visitorId" IN (
             SELECT DISTINCT "visitorId" FROM chat_sessions
             WHERE "agentId" = ANY(${agentIds}::text[])
-              AND "createdAt" < ${startDate}
+              AND "createdAt" < ${startUtc}
               AND "visitorId" IS NOT NULL
               AND "source"::text != 'DEMO'
               ${sourceFilter}
@@ -117,8 +158,8 @@ export class AnalyticsService {
         ) as returning_users
       FROM chat_sessions
       WHERE "agentId" = ANY(${agentIds}::text[])
-        AND "createdAt" >= ${startDate}
-        AND "createdAt" <= ${endDate}
+        AND "createdAt" >= ${startUtc}
+        AND "createdAt" < ${endUtc}
         ${sourceFilter}
     `;
 
@@ -135,7 +176,7 @@ export class AnalyticsService {
    * Get message-level metrics for a given period and agent set.
    * Uses SQL subquery instead of loading session IDs into memory.
    */
-  private async getMessageMetrics(agentIds: string[], startDate: Date, endDate: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
+  private async getMessageMetrics(agentIds: string[], startUtc: Date, endUtc: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
     if (agentIds.length === 0) {
       return { totalMessagesSent: 0, totalMessagesReceived: 0 };
     }
@@ -150,8 +191,8 @@ export class AnalyticsService {
       WHERE cm."chatSessionId" IN (
         SELECT id FROM chat_sessions
         WHERE "agentId" = ANY(${agentIds}::text[])
-          AND "createdAt" >= ${startDate}
-          AND "createdAt" <= ${endDate}
+          AND "createdAt" >= ${startUtc}
+          AND "createdAt" < ${endUtc}
           ${sourceFilter}
       )
     `;
@@ -167,7 +208,7 @@ export class AnalyticsService {
    * Calculate user retention rate: visitors who appear in sessions > 60 days apart / total unique visitors.
    * Scoped to sessions up to endDate so we can compare across periods for trend calculation.
    */
-  private async getUserRetentionRate(agentIds: string[], endDate: Date, sourceFilter: Prisma.Sql = Prisma.empty): Promise<number> {
+  private async getUserRetentionRate(agentIds: string[], endUtc: Date, sourceFilter: Prisma.Sql = Prisma.empty): Promise<number> {
     if (agentIds.length === 0) return 0;
 
     const result = await this.prisma.$queryRaw<{ retained: bigint; total: bigint }[]>`
@@ -180,7 +221,7 @@ export class AnalyticsService {
         WHERE "agentId" = ANY(${agentIds}::text[])
           AND "visitorId" IS NOT NULL
           AND "source"::text != 'DEMO'
-          AND "createdAt" <= ${endDate}
+          AND "createdAt" < ${endUtc}
           ${sourceFilter}
         GROUP BY "visitorId"
       ) sub
@@ -196,8 +237,8 @@ export class AnalyticsService {
    */
   private async getResponseTimeMetrics(
     agentIds: string[],
-    startDate: Date,
-    endDate: Date,
+    startUtc: Date,
+    endUtc: Date,
     sourceFilter: Prisma.Sql = Prisma.empty,
   ): Promise<{ avg: number; p50: number; p95: number; p99: number; avgTimeToFirstToken: number | null }> {
     if (agentIds.length === 0) {
@@ -223,8 +264,8 @@ export class AnalyticsService {
         AND "chatSessionId" IN (
           SELECT id FROM chat_sessions
           WHERE "agentId" = ANY(${agentIds}::text[])
-            AND "createdAt" >= ${startDate}
-            AND "createdAt" <= ${endDate}
+            AND "createdAt" >= ${startUtc}
+            AND "createdAt" < ${endUtc}
             ${sourceFilter}
         )
     `;
@@ -244,20 +285,19 @@ export class AnalyticsService {
   // ==========================================
 
   async getSummary(query: AnalyticsQuery, user: CurrentUserData) {
-    const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
-    const { prevStart, prevEnd } = this.getPreviousPeriod(startDate, endDate);
+    const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime, retentionRate, prevRetentionRate] = await Promise.all([
-      this.getSessionMetrics(agentIds, startDate, endDate, sf),
-      this.getMessageMetrics(agentIds, startDate, endDate, sf),
-      this.getResponseTimeMetrics(agentIds, startDate, endDate, sf),
-      this.getSessionMetrics(agentIds, prevStart, prevEnd, sf),
-      this.getMessageMetrics(agentIds, prevStart, prevEnd, sf),
-      this.getResponseTimeMetrics(agentIds, prevStart, prevEnd, sf),
-      this.getUserRetentionRate(agentIds, endDate, sf),
-      this.getUserRetentionRate(agentIds, prevEnd, sf),
+      this.getSessionMetrics(agentIds, startUtc, endUtc, sf),
+      this.getMessageMetrics(agentIds, startUtc, endUtc, sf),
+      this.getResponseTimeMetrics(agentIds, startUtc, endUtc, sf),
+      this.getSessionMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
+      this.getMessageMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
+      this.getResponseTimeMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
+      this.getUserRetentionRate(agentIds, endUtc, sf),
+      this.getUserRetentionRate(agentIds, prevEndUtc, sf),
     ]);
 
     const userGrowthRate = prevSessions.newUsers === 0
@@ -268,7 +308,7 @@ export class AnalyticsService {
     const prevTotalExchanged = prevMessages.totalMessagesSent + prevMessages.totalMessagesReceived;
 
     return {
-      period: { start: startDate.toISOString(), end: endDate.toISOString() },
+      period: { start: startUtc.toISOString(), end: endUtc.toISOString() },
       kpis: {
         totalUsers: { value: sessions.totalUsers, trend: this.calcTrend(sessions.totalUsers, prevSessions.totalUsers) },
         newUsers: { value: sessions.newUsers, trend: this.calcTrend(sessions.newUsers, prevSessions.newUsers) },
@@ -295,20 +335,32 @@ export class AnalyticsService {
   }
 
   async getConversationsChart(query: AnalyticsQuery, user: CurrentUserData) {
-    const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc, timezone } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) return { data: [] };
 
+    // Bucket by day in the user's timezone, not UTC. The double AT TIME ZONE
+    // converts naive UTC `createdAt` → tz-aware → naive local time, which
+    // DATE() then truncates against the local-day boundary. The raw
+    // `createdAt >= startUtc AND < endUtc` filter is kept in addition to
+    // the bucket expression so the index on createdAt is still used.
+    //
+    // `tzSql` is injected as a SQL literal (not a bind parameter) because
+    // Postgres doesn't recognize parameterized `AT TIME ZONE $n` expressions
+    // as equivalent across SELECT/GROUP BY at parse time. The IANA-name
+    // validation in resolveRange() makes this safe from injection.
+    const tzSql = this.tzLiteral(timezone);
     const result = await this.prisma.$queryRaw<{ date: Date; count: bigint }[]>`
-      SELECT DATE("createdAt") as date, COUNT(*) as count
+      SELECT DATE("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${tzSql}) as date,
+             COUNT(*) as count
       FROM chat_sessions
       WHERE "agentId" = ANY(${agentIds}::text[])
-        AND "createdAt" >= ${startDate}
-        AND "createdAt" <= ${endDate}
+        AND "createdAt" >= ${startUtc}
+        AND "createdAt" < ${endUtc}
         ${sf}
-      GROUP BY DATE("createdAt")
+      GROUP BY DATE("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${tzSql})
       ORDER BY date ASC
     `;
 
@@ -321,8 +373,8 @@ export class AnalyticsService {
   }
 
   async getResponseTimeDistribution(query: AnalyticsQuery, user: CurrentUserData) {
-    const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     const emptyBuckets = [
@@ -354,8 +406,8 @@ export class AnalyticsService {
           AND "chatSessionId" IN (
             SELECT id FROM chat_sessions
             WHERE "agentId" = ANY(${agentIds}::text[])
-              AND "createdAt" >= ${startDate}
-              AND "createdAt" <= ${endDate}
+              AND "createdAt" >= ${startUtc}
+              AND "createdAt" < ${endUtc}
               ${sf}
           )
       ),
@@ -412,22 +464,28 @@ export class AnalyticsService {
   }
 
   async getMessageVolumeHeatmap(query: AnalyticsQuery, user: CurrentUserData) {
-    const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc, timezone } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) return { data: [] };
 
+    // Bucket day-of-week and hour in the user's timezone — a 9 PM IST event
+    // should land in the IST 21:00 bucket on Tuesday, not the UTC 15:30
+    // bucket on Tuesday. Raw `cs.createdAt` range still drives index usage.
+    // tzSql is injected as a SQL literal (see getConversationsChart for the
+    // reason). IANA validation in resolveRange() makes this injection-safe.
+    const tzSql = this.tzLiteral(timezone);
     const result = await this.prisma.$queryRaw<{ day: number; hour: number; count: bigint }[]>`
       SELECT
-        EXTRACT(DOW FROM cm."createdAt") as day,
-        EXTRACT(HOUR FROM cm."createdAt") as hour,
+        EXTRACT(DOW FROM cm."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${tzSql}) as day,
+        EXTRACT(HOUR FROM cm."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${tzSql}) as hour,
         COUNT(*) as count
       FROM chat_messages cm
       INNER JOIN chat_sessions cs ON cm."chatSessionId" = cs.id
       WHERE cs."agentId" = ANY(${agentIds}::text[])
-        AND cs."createdAt" >= ${startDate}
-        AND cs."createdAt" <= ${endDate}
+        AND cs."createdAt" >= ${startUtc}
+        AND cs."createdAt" < ${endUtc}
         ${sf}
       GROUP BY day, hour
       ORDER BY day, hour
@@ -443,8 +501,9 @@ export class AnalyticsService {
   }
 
   async getAgentMetrics(query: AgentAnalyticsQuery, user: CurrentUserData) {
-    const { startDate, endDate, page = 1, limit = 20, sortBy = 'conversations', sortOrder = 'desc' } = query;
+    const { page = 1, limit = 20, sortBy = 'conversations', sortOrder = 'desc' } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
@@ -456,8 +515,8 @@ export class AnalyticsService {
       FROM agents a
       INNER JOIN chat_sessions cs ON cs."agentId" = a.id
       WHERE a.id = ANY(${agentIds}::text[])
-        AND cs."createdAt" >= ${startDate}
-        AND cs."createdAt" <= ${endDate}
+        AND cs."createdAt" >= ${startUtc}
+        AND cs."createdAt" < ${endUtc}
         ${sf}
     `;
 
@@ -519,8 +578,8 @@ export class AnalyticsService {
       INNER JOIN chat_sessions cs ON cs."agentId" = a.id
       LEFT JOIN chat_messages cm ON cm."chatSessionId" = cs.id
       WHERE a.id = ANY(${agentIds}::text[])
-        AND cs."createdAt" >= ${startDate}
-        AND cs."createdAt" <= ${endDate}
+        AND cs."createdAt" >= ${startUtc}
+        AND cs."createdAt" < ${endUtc}
         ${sf}
       GROUP BY a.id, a.name
       ${orderByClause}
@@ -546,9 +605,8 @@ export class AnalyticsService {
   // ==========================================
 
   async getVoiceSummary(query: AnalyticsQuery, user: CurrentUserData) {
-    const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
-    const { prevStart, prevEnd } = this.getPreviousPeriod(startDate, endDate);
+    const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
@@ -564,8 +622,8 @@ export class AnalyticsService {
     }
 
     const [current, previous] = await Promise.all([
-      this.getVoiceMetrics(agentIds, startDate, endDate, sf),
-      this.getVoiceMetrics(agentIds, prevStart, prevEnd, sf),
+      this.getVoiceMetrics(agentIds, startUtc, endUtc, sf),
+      this.getVoiceMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
     ]);
 
     const total = current.voiceCount + current.textCount;
@@ -582,7 +640,7 @@ export class AnalyticsService {
     };
   }
 
-  private async getVoiceMetrics(agentIds: string[], startDate: Date, endDate: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
+  private async getVoiceMetrics(agentIds: string[], startUtc: Date, endUtc: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
     const result = await this.prisma.$queryRaw<
       {
         voice_count: bigint;
@@ -602,8 +660,8 @@ export class AnalyticsService {
       WHERE cm."chatSessionId" IN (
         SELECT id FROM chat_sessions
         WHERE "agentId" = ANY(${agentIds}::text[])
-          AND "createdAt" >= ${startDate}
-          AND "createdAt" <= ${endDate}
+          AND "createdAt" >= ${startUtc}
+          AND "createdAt" < ${endUtc}
           ${sourceFilter}
       )
     `;
@@ -619,8 +677,8 @@ export class AnalyticsService {
   }
 
   async getLanguageDistribution(query: AnalyticsQuery, user: CurrentUserData) {
-    const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
@@ -640,8 +698,8 @@ export class AnalyticsService {
         AND cm."chatSessionId" IN (
           SELECT id FROM chat_sessions
           WHERE "agentId" = ANY(${agentIds}::text[])
-            AND "createdAt" >= ${startDate}
-            AND "createdAt" <= ${endDate}
+            AND "createdAt" >= ${startUtc}
+            AND "createdAt" < ${endUtc}
             ${sf}
         )
       GROUP BY cm.metadata->>'detectedLanguage'
@@ -659,8 +717,8 @@ export class AnalyticsService {
   }
 
   async getVoiceLatencyByProvider(query: AnalyticsQuery, user: CurrentUserData) {
-    const { startDate, endDate } = query;
     const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
@@ -686,8 +744,8 @@ export class AnalyticsService {
           AND cm."chatSessionId" IN (
             SELECT id FROM chat_sessions
             WHERE "agentId" = ANY(${agentIds}::text[])
-              AND "createdAt" >= ${startDate}
-              AND "createdAt" <= ${endDate}
+              AND "createdAt" >= ${startUtc}
+              AND "createdAt" < ${endUtc}
               ${sf}
           )
         GROUP BY cm.metadata->>'sttProvider'
@@ -710,8 +768,8 @@ export class AnalyticsService {
           AND cm."chatSessionId" IN (
             SELECT id FROM chat_sessions
             WHERE "agentId" = ANY(${agentIds}::text[])
-              AND "createdAt" >= ${startDate}
-              AND "createdAt" <= ${endDate}
+              AND "createdAt" >= ${startUtc}
+              AND "createdAt" < ${endUtc}
               ${sf}
           )
         GROUP BY cm.metadata->>'ttsProvider'

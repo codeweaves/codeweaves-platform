@@ -85,8 +85,9 @@ describe('AnalyticsController', () => {
 
   describe('getSummary', () => {
     const query = {
-      startDate: new Date('2026-01-01'),
-      endDate: new Date('2026-01-31'),
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      timezone: 'UTC',
     };
 
     const mockSummary = {
@@ -142,7 +143,7 @@ describe('AnalyticsController', () => {
   // ==========================================
 
   describe('getConversationsChart', () => {
-    const query = { startDate: new Date('2026-01-01'), endDate: new Date('2026-01-31') };
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
     const mockChart = { data: [{ date: '2026-01-01', count: 10 }] };
 
     it('should return conversations chart data', async () => {
@@ -155,7 +156,7 @@ describe('AnalyticsController', () => {
   });
 
   describe('getResponseTimeDistribution', () => {
-    const query = { startDate: new Date('2026-01-01'), endDate: new Date('2026-01-31') };
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
     const mockDistribution = {
       buckets: [{ label: '<1s', min: 0, max: 1000, count: 50, percentage: 50 }],
       percentiles: { p50: 800, p95: 2500, p99: 5000 },
@@ -171,7 +172,7 @@ describe('AnalyticsController', () => {
   });
 
   describe('getMessageVolumeHeatmap', () => {
-    const query = { startDate: new Date('2026-01-01'), endDate: new Date('2026-01-31') };
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
     const mockHeatmap = { data: [{ day: 0, hour: 9, count: 15 }] };
 
     it('should return message volume heatmap data', async () => {
@@ -189,8 +190,9 @@ describe('AnalyticsController', () => {
 
   describe('getAgentMetrics', () => {
     const query = {
-      startDate: new Date('2026-01-01'),
-      endDate: new Date('2026-01-31'),
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      timezone: 'UTC',
       page: 1,
       limit: 20,
       sortBy: 'conversations' as const,
@@ -299,8 +301,29 @@ describe('AnalyticsController', () => {
 
     it('should accept valid date range', () => {
       const result = queryPipe.transform({ startDate: '2026-01-01', endDate: '2026-01-31' });
-      expect(result.startDate).toBeInstanceOf(Date);
-      expect(result.endDate).toBeInstanceOf(Date);
+      expect(result.startDate).toBe('2026-01-01');
+      expect(result.endDate).toBe('2026-01-31');
+      // timezone defaults to UTC when not supplied
+      expect(result.timezone).toBe('UTC');
+    });
+
+    it('should accept and preserve timezone', () => {
+      const result = queryPipe.transform({
+        startDate: '2026-01-01',
+        endDate: '2026-01-31',
+        timezone: 'Asia/Kolkata',
+      });
+      expect(result.timezone).toBe('Asia/Kolkata');
+    });
+
+    it('should reject invalid timezone', () => {
+      expect(() =>
+        queryPipe.transform({
+          startDate: '2026-01-01',
+          endDate: '2026-01-31',
+          timezone: 'Not/A/Real/Zone',
+        }),
+      ).toThrow(BadRequestException);
     });
 
     it('should accept optional agentId', () => {
@@ -363,13 +386,13 @@ describe('AnalyticsController', () => {
       ).toThrow(BadRequestException);
     });
 
-    it('should coerce date strings to Date objects', () => {
-      const result = queryPipe.transform({
-        startDate: '2026-01-01T00:00:00.000Z',
-        endDate: '2026-01-31T23:59:59.999Z',
-      });
-      expect(result.startDate).toBeInstanceOf(Date);
-      expect(result.endDate).toBeInstanceOf(Date);
+    it('should reject ISO datetime strings (only YYYY-MM-DD accepted)', () => {
+      expect(() =>
+        queryPipe.transform({
+          startDate: '2026-01-01T00:00:00.000Z',
+          endDate: '2026-01-31T23:59:59.999Z',
+        }),
+      ).toThrow(BadRequestException);
     });
 
     // Export log body validation (Story 8-11)
