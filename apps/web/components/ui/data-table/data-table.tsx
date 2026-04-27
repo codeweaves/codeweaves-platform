@@ -654,7 +654,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
             {isLoading ? (
               renderLoading ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0">
+                  <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0!">
                     <div data-slot="data-table-loading" className="sticky left-0 flex items-center justify-center" style={containerWidth ? { width: containerWidth } : undefined}>
                       {renderLoading()}
                     </div>
@@ -708,7 +708,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0">
+                <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0!">
                   <div data-slot="data-table-empty" className="sticky left-0 flex items-center justify-center" style={containerWidth ? { width: containerWidth } : undefined}>
                     {renderEmpty ? renderEmpty() : (
                       <div className="flex h-32 items-center justify-center">

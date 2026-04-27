@@ -3,12 +3,15 @@ import {
   Get,
   Post,
   Patch,
+  Delete,
   Body,
   Param,
   Query,
   ParseUUIDPipe,
   UseGuards,
 } from '@nestjs/common';
+import { CurrentUser } from '../../decorators/current-user.decorator';
+import type { CurrentUserData } from '../../decorators/current-user.decorator';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { OrganizationsService } from '../../services/organizations.service';
@@ -94,5 +97,33 @@ export class OrganizationsController {
     dto: UpdateOrganizationDto,
   ) {
     return this.organizationsService.update(id, dto);
+  }
+
+  @Get(':id/delete-preview')
+  @ApiOperation({ summary: 'Preview the impact of deleting an organization (counts of active agents and members).' })
+  @ApiParam({ name: 'id', description: 'Organization UUID' })
+  @ApiResponse({ status: 200, description: 'Delete preview' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
+  @ApiResponse({ status: 404, description: 'Organization not found' })
+  async getDeletePreview(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.organizationsService.getDeletePreview(id, user);
+  }
+
+  @Delete(':id')
+  @ApiOperation({ summary: 'Soft-delete an organization. Cascades to agents and members.' })
+  @ApiParam({ name: 'id', description: 'Organization UUID' })
+  @ApiResponse({ status: 200, description: 'Organization soft-deleted' })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
+  @ApiResponse({ status: 404, description: 'Organization not found' })
+  async delete(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.organizationsService.delete(id, user);
   }
 }

@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { useAuth } from '@/hooks/use-auth';
+import { useProfile } from '@/hooks/use-profile';
 import { Bot, BarChart3, Users, Settings } from 'lucide-react';
 import {
   Card,
@@ -38,12 +38,14 @@ const quickLinks = [
 ];
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { profile } = useProfile();
+  // Prefer the DB-side display name; fall back to email when it's not set.
+  const greeting = profile?.name?.trim() || profile?.email || 'there';
 
   return (
     <div>
       <h1 className="text-2xl font-bold">
-        Welcome, {user?.name || 'User'}!
+        Welcome, {greeting}!
       </h1>
       <p className="mt-2 text-muted-foreground">
         This is your CodeWeaves dashboard. Manage your AI chat agents, customize

@@ -36,11 +36,16 @@ export function useTeamMembers() {
   });
 }
 
+export type InvitationStatus = 'PENDING' | 'ACCEPTED' | 'EXPIRED';
+
 export interface InvitationListParams {
   page?: number;
   limit?: number;
   search?: string;
-  status?: 'PENDING' | 'ACCEPTED' | 'EXPIRED';
+  /** Single status filter (legacy) */
+  status?: InvitationStatus;
+  /** Multi-status filter (sent comma-separated; combined with `status` server-side) */
+  statuses?: InvitationStatus[];
   sortBy?: 'email' | 'status' | 'createdAt' | 'expiresAt';
   sortOrder?: 'asc' | 'desc';
 }
@@ -64,6 +69,7 @@ export function useInvitations(params: InvitationListParams = {}) {
   if (params.limit) queryParams.set('limit', String(params.limit));
   if (params.search) queryParams.set('search', params.search);
   if (params.status) queryParams.set('status', params.status);
+  if (params.statuses && params.statuses.length > 0) queryParams.set('statuses', params.statuses.join(','));
   if (params.sortBy) queryParams.set('sortBy', params.sortBy);
   if (params.sortOrder) queryParams.set('sortOrder', params.sortOrder);
 

@@ -18,6 +18,16 @@ describe('OrganizationsService', () => {
       update: jest.fn(),
       count: jest.fn(),
     },
+    agent: {
+      updateMany: jest.fn(),
+    },
+    user: {
+      updateMany: jest.fn(),
+    },
+    // $transaction here just executes the array sequentially and returns the
+    // resolved values, mirroring the runtime behavior closely enough for
+    // assertion-style tests without needing a real DB.
+    $transaction: jest.fn(async (ops: Promise<unknown>[]) => Promise.all(ops)),
   };
 
   const mockOrganization = {
@@ -54,6 +64,7 @@ describe('OrganizationsService', () => {
             logOrganizationCreationException: jest.fn(),
             logOrganizationUpdated: jest.fn(),
             logOrganizationUpdateException: jest.fn(),
+            logOrganizationDeleted: jest.fn(),
           },
         },
       ],
@@ -62,6 +73,11 @@ describe('OrganizationsService', () => {
     service = module.get<OrganizationsService>(OrganizationsService);
 
     jest.clearAllMocks();
+    // clearAllMocks wipes implementations too — restore the $transaction stub
+    // so tests that hit the soft-delete path don't get an undefined return.
+    mockPrismaService.$transaction.mockImplementation(async (ops: Promise<unknown>[]) =>
+      Promise.all(ops),
+    );
   });
 
   it('should be defined', () => {
@@ -201,7 +217,7 @@ describe('OrganizationsService', () => {
       expect(result.data[0]!._count.users).toBe(5);
       expect(result.meta).toEqual({ page: 1, limit: 20, total: 2, totalPages: 1 });
       expect(mockPrismaService.organization.findMany).toHaveBeenCalledWith({
-        where: {},
+        where: { deletedAt: null },
         include: {
           _count: {
             select: {
@@ -236,6 +252,7 @@ describe('OrganizationsService', () => {
       expect(mockPrismaService.organization.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
           where: {
+            deletedAt: null,
             OR: [
               { name: { contains: 'acme', mode: 'insensitive' } },
               { slug: { contains: 'acme', mode: 'insensitive' } },
@@ -304,15 +321,15 @@ describe('OrganizationsService', () => {
 
   describe('findById', () => {
     it('should return organization with user counts', async () => {
-      mockPrismaService.organization.findUnique.mockResolvedValue(
+      mockPrismaService.organization.findFirst.mockResolvedValue(
         mockOrgWithCounts,
       );
 
       const result = await service.findById(mockOrganization.id);
 
       expect(result).toEqual(mockOrgWithCounts);
-      expect(mockPrismaService.organization.findUnique).toHaveBeenCalledWith({
-        where: { id: mockOrganization.id },
+      expect(mockPrismaService.organization.findFirst).toHaveBeenCalledWith({
+        where: { id: mockOrganization.id, deletedAt: null },
         include: {
           _count: {
             select: {
@@ -325,7 +342,7 @@ describe('OrganizationsService', () => {
     });
 
     it('should throw NotFoundException when organization does not exist', async () => {
-      mockPrismaService.organization.findUnique.mockResolvedValue(null);
+      mockPrismaService.organization.findFirst.mockResolvedValue(null);
 
       await expect(service.findById('nonexistent-id')).rejects.toThrow(
         NotFoundException,
@@ -364,7 +381,7 @@ describe('OrganizationsService', () => {
 
       expect(result.slug).toBe('new-slug');
       expect(mockPrismaService.organization.findFirst).toHaveBeenCalledWith({
-        where: { slug: 'new-slug', NOT: { id: mockOrganization.id } },
+        where: { slug: 'new-slug', NOT: { id: mockOrganization.id }, deletedAt: null },
       });
     });
 
@@ -432,6 +449,112 @@ describe('OrganizationsService', () => {
       await expect(
         service.update(mockOrganization.id, { name: 'New Name' }),
       ).rejects.toThrow('Database connection lost');
+    });
+  });
+
+  // ==========================================
+  // Soft delete + cascade
+  // ==========================================
+
+  const superAdmin: import('../../../src/decorators/current-user.decorator').CurrentUserData = {
+    auth0Id: 'auth0|sa',
+    id: 'sa-id',
+    role: 'SUPER_ADMIN' as const,
+    organizationId: null,
+    organization: null,
+    email: 'sa@example.com',
+    roles: ['SUPER_ADMIN'],
+  };
+  // ADMIN/SUPER_ADMIN are platform-level roles — neither has an organizationId.
+  // ADMINs are blocked from delete/preview entirely (SUPER_ADMIN-only operations).
+  const orgAdmin: import('../../../src/decorators/current-user.decorator').CurrentUserData = {
+    auth0Id: 'auth0|admin',
+    id: 'admin-id',
+    role: 'ADMIN' as const,
+    organizationId: null,
+    organization: null,
+    email: 'admin@example.com',
+    roles: ['ADMIN'],
+  };
+
+  describe('getDeletePreview', () => {
+    it('should return name + active agent and member counts for SUPER_ADMIN', async () => {
+      mockPrismaService.organization.findFirst.mockResolvedValue({
+        ...mockOrganization,
+        _count: { agents: 3, users: 5 },
+      });
+
+      const result = await service.getDeletePreview(mockOrganization.id, superAdmin);
+
+      expect(result).toEqual({
+        id: mockOrganization.id,
+        name: mockOrganization.name,
+        slug: mockOrganization.slug,
+        activeAgentsCount: 3,
+        membersCount: 5,
+      });
+    });
+
+    it('should forbid ADMIN from previewing any org', async () => {
+      await expect(
+        service.getDeletePreview(mockOrganization.id, orgAdmin),
+      ).rejects.toThrow(/permission/i);
+    });
+
+    it('should throw NotFoundException when org does not exist', async () => {
+      mockPrismaService.organization.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getDeletePreview(mockOrganization.id, superAdmin),
+      ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('delete', () => {
+    it('should soft-delete org + cascade to agents and users', async () => {
+      mockPrismaService.organization.findFirst.mockResolvedValue(mockOrganization);
+      mockPrismaService.organization.update.mockResolvedValue({ ...mockOrganization, deletedAt: new Date() });
+      mockPrismaService.agent.updateMany.mockResolvedValue({ count: 2 });
+      mockPrismaService.user.updateMany.mockResolvedValue({ count: 4 });
+
+      const result = await service.delete(mockOrganization.id, superAdmin);
+
+      expect(result).toMatchObject({
+        id: mockOrganization.id,
+        cascadedAgents: 2,
+        cascadedUsers: 4,
+      });
+      expect(mockPrismaService.organization.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { id: mockOrganization.id },
+          data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+        }),
+      );
+      expect(mockPrismaService.agent.updateMany).toHaveBeenCalledWith({
+        where: { organizationId: mockOrganization.id, deletedAt: null },
+        data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+      });
+      expect(mockPrismaService.user.updateMany).toHaveBeenCalledWith({
+        where: { organizationId: mockOrganization.id, deletedAt: null },
+        data: expect.objectContaining({ deletedAt: expect.any(Date) }),
+      });
+      expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+    });
+
+    it('should forbid ADMIN from deleting any org', async () => {
+      await expect(
+        service.delete(mockOrganization.id, orgAdmin),
+      ).rejects.toThrow(/permission/i);
+      // Permission check runs before DB; no lookup should happen.
+      expect(mockPrismaService.organization.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('should throw NotFoundException when org does not exist', async () => {
+      mockPrismaService.organization.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.delete(mockOrganization.id, superAdmin),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });
