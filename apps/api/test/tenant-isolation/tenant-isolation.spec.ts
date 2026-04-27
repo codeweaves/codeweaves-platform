@@ -282,7 +282,7 @@ describe('Tenant Isolation — Evil Twin', () => {
 
   describe('Organization isolation', () => {
     it('findById returns the requested organization', async () => {
-      mockPrisma.organization.findUnique.mockResolvedValue({
+      mockPrisma.organization.findFirst.mockResolvedValue({
         ...orgAData.org,
         _count: { users: orgAData.users.length },
       });
@@ -294,7 +294,7 @@ describe('Tenant Isolation — Evil Twin', () => {
     });
 
     it('AC#3: findById throws NotFoundException for non-existent org', async () => {
-      mockPrisma.organization.findUnique.mockResolvedValue(null);
+      mockPrisma.organization.findFirst.mockResolvedValue(null);
 
       await expectTenantIsolated(() =>
         organizationsService.findById('non-existent-uuid'),

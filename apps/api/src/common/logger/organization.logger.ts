@@ -61,4 +61,12 @@ export class OrganizationLoggerService {
       ),
     );
   }
+
+  async logOrganizationDeleted(orgId: string, data: Record<string, unknown>) {
+    await this.tracer.logAuditEvent(
+      orgId,
+      'ORGANIZATION_DELETED',
+      this.tracer.mergeJsonResponse({ response: data }),
+    );
+  }
 }

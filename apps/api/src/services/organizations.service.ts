@@ -3,12 +3,14 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { Prisma } from '@prisma/client';
+import { Prisma, Role } from '@prisma/client';
 import type { CreateOrganizationDto, UpdateOrganizationDto, OrganizationListQuery } from '../models/organization.dto';
 import { generateSlug, generateUniqueSlug } from '../utils/slug';
 import { OrganizationLoggerService } from '../common/logger/organization.logger';
+import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 const MAX_SLUG_RETRIES = 3;
 
@@ -69,14 +71,17 @@ export class OrganizationsService {
     const { page, limit, search, sortBy, sortOrder } = query;
     const skip = (page - 1) * limit;
 
-    const where: Prisma.OrganizationWhereInput = search
-      ? {
-          OR: [
-            { name: { contains: search, mode: 'insensitive' } },
-            { slug: { contains: search, mode: 'insensitive' } },
-          ],
-        }
-      : {};
+    const where: Prisma.OrganizationWhereInput = {
+      deletedAt: null,
+      ...(search
+        ? {
+            OR: [
+              { name: { contains: search, mode: 'insensitive' } },
+              { slug: { contains: search, mode: 'insensitive' } },
+            ],
+          }
+        : {}),
+    };
 
     const orderBy: Prisma.OrganizationOrderByWithRelationInput =
       sortBy === 'usersCount'
@@ -115,8 +120,8 @@ export class OrganizationsService {
   }
 
   async findById(id: string) {
-    const organization = await this.prisma.organization.findUnique({
-      where: { id },
+    const organization = await this.prisma.organization.findFirst({
+      where: { id, deletedAt: null },
       include: {
         _count: {
           select: {
@@ -134,10 +139,114 @@ export class OrganizationsService {
     return organization;
   }
 
+  /**
+   * Counts the active agents and members in an organization. Used by the
+   * frontend to populate the delete-confirmation modal ("This org has N
+   * active agents and M members. Type the org name to confirm.").
+   * Permission checks live alongside the corresponding `delete()` call.
+   */
+  async getDeletePreview(id: string, user: CurrentUserData) {
+    this.assertCanDelete(id, user);
+
+    const org = await this.prisma.organization.findFirst({
+      where: { id, deletedAt: null },
+      select: {
+        id: true,
+        name: true,
+        slug: true,
+        _count: {
+          select: {
+            agents: { where: { deletedAt: null } },
+            users: { where: { deletedAt: null } },
+          },
+        },
+      },
+    });
+
+    if (!org) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    return {
+      id: org.id,
+      name: org.name,
+      slug: org.slug,
+      activeAgentsCount: org._count.agents,
+      membersCount: org._count.users,
+    };
+  }
+
+  /**
+   * Soft-delete an organization in a single transaction:
+   *   1. Mark the org `deletedAt`.
+   *   2. Cascade `deletedAt` to all its agents — they stop accepting widget
+   *      traffic immediately because the public agent lookup filters
+   *      `deletedAt: null` AND `status: 'ACTIVE'`.
+   *   3. Cascade `deletedAt` to all its members — `findByAuth0Id` also filters
+   *      `deletedAt: null`, so on the next 60s cache miss in UserSyncGuard
+   *      they're treated as unauthenticated and get bounced to login.
+   *
+   * Permission: SUPER_ADMIN can delete any org. ADMIN can delete only their
+   * own. CLIENT users never reach here (controller-level role gate).
+   */
+  async delete(id: string, user: CurrentUserData) {
+    this.assertCanDelete(id, user);
+
+    const existing = await this.prisma.organization.findFirst({
+      where: { id, deletedAt: null },
+      select: { id: true, name: true, slug: true },
+    });
+
+    if (!existing) {
+      throw new NotFoundException('Organization not found');
+    }
+
+    const now = new Date();
+
+    const [, agentsResult, usersResult] = await this.prisma.$transaction([
+      this.prisma.organization.update({
+        where: { id },
+        data: { deletedAt: now },
+      }),
+      this.prisma.agent.updateMany({
+        where: { organizationId: id, deletedAt: null },
+        data: { deletedAt: now },
+      }),
+      this.prisma.user.updateMany({
+        where: { organizationId: id, deletedAt: null },
+        data: { deletedAt: now },
+      }),
+    ]);
+
+    await this.orgLogger.logOrganizationDeleted(id, {
+      org: existing,
+      userId: user.id,
+      cascadedAgents: agentsResult.count,
+      cascadedUsers: usersResult.count,
+    });
+
+    return {
+      id: existing.id,
+      name: existing.name,
+      cascadedAgents: agentsResult.count,
+      cascadedUsers: usersResult.count,
+    };
+  }
+
+  /**
+   * Throws ForbiddenException unless the user is allowed to delete this org.
+   * SUPER_ADMIN only. ADMIN/CLIENT users are also blocked at the controller
+   * level via @Roles; this service-side check is defense in depth.
+   */
+  private assertCanDelete(_orgId: string, user: CurrentUserData): void {
+    if (user.role === Role.SUPER_ADMIN) return;
+    throw new ForbiddenException('You do not have permission to delete this organization');
+  }
+
   async update(id: string, data: UpdateOrganizationDto) {
     if (data.slug) {
       const existing = await this.prisma.organization.findFirst({
-        where: { slug: data.slug, NOT: { id } },
+        where: { slug: data.slug, NOT: { id }, deletedAt: null },
       });
       if (existing) {
         throw new ConflictException('Slug is already in use');

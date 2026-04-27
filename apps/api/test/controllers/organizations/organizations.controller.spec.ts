@@ -19,6 +19,18 @@ describe('OrganizationsController', () => {
     findAll: jest.fn(),
     findById: jest.fn(),
     update: jest.fn(),
+    getDeletePreview: jest.fn(),
+    delete: jest.fn(),
+  };
+
+  const superAdminUser = {
+    auth0Id: 'auth0|sa',
+    id: 'sa-id',
+    role: 'SUPER_ADMIN' as const,
+    organizationId: null,
+    organization: null,
+    email: 'sa@example.com',
+    roles: ['SUPER_ADMIN'],
   };
 
   const mockOrganization = {
@@ -305,6 +317,47 @@ describe('OrganizationsController', () => {
 
     it('should reject invalid sortBy value', () => {
       expect(() => listQueryPipe.transform({ sortBy: 'invalid' })).toThrow(BadRequestException);
+    });
+  });
+
+  describe('getDeletePreview', () => {
+    it('should forward the id and current user to the service', async () => {
+      const preview = {
+        id: mockOrganization.id,
+        name: mockOrganization.name,
+        slug: mockOrganization.slug,
+        activeAgentsCount: 2,
+        membersCount: 3,
+      };
+      mockOrganizationsService.getDeletePreview.mockResolvedValue(preview);
+
+      const result = await controller.getDeletePreview(mockOrganization.id, superAdminUser);
+
+      expect(result).toEqual(preview);
+      expect(mockOrganizationsService.getDeletePreview).toHaveBeenCalledWith(
+        mockOrganization.id,
+        superAdminUser,
+      );
+    });
+  });
+
+  describe('delete', () => {
+    it('should forward the id and current user to the service', async () => {
+      const deleteResult = {
+        id: mockOrganization.id,
+        name: mockOrganization.name,
+        cascadedAgents: 2,
+        cascadedUsers: 3,
+      };
+      mockOrganizationsService.delete.mockResolvedValue(deleteResult);
+
+      const result = await controller.delete(mockOrganization.id, superAdminUser);
+
+      expect(result).toEqual(deleteResult);
+      expect(mockOrganizationsService.delete).toHaveBeenCalledWith(
+        mockOrganization.id,
+        superAdminUser,
+      );
     });
   });
 });

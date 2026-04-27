@@ -78,3 +78,66 @@ export function useCreateOrganization() {
     },
   });
 }
+
+export interface DeleteOrganizationPreview {
+  id: string;
+  name: string;
+  slug: string;
+  activeAgentsCount: number;
+  membersCount: number;
+}
+
+/**
+ * Fetches the impact summary (active agent + member counts) shown in the
+ * delete-confirmation dialog. Only fetched once `enabled` is true so the
+ * request doesn't fire until the user opens the dialog.
+ */
+export function useOrganizationDeletePreview(id: string, enabled: boolean) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<DeleteOrganizationPreview>({
+    queryKey: ['organizations', id, 'delete-preview'],
+    queryFn: () => api.get(`/organizations/${id}/delete-preview`),
+    enabled: enabled && isAuthenticated && !authLoading && !!id,
+    staleTime: 0,
+  });
+}
+
+export interface DeleteOrganizationResult {
+  id: string;
+  name: string;
+  cascadedAgents: number;
+  cascadedUsers: number;
+}
+
+export interface UpdateOrganizationPayload {
+  name?: string;
+  slug?: string;
+}
+
+export function useUpdateOrganization() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<Organization, Error, { id: string; data: UpdateOrganizationPayload }>({
+    mutationFn: ({ id, data }) => api.patch(`/organizations/${id}`, data),
+    onSuccess: () => {
+      // Invalidate list + any cached single-org reads so the new name appears.
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+    },
+  });
+}
+
+export function useDeleteOrganization() {
+  const api = useApiClient();
+  const queryClient = useQueryClient();
+
+  return useMutation<DeleteOrganizationResult, Error, string>({
+    mutationFn: (id: string) => api.delete(`/organizations/${id}`),
+    onSuccess: () => {
+      // Wipe both the list cache and any cached single-org reads.
+      queryClient.invalidateQueries({ queryKey: ['organizations'] });
+    },
+  });
+}

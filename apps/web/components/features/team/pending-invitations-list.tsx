@@ -2,7 +2,7 @@
 
 import { useCallback, useMemo, useState } from 'react';
 import type { ColumnDef, Row } from '@tanstack/react-table';
-import { Mail, RotateCw, X } from 'lucide-react';
+import { AlertCircle, Loader2, Mail, RefreshCw, RotateCw, X } from 'lucide-react';
 import { toast } from 'sonner';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
@@ -30,31 +30,21 @@ import {
 import { RoleBadge } from './team-members-list';
 import { formatDate } from '@/lib/utils';
 
-const statusBadgeConfig: Record<string, { label: string; className: string }> = {
-  PENDING: {
-    label: 'Pending',
-    className: 'bg-yellow-100 text-yellow-800 dark:bg-yellow-900/30 dark:text-yellow-400',
-  },
-  ACCEPTED: {
-    label: 'Accepted',
-    className: 'bg-green-100 text-green-800 dark:bg-green-900/30 dark:text-green-400',
-  },
-  EXPIRED: {
-    label: 'Expired',
-    className: 'bg-red-100 text-red-800 dark:bg-red-900/30 dark:text-red-400',
-  },
+// Use the shared semantic Badge variants so colors match the Active/Inactive
+// badges in the agents table (`variant="success"` / `variant="error"`).
+// PENDING uses the new `warning` variant.
+const statusBadgeConfig: Record<string, { label: string; variant: 'success' | 'warning' | 'error' }> = {
+  PENDING: { label: 'Pending', variant: 'warning' },
+  ACCEPTED: { label: 'Accepted', variant: 'success' },
+  EXPIRED: { label: 'Expired', variant: 'error' },
 };
 
 function StatusBadge({ status }: { status: string }) {
-  const config = statusBadgeConfig[status] ?? {
-    label: status,
-    className: '',
-  };
-  return (
-    <Badge variant="outline" className={config.className}>
-      {config.label}
-    </Badge>
-  );
+  const config = statusBadgeConfig[status];
+  if (!config) {
+    return <Badge variant="outline">{status}</Badge>;
+  }
+  return <Badge variant={config.variant}>{config.label}</Badge>;
 }
 
 function ActionsCell({
@@ -124,15 +114,25 @@ export function PendingInvitationsList() {
     filters: {},
   });
 
-  // Map DataTable fetch params to API params
-  const statusFilter = fetchParams.filters.status;
-  const statusValue = Array.isArray(statusFilter) ? statusFilter[0] : statusFilter;
+  // Map DataTable fetch params to API params. The status filter is a
+  // multi-select, so DataTable hands us an array (or a single string when
+  // exactly one option is selected). Normalize to an array either way.
+  const rawStatusFilter = fetchParams.filters.status;
+  const statusList: ('PENDING' | 'ACCEPTED' | 'EXPIRED')[] = (
+    Array.isArray(rawStatusFilter)
+      ? rawStatusFilter
+      : rawStatusFilter
+        ? [rawStatusFilter]
+        : []
+  ).filter((s): s is 'PENDING' | 'ACCEPTED' | 'EXPIRED' =>
+    s === 'PENDING' || s === 'ACCEPTED' || s === 'EXPIRED',
+  );
 
-  const { data, isLoading } = useInvitations({
+  const { data, isLoading, isFetching, isError, refetch } = useInvitations({
     page: fetchParams.page + 1, // API is 1-based
     limit: fetchParams.pageSize,
     search: fetchParams.search || undefined,
-    status: statusValue as 'PENDING' | 'ACCEPTED' | 'EXPIRED' | undefined,
+    statuses: statusList.length > 0 ? statusList : undefined,
     sortBy: 'createdAt',
     sortOrder: 'desc',
   });
@@ -224,9 +224,13 @@ export function PendingInvitationsList() {
     [resendingId, cancellingId],
   );
 
-  const isEmpty = !isLoading && data?.meta.total === 0 && !fetchParams.search && !statusValue;
+  // First-load empty state (no rows ever, no search/filter applied) shows
+  // the onboarding card. Subsequent empty/error/loading states are handled
+  // inside the DataTable via render props so the toolbar stays visible.
+  const isFirstLoadEmpty =
+    !isLoading && !isError && data?.meta.total === 0 && !fetchParams.search && statusList.length === 0;
 
-  if (isEmpty) {
+  if (isFirstLoadEmpty) {
     return (
       <div className="space-y-4">
         <h2 className="text-lg font-semibold">Invitations</h2>
@@ -250,7 +254,33 @@ export function PendingInvitationsList() {
         data={data?.data ?? []}
         pageCount={data?.meta.totalPages ?? 0}
         totalItems={data?.meta.total ?? 0}
-        isLoading={isLoading}
+        // isFetching covers first load AND refetches (sort/search/page) — RQ's
+        // isLoading is only true on the very first fetch, which would hide the
+        // spinner whenever the user changed a filter.
+        isLoading={isFetching}
+        renderLoading={() => (
+          <div className="flex h-32 items-center justify-center">
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        // Only override the default empty state when there's an actual error.
+        {...(isError && {
+          renderEmpty: () => (
+            <div className="flex h-32 flex-col items-center justify-center gap-2">
+              <AlertCircle className="size-6 text-destructive" />
+              <span className="text-sm text-muted-foreground">Failed to load invitations</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                disabled={isFetching}
+              >
+                <RefreshCw className={`mr-1 size-3 ${isFetching ? 'animate-spin' : ''}`} />
+                Try again
+              </Button>
+            </div>
+          ),
+        })}
         onFetch={handleFetch}
         initialPageSize={10}
         searchConfig={{
@@ -261,6 +291,7 @@ export function PendingInvitationsList() {
           {
             id: 'status',
             label: 'Status',
+            multiSelect: true,
             options: [
               { label: 'Pending', value: 'PENDING' },
               { label: 'Accepted', value: 'ACCEPTED' },
