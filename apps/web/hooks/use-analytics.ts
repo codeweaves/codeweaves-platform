@@ -7,6 +7,13 @@ import { useAuth } from '@/hooks/use-auth';
 export interface AnalyticsParams {
   startDate: string;
   endDate: string;
+  /**
+   * IANA timezone name (e.g. `Asia/Kolkata`, `America/New_York`, or `UTC`).
+   * Determines how the [startDate, endDate] range is interpreted server-side
+   * AND how time-bucketed charts (daily counts, hour-of-day heatmap) are
+   * grouped. Defaults to `UTC` if omitted.
+   */
+  timezone?: string;
   /** Single agent filter (legacy, still supported) */
   agentId?: string;
   /** Multiple agent filter */
@@ -107,6 +114,7 @@ function buildQueryString(params: AnalyticsParams, extra?: Record<string, string
   const qp = new URLSearchParams();
   qp.set('startDate', params.startDate);
   qp.set('endDate', params.endDate);
+  if (params.timezone) qp.set('timezone', params.timezone);
   if (params.agentId) qp.set('agentId', params.agentId);
   if (params.agentIds && params.agentIds.length > 0) qp.set('agentIds', params.agentIds.join(','));
   if (params.orgId) qp.set('orgId', params.orgId);

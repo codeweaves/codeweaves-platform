@@ -6,12 +6,21 @@ import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import type { MessageVolumeResponse } from '@/hooks/use-analytics';
+import { TimezoneToggle, type TzMode } from './timezone-toggle';
 
 interface MessageVolumeHeatmapProps {
   data?: MessageVolumeResponse;
   isLoading: boolean;
   isError?: boolean;
   className?: string;
+  /**
+   * Controlled TZ mode for the analytics page. When provided, the heatmap
+   * card header renders a Local/UTC toggle next to its title — this is
+   * where the toggle's effect is most visible (day-of-week + hour buckets
+   * follow the user's timezone).
+   */
+  tzMode?: TzMode;
+  onTzModeChange?: (mode: TzMode) => void;
 }
 
 // API returns day: 0=Sun, 1=Mon, ..., 6=Sat
@@ -47,8 +56,18 @@ interface HoverInfo {
   y: number;
 }
 
-export function MessageVolumeHeatmap({ data, isLoading, isError, className }: MessageVolumeHeatmapProps) {
+export function MessageVolumeHeatmap({
+  data,
+  isLoading,
+  isError,
+  className,
+  tzMode,
+  onTzModeChange,
+}: MessageVolumeHeatmapProps) {
   const [hover, setHover] = useState<HoverInfo | null>(null);
+  const tzControl = tzMode && onTzModeChange ? (
+    <TimezoneToggle mode={tzMode} onChange={onTzModeChange} />
+  ) : null;
 
   const handleCellEnter = useCallback(
     (e: React.MouseEvent, day: string, hour: number, count: number) => {
@@ -74,8 +93,9 @@ export function MessageVolumeHeatmap({ data, isLoading, isError, className }: Me
   if (isLoading) {
     return (
       <Card className={cn('lg:col-span-2', className)}>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base font-medium">Message Volume by Hour</CardTitle>
+          {tzControl}
         </CardHeader>
         <CardContent>
           <Skeleton className="h-56 w-full" />
@@ -87,8 +107,9 @@ export function MessageVolumeHeatmap({ data, isLoading, isError, className }: Me
   if (isError) {
     return (
       <Card className={cn('lg:col-span-2', className)}>
-        <CardHeader>
+        <CardHeader className="flex flex-row items-center justify-between space-y-0">
           <CardTitle className="text-base font-medium">Message Volume by Hour</CardTitle>
+          {tzControl}
         </CardHeader>
         <CardContent>
           <div className="flex h-56 items-center justify-center gap-2 text-sm text-destructive">

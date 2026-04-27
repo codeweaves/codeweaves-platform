@@ -64,8 +64,9 @@ describe('AnalyticsService', () => {
   };
 
   const baseQuery = {
-    startDate: new Date('2026-01-01'),
-    endDate: new Date('2026-01-31'),
+    startDate: '2026-01-01',
+    endDate: '2026-01-31',
+    timezone: 'UTC',
   };
 
   // Helper to mock all $queryRaw calls needed for getSummary (8 calls total):
@@ -245,7 +246,8 @@ describe('AnalyticsService', () => {
 
       expect(result.period).toBeDefined();
       expect(result.period.start).toBe('2026-01-01T00:00:00.000Z');
-      expect(result.period.end).toBe('2026-01-31T00:00:00.000Z');
+      // Exclusive upper bound = start of the day after endDate in the requested timezone.
+      expect(result.period.end).toBe('2026-02-01T00:00:00.000Z');
 
       // Check KPI structure
       expect(result.kpis.totalUsers).toHaveProperty('value');

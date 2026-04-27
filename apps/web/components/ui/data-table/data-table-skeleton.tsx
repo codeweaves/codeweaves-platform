@@ -1,44 +1,33 @@
+import { Fragment } from 'react';
 import { Skeleton } from '@/components/ui/skeleton';
-import {
-  Table,
-  TableBody,
-  TableCell,
-  TableHead,
-  TableHeader,
-  TableRow,
-} from '@/components/ui/table';
+import { TableCell, TableRow } from '@/components/ui/table';
 
 interface DataTableSkeletonProps {
   columnCount: number;
   rowCount?: number;
 }
 
+/**
+ * Renders skeleton placeholder rows for a DataTable's body. Outputs only
+ * <TableRow>s (no wrapping <Table> / <TableBody>) so it can be placed
+ * directly inside the parent DataTable's existing <TableBody> without
+ * producing invalid HTML (<tbody><div>...</tbody>).
+ */
 export function DataTableSkeleton({
   columnCount,
   rowCount = 10,
 }: DataTableSkeletonProps) {
   return (
-    <Table>
-      <TableHeader>
-        <TableRow>
-          {Array.from({ length: columnCount }).map((_, index) => (
-            <TableHead key={index}>
-              <Skeleton className="h-4 w-24" />
-            </TableHead>
+    <Fragment>
+      {Array.from({ length: rowCount }).map((_, rowIndex) => (
+        <TableRow key={rowIndex}>
+          {Array.from({ length: columnCount }).map((_, cellIndex) => (
+            <TableCell key={cellIndex}>
+              <Skeleton className="h-4 w-full" />
+            </TableCell>
           ))}
         </TableRow>
-      </TableHeader>
-      <TableBody>
-        {Array.from({ length: rowCount }).map((_, rowIndex) => (
-          <TableRow key={rowIndex}>
-            {Array.from({ length: columnCount }).map((_, cellIndex) => (
-              <TableCell key={cellIndex}>
-                <Skeleton className="h-4 w-full" />
-              </TableCell>
-            ))}
-          </TableRow>
-        ))}
-      </TableBody>
-    </Table>
+      ))}
+    </Fragment>
   );
 }

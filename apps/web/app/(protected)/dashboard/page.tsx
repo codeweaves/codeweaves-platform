@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useAuth } from '@/hooks/use-auth';
-import { Bot, Palette, BarChart3, Users, Settings } from 'lucide-react';
+import { Bot, BarChart3, Users, Settings } from 'lucide-react';
 import {
   Card,
   CardHeader,
@@ -16,12 +16,6 @@ const quickLinks = [
     description: 'Manage your AI chat agents',
     href: '/dashboard/agents',
     icon: Bot,
-  },
-  {
-    title: 'Theme Editor',
-    description: 'Customize your widget appearance',
-    href: '/dashboard/theme',
-    icon: Palette,
   },
   {
     title: 'Analytics',
