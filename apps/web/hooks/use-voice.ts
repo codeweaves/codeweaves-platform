@@ -25,6 +25,7 @@ const ERROR_MESSAGES: { [key: string]: string | undefined } = {
   PROVIDER_UNAVAILABLE: 'Voice service temporarily unavailable',
   INVALID_AUDIO: 'Audio recording was not valid. Please try again.',
   AUDIO_TOO_SHORT: 'Recording was too short. Please speak longer.',
+  NO_SPEECH_DETECTED: "We couldn't make that out. Please try again from a quieter spot.",
   RATE_LIMITED: 'Too many voice requests. Please wait.',
 };
 
@@ -330,6 +331,10 @@ export function useVoice({
         callbacks: {
           onTranscription: (text: string) => {
             onTranscriptionRef.current?.(text, '');
+            // Drop out of 'processing' as soon as the transcript lands so the user
+            // never sits looking at "Transcribing…" while we wait for the bot's audio.
+            // Audio chunks arriving next flip state to 'playing' independently.
+            setVoiceStateSynced('idle');
           },
           onAudioChunk: (chunk: VoiceAudioChunk) => {
             if (!receivedFirstAudio) {

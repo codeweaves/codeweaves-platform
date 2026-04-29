@@ -15,8 +15,6 @@ import {
   UserIcon,
   UserCheckIcon,
   MicIcon,
-  SquareIcon,
-  Loader2Icon,
   Volume2Icon,
   MessageCircleIcon,
   ArrowUpIcon,
@@ -24,6 +22,7 @@ import {
 import { messages as messagesSignal, showTyping, widgetState, isLoading, isStreaming, isRateLimited } from '../state/chat-store';
 import { useChat } from '../hooks/useChat';
 import { useVoice } from '../hooks/useVoice';
+import { VoiceRecordingBar } from './VoiceRecordingBar';
 import { isSafeUrl } from '../utils/url';
 import { renderMarkdown } from '../utils/simple-markdown';
 import type { AgentConfig } from '../types';
@@ -198,16 +197,17 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
   const {
     voiceState,
     isSupported: voiceIsSupported,
+    recordingDurationMs,
     startRecording,
     stopRecording,
+    cancelRecording,
     stopPlayback,
     error: voiceError,
     clearError: clearVoiceError,
+    getAnalyser: getVoiceAnalyser,
   } = useVoice({
     agentId,
     voiceEnabled,
-    // Don't send language hint — let the backend route to Sarvam for auto-detect
-    voiceLanguage: undefined,
     voiceAutoPlay: true,
     onTranscription: useCallback((text: string) => {
       addUserMessage(text);
@@ -526,6 +526,18 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                 : 'none',
             }}
           >
+            {(voiceState === 'listening' || voiceState === 'processing') ? (
+              <VoiceRecordingBar
+                voiceState={voiceState}
+                recordingDurationMs={recordingDurationMs}
+                onCancel={cancelRecording}
+                onSend={stopRecording}
+                sendBtnColor={str(sendBtn, 'backgroundColor', '#3b82f6')}
+                sendBtnIconColor={str(sendBtn, 'iconColor', '#ffffff')}
+                getAnalyser={getVoiceAnalyser}
+              />
+            ) : (
+              <>
             <textarea
               ref={inputRef}
               value={inputValue}
@@ -547,26 +559,21 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
             />
             <div class="cw-input-actions mt-2 flex items-center justify-between">
               <div class="cw-input-left-actions flex items-center gap-1">
+                {/* Mic button only renders in idle/playing — recording + processing states
+                 *  swap the entire input wrapper for VoiceRecordingBar (above). */}
                 {showVoice && (
                   <button
                     onClick={() => {
                       if (voiceState === 'idle') startRecording();
-                      else if (voiceState === 'listening') stopRecording();
                       else if (voiceState === 'playing') stopPlayback();
                     }}
-                    aria-label={voiceState === 'idle' ? 'Start recording' : voiceState === 'listening' ? 'Stop recording' : 'Stop playback'}
+                    aria-label={voiceState === 'idle' ? 'Start recording' : 'Stop playback'}
                     class={`cw-voice-btn cw-voice-btn--${voiceState} relative flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-gray-500 hover:text-gray-800`}
                     style={{
-                      color: voiceState === 'listening' ? '#EF4444' : voiceState === 'playing' ? '#F97316' : undefined,
-                      opacity: voiceState === 'processing' ? 0.6 : 1,
+                      color: voiceState === 'playing' ? '#F97316' : undefined,
                     }}
                   >
-                    {voiceState === 'listening' && (
-                      <span class="cw-voice-pulse absolute inset-0 animate-ping rounded-full bg-red-400 opacity-30" />
-                    )}
                     {voiceState === 'idle' && <MicIcon class="h-4 w-4" />}
-                    {voiceState === 'listening' && <SquareIcon class="relative h-3.5 w-3.5" />}
-                    {voiceState === 'processing' && <Loader2Icon class="h-4 w-4" />}
                     {voiceState === 'playing' && <Volume2Icon class="h-4 w-4" />}
                   </button>
                 )}
@@ -585,6 +592,8 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                 <ArrowUpIcon class="h-4 w-4" />
               </button>
             </div>
+              </>
+            )}
           </div>
         </div>
 

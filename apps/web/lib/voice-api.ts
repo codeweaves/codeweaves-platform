@@ -107,42 +107,11 @@ function buildFormData(params: {
 }
 
 /**
- * Legacy non-streaming voice conversation.
- * Used as fallback when backend returns JSON instead of NDJSON.
- */
-export async function sendVoiceConversation(params: {
-  audio: Blob;
-  agentId: string;
-  sessionId?: string;
-  languageHint?: string;
-  source?: string;
-  signal?: AbortSignal;
-}): Promise<VoiceConversationResponse> {
-  const formData = buildFormData(params);
-
-  const response = await fetch(apiUrl('/public/voice/conversation'), {
-    method: 'POST',
-    body: formData,
-    signal: params.signal,
-  });
-
-  if (!response.ok) {
-    let errorCode: string | undefined;
-    try {
-      const body = await response.json();
-      errorCode = body?.errorCode;
-    } catch {
-      // Response body not JSON — leave errorCode undefined
-    }
-    throw new VoiceApiError(response, errorCode);
-  }
-
-  return response.json();
-}
-
-/**
  * Streaming voice conversation — reads NDJSON audio chunks progressively.
  * Returns session/message IDs from response headers.
+ *
+ * Note: The legacy non-streaming `sendVoiceConversation` helper was removed when the
+ * backend was switched to streaming-only. Every voice consumer now goes through here.
  */
 export async function streamVoiceConversation(params: {
   audio: Blob;

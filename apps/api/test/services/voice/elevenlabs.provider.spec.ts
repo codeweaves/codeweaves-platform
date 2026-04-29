@@ -523,4 +523,181 @@ describe('ElevenLabsProvider', () => {
       );
     });
   });
+
+  describe('listVoices', () => {
+    it('should call /v1/voices with the API key and return mapped voices', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          voices: [
+            {
+              voice_id: 'voice-1',
+              name: 'Rachel',
+              preview_url: 'https://cdn.elevenlabs.io/voice-1.mp3',
+              labels: {
+                gender: 'female',
+                language: 'english',
+                description: 'calm',
+                use_case: 'narration',
+                age: 'young',
+              },
+              category: 'premade',
+              high_quality_base_model_ids: ['eleven_multilingual_v2'],
+            },
+            {
+              voice_id: 'voice-2',
+              name: 'Aditya',
+              preview_url: 'https://cdn.elevenlabs.io/voice-2.mp3',
+              labels: { gender: 'male', accent: 'hindi' },
+              category: 'premade',
+              // Empty compat list — should still pass filter
+              high_quality_base_model_ids: [],
+            },
+          ],
+        }),
+      });
+
+      const voices = await provider.listVoices();
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        'https://api.elevenlabs.io/v1/voices',
+        expect.objectContaining({
+          method: 'GET',
+          headers: expect.objectContaining({ 'xi-api-key': 'test-elevenlabs-key' }),
+        }),
+      );
+      expect(voices).toHaveLength(2);
+      // Rachel: full label set, expect description · use_case · age combined
+      expect(voices[0]).toEqual({
+        id: 'voice-1',
+        name: 'Rachel',
+        gender: 'female',
+        languages: ['en'],
+        category: 'calm · narration · young',
+        previewUrl: 'https://cdn.elevenlabs.io/voice-1.mp3',
+      });
+      // Aditya: only accent label survives, no description/use_case/age
+      expect(voices[1]).toEqual({
+        id: 'voice-2',
+        name: 'Aditya',
+        gender: 'male',
+        languages: ['hi'],
+        category: 'hindi',
+        previewUrl: 'https://cdn.elevenlabs.io/voice-2.mp3',
+      });
+    });
+
+    it('should cap descriptor at 3 parts and skip empty/whitespace labels', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          voices: [
+            {
+              voice_id: 'verbose',
+              name: 'Verbose',
+              labels: {
+                description: 'deep',
+                use_case: 'conversational',
+                age: 'middle-aged',
+                accent: 'british',
+                gender: '   ',
+              },
+              high_quality_base_model_ids: [],
+            },
+          ],
+        }),
+      });
+
+      const voices = await provider.listVoices();
+      expect(voices[0]?.category).toBe('deep · conversational · middle-aged');
+      expect(voices[0]?.gender).toBeUndefined();
+    });
+
+    it('should filter out voices not compatible with eleven_multilingual_v2', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          voices: [
+            {
+              voice_id: 'compatible',
+              name: 'Compatible',
+              high_quality_base_model_ids: ['eleven_multilingual_v2', 'eleven_turbo_v2'],
+            },
+            {
+              voice_id: 'incompatible',
+              name: 'Incompatible',
+              high_quality_base_model_ids: ['eleven_turbo_v2'],
+            },
+          ],
+        }),
+      });
+
+      const voices = await provider.listVoices();
+      expect(voices.map((v) => v.id)).toEqual(['compatible']);
+    });
+
+    it('should handle voices with no labels gracefully', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({
+          voices: [{ voice_id: 'bare', name: 'Bare', high_quality_base_model_ids: [] }],
+        }),
+      });
+
+      const voices = await provider.listVoices();
+      expect(voices).toEqual([
+        {
+          id: 'bare',
+          name: 'Bare',
+          gender: undefined,
+          languages: undefined,
+          category: undefined,
+          previewUrl: undefined,
+        },
+      ]);
+    });
+
+    it('should throw VoiceProviderError on non-OK response', async () => {
+      mockFetch.mockResolvedValueOnce({
+        ok: false,
+        status: 401,
+        statusText: 'Unauthorized',
+        json: async () => ({ detail: { status: 'unauthorized', message: 'Bad API key' } }),
+      });
+
+      await expect(provider.listVoices()).rejects.toBeInstanceOf(VoiceProviderError);
+    });
+
+    it('should map a timeout to a 504 VoiceProviderError', async () => {
+      mockFetch.mockRejectedValueOnce(Object.assign(new Error('aborted'), { name: 'TimeoutError' }));
+
+      try {
+        await provider.listVoices();
+        fail('Should have thrown');
+      } catch (e) {
+        expect(e).toBeInstanceOf(VoiceProviderError);
+        expect((e as VoiceProviderError).getStatus()).toBe(HttpStatus.GATEWAY_TIMEOUT);
+      }
+    });
+  });
+
+  describe('synthesizePreview (Opus — no MP3 priming silence, free-tier compatible)', () => {
+    const ttsRequest: TTSRequest = { text: 'Hello world', language: 'en', agentId: 'a-1' };
+
+    it('should request opus_48000_32 (not mp3) and return audio/ogg', async () => {
+      mockFetch.mockResolvedValueOnce({ ok: true, arrayBuffer: async () => new ArrayBuffer(8) });
+
+      const result = await provider.synthesizePreview(ttsRequest);
+
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.stringContaining('output_format=opus_48000_32'),
+        expect.any(Object),
+      );
+      expect(mockFetch).toHaveBeenCalledWith(
+        expect.not.stringContaining('mp3_44100'),
+        expect.any(Object),
+      );
+      expect(result.audioFormat).toBe('audio/ogg');
+    });
+  });
 });
