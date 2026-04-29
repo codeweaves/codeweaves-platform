@@ -1,0 +1,43 @@
+# VCS / editor
+.git
+.gitignore
+.gitattributes
+.vscode
+.idea
+.cursor
+.claude
+
+# Dependencies & build outputs (rebuilt inside the image)
+node_modules
+**/node_modules
+**/dist
+**/.next
+**/.turbo
+**/coverage
+
+# Logs & local dumps
+**/*.log
+**/npm-debug.log*
+**/yarn-debug.log*
+**/yarn-error.log*
+
+# Env files — secrets must come from `fly secrets set`, never the image
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Test artifacts / fixtures
+**/test-results
+**/playwright-report
+test-pages
+
+# Docs (not needed at runtime)
+docs
+*.md
+
+# OS junk
+.DS_Store
+Thumbs.db

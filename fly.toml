@@ -1,0 +1,37 @@
+# fly.toml — Codeweaves API
+# Docs: https://fly.io/docs/reference/configuration/
+
+app            = "codeweaves-api"
+primary_region = "bom"
+
+[build]
+  dockerfile = "Dockerfile"
+
+# Runs in a transient VM after a successful build, before the new release
+# becomes live. If migrations fail, the deploy is aborted automatically.
+[deploy]
+  release_command = "sh -c 'cd /app/apps/api && ./node_modules/.bin/prisma migrate deploy'"
+
+[env]
+  NODE_ENV = "production"
+  PORT     = "3001"
+
+[http_service]
+  internal_port       = 3001
+  force_https         = true
+  auto_stop_machines  = "stop"   # scale to 0 when idle (cheap). Switch to "off" if you need always-warm.
+  auto_start_machines = true
+  min_machines_running = 0       # set to 1 to avoid cold starts
+  processes           = ["app"]
+
+  # Health check hits the public /health route (excluded from global prefix in main.ts)
+  [[http_service.checks]]
+    grace_period = "15s"
+    interval     = "30s"
+    method       = "GET"
+    timeout      = "5s"
+    path         = "/health"
+
+[[vm]]
+  size   = "shared-cpu-1x"
+  memory = "1gb"          # Nest + Prisma + Sentry comfortably; bump to 2gb if RSS climbs

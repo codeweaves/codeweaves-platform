@@ -1,0 +1,69 @@
+name: Deploy API to Fly
+
+# Triggered ONLY after the CI workflow completes successfully on develop.
+# This guarantees we never ship a build that failed lint/typecheck/test.
+on:
+  workflow_run:
+    workflows: ["CI"]
+    types: [completed]
+    branches: [develop]
+  # Manual escape hatch — useful for re-deploys without a code change
+  # (e.g. after rotating a secret).
+  workflow_dispatch:
+
+concurrency:
+  group: fly-deploy-api
+  cancel-in-progress: false
+
+jobs:
+  deploy:
+    name: Deploy API
+    runs-on: ubuntu-latest
+    # Only run when:
+    #  - manually dispatched, OR
+    #  - upstream CI succeeded AND was triggered by a push (skip PR runs)
+    if: |
+      github.event_name == 'workflow_dispatch' ||
+      (github.event.workflow_run.conclusion == 'success' &&
+       github.event.workflow_run.event == 'push')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          # workflow_run runs in the *default branch* context by default —
+          # explicitly check out the SHA that CI just validated.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+          fetch-depth: 2  # need HEAD~1 for the diff below
+
+      - name: Detect API-relevant changes
+        id: changes
+        shell: bash
+        run: |
+          if [ "${{ github.event_name }}" = "workflow_dispatch" ]; then
+            echo "Manual dispatch — forcing deploy."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          changed=$(git diff --name-only HEAD~1 HEAD)
+          echo "Changed files in this push:"
+          echo "$changed"
+
+          if echo "$changed" | grep -Eq '^(apps/api/|packages/|Dockerfile$|\.dockerignore$|fly\.toml$|bun\.lock$|turbo\.json$)'; then
+            echo "API-relevant changes detected — deploying."
+            echo "deploy=true" >> "$GITHUB_OUTPUT"
+          else
+            echo "No API-relevant changes — skipping Fly deploy."
+            echo "deploy=false" >> "$GITHUB_OUTPUT"
+          fi
+
+      - name: Setup flyctl
+        if: steps.changes.outputs.deploy == 'true'
+        uses: superfly/flyctl-actions/setup-flyctl@master
+
+      - name: Deploy to Fly
+        if: steps.changes.outputs.deploy == 'true'
+        run: flyctl deploy --remote-only --app codeweaves-api
+        env:
+          FLY_API_TOKEN: ${{ secrets.FLY_API_TOKEN }}
