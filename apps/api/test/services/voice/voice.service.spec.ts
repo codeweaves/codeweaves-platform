@@ -210,9 +210,101 @@ describe('VoiceService', () => {
       expect(sarvamProvider.transcribe).toHaveBeenCalled();
     });
 
-    it('should default to Sarvam for auto-detect when no language hint provided', async () => {
+    it('should detect via Sarvam then transcribe via Deepgram for English audio', async () => {
+      // Mock Sarvam returns English detected
+      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
+        transcript: 'hello (sarvam English — discarded)',
+        confidence: 0.9,
+        detectedLanguage: 'en',
+        provider: 'sarvam',
+        latencyMs: 980,
+      });
+      (deepgramProvider.transcribe as jest.Mock).mockResolvedValueOnce({
+        transcript: 'hello (deepgram is the trusted answer)',
+        confidence: 0.95,
+        detectedLanguage: 'en',
+        provider: 'deepgram',
+        latencyMs: 200,
+      });
+
       const result = await service.transcribe(makeSTTRequest());
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
+
+      expect(sarvamProvider.transcribe).toHaveBeenCalledTimes(1);
+      expect(deepgramProvider.transcribe).toHaveBeenCalledTimes(1);
+      expect((deepgramProvider.transcribe as jest.Mock).mock.calls[0][0].languageHint).toBe('en');
+      expect(result.provider).toBe('deepgram');
+      expect(result.transcript).toBe('hello (deepgram is the trusted answer)');
+    });
+
+    it('should keep Sarvam result when an Indian language is detected (no second call)', async () => {
+      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
+        transcript: 'नमस्ते',
+        confidence: 0.9,
+        detectedLanguage: 'hi',
+        provider: 'sarvam',
+        latencyMs: 980,
+      });
+
+      const result = await service.transcribe(makeSTTRequest());
+
+      expect(sarvamProvider.transcribe).toHaveBeenCalledTimes(1);
+      expect(deepgramProvider.transcribe).not.toHaveBeenCalled();
+      expect(result.provider).toBe('sarvam');
+      expect(result.transcript).toBe('नमस्ते');
+    });
+
+    it('should accept Sarvam empty transcript for Indian languages (no retry helps)', async () => {
+      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
+        transcript: '',
+        confidence: 0.9,
+        detectedLanguage: 'hi',
+        provider: 'sarvam',
+        latencyMs: 980,
+      });
+
+      const result = await service.transcribe(makeSTTRequest());
+      expect(sarvamProvider.transcribe).toHaveBeenCalledTimes(1);
+      expect(deepgramProvider.transcribe).not.toHaveBeenCalled();
+      expect(result.transcript).toBe('');
+    });
+
+    it('should fall back to ElevenLabs when Deepgram throws on English transcription', async () => {
+      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
+        transcript: '',
+        confidence: 0.9,
+        detectedLanguage: 'en',
+        provider: 'sarvam',
+        latencyMs: 100,
+      });
+      (deepgramProvider.transcribe as jest.Mock).mockRejectedValueOnce(new Error('Deepgram down'));
+      (elevenLabsProvider.transcribe as jest.Mock).mockResolvedValueOnce({
+        transcript: 'hello (elevenlabs)',
+        confidence: 0.92,
+        detectedLanguage: 'en',
+        provider: 'elevenlabs',
+        latencyMs: 220,
+      });
+
+      const result = await service.transcribe(makeSTTRequest());
+
+      expect(deepgramProvider.transcribe).toHaveBeenCalled();
+      expect(elevenLabsProvider.transcribe).toHaveBeenCalled();
+      expect(result.provider).toBe('elevenlabs');
+    });
+
+    it('should fall back to Sarvam transcript when both Deepgram and ElevenLabs throw', async () => {
+      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
+        transcript: 'hello (sarvam fallback of last resort)',
+        confidence: 0.9,
+        detectedLanguage: 'en',
+        provider: 'sarvam',
+        latencyMs: 100,
+      });
+      (deepgramProvider.transcribe as jest.Mock).mockRejectedValueOnce(new Error('Deepgram down'));
+      (elevenLabsProvider.transcribe as jest.Mock).mockRejectedValueOnce(new Error('EL down'));
+
+      const result = await service.transcribe(makeSTTRequest());
+      expect(result.transcript).toBe('hello (sarvam fallback of last resort)');
       expect(result.provider).toBe('sarvam');
     });
 
@@ -532,6 +624,210 @@ describe('VoiceService', () => {
     it('should be instanceof VoiceProviderError', () => {
       const error = new UnsupportedLanguageError('deepgram', 'hi');
       expect(error).toBeInstanceOf(VoiceProviderError);
+    });
+  });
+
+  describe('synthesize: voice config enrichment', () => {
+    it('should inject config.ttsVoiceId into requests that omit voiceId (widget legacy path)', async () => {
+      mockPrisma.agent.findUnique.mockResolvedValue({
+        voiceEnabled: true,
+        voiceConfig: { sttEnabled: true, ttsEnabled: true, ttsVoiceId: 'configured-voice', defaultLanguage: 'en', supportedLanguages: ['en'], ttsSpeed: 1.0, autoDetectLanguage: true },
+      });
+
+      await service.synthesize({ text: 'hi', language: 'en', agentId: 'agent-1' });
+
+      const passedRequest = (elevenLabsProvider.synthesize as jest.Mock).mock.calls.at(-1)?.[0];
+      expect(passedRequest?.voiceId).toBe('configured-voice');
+    });
+
+    it('should let caller-supplied voiceId override config (public synthesize endpoint)', async () => {
+      mockPrisma.agent.findUnique.mockResolvedValue({
+        voiceEnabled: true,
+        voiceConfig: { sttEnabled: true, ttsEnabled: true, ttsVoiceId: 'configured-voice', defaultLanguage: 'en', supportedLanguages: ['en'], ttsSpeed: 1.0, autoDetectLanguage: true },
+      });
+
+      await service.synthesize({ text: 'hi', language: 'en', agentId: 'agent-1', voiceId: 'caller-override' });
+
+      const passedRequest = (elevenLabsProvider.synthesize as jest.Mock).mock.calls.at(-1)?.[0];
+      expect(passedRequest?.voiceId).toBe('caller-override');
+    });
+  });
+
+  describe('listAllVoices', () => {
+    beforeEach(() => {
+      service.clearVoiceListCache();
+    });
+
+    it('should return only providers that implement listVoices()', async () => {
+      // Attach listVoices to elevenlabs only — sarvam/deepgram remain catalog-less in this test
+      (elevenLabsProvider as VoiceProvider & { listVoices: jest.Mock }).listVoices = jest
+        .fn()
+        .mockResolvedValue([{ id: 'el-1', name: 'Rachel' }]);
+
+      const result = await service.listAllVoices();
+
+      expect(result).toEqual([
+        { provider: 'elevenlabs', voices: [{ id: 'el-1', name: 'Rachel' }] },
+      ]);
+    });
+
+    it('should aggregate across multiple providers', async () => {
+      (sarvamProvider as VoiceProvider & { listVoices: jest.Mock }).listVoices = jest
+        .fn()
+        .mockResolvedValue([{ id: 'anushka', name: 'Anushka' }]);
+      (elevenLabsProvider as VoiceProvider & { listVoices: jest.Mock }).listVoices = jest
+        .fn()
+        .mockResolvedValue([{ id: 'el-1', name: 'Rachel' }]);
+
+      const result = await service.listAllVoices();
+
+      const providers = result.map((p) => p.provider).sort();
+      expect(providers).toEqual(['elevenlabs', 'sarvam']);
+    });
+
+    it('should cache results — a second call must not re-invoke providers', async () => {
+      const elList = jest.fn().mockResolvedValue([{ id: 'el-1', name: 'Rachel' }]);
+      (elevenLabsProvider as VoiceProvider & { listVoices: jest.Mock }).listVoices = elList;
+
+      await service.listAllVoices();
+      await service.listAllVoices();
+
+      expect(elList).toHaveBeenCalledTimes(1);
+    });
+
+    it('should coalesce concurrent first calls into a single upstream request', async () => {
+      const elList = jest
+        .fn()
+        .mockImplementation(
+          () => new Promise((r) => setTimeout(() => r([{ id: 'el-1', name: 'Rachel' }]), 10)),
+        );
+      (elevenLabsProvider as VoiceProvider & { listVoices: jest.Mock }).listVoices = elList;
+
+      await Promise.all([service.listAllVoices(), service.listAllVoices(), service.listAllVoices()]);
+
+      expect(elList).toHaveBeenCalledTimes(1);
+    });
+
+    it('should not fail the whole call when one provider throws — degraded list', async () => {
+      (sarvamProvider as VoiceProvider & { listVoices: jest.Mock }).listVoices = jest
+        .fn()
+        .mockRejectedValue(new Error('Sarvam down'));
+      (elevenLabsProvider as VoiceProvider & { listVoices: jest.Mock }).listVoices = jest
+        .fn()
+        .mockResolvedValue([{ id: 'el-1', name: 'Rachel' }]);
+
+      const result = await service.listAllVoices();
+
+      const sarvam = result.find((p) => p.provider === 'sarvam');
+      const elevenlabs = result.find((p) => p.provider === 'elevenlabs');
+      expect(sarvam?.voices).toEqual([]);
+      expect(elevenlabs?.voices).toEqual([{ id: 'el-1', name: 'Rachel' }]);
+    });
+
+    it('clearVoiceListCache should force a refetch', async () => {
+      const elList = jest.fn().mockResolvedValue([{ id: 'el-1', name: 'Rachel' }]);
+      (elevenLabsProvider as VoiceProvider & { listVoices: jest.Mock }).listVoices = elList;
+
+      await service.listAllVoices();
+      service.clearVoiceListCache();
+      await service.listAllVoices();
+
+      expect(elList).toHaveBeenCalledTimes(2);
+    });
+  });
+
+  describe('previewVoice', () => {
+    beforeEach(() => {
+      service.clearVoicePreviewCache();
+    });
+
+    it('should call the requested provider with sample text and return audio', async () => {
+      const result = await service.previewVoice('elevenlabs', 'voice-1', 'en');
+
+      expect(elevenLabsProvider.synthesize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          voiceId: 'voice-1',
+          language: 'en',
+          speed: 1.0,
+        }),
+      );
+      const passedRequest = (elevenLabsProvider.synthesize as jest.Mock).mock.calls[0][0];
+      expect(passedRequest.text.length).toBeGreaterThan(0);
+      expect(result.audio).toEqual(Buffer.from('audio-from-elevenlabs'));
+      expect(result.audioFormat).toBe('audio/mp3');
+    });
+
+    it('should personalise the sample text with the voice name from the catalog', async () => {
+      (elevenLabsProvider as VoiceProvider & { listVoices: jest.Mock }).listVoices = jest
+        .fn()
+        .mockResolvedValue([{ id: 'voice-1', name: 'Rachel' }]);
+      service.clearVoiceListCache();
+
+      await service.previewVoice('elevenlabs', 'voice-1', 'en');
+
+      const passedRequest = (elevenLabsProvider.synthesize as jest.Mock).mock.calls[0][0];
+      expect(passedRequest.text).toContain('Rachel');
+    });
+
+    it('should fall back to a generic sample when the voice is not in the catalog', async () => {
+      // No listVoices on any provider — name lookup yields undefined
+      await service.previewVoice('elevenlabs', 'unknown-voice', 'en');
+
+      const passedRequest = (elevenLabsProvider.synthesize as jest.Mock).mock.calls[0][0];
+      expect(passedRequest.text.length).toBeGreaterThan(0);
+      expect(passedRequest.text).not.toContain('unknown-voice');
+    });
+
+    it('should default to English sample when language is omitted', async () => {
+      await service.previewVoice('elevenlabs', 'voice-1');
+      const passedRequest = (elevenLabsProvider.synthesize as jest.Mock).mock.calls[0][0];
+      expect(passedRequest.language).toBe('en');
+    });
+
+    it('should cache results by (provider, voiceId, language)', async () => {
+      await service.previewVoice('elevenlabs', 'voice-1', 'en');
+      await service.previewVoice('elevenlabs', 'voice-1', 'en');
+
+      expect(elevenLabsProvider.synthesize).toHaveBeenCalledTimes(1);
+    });
+
+    it('should treat different voiceIds as separate cache entries', async () => {
+      await service.previewVoice('elevenlabs', 'voice-1', 'en');
+      await service.previewVoice('elevenlabs', 'voice-2', 'en');
+
+      expect(elevenLabsProvider.synthesize).toHaveBeenCalledTimes(2);
+    });
+
+    it('should throw BadRequestException for an unknown / non-TTS provider', async () => {
+      await expect(service.previewVoice('deepgram', 'x', 'en')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+      await expect(service.previewVoice('made-up', 'x', 'en')).rejects.toBeInstanceOf(
+        BadRequestException,
+      );
+    });
+
+    it('should prefer synthesizePreview() (WAV) over synthesize() (MP3) when implemented', async () => {
+      const previewSpy = jest.fn().mockResolvedValue({
+        audio: Buffer.from('wav-bytes'),
+        audioFormat: 'audio/wav',
+        provider: 'elevenlabs',
+        latencyMs: 10,
+      });
+      (elevenLabsProvider as VoiceProvider & { synthesizePreview: jest.Mock }).synthesizePreview =
+        previewSpy;
+
+      const result = await service.previewVoice('elevenlabs', 'voice-1', 'en');
+
+      expect(previewSpy).toHaveBeenCalledTimes(1);
+      expect(elevenLabsProvider.synthesize).not.toHaveBeenCalled();
+      expect(result.audioFormat).toBe('audio/wav');
+    });
+
+    it('should fall back to synthesize() when a provider has no synthesizePreview()', async () => {
+      // sarvamProvider mock has no synthesizePreview attached — should hit synthesize
+      await service.previewVoice('sarvam', 'priya', 'hi');
+      expect(sarvamProvider.synthesize).toHaveBeenCalledTimes(1);
     });
   });
 });

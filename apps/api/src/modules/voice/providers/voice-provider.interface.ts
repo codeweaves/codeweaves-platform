@@ -73,6 +73,24 @@ export interface LanguageDetectionResponse {
 }
 
 // ============================================
+// Voice Listing Types
+// ============================================
+
+export interface VoiceListItem {
+  /** Provider-specific voice id sent back in synthesize requests (e.g. ElevenLabs voice_id, Sarvam speaker name). */
+  id: string;
+  /** Human-friendly display name. */
+  name: string;
+  /** ISO language codes the voice handles well. Empty/omitted = no provider hint. */
+  languages?: SupportedLanguage[];
+  gender?: 'male' | 'female' | 'neutral';
+  /** Optional short label (e.g. "Conversational", "Indian"). */
+  category?: string;
+  /** Optional public preview URL. When present, the client plays it directly. */
+  previewUrl?: string;
+}
+
+// ============================================
 // VoiceProvider Interface
 // ============================================
 
@@ -83,6 +101,12 @@ export interface VoiceProvider {
   transcribe(request: STTRequest): Promise<STTResponse>;
   synthesize(request: TTSRequest): Promise<TTSResponse>;
   detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse>;
+  /** Optional. Providers that don't expose a catalog (or aren't usable as TTS) can omit this. */
+  listVoices?(): Promise<VoiceListItem[]>;
+  /** Optional. Synthesize a short preview clip in a format that has no MP3 priming
+   *  silence — ElevenLabs uses Opus (pre-skip field handled by browsers), Sarvam uses
+   *  WAV. Production conversations stay on MP3 (synthesize) for bandwidth. */
+  synthesizePreview?(request: TTSRequest): Promise<TTSResponse>;
 }
 
 // ============================================

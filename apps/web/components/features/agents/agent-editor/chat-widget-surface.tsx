@@ -14,9 +14,9 @@ import {
   UserCheck,
   ArrowUp,
   Mic,
-  Square,
-  Loader2,
   Volume2,
+  Trash2,
+  Loader2,
 } from 'lucide-react';
 import type { PreviewFormData } from './agent-editor-context';
 
@@ -559,6 +559,62 @@ export function ChatWidgetSurface({
                   : 'none',
               }}
             >
+              {(previewVoiceState === 'listening' || previewVoiceState === 'processing') ? (
+                <div className="cw-voice-bar flex items-center gap-2 py-1">
+                  <button
+                    onClick={() => setPreviewVoiceState('idle')}
+                    aria-label="Cancel recording"
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-500"
+                  >
+                    <Trash2 className="h-4 w-4" />
+                  </button>
+                  <div className="flex flex-1 items-center justify-start gap-3 rounded-full bg-gray-50 px-3 py-1.5">
+                    {previewVoiceState === 'listening' ? (
+                      <>
+                        <span className="relative flex h-2 w-2">
+                          <span className="absolute inset-0 animate-ping rounded-full bg-red-400 opacity-75" />
+                          <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                        </span>
+                        <span className="text-sm font-medium tabular-nums text-gray-700">0:03</span>
+                        <div className="flex h-4 items-end gap-0.75">
+                          {[0, 1, 2, 3, 4].map((i) => (
+                            <span
+                              key={i}
+                              className="inline-block w-0.75 rounded-full bg-red-500"
+                              style={{
+                                height: '4px',
+                                animation: `cw-preview-wave 0.9s ease-in-out ${i * 0.1}s infinite`,
+                              }}
+                            />
+                          ))}
+                        </div>
+                        <style>{`@keyframes cw-preview-wave { 0%,100% { height: 4px; } 50% { height: 14px; } }`}</style>
+                      </>
+                    ) : (
+                      <>
+                        <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                        <span className="text-sm text-gray-600">Transcribing…</span>
+                      </>
+                    )}
+                  </div>
+                  <button
+                    onClick={() => {
+                      // Preview-only cycle: listening → processing → playing → idle.
+                      // Lets the editor user walk through all states without the mic
+                      // button (which hides while the bar is shown).
+                      setPreviewVoiceState((prev) =>
+                        prev === 'listening' ? 'processing' : prev === 'processing' ? 'playing' : 'idle',
+                      );
+                    }}
+                    aria-label={previewVoiceState === 'listening' ? 'Send voice message' : 'Advance preview'}
+                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
+                    style={{ backgroundColor: formData.sendButtonBg, color: formData.sendButtonIconColor || '#FFFFFF' }}
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </button>
+                </div>
+              ) : (
+              <>
               <textarea
                 ref={inputRef}
                 value={inputValue}
@@ -576,29 +632,18 @@ export function ChatWidgetSurface({
               />
               <div className="cw-input-actions mt-2 flex items-center justify-between">
                 <div className="cw-input-left-actions flex items-center gap-1">
+                  {/* Mic button shows only in idle/playing — listening/processing render the
+                   *  WhatsApp-style recording bar above (replacing the entire textarea row). */}
                   {formData.voiceEnabled && (
                     <button
                       onClick={cycleVoiceState}
-                      aria-label={
-                        previewVoiceState === 'idle' ? 'Start recording' :
-                        previewVoiceState === 'listening' ? 'Stop recording' :
-                        previewVoiceState === 'processing' ? 'Processing voice' :
-                        'Stop playback'
-                      }
+                      aria-label={previewVoiceState === 'idle' ? 'Start recording' : 'Stop playback'}
                       className={`cw-voice-btn cw-voice-btn--${previewVoiceState} relative flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-gray-500 hover:text-gray-800`}
                       style={{
-                        color: previewVoiceState === 'listening' ? '#EF4444' :
-                          previewVoiceState === 'playing' ? '#F97316' :
-                          undefined,
-                        opacity: previewVoiceState === 'processing' ? 0.6 : 1,
+                        color: previewVoiceState === 'playing' ? '#F97316' : undefined,
                       }}
                     >
-                      {previewVoiceState === 'listening' && (
-                        <span className="cw-voice-pulse absolute inset-0 animate-ping rounded-full bg-red-400 opacity-30" />
-                      )}
                       {previewVoiceState === 'idle' && <Mic className="h-4 w-4" />}
-                      {previewVoiceState === 'listening' && <Square className="relative h-3.5 w-3.5 fill-current" />}
-                      {previewVoiceState === 'processing' && <Loader2 className="h-4 w-4 animate-spin" />}
                       {previewVoiceState === 'playing' && <Volume2 className="h-4 w-4" />}
                     </button>
                   )}
@@ -617,6 +662,8 @@ export function ChatWidgetSurface({
                   <ArrowUp className="h-4 w-4" />
                 </button>
               </div>
+              </>
+              )}
             </div>
           </div>
 

@@ -607,4 +607,105 @@ describe('SarvamProvider', () => {
       expect(p.name).toBe('sarvam');
     });
   });
+
+  describe('listVoices', () => {
+    it('should return the static bulbul:v3 catalog without hitting the network', async () => {
+      const voices = await provider.listVoices();
+
+      expect(mockFetch).not.toHaveBeenCalled();
+      expect(voices.length).toBeGreaterThan(0);
+      // Must include the canonical bulbul:v3 default speaker
+      expect(voices.some((v) => v.id === 'priya')).toBe(true);
+      // A handful of other documented speakers should be present
+      expect(voices.some((v) => v.id === 'kavya')).toBe(true);
+      expect(voices.some((v) => v.id === 'aditya')).toBe(true);
+      // Must shape entries as VoiceListItem with id + name + gender
+      for (const v of voices) {
+        expect(v.id).toBeTruthy();
+        expect(v.name).toBeTruthy();
+        expect(['male', 'female', 'neutral']).toContain(v.gender);
+      }
+    });
+
+    it('should not include legacy speakers that bulbul:v3 rejects', async () => {
+      const ids = (await provider.listVoices()).map((v) => v.id);
+      expect(ids).not.toContain('anushka');
+      expect(ids).not.toContain('manisha');
+      expect(ids).not.toContain('vidya');
+    });
+
+    it('should return a fresh array (mutating the result must not affect future calls)', async () => {
+      const first = await provider.listVoices();
+      first.pop();
+      const second = await provider.listVoices();
+      expect(second.length).toBeGreaterThan(first.length);
+    });
+  });
+
+  describe('synthesize speaker selection (regression)', () => {
+    const baseRequest: TTSRequest = {
+      text: 'नमस्ते',
+      language: 'hi',
+      agentId: 'agent-123',
+    };
+
+    function mockTtsOk() {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ request_id: 'req-1', audios: [Buffer.from('a').toString('base64')] }),
+      });
+    }
+
+    it('should send request.voiceId as the speaker', async () => {
+      mockTtsOk();
+      await provider.synthesize({ ...baseRequest, voiceId: 'kavya' });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.speaker).toBe('kavya');
+    });
+
+    it('should fall back to priya when no voiceId is provided', async () => {
+      mockTtsOk();
+      await provider.synthesize(baseRequest);
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.speaker).toBe('priya');
+    });
+
+    it('should not silently ignore the caller-provided voiceId', async () => {
+      mockTtsOk();
+      await provider.synthesize({ ...baseRequest, voiceId: 'kavya' });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.speaker).not.toBe('priya');
+    });
+  });
+
+  describe('synthesizePreview (WAV — no MP3 priming silence)', () => {
+    const baseRequest: TTSRequest = { text: 'नमस्ते', language: 'hi', agentId: 'a-1' };
+
+    function mockTtsOk() {
+      mockFetch.mockResolvedValueOnce({
+        ok: true,
+        json: async () => ({ request_id: 'req-1', audios: [Buffer.from('a').toString('base64')] }),
+      });
+    }
+
+    it('should request output_audio_codec=wav and return audio/wav', async () => {
+      mockTtsOk();
+      const result = await provider.synthesizePreview(baseRequest);
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.output_audio_codec).toBe('wav');
+      expect(result.audioFormat).toBe('audio/wav');
+    });
+
+    it('should still pass voiceId / speaker selection through', async () => {
+      mockTtsOk();
+      await provider.synthesizePreview({ ...baseRequest, voiceId: 'kavya' });
+
+      const body = JSON.parse(mockFetch.mock.calls[0][1].body);
+      expect(body.speaker).toBe('kavya');
+    });
+  });
 });
