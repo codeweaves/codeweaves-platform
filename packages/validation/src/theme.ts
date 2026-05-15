@@ -225,7 +225,7 @@ export const defaultWidgetTheme: WidgetTheme = {
     delayMs: 3000,
   },
   typography: {
-    fontFamily: 'Inter, system-ui, sans-serif',
+    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     baseFontSize: 14,
   },
   animations: {

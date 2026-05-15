@@ -304,7 +304,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
     <div
       class="cw-surface-root pointer-events-none"
       style={{
-        fontFamily: str(typo, 'fontFamily', 'Inter, system-ui, sans-serif'),
+        fontFamily: str(typo, 'fontFamily', 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif'),
         fontSize: `${num(typo, 'baseFontSize', 14)}px`,
         lineHeight: '1.5',
         color: '#1f2937',
@@ -353,14 +353,14 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
               </div>
             )}
             <div class="cw-header-text">
-              <h4 class="cw-header-title font-semibold leading-tight" style={{ fontSize: 15 }}>
+              <h4 class="cw-header-title font-semibold leading-tight" style={{ fontSize: '1.07em' }}>
                 {str(header, 'title') || agentConfig.name}
               </h4>
               {str(header, 'subtitle') && (
                 <p
                   class="cw-header-subtitle"
                   style={{
-                    fontSize: 13,
+                    fontSize: '0.93em',
                     color: str(header, 'subtitleColor', 'inherit'),
                     opacity: str(header, 'subtitleColor') ? 1 : 0.9,
                   }}
@@ -434,19 +434,19 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                         }}
                       >
                         {isUser ? (
-                          <p class="cw-message-text text-sm leading-relaxed">{message.content}</p>
+                          <p class="cw-message-text leading-relaxed" style={{ fontSize: '1em' }}>{message.content}</p>
                         ) : message.isStreaming ? (
-                          <p class="cw-message-text text-sm leading-relaxed">{message.content}</p>
+                          <p class="cw-message-text leading-relaxed" style={{ fontSize: '1em' }}>{message.content}</p>
                         ) : (
-                          <div class="cw-message-text text-sm leading-relaxed" dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+                          <div class="cw-message-text leading-relaxed" style={{ fontSize: '1em' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
                         )}
                       </div>
                       {showBotMeta ? (
-                        <p class="cw-message-meta mt-1 pl-3 text-xs" style={{ color: str(timestamps, 'color', '#9ca3af') }}>
+                        <p class="cw-message-meta mt-1 pl-3" style={{ fontSize: '0.86em', color: str(timestamps, 'color', '#9ca3af') }}>
                           AI Agent &middot; {formatTimestamp(message.timestamp)}
                         </p>
                       ) : showTime && (
-                        <p class="cw-message-timestamp mt-1 px-2 text-xs" style={{ color: str(timestamps, 'color', '#9ca3af') }}>
+                        <p class="cw-message-timestamp mt-1 px-2" style={{ fontSize: '0.86em', color: str(timestamps, 'color', '#9ca3af') }}>
                           {formatTimestamp(message.timestamp)}
                         </p>
                       )}
@@ -464,7 +464,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                     key={s + i}
                     onClick={() => { sendMessage(s); requestAnimationFrame(() => inputRef.current?.focus()); }}
                     class="cw-starter-btn cursor-pointer border border-gray-200 bg-white px-3 py-2 shadow-sm transition-colors hover:bg-gray-50"
-                    style={{ borderRadius: `${num(botMessage, 'borderRadius', 14)}px`, fontSize: 14 }}
+                    style={{ borderRadius: `${num(botMessage, 'borderRadius', 14)}px`, fontSize: '1em' }}
                   >
                     {s}
                   </button>
@@ -553,8 +553,8 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                 color: str(input, 'textColor', '#1f2937'),
                 maxHeight: '144px',
                 // iOS Safari auto-zooms inputs whose computed font-size is < 16px on focus.
-                // Inline style guarantees the rule wins regardless of cascade order.
-                fontSize: '16px',
+                // Floor at 16px but allow base font-size to scale the input up on bigger settings.
+                fontSize: 'max(16px, 1em)',
               }}
             />
             <div class="cw-input-actions mt-2 flex items-center justify-between">
@@ -600,7 +600,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
         {/* Branding footer */}
         {bool(branding, 'enabled') && (
           <div class="cw-branding border-t border-gray-100 bg-gray-50 px-4 py-2 text-center">
-            <p class="cw-branding-text text-xs" style={{ color: str(branding, 'textColor', '#9ca3af') }}>
+            <p class="cw-branding-text" style={{ fontSize: '0.86em', color: str(branding, 'textColor', '#9ca3af') }}>
               {str(branding, 'textPrefix', 'Powered by')}{' '}
               {bool(branding, 'useLogo') && str(branding, 'logo') ? (
                 <img src={str(branding, 'logo')} alt="Brand" class="cw-branding-logo inline-block h-4 align-[-2px]" />

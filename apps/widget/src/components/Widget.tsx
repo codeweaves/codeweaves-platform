@@ -323,7 +323,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
     <div
       class="cw-widget-root pointer-events-none"
       style={{
-        fontFamily: 'Inter, system-ui, sans-serif',
+        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
         fontSize: '14px',
         lineHeight: '1.5',
         color: '#1f2937',

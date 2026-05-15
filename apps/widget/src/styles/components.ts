@@ -5,7 +5,7 @@ export const componentCSS = `
 }
 
 .cw-widget {
-  font-family: var(--cw-font-family, Inter, system-ui, sans-serif);
+  font-family: var(--cw-font-family, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
   font-size: var(--cw-font-size, 14px);
   line-height: var(--cw-line-height, 1.5);
   color: var(--cw-foreground, #1f2937);
@@ -1099,10 +1099,10 @@ textarea.cw-input::-webkit-scrollbar {
 }
 
 /* iOS Safari auto-zooms inputs whose computed font-size is < 16px on focus.
- * Apply 16px to the textarea on all viewports (matches Intercom/Crisp/Tidio).
+ * Floor at 16px but let the inherited base size scale the input on bigger settings.
  * The inline style on the element is the authoritative fix; this is a safety net. */
 .cw-window textarea.cw-input {
-  font-size: 16px !important;
+  font-size: max(16px, 1em) !important;
 }
 
 /* ── Mobile fullscreen (≤ 480px) ──────────────────────────────────── */

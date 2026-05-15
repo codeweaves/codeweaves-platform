@@ -372,14 +372,14 @@ export function ChatWidgetSurface({
               <div className="cw-header-text">
                 <h4
                   className="cw-header-title font-semibold leading-tight"
-                  style={{ fontSize: 15 }}
+                  style={{ fontSize: '1.07em' }}
                 >
                   {formData.headerTitle}
                 </h4>
                 {formData.headerSubtitle && (
                   <p
                     className="cw-header-subtitle"
-                    style={{ fontSize: 13, color: formData.headerSubtitleColor || 'inherit', opacity: formData.headerSubtitleColor ? 1 : 0.9 }}
+                    style={{ fontSize: '0.93em', color: formData.headerSubtitleColor || 'inherit', opacity: formData.headerSubtitleColor ? 1 : 0.9 }}
                   >
                     {formData.headerSubtitle}
                   </p>
@@ -459,12 +459,13 @@ export function ChatWidgetSurface({
                             borderRadius: getBubbleRadius(isUser, pos, baseRadius),
                           }}
                         >
-                          <p className="cw-message-text text-sm leading-relaxed">{message.text}</p>
+                          <p className="cw-message-text leading-relaxed" style={{ fontSize: '1em' }}>{message.text}</p>
                         </div>
                         {showBotMeta ? (
                           <p
-                            className="cw-message-meta mt-1 pl-3 text-xs"
+                            className="cw-message-meta mt-1 pl-3"
                             style={{
+                              fontSize: '0.86em',
                               color: formData.timestampColor || '#6B7280',
                             }}
                           >
@@ -472,8 +473,9 @@ export function ChatWidgetSurface({
                           </p>
                         ) : showTime && (
                           <p
-                            className="cw-message-timestamp mt-1 px-2 text-xs"
+                            className="cw-message-timestamp mt-1 px-2"
                             style={{
+                              fontSize: '0.86em',
                               color: formData.timestampColor || '#6B7280',
                             }}
                           >
@@ -499,7 +501,7 @@ export function ChatWidgetSurface({
                           className="cw-starter-btn cursor-pointer border border-gray-200 bg-white px-3 py-2 shadow-sm transition-colors hover:bg-gray-50"
                           style={{
                             borderRadius: `${formData.systemMessageBorderRadius || 14}px`,
-                            fontSize: 14,
+                            fontSize: '1em',
                           }}
                         >
                           {starter}
@@ -671,8 +673,8 @@ export function ChatWidgetSurface({
           {formData.brandingEnabled && (
             <div className="cw-branding border-t border-gray-100 bg-gray-50 px-4 py-2 text-center">
               <p
-                className="cw-branding-text text-xs"
-                style={{ color: formData.brandingTextColor || '#6B7280' }}
+                className="cw-branding-text"
+                style={{ fontSize: '0.86em', color: formData.brandingTextColor || '#6B7280' }}
               >
                 {formData.brandingTextPrefix}{' '}
                 {formData.brandingUseLogo && formData.brandingLogo ? (
