@@ -91,7 +91,7 @@ export const THEME_MAP: Record<string, ThemeMapEntry> = {
   'bubble.textColor':          { variable: '--cw-bubble-text',         default: '#1f2937', type: 'color' },
 
   // ── Typography ──────────────────────────────────────────────────────
-  'typography.fontFamily':     { variable: '--cw-font-family',         default: 'Inter, system-ui, sans-serif', type: 'font' },
+  'typography.fontFamily':     { variable: '--cw-font-family',         default: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', type: 'font' },
   'typography.baseFontSize':   { variable: '--cw-font-size',           default: '14px',    type: 'number-px' },
 
   // ── Animations ──────────────────────────────────────────────────────

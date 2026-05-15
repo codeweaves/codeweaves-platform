@@ -10,6 +10,7 @@ import { useAgentEditor } from '../agent-editor-context';
 import { FormSection } from '../form-section';
 import { ColorPicker } from '../color-picker';
 import { TabGroup } from '../tab-group';
+import { NumberField } from '../number-field';
 
 const appearanceTabs = [
   { id: 'icon', label: 'Chat Icon', icon: <Palette className="w-4 h-4" /> },
@@ -29,17 +30,14 @@ export function AppearanceSettings() {
         id="iconBg"
       />
 
-      <div className="grid grid-cols-3 gap-4 items-center">
-        <Label className="text-sm font-medium text-gray-700">Icon Border Radius (px)</Label>
-        <Input
-          type="number"
-          value={themeData.icon.borderRadius}
-          onChange={(e) => updateThemeData('icon.borderRadius', parseInt(e.target.value) || 14)}
-          min={0}
-          max={50}
-          className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
+      <NumberField
+        label="Icon Border Radius"
+        value={themeData.icon.borderRadius}
+        onChange={(val) => updateThemeData('icon.borderRadius', val)}
+        min={0}
+        max={50}
+        unit="px"
+      />
 
       <div className="space-y-3">
         <Label className="text-sm font-medium text-gray-700">Icon Position</Label>
@@ -91,20 +89,14 @@ export function AppearanceSettings() {
         id="bubbleTextColor"
       />
 
-      <div className="grid grid-cols-3 gap-4 items-center">
-        <Label className="text-sm font-medium text-gray-700">Show Delay (seconds)</Label>
-        <Input
-          type="number"
-          value={Math.round(themeData.bubble.delayMs / 1000)}
-          onChange={(e) => {
-            const seconds = parseInt(e.target.value);
-            updateThemeData('bubble.delayMs', Number.isNaN(seconds) ? 0 : Math.min(30, Math.max(0, seconds)) * 1000);
-          }}
-          min={0}
-          max={30}
-          className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
+      <NumberField
+        label="Show Delay"
+        value={Math.round(themeData.bubble.delayMs / 1000)}
+        onChange={(val) => updateThemeData('bubble.delayMs', val * 1000)}
+        min={0}
+        max={30}
+        unit="s"
+      />
 
       <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
         <div>

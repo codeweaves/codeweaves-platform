@@ -2,7 +2,7 @@
 
 import Link from 'next/link';
 import { useProfile } from '@/hooks/use-profile';
-import { Bot, BarChart3, Users, Settings } from 'lucide-react';
+import { Bot, BarChart3, Users } from 'lucide-react';
 import {
   Card,
   CardHeader,
@@ -28,12 +28,6 @@ const quickLinks = [
     description: 'Manage team members',
     href: '/dashboard/team',
     icon: Users,
-  },
-  {
-    title: 'Settings',
-    description: 'Configure your account',
-    href: '/dashboard/settings',
-    icon: Settings,
   },
 ];
 

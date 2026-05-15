@@ -148,7 +148,6 @@ export interface PreviewFormData {
   inputTextColor: string;
   inputBorderRadius: number;
   sendButtonBg: string;
-  sendButtonBorderRadius: number;
   sendButtonIconColor: string;
   // Typography
   fontFamily: string;
@@ -232,7 +231,6 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     inputBorderRadius: themeData.input.borderRadius,
     // Send button
     sendButtonBg: themeData.sendButton.backgroundColor,
-    sendButtonBorderRadius: themeData.sendButton.borderRadius,
     sendButtonIconColor: themeData.sendButton.iconColor,
     // Typography
     fontFamily: themeData.typography.fontFamily,
