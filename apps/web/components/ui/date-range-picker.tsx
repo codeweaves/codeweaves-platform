@@ -64,6 +64,10 @@ export interface DateRangePickerProps {
   disabled?: boolean;
   /** Show the X clear button (default: true) */
   showClear?: boolean;
+  /** Optional content rendered as a header bar inside the popover (above the
+   *  calendar). Use this for tightly-scoped controls that modify how the date
+   *  range is interpreted — e.g. an analytics timezone toggle. */
+  popoverHeader?: React.ReactNode;
 }
 
 export function DateRangePicker({
@@ -76,6 +80,7 @@ export function DateRangePicker({
   triggerClassName,
   disabled = false,
   showClear = true,
+  popoverHeader,
 }: DateRangePickerProps) {
   const [open, setOpen] = React.useState(false);
   const [pendingFrom, setPendingFrom] = React.useState(fromValue);
@@ -148,6 +153,11 @@ export function DateRangePicker({
         onOpenAutoFocus={(e) => e.preventDefault()}
       >
         <div className='flex flex-col'>
+          {popoverHeader && (
+            <div className='flex items-center justify-end border-b px-3 py-2'>
+              {popoverHeader}
+            </div>
+          )}
           {/* Calendar */}
           <div className='p-2'>
             <Calendar
