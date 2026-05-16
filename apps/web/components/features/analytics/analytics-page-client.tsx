@@ -29,7 +29,7 @@ import { AgentAnalyticsTable } from './agent-analytics-table';
 import { AnalyticsEmptyState } from './analytics-empty-state';
 import { AnalyticsExportButton } from './analytics-export-button';
 import { VoiceAnalyticsSection } from './voice-analytics-section';
-import { resolveTimezone, type TzMode } from './timezone-toggle';
+import { resolveTimezone, TimezoneToggle, type TzMode } from './timezone-toggle';
 
 // --- Date helpers (M3 fix: use local date, not UTC) ---
 function formatDateLocal(date: Date): string {
@@ -205,6 +205,7 @@ export function AnalyticsPageClient() {
           onChange={handleDateRangeChange}
           placeholder="Pick a date range"
           showClear={false}
+          popoverHeader={<TimezoneToggle mode={tzMode} onChange={handleTzModeChange} />}
         />
 
         {/* Agent Filter */}
@@ -292,8 +293,6 @@ export function AnalyticsPageClient() {
               data={messageVolumeQuery.data}
               isLoading={messageVolumeQuery.isLoading}
               isError={messageVolumeQuery.isError}
-              tzMode={tzMode}
-              onTzModeChange={handleTzModeChange}
             />
           </div>
 
