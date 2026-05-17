@@ -17,6 +17,9 @@ export * from './chat.js';
 // Re-export analytics schemas and types
 export * from './analytics.js';
 
+// Re-export conversations schemas and types
+export * from './conversations.js';
+
 // Re-export voice schemas and types
 export * from './voice.js';
 

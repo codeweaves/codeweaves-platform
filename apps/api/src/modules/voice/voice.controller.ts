@@ -483,6 +483,10 @@ export class VoiceController {
             },
           },
         }),
+        // Keep ChatSession.lastMessageAt in lockstep with the text flow so
+        // voice sessions sort alongside widget chats on the dashboard
+        // Conversations list. Without this, voice sessions stay null forever.
+        this.chatService.updateSessionTimestamp(session.id),
       ]);
     } catch (err) {
       this.logger.warn(
