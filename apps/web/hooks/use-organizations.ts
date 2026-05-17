@@ -34,7 +34,10 @@ export interface OrganizationListParams {
   sortOrder?: 'asc' | 'desc';
 }
 
-export function useOrganizations(params: OrganizationListParams = {}) {
+export function useOrganizations(
+  params: OrganizationListParams = {},
+  options: { enabled?: boolean } = {},
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
@@ -48,10 +51,14 @@ export function useOrganizations(params: OrganizationListParams = {}) {
   const queryString = queryParams.toString();
   const endpoint = `/organizations${queryString ? `?${queryString}` : ''}`;
 
+  // GET /organizations is ADMIN/SUPER_ADMIN only; callers can pass
+  // enabled: false (e.g. for CLIENT users) to skip the doomed 403 request.
+  const callerEnabled = options.enabled ?? true;
+
   return useQuery<PaginatedOrganizations>({
     queryKey: ['organizations', params],
     queryFn: () => api.get(endpoint),
-    enabled: isAuthenticated && !authLoading,
+    enabled: isAuthenticated && !authLoading && callerEnabled,
   });
 }
 

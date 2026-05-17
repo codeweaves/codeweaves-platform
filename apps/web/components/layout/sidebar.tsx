@@ -9,6 +9,7 @@ import {
   Building2,
 
   BarChart3,
+  MessageSquare,
   Settings,
   Users,
   ChevronsUpDown,
@@ -52,7 +53,7 @@ const navigation: NavItem[] = [
   { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: 'all' },
   { name: 'Organizations', href: '/dashboard/organizations', icon: Building2, roles: ['SUPER_ADMIN', 'ADMIN'] },
   { name: 'Agents', href: '/dashboard/agents', icon: Bot, roles: 'all' },
-
+  { name: 'Conversations', href: '/dashboard/conversations', icon: MessageSquare, roles: 'all' },
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: 'all' },
   { name: 'Team', href: '/dashboard/team', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN'] },
 ];
