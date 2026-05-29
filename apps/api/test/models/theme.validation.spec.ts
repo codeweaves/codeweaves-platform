@@ -492,7 +492,7 @@ describe('Theme Validation Schemas', () => {
         enabled: true,
         textPrefix: 'Powered by',
         useLogo: false,
-        linkText: 'CodeWeaves',
+        linkText: 'Klivo',
         linkUrl: 'https://codeweaves.com',
         textColor: '#9ca3af',
         linkColor: '#3b82f6',

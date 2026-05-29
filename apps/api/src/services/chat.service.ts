@@ -56,6 +56,17 @@ export class ChatService {
     return agent;
   }
 
+  // Hard session lifetime, measured from createdAt (NOT lastMessageAt). A
+  // session is bounded — after 6h from its first message the row is sealed,
+  // the next message from the same widget rotates to a brand-new session.
+  // Reasoning is in the conversations PRD / classifier comments: bounded
+  // lifetime gives cleaner analytics and a deterministic moment for the
+  // classifier to run. The web widget separately resets sessionId on page
+  // reload / tab close (handled in apps/widget session-manager); this 6h
+  // backstop catches the long-running-tab case and is the ONLY rule for
+  // channels with no page concept (WhatsApp).
+  private static readonly SESSION_LIFETIME_MS = 6 * 60 * 60 * 1000;
+
   async resolveOrCreateSession(
     agentId: string,
     sessionId?: string,
@@ -69,6 +80,30 @@ export class ChatService {
       if (!existing) {
         throw new NotFoundException('Session not found or does not belong to this agent');
       }
+
+      // Auto-rotate when the session has lived past its lifetime cap. We
+      // measure from `createdAt` — not `lastMessageAt` — so sessions have a
+      // bounded length even when someone keeps the conversation going.
+      // Old row gets stamped EXPIRED (the dashboard + classifier rely on it
+      // to tell live conversations apart from closed ones); the next call
+      // gets a brand-new sessionId in the response and rotates client-side.
+      const isExpired =
+        Date.now() - existing.createdAt.getTime() > ChatService.SESSION_LIFETIME_MS;
+      if (isExpired) {
+        await this.prisma.chatSession.update({
+          where: { id: existing.id },
+          data: { status: 'EXPIRED' },
+        });
+        return this.prisma.chatSession.create({
+          data: {
+            agentId,
+            sessionId: randomUUID(),
+            source,
+            visitorId: visitorId ?? null,
+          },
+        });
+      }
+
       // Backfill visitorId on an existing session when missing, OR when the
       // stored value is a loopback address (::1, 127.0.0.1) — this happens
       // when the first request arrived before the widget's public-IP lookup

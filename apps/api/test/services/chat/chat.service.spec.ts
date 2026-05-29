@@ -252,6 +252,80 @@ describe('ChatService', () => {
       });
     });
 
+    describe('session lifetime rotation (6h from createdAt)', () => {
+      const dtoWithSession = {
+        ...baseDto,
+        sessionId: MOCK_SESSION_ID,
+      };
+
+      it('rotates the session when createdAt is older than 6 hours: flips old to EXPIRED and creates a fresh one', async () => {
+        // Session born 7h ago — past the SESSION_LIFETIME_MS cap.
+        const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000);
+        mockPrismaService.chatSession.findFirst.mockResolvedValue({
+          ...mockSession,
+          createdAt: sevenHoursAgo,
+        });
+
+        const result = await service.sendMessage(dtoWithSession);
+
+        // Old row was marked EXPIRED
+        expect(mockPrismaService.chatSession.update).toHaveBeenCalledWith({
+          where: { id: MOCK_SESSION_DB_ID },
+          data: { status: 'EXPIRED' },
+        });
+        // A brand-new session row was created — note `sessionId` is generated,
+        // so we don't assert the exact value, just that create was called.
+        expect(mockPrismaService.chatSession.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            agentId: MOCK_AGENT_ID,
+            source: 'DEMO',
+            sessionId: expect.any(String),
+          }),
+        });
+        // The response sessionId is the NEW one (returned by `create`), not
+        // the old client-supplied one.
+        expect(result.sessionId).toBe(MOCK_SESSION_ID); // mocked create returns mockSession
+      });
+
+      it('does NOT rotate when createdAt is within 6 hours', async () => {
+        const fiveHoursAgo = new Date(Date.now() - 5 * 60 * 60 * 1000);
+        mockPrismaService.chatSession.findFirst.mockResolvedValue({
+          ...mockSession,
+          createdAt: fiveHoursAgo,
+        });
+
+        await service.sendMessage(dtoWithSession);
+
+        // No EXPIRED flip
+        expect(mockPrismaService.chatSession.update).not.toHaveBeenCalledWith(
+          expect.objectContaining({ data: { status: 'EXPIRED' } }),
+        );
+        // No new session created
+        expect(mockPrismaService.chatSession.create).not.toHaveBeenCalled();
+      });
+
+      it('uses createdAt for the lifetime check, NOT lastMessageAt', async () => {
+        // createdAt 7h ago, lastMessageAt 1 minute ago — by an idle-based
+        // check this would NOT rotate, but our rule is lifetime-from-creation.
+        const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000);
+        const aMinuteAgo = new Date(Date.now() - 60 * 1000);
+        mockPrismaService.chatSession.findFirst.mockResolvedValue({
+          ...mockSession,
+          createdAt: sevenHoursAgo,
+          lastMessageAt: aMinuteAgo,
+        });
+
+        await service.sendMessage(dtoWithSession);
+
+        // Rotated because createdAt is past the cap.
+        expect(mockPrismaService.chatSession.update).toHaveBeenCalledWith({
+          where: { id: MOCK_SESSION_DB_ID },
+          data: { status: 'EXPIRED' },
+        });
+        expect(mockPrismaService.chatSession.create).toHaveBeenCalled();
+      });
+    });
+
     describe('agent not found / inactive', () => {
       it('should throw NotFoundException when agent does not exist', async () => {
         mockPrismaService.agent.findFirst.mockResolvedValue(null);

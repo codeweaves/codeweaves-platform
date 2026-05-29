@@ -3,7 +3,7 @@ import { Injectable } from '@nestjs/common';
 @Injectable()
 export class AppService {
   getHello(): string {
-    return 'Hello from CodeWeaves API!';
+    return 'Hello from Klivo API!';
   }
 
   getHealth(): { status: string; timestamp: string } {

@@ -27,7 +27,7 @@ export default function LoginPage() {
   return (
     <div className="flex h-screen flex-col items-center justify-center">
       <div className="mb-8 text-center">
-        <h1 className="text-4xl font-bold">CodeWeaves</h1>
+        <h1 className="text-4xl font-bold">Klivo</h1>
         <p className="mt-2 text-muted-foreground">AI Chat Widget Platform</p>
       </div>
       <Button onClick={() => login()} size="lg" className="cursor-pointer">

@@ -127,7 +127,7 @@ function buildFormData(params: {
 }
 
 function voiceUrl(agentId: string): string {
-  return `${baseUrl}/api/codeweaves/v1/public/voice/conversation?agentId=${encodeURIComponent(agentId)}`;
+  return `${baseUrl}/api/klivo/v1/public/voice/conversation?agentId=${encodeURIComponent(agentId)}`;
 }
 
 function buildHeaders(sessionId?: string): Record<string, string> {

@@ -34,7 +34,7 @@ async function bootstrap() {
   app.use(helmet(getHelmetOptions(process.env.NODE_ENV)));
 
   // Global API prefix
-  app.setGlobalPrefix('api/codeweaves/v1', {
+  app.setGlobalPrefix('api/klivo/v1', {
     exclude: ['health', 'health/ready'],
   });
 
@@ -49,8 +49,8 @@ async function bootstrap() {
   // Swagger/OpenAPI documentation (disabled in production)
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
-      .setTitle('Codeweaves API')
-      .setDescription('Codeweaves platform REST API documentation')
+      .setTitle('Klivo API')
+      .setDescription('Klivo platform REST API documentation')
       .setVersion('1.0')
       .addBearerAuth()
       .build();
@@ -66,7 +66,7 @@ async function bootstrap() {
   const port = process.env.PORT || 3001;
   await app.listen(port);
   const logger = new Logger('Bootstrap');
-  logger.log(`API running on http://localhost:${port}/api/codeweaves/v1`);
+  logger.log(`API running on http://localhost:${port}/api/klivo/v1`);
   logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
 }
 

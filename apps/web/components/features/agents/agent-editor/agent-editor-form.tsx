@@ -6,6 +6,7 @@ import { AppearanceSettings } from './sections/appearance-settings';
 import { ChatSettings } from './sections/chat-settings';
 import { BehaviorSettings } from './sections/behavior-settings';
 import { PromptSettings } from './sections/prompt-settings';
+import { ClassificationSettings } from './sections/classification-settings';
 import { IntegrationSettings } from './sections/integration-settings';
 import { BrandingSettings } from './sections/branding-settings';
 import { VoiceSettings } from './sections/voice-settings';
@@ -28,6 +29,8 @@ export function AgentEditorForm({ selectedCategory }: AgentEditorFormProps) {
       return <VoiceSettings />;
     case 'prompt':
       return <PromptSettings />;
+    case 'classification':
+      return <ClassificationSettings />;
     case 'integration':
       return <IntegrationSettings />;
     case 'branding':

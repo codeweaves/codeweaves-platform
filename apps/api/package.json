@@ -21,6 +21,7 @@
     "seed": "bun run prisma/seed.ts"
   },
   "dependencies": {
+    "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",
     "@nestjs/core": "^11.0.1",
@@ -33,6 +34,7 @@
     "@sentry/nestjs": "^10.42.0",
     "@sentry/profiling-node": "^10.42.0",
     "@supabase/supabase-js": "^2.97.0",
+    "bullmq": "^5.77.6",
     "class-transformer": "^0.5.1",
     "class-validator": "^0.14.1",
     "helmet": "^8.1.0",

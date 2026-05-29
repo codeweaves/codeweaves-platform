@@ -18,7 +18,7 @@ const geistMono = localFont({
 });
 
 export const metadata: Metadata = {
-  title: "CodeWeaves",
+  title: "Klivo",
   description: "AI Chat Widget Platform - Dashboard",
 };
 

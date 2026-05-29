@@ -42,7 +42,7 @@ export default function DashboardPage() {
         Welcome, {greeting}!
       </h1>
       <p className="mt-2 text-muted-foreground">
-        This is your CodeWeaves dashboard. Manage your AI chat agents, customize
+        This is your Klivo dashboard. Manage your AI chat agents, customize
         themes, and view analytics.
       </p>
 

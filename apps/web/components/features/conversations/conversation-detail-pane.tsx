@@ -9,7 +9,6 @@ import {
   ChevronDown,
   ChevronRight,
   Clock,
-  Hash,
   Loader2,
   MessageSquare,
   User,
@@ -157,9 +156,11 @@ export function ConversationDetailPane({
           )}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
-              <h2 className="truncate text-base font-semibold">
-                {conv.title || 'Untitled conversation'}
-              </h2>
+              {conv.category && (
+                <Badge variant="secondary" className="text-[10px]">
+                  {conv.category}
+                </Badge>
+              )}
               <Badge
                 variant={
                   conv.source === 'WHATSAPP'
@@ -178,6 +179,11 @@ export function ConversationDetailPane({
               >
                 {conv.status === 'ACTIVE' ? 'Active' : 'Expired'}
               </Badge>
+              {conv.detectedLanguage && (
+                <Badge variant="outline" className="text-[10px] uppercase">
+                  {conv.detectedLanguage}
+                </Badge>
+              )}
             </div>
             <div className="mt-1.5 flex flex-wrap items-center gap-x-3 gap-y-1">
               <HeaderStat icon={Bot}>
@@ -200,9 +206,6 @@ export function ConversationDetailPane({
               </HeaderStat>
               <HeaderStat icon={Clock}>{duration}</HeaderStat>
               <HeaderStat icon={Clock}>Started {formatFull(conv.createdAt)}</HeaderStat>
-              <HeaderStat icon={Hash}>
-                <span className="font-mono">{conv.sessionId}</span>
-              </HeaderStat>
             </div>
           </div>
         </div>

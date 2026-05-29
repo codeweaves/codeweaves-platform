@@ -6,7 +6,7 @@ interface Props {
 }
 
 export const metadata: Metadata = {
-  title: 'Agent Demo - CodeWeaves',
+  title: 'Agent Demo - Klivo',
   description: 'Try out this AI chat agent',
 };
 

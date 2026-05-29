@@ -42,13 +42,19 @@ export function ConversationsView({ selectedSessionId }: ConversationsViewProps)
   const hasActiveFilters = isFiltersActive(filters);
 
   const clearFilters = useCallback(() => setFilters(EMPTY_FILTERS), []);
+  // Mobile back from the detail pane drops the `?session` query param while
+  // keeping the rest of the URL — same component stays mounted, filters
+  // and scroll position survive.
   const handleBack = useCallback(
-    () => router.push('/dashboard/conversations'),
+    () => router.replace('/dashboard/conversations', { scroll: false }),
     [router],
   );
 
   return (
-    <div className="flex h-[calc(100vh-6rem)] flex-col gap-4">
+    // h-full + flex-col lets the dashboard `<main>` (which has p-6 and its
+    // own overflow-auto) determine our height. Hardcoding `100vh - 6rem` over-
+    // allocates and triggers the outer scrollbar.
+    <div className="flex h-full flex-col gap-4">
       <ConversationsFiltersBar filters={filters} onChange={setFilters} />
 
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border bg-background">

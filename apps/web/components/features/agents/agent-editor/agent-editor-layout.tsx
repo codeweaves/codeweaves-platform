@@ -226,6 +226,8 @@ function AgentEditorContent() {
         allowedDomains: formData.allowedDomains,
         voiceEnabled: formData.voiceEnabled,
         voiceConfig: formData.voiceConfig,
+        categoryKeywords: formData.categoryKeywords,
+        supportedLanguages: formData.supportedLanguages,
       };
 
       // Save agent config, webhook, and theme in parallel

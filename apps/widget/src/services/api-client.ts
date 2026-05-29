@@ -53,7 +53,7 @@ function ensureInit(): void {
 /**
  * Send a chat message (non-streaming) to the backend.
  *
- * POST {baseUrl}/api/codeweaves/v1/public/chat/send
+ * POST {baseUrl}/api/klivo/v1/public/chat/send
  */
 export async function sendMessage(
   agentId: string,
@@ -66,7 +66,7 @@ export async function sendMessage(
   // Auto-resolve session ID from session manager if not explicitly provided (Story 5-17)
   const resolvedSessionId = sessionId ?? getSessionId() ?? undefined;
 
-  const url = `${baseUrl}/api/codeweaves/v1/public/chat/send`;
+  const url = `${baseUrl}/api/klivo/v1/public/chat/send`;
   const response = await fetchWithRetry(url, {
     method: 'POST',
     headers: buildHeaders(deviceId, resolvedSessionId),
@@ -106,7 +106,7 @@ export async function sendMessage(
 /**
  * Send a chat message and receive a streaming SSE response.
  *
- * POST {baseUrl}/api/codeweaves/v1/public/chat/stream
+ * POST {baseUrl}/api/klivo/v1/public/chat/stream
  *
  * Returns the raw ReadableStreamDefaultReader for the caller to consume
  * with `parseSSEStream()` from `utils/sse-parser.ts`.
@@ -128,7 +128,7 @@ export async function streamMessage(
   // Auto-resolve session ID from session manager if not explicitly provided (Story 5-17)
   const resolvedSessionId = sessionId ?? getSessionId() ?? undefined;
 
-  const url = `${baseUrl}/api/codeweaves/v1/public/chat/stream`;
+  const url = `${baseUrl}/api/klivo/v1/public/chat/stream`;
   const headers = buildHeaders(deviceId, resolvedSessionId);
   headers['Accept'] = 'text/event-stream';
 
