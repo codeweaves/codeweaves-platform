@@ -20,6 +20,16 @@ export interface AgentFormData {
   webhookUrl: string;
   voiceEnabled: boolean;
   voiceConfig: VoiceConfigDto | null;
+  /**
+   * Labels used by the background conversation classifier (e.g. ["Pricing",
+   * "Support"]). Empty array disables categorisation for this agent.
+   */
+  categoryKeywords: string[];
+  /**
+   * ISO 639-1 codes (plus the non-standard `hinglish`) for the languages the
+   * classifier should detect. Empty array disables language detection.
+   */
+  supportedLanguages: string[];
 }
 
 interface AgentEditorContextType {
@@ -264,6 +274,8 @@ export function agentToFormData(
     webhookUrl,
     voiceEnabled: agent.voiceEnabled ?? false,
     voiceConfig: agent.voiceConfig ?? null,
+    categoryKeywords: agent.categoryKeywords ?? [],
+    supportedLanguages: agent.supportedLanguages ?? [],
   };
 }
 

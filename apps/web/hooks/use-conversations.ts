@@ -17,6 +17,10 @@ export interface ConversationListItem {
   status: ConversationStatus;
   visitorId: string | null;
   title: string | null;
+  /** Category assigned by the background classifier; null until classified. */
+  category: string | null;
+  /** ISO 639-1 code assigned by the background classifier; null until set. */
+  detectedLanguage: string | null;
   messageCount: number;
   createdAt: string;
   lastMessageAt: string | null;
@@ -45,6 +49,7 @@ export interface ConversationListParams {
   sources?: ConversationSource[];
   status?: ConversationStatus;
   statuses?: ConversationStatus[];
+  categories?: string[];
   visitorId?: string;
   from?: string;
   to?: string;
@@ -81,6 +86,8 @@ export interface ConversationDetail {
   visitorId: string | null;
   title: string | null;
   summary: string | null;
+  category: string | null;
+  detectedLanguage: string | null;
   createdAt: string;
   updatedAt: string;
   lastMessageAt: string | null;
@@ -105,6 +112,7 @@ function buildQuery(params: ConversationListParams): string {
   if (params.sources?.length) qp.set('sources', params.sources.join(','));
   if (params.status) qp.set('status', params.status);
   if (params.statuses?.length) qp.set('statuses', params.statuses.join(','));
+  if (params.categories?.length) qp.set('categories', params.categories.join(','));
   if (params.visitorId) qp.set('visitorId', params.visitorId);
   if (params.from) qp.set('from', params.from);
   if (params.to) qp.set('to', params.to);

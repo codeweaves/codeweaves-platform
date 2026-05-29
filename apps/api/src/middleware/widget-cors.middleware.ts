@@ -96,11 +96,11 @@ export class WidgetCorsMiddleware implements NestMiddleware {
   private extractAgentId(req: Request): string | null {
     const url = req.originalUrl || req.url;
 
-    // Config endpoint: /api/codeweaves/v1/public/agents/:publicId/config
+    // Config endpoint: /api/klivo/v1/public/agents/:publicId/config
     const configMatch = url.match(/\/public\/agents\/([^/]+)\/config/);
     if (configMatch?.[1]) return configMatch[1];
 
-    // Demo endpoint: /api/codeweaves/v1/public/agents/:id/demo
+    // Demo endpoint: /api/klivo/v1/public/agents/:id/demo
     const demoMatch = url.match(/\/public\/agents\/([^/]+)\/demo/);
     if (demoMatch?.[1]) return demoMatch[1];
 

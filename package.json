@@ -1,5 +1,5 @@
 {
-  "name": "codeweaves-platform",
+  "name": "klivo-platform",
   "private": true,
   "workspaces": ["apps/*", "packages/*"],
   "scripts": {

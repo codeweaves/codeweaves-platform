@@ -29,7 +29,7 @@ describe('SentryInterceptor', () => {
   } = {}): ExecutionContext {
     const request = {
       method: overrides.method ?? 'GET',
-      originalUrl: overrides.originalUrl ?? '/api/codeweaves/v1/test',
+      originalUrl: overrides.originalUrl ?? '/api/klivo/v1/test',
       user: overrides.user,
     };
     return {
@@ -89,13 +89,13 @@ describe('SentryInterceptor', () => {
     it('should call Sentry.setContext with URL, method, and correlationId', (done) => {
       const ctx = createMockContext({
         method: 'POST',
-        originalUrl: '/api/codeweaves/v1/agents',
+        originalUrl: '/api/klivo/v1/agents',
       });
 
       interceptor.intercept(ctx, mockCallHandler).subscribe({
         complete: () => {
           expect(Sentry.setContext).toHaveBeenCalledWith('request', {
-            url: '/api/codeweaves/v1/agents',
+            url: '/api/klivo/v1/agents',
             method: 'POST',
             correlationId: 'corr-123-abc',
           });
@@ -121,14 +121,14 @@ describe('SentryInterceptor', () => {
     it('should add HTTP breadcrumb for the request', (done) => {
       const ctx = createMockContext({
         method: 'DELETE',
-        originalUrl: '/api/codeweaves/v1/items/5',
+        originalUrl: '/api/klivo/v1/items/5',
       });
 
       interceptor.intercept(ctx, mockCallHandler).subscribe({
         complete: () => {
           expect(Sentry.addBreadcrumb).toHaveBeenCalledWith({
             category: 'http',
-            message: 'DELETE /api/codeweaves/v1/items/5',
+            message: 'DELETE /api/klivo/v1/items/5',
             level: 'info',
           });
           done();
@@ -176,7 +176,7 @@ describe('SentryInterceptor', () => {
         complete: () => {
           expect(Sentry.setTag).not.toHaveBeenCalled();
           expect(Sentry.setContext).toHaveBeenCalledWith('request', {
-            url: '/api/codeweaves/v1/test',
+            url: '/api/klivo/v1/test',
             method: 'GET',
             correlationId: undefined,
           });

@@ -357,9 +357,9 @@ export class InvitationsService {
 
     await this.emailService.send({
       to: invitation.email,
-      subject: 'You have been invited to CodeWeaves',
+      subject: 'You have been invited to Klivo',
       html: `
-        <h1>Welcome to CodeWeaves!</h1>
+        <h1>Welcome to Klivo!</h1>
         <p>You have been invited to join the platform.</p>
         <p>Click the link below to ${actionLabel.toLowerCase()}:</p>
         <a href="${actionUrl}">${actionLabel}</a>

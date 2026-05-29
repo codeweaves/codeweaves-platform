@@ -16,6 +16,10 @@ export interface Agent {
   allowedDomains: string[];
   voiceEnabled: boolean;
   voiceConfig: import('@repo/validation').VoiceConfigDto | null;
+  /** Category labels used by the post-session classifier; empty disables it. */
+  categoryKeywords: string[];
+  /** ISO 639-1 codes + `hinglish`; empty disables language detection. */
+  supportedLanguages: string[];
   createdAt: string;
   updatedAt: string;
 }

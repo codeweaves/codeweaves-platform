@@ -20,6 +20,8 @@ export interface ConversationFilters {
   orgIds: string[];
   sources: ConversationSource[];
   statuses: ConversationStatus[];
+  /** Category names (free-text, configured per agent). */
+  categories: string[];
   /** YYYY-MM-DD; empty string when unset. */
   dateFrom: string;
   /** YYYY-MM-DD; empty string when unset. */
@@ -32,6 +34,7 @@ export const EMPTY_FILTERS: ConversationFilters = {
   orgIds: [],
   sources: [],
   statuses: [],
+  categories: [],
   dateFrom: '',
   dateTo: '',
 };
@@ -62,6 +65,24 @@ export function ConversationsFiltersBar({
     { limit: 100 },
     { enabled: isAdmin },
   );
+
+  // Build the Category filter options as the union of every visible agent's
+  // configured categories — that way the user can filter by any topic without
+  // needing to pre-select an agent. De-duplicated case-insensitively but the
+  // first-cased version wins (matches the backend dedupe in agents.service).
+  const categoryOptions = (() => {
+    const seen = new Set<string>();
+    const out: { label: string; value: string }[] = [];
+    for (const a of agentsData?.data ?? []) {
+      for (const cat of a.categoryKeywords ?? []) {
+        const key = cat.toLowerCase();
+        if (seen.has(key)) continue;
+        seen.add(key);
+        out.push({ label: cat, value: cat });
+      }
+    }
+    return out.sort((a, b) => a.label.localeCompare(b.label));
+  })();
 
   // Local search state so we can debounce; commit upward 300ms after the user
   // stops typing. Mirrors the DataTable's internal search debounce so the API
@@ -169,6 +190,22 @@ export function ConversationsFiltersBar({
           { value: 'EXPIRED', label: 'Expired' },
         ]}
       />
+
+      {/* Categories — only rendered when at least one agent has them set up.
+          Sparing the user a useless empty filter is more important than UI
+          symmetry, since categories are entirely opt-in per agent. */}
+      {categoryOptions.length > 0 && (
+        <SearchableMultiSelect
+          triggerClassName="w-[250px]"
+          placeholder="All categories"
+          searchPlaceholder="Search categories..."
+          emptyMessage="No categories"
+          values={filters.categories}
+          onValuesChange={(v) => onChange({ ...filters, categories: v })}
+          selectedLabel={(n) => `${n} categories`}
+          options={categoryOptions}
+        />
+      )}
     </div>
   );
 }

@@ -44,6 +44,18 @@ export const conversationsListQuerySchema = z
       .optional()
       .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
       .pipe(z.array(statusEnum).optional()),
+    // Match against ChatSession.category set by the background classifier.
+    // Categories are free-text per agent (no enum) so we accept any string;
+    // empty strings are filtered out so a stray `?categories=,` doesn't break.
+    categories: z
+      .string()
+      .optional()
+      .transform((v) =>
+        v
+          ? v.split(',').map((s) => s.trim()).filter(Boolean)
+          : undefined,
+      )
+      .pipe(z.array(z.string().min(1).max(100)).optional()),
     visitorId: z.string().trim().max(200).optional(),
     from: isoDateTime.optional(),
     to: isoDateTime.optional(),

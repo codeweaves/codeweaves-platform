@@ -612,7 +612,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                   class="cw-branding-link font-medium"
                   style={{ color: str(branding, 'linkColor', '#3b82f6'), textDecoration: 'none' }}
                 >
-                  {str(branding, 'linkText', 'CodeWeaves')}
+                  {str(branding, 'linkText', 'Klivo')}
                 </a>
               )}
             </p>

@@ -47,6 +47,8 @@ export class ConversationsController {
   @ApiQuery({ name: 'source', required: false, enum: ['WIDGET', 'WHATSAPP', 'DEMO'] })
   @ApiQuery({ name: 'sources', required: false, type: String, description: 'Comma-separated sources' })
   @ApiQuery({ name: 'status', required: false, enum: ['ACTIVE', 'EXPIRED'] })
+  @ApiQuery({ name: 'statuses', required: false, type: String, description: 'Comma-separated statuses' })
+  @ApiQuery({ name: 'categories', required: false, type: String, description: 'Comma-separated category names assigned by the background classifier' })
   @ApiQuery({ name: 'visitorId', required: false, type: String })
   @ApiQuery({ name: 'from', required: false, type: String, description: 'ISO datetime (inclusive lower bound on createdAt)' })
   @ApiQuery({ name: 'to', required: false, type: String, description: 'ISO datetime (inclusive upper bound on createdAt)' })

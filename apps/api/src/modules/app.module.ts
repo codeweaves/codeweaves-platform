@@ -12,6 +12,7 @@ import { ChatModule } from './chat.module';
 import { VoiceModule } from './voice/voice.module';
 import { AnalyticsModule } from './analytics.module';
 import { ConversationsModule } from './conversations.module';
+import { ConversationClassifierModule } from './conversation-classifier.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
 import { RedisModule } from '../common/redis/redis.module';
@@ -45,6 +46,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     VoiceModule,
     AnalyticsModule,
     ConversationsModule,
+    ConversationClassifierModule,
     TracerModule,
     CryptoModule,
     RedisModule,

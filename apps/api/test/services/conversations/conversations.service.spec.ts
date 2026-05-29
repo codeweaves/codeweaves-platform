@@ -216,6 +216,15 @@ describe('ConversationsService', () => {
       );
     });
 
+    it('applies categories filter', async () => {
+      await service.list({ ...baseQuery, categories: ['Pricing', 'Support'] }, clientUser);
+      expect(mockPrisma.chatSession.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({ category: { in: ['Pricing', 'Support'] } }),
+        }),
+      );
+    });
+
     it('applies date range filter', async () => {
       const from = '2026-05-01T00:00:00.000Z';
       const to = '2026-05-31T23:59:59.999Z';
@@ -293,6 +302,8 @@ describe('ConversationsService', () => {
           visitorId: '1.2.3.4',
           status: 'ACTIVE',
           title: 'Pricing',
+          category: 'Pricing',
+          detectedLanguage: 'en',
           createdAt: new Date('2026-05-10T10:00:00.000Z'),
           lastMessageAt: new Date('2026-05-10T10:05:00.000Z'),
           agent: { id: agentId1, name: 'Agent A', organizationId: orgId },
@@ -313,6 +324,8 @@ describe('ConversationsService', () => {
           status: 'ACTIVE',
           visitorId: '1.2.3.4',
           title: 'Pricing',
+          category: 'Pricing',
+          detectedLanguage: 'en',
           messageCount: 6,
           createdAt: '2026-05-10T10:00:00.000Z',
           lastMessageAt: '2026-05-10T10:05:00.000Z',
@@ -331,6 +344,8 @@ describe('ConversationsService', () => {
           visitorId: null,
           status: 'ACTIVE',
           title: null,
+          category: null,
+          detectedLanguage: null,
           createdAt: new Date('2026-05-10T10:00:00.000Z'),
           lastMessageAt: null,
           agent: { id: agentId1, name: 'Agent A', organizationId: orgId },
@@ -360,6 +375,8 @@ describe('ConversationsService', () => {
       status: 'ACTIVE',
       title: 'Pricing',
       summary: null,
+      category: 'Pricing',
+      detectedLanguage: 'en',
       createdAt: new Date('2026-05-10T10:00:00.000Z'),
       updatedAt: new Date('2026-05-10T10:05:00.000Z'),
       lastMessageAt: new Date('2026-05-10T10:05:00.000Z'),

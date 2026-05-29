@@ -212,7 +212,7 @@ describe('InvitationsService', () => {
 
       expect(mockEmailService.send).toHaveBeenCalledWith({
         to: mockInvitation.email,
-        subject: 'You have been invited to CodeWeaves',
+        subject: 'You have been invited to Klivo',
         html: expect.stringContaining('Set Your Password'),
       });
     });
@@ -276,7 +276,7 @@ describe('InvitationsService', () => {
       // Email still sent with fallback signup URL
       expect(mockEmailService.send).toHaveBeenCalledWith({
         to: mockInvitation.email,
-        subject: 'You have been invited to CodeWeaves',
+        subject: 'You have been invited to Klivo',
         html: expect.stringContaining('Create Your Account'),
       });
     });

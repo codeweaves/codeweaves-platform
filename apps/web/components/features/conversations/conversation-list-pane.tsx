@@ -86,7 +86,6 @@ function ConversationRow({
   selected: boolean;
   onSelect: (sessionId: string) => void;
 }) {
-  const title = conversation.title?.trim() || 'Untitled conversation';
   const visitor = conversation.visitorId ?? 'Anonymous';
   const initial = (conversation.agent.name[0] ?? '?').toUpperCase();
 
@@ -95,9 +94,9 @@ function ConversationRow({
       type="button"
       onClick={() => onSelect(conversation.sessionId)}
       className={cn(
-        'group flex w-full items-start gap-3 border-b px-4 py-3 text-left transition-colors',
-        'hover:bg-accent/50 focus:bg-accent/50 focus:outline-none',
-        selected && 'bg-accent border-l-2 border-l-primary',
+        'group flex w-full cursor-pointer items-start gap-3 border-b border-l-4 border-l-transparent px-4 py-3 text-left transition-colors',
+        'hover:bg-accent/40 focus:bg-accent/40 focus:outline-none',
+        selected && 'border-l-primary bg-accent/60',
       )}
       aria-current={selected ? 'true' : undefined}
     >
@@ -113,8 +112,12 @@ function ConversationRow({
             {formatRelative(conversation.lastActivityAt)}
           </span>
         </div>
-        <div className="mt-0.5 truncate text-sm">{title}</div>
-        <div className="mt-1 flex items-center gap-1.5">
+        <div className="mt-1 flex flex-wrap items-center gap-1.5">
+          {conversation.category && (
+            <Badge variant="secondary" className="text-[10px] px-1.5 py-0">
+              {conversation.category}
+            </Badge>
+          )}
           <Badge
             variant={SOURCE_VARIANT[conversation.source]}
             className="text-[10px] px-1.5 py-0"
@@ -157,6 +160,7 @@ export function ConversationListPane({
     filters.orgIds,
     filters.sources,
     filters.statuses,
+    filters.categories,
     filters.dateFrom,
     filters.dateTo,
     pageSize,
@@ -171,6 +175,7 @@ export function ConversationListPane({
       orgId: filters.orgIds[0], // backend supports single orgId; multi via admin-only relation filter
       sources: filters.sources.length > 0 ? filters.sources : undefined,
       statuses: filters.statuses.length > 0 ? filters.statuses : undefined,
+      categories: filters.categories.length > 0 ? filters.categories : undefined,
       from: filters.dateFrom ? toIsoStartOfDay(filters.dateFrom) : undefined,
       to: filters.dateTo ? toIsoEndOfDay(filters.dateTo) : undefined,
       sortBy: 'lastMessageAt' as const,
@@ -187,7 +192,15 @@ export function ConversationListPane({
 
   const handleSelect = useCallback(
     (sessionId: string) => {
-      router.push(`/dashboard/conversations/${encodeURIComponent(sessionId)}`);
+      // `replace` (not `push`) — selecting a row shouldn't pollute browser
+      // history with one entry per click. `scroll: false` prevents the page
+      // jumping to top when the URL updates. The component stays mounted
+      // because we're on the same route, so filter state and scroll position
+      // both survive.
+      router.replace(
+        `/dashboard/conversations?session=${encodeURIComponent(sessionId)}`,
+        { scroll: false },
+      );
     },
     [router],
   );

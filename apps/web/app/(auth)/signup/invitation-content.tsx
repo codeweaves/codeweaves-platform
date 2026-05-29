@@ -166,7 +166,7 @@ export function InvitationContent() {
     <div className="flex min-h-screen items-center justify-center p-4">
       <Card className="w-full max-w-md">
         <CardHeader>
-          <CardTitle className="text-2xl">Welcome to CodeWeaves</CardTitle>
+          <CardTitle className="text-2xl">Welcome to Klivo</CardTitle>
           <CardDescription>
             You&apos;ve been invited to join as a{' '}
             <span className="font-medium text-foreground">{roleLabel}</span>.

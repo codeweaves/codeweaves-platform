@@ -16,7 +16,7 @@ describe('LoggingInterceptor', () => {
   function createMockContext(user?: { id: string; auth0Id: string }) {
     const request = {
       method: 'GET',
-      originalUrl: '/api/codeweaves/v1/organizations',
+      originalUrl: '/api/klivo/v1/organizations',
       user,
     };
 

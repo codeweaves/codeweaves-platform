@@ -176,7 +176,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="px-4 py-4">
         <span className="text-xl font-bold truncate group-data-[collapsible=icon]:hidden">
-          CodeWeaves
+          Klivo
         </span>
       </SidebarHeader>
 
