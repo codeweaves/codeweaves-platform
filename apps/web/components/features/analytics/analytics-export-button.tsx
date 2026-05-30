@@ -78,7 +78,7 @@ export function AnalyticsExportButton({
     <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" disabled={isDisabled}>
-          <Download className="mr-2 h-4 w-4" />
+          <Download className="mr-2 size-4" />
           Export
         </Button>
       </DropdownMenuTrigger>
