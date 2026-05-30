@@ -22,6 +22,9 @@ describe('AnalyticsController', () => {
     getResponseTimeDistribution: jest.fn(),
     getMessageVolumeHeatmap: jest.fn(),
     getAgentMetrics: jest.fn(),
+    getConversationCategories: jest.fn(),
+    getConversationLanguages: jest.fn(),
+    getConversationChannels: jest.fn(),
     logExport: jest.fn(),
   };
 
@@ -181,6 +184,52 @@ describe('AnalyticsController', () => {
       const result = await controller.getMessageVolumeHeatmap(query, adminUser);
 
       expect(result).toEqual(mockHeatmap);
+    });
+  });
+
+  // ==========================================
+  // Conversation Classification & Channel Endpoints
+  // ==========================================
+
+  describe('getConversationCategories', () => {
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
+    const mockCategories = { categories: [{ category: 'Pricing', count: 10, percentage: 100 }], uncategorized: 2 };
+
+    it('should return category distribution', async () => {
+      mockAnalyticsService.getConversationCategories.mockResolvedValue(mockCategories);
+
+      const result = await controller.getConversationCategories(query, adminUser);
+
+      expect(result).toEqual(mockCategories);
+      expect(mockAnalyticsService.getConversationCategories).toHaveBeenCalledWith(query, adminUser);
+    });
+  });
+
+  describe('getConversationLanguages', () => {
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
+    const mockLanguages = { languages: [{ language: 'en', count: 10, percentage: 100 }] };
+
+    it('should return language distribution', async () => {
+      mockAnalyticsService.getConversationLanguages.mockResolvedValue(mockLanguages);
+
+      const result = await controller.getConversationLanguages(query, adminUser);
+
+      expect(result).toEqual(mockLanguages);
+      expect(mockAnalyticsService.getConversationLanguages).toHaveBeenCalledWith(query, adminUser);
+    });
+  });
+
+  describe('getConversationChannels', () => {
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
+    const mockChannels = { channels: [{ source: 'WIDGET', count: 10, percentage: 100 }] };
+
+    it('should return channel split', async () => {
+      mockAnalyticsService.getConversationChannels.mockResolvedValue(mockChannels);
+
+      const result = await controller.getConversationChannels(query, adminUser);
+
+      expect(result).toEqual(mockChannels);
+      expect(mockAnalyticsService.getConversationChannels).toHaveBeenCalledWith(query, adminUser);
     });
   });
 

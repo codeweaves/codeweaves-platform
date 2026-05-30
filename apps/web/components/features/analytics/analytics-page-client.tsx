@@ -9,9 +9,6 @@ import { useAgents, type Agent } from '@/hooks/use-agents';
 import { useOrganizations, type Organization } from '@/hooks/use-organizations';
 import {
   useAnalyticsSummary,
-  useConversationsChart,
-  useResponseTimesChart,
-  useMessageVolumeChart,
   useAgentAnalytics,
   type AnalyticsParams,
 } from '@/hooks/use-analytics';
@@ -19,17 +16,26 @@ import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
 import { MultiSelect } from '@/components/ui/multi-select';
 import { Card, CardContent, CardHeader } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
-import { AlertCircle } from 'lucide-react';
-import { KpiSummaryCards } from './kpi-summary-cards';
+import { Button } from '@/components/ui/button';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { AlertCircle, X } from 'lucide-react';
 import { DateRangePicker } from '@/components/ui/date-range-picker';
-import { ConversationsChart } from './conversations-chart';
-import { ResponseTimesChart } from './response-times-chart';
-import { MessageVolumeHeatmap } from './message-volume-heatmap';
-import { AgentAnalyticsTable } from './agent-analytics-table';
+import { DateRangePresets } from './date-range-presets';
+import { AnalyticsOverviewTab } from './analytics-overview-tab';
+import { AnalyticsConversationsTab } from './analytics-conversations-tab';
 import { AnalyticsEmptyState } from './analytics-empty-state';
 import { AnalyticsExportButton } from './analytics-export-button';
 import { VoiceAnalyticsSection } from './voice-analytics-section';
 import { resolveTimezone, TimezoneToggle, type TzMode } from './timezone-toggle';
+
+const TABS = ['overview', 'conversations', 'voice'] as const;
+type AnalyticsTab = (typeof TABS)[number];
+
+const SOURCE_LABELS: Record<string, string> = {
+  WIDGET: 'Widget',
+  WHATSAPP: 'WhatsApp',
+  DEMO: 'Demo',
+};
 
 // --- Date helpers (M3 fix: use local date, not UTC) ---
 function formatDateLocal(date: Date): string {
@@ -106,6 +112,11 @@ export function AnalyticsPageClient() {
       .filter((s): s is 'WIDGET' | 'WHATSAPP' | 'DEMO' => s === 'WIDGET' || s === 'WHATSAPP' || s === 'DEMO');
   });
 
+  const [activeTab, setActiveTab] = useState<AnalyticsTab>(() => {
+    const t = searchParams.get('tab');
+    return (TABS as readonly string[]).includes(t ?? '') ? (t as AnalyticsTab) : 'overview';
+  });
+
   // Local vs UTC interpretation of the date range and timestamps. Persists in
   // localStorage so the user's choice sticks across reloads. Default 'local'
   // re-resolves the browser timezone every render so travelers/movers get the
@@ -129,8 +140,9 @@ export function AnalyticsPageClient() {
     if (agentIds.length > 0) params.set('agentIds', agentIds.join(','));
     if (orgIds.length > 0) params.set('orgIds', orgIds.join(','));
     if (sources.length > 0) params.set('sources', sources.join(','));
+    if (activeTab !== 'overview') params.set('tab', activeTab);
     routerRef.current.replace(`?${params.toString()}`, { scroll: false });
-  }, [startDate, endDate, agentIds, orgIds, sources]);
+  }, [startDate, endDate, agentIds, orgIds, sources, activeTab]);
 
   useEffect(() => {
     syncUrl();
@@ -158,15 +170,23 @@ export function AnalyticsPageClient() {
   };
 
   const pollingOptions = { refetchInterval };
+  // Summary stays at the page level: it drives the empty-state gate, the error
+  // banner and the export payload. The Overview tab re-uses the same query key,
+  // so React Query dedupes it to a single request. All other domain queries
+  // live inside their tab components and only run while that tab is mounted.
   const summaryQuery = useAnalyticsSummary(analyticsParams, pollingOptions);
-  const conversationsQuery = useConversationsChart(analyticsParams, pollingOptions);
-  const responseTimesQuery = useResponseTimesChart(analyticsParams, pollingOptions);
-  const messageVolumeQuery = useMessageVolumeChart(analyticsParams, pollingOptions);
 
-  // 8-11: Fetch all agent metrics for export (high limit, no polling — only used on export click)
+  // 8-11: Agent metrics for export (high limit). Deferred until the export menu
+  // is first opened so we don't fire a 100-row query on every page load /
+  // filter change for the (common) case where the user never exports.
+  const [exportRequested, setExportRequested] = useState(false);
   const exportAgentsQuery = useAgentAnalytics(
     { ...analyticsParams, limit: 100, sortBy: 'conversations', sortOrder: 'desc' },
+    { enabled: exportRequested },
   );
+  const handleExportOpenChange = useCallback((open: boolean) => {
+    if (open) setExportRequested(true);
+  }, []);
 
   // Agent list for filter dropdown (Task 3.3)
   const { data: agentsData } = useAgents({ limit: 100 });
@@ -177,9 +197,9 @@ export function AnalyticsPageClient() {
   const { data: orgsData } = useOrganizations({ limit: 100 });
   const organizations: Organization[] = isAdmin ? (orgsData?.data ?? []) : [];
 
-  // M2: aggregate error state
-  const hasError = summaryQuery.isError || conversationsQuery.isError ||
-    responseTimesQuery.isError || messageVolumeQuery.isError;
+  // M2: page-level error state. Per-chart errors render inside their own cards;
+  // this banner covers the summary query that gates the whole view.
+  const hasError = summaryQuery.isError;
 
   // 8-10: Empty state detection — treat "no data" as all primary KPIs being zero
   const hasAgents = (agentsData?.meta?.total ?? 0) > 0;
@@ -191,6 +211,34 @@ export function AnalyticsPageClient() {
   );
   const showEmptyState = !summaryQuery.isLoading && !hasData && !hasError;
 
+  // Active non-date filters, surfaced as removable chips. (The date range has
+  // its own dedicated controls, so it's deliberately excluded here.)
+  const clearAllFilters = () => {
+    setAgentIds([]);
+    setOrgIds([]);
+    setSources([]);
+  };
+
+  const filterChips: Array<{ key: string; label: string; onRemove: () => void }> = [
+    ...agentIds.map((id) => ({
+      key: `agent-${id}`,
+      label: agents.find((a) => a.id === id)?.name ?? 'Agent',
+      onRemove: () => setAgentIds((prev) => prev.filter((x) => x !== id)),
+    })),
+    ...(isAdmin
+      ? orgIds.map((id) => ({
+          key: `org-${id}`,
+          label: organizations.find((o) => o.id === id)?.name ?? 'Organization',
+          onRemove: () => setOrgIds((prev) => prev.filter((x) => x !== id)),
+        }))
+      : []),
+    ...sources.map((s) => ({
+      key: `source-${s}`,
+      label: SOURCE_LABELS[s] ?? s,
+      onRemove: () => setSources((prev) => prev.filter((x) => x !== s)),
+    })),
+  ];
+
   if (profileLoading) {
     return <AnalyticsPageSkeleton />;
   }
@@ -198,67 +246,102 @@ export function AnalyticsPageClient() {
   return (
     <div className="space-y-6">
       {/* Filters Bar */}
-      <div className="flex flex-wrap items-center gap-4">
-        <DateRangePicker
-          fromValue={formatDateLocal(startDate)}
-          toValue={formatDateLocal(endDate)}
-          onChange={handleDateRangeChange}
-          placeholder="Pick a date range"
-          showClear={false}
-          popoverHeader={<TimezoneToggle mode={tzMode} onChange={handleTzModeChange} />}
-        />
+      <div className="space-y-3">
+        <div className="flex flex-wrap items-center gap-3">
+          <DateRangePresets
+            fromValue={formatDateLocal(startDate)}
+            toValue={formatDateLocal(endDate)}
+            onChange={handleDateRangeChange}
+          />
 
-        {/* Agent Filter */}
-        <SearchableMultiSelect
-          triggerClassName="w-[250px]"
-          placeholder="All agents"
-          searchPlaceholder="Search agents..."
-          emptyMessage="No agents found"
-          values={agentIds}
-          onValuesChange={setAgentIds}
-          selectedLabel={(n) => `${n} agents`}
-          options={agents.map((agent) => ({ value: agent.id, label: agent.name }))}
-        />
+          <DateRangePicker
+            fromValue={formatDateLocal(startDate)}
+            toValue={formatDateLocal(endDate)}
+            onChange={handleDateRangeChange}
+            placeholder="Pick a date range"
+            showClear={false}
+            triggerClassName="w-[230px]"
+            popoverHeader={<TimezoneToggle mode={tzMode} onChange={handleTzModeChange} />}
+          />
 
-        {/* Org Filter — admin only */}
-        {isAdmin && (
+          {/* Agent Filter */}
           <SearchableMultiSelect
-            triggerClassName="w-[250px]"
-            placeholder="All organizations"
-            searchPlaceholder="Search organizations..."
-            emptyMessage="No organizations found"
-            values={orgIds}
-            onValuesChange={setOrgIds}
-            selectedLabel={(n) => `${n} organizations`}
-            options={organizations.map((org) => ({ value: org.id, label: org.name }))}
+            triggerClassName="w-[190px]"
+            placeholder="All agents"
+            searchPlaceholder="Search agents..."
+            emptyMessage="No agents found"
+            values={agentIds}
+            onValuesChange={setAgentIds}
+            selectedLabel={(n) => `${n} agents`}
+            options={agents.map((agent) => ({ value: agent.id, label: agent.name }))}
           />
-        )}
 
-        {/* Source Filter */}
-        <MultiSelect
-          triggerClassName="w-[250px]"
-          placeholder="All channels"
-          values={sources}
-          onValuesChange={(v) => setSources(v as Array<'WIDGET' | 'WHATSAPP' | 'DEMO'>)}
-          selectedLabel={(n) => `${n} channels`}
-          options={[
-            { value: 'WIDGET', label: 'Widget' },
-            { value: 'WHATSAPP', label: 'WhatsApp' },
-            { value: 'DEMO', label: 'Demo' },
-          ]}
-        />
+          {/* Org Filter — admin only */}
+          {isAdmin && (
+            <SearchableMultiSelect
+              triggerClassName="w-[190px]"
+              placeholder="All organizations"
+              searchPlaceholder="Search organizations..."
+              emptyMessage="No organizations found"
+              values={orgIds}
+              onValuesChange={setOrgIds}
+              selectedLabel={(n) => `${n} orgs`}
+              options={organizations.map((org) => ({ value: org.id, label: org.name }))}
+            />
+          )}
 
-        {/* 8-11: Export button (TZ toggle lives inside the heatmap card) */}
-        <div className="ml-auto">
-          <AnalyticsExportButton
-            summaryData={summaryQuery.data}
-            agentData={exportAgentsQuery.data?.data ?? []}
-            startDate={analyticsParams.startDate}
-            endDate={analyticsParams.endDate}
-            orgName={profile?.organization?.name ?? 'all'}
-            disabled={showEmptyState}
+          {/* Source Filter */}
+          <MultiSelect
+            triggerClassName="w-[170px]"
+            placeholder="All channels"
+            values={sources}
+            onValuesChange={(v) => setSources(v as Array<'WIDGET' | 'WHATSAPP' | 'DEMO'>)}
+            selectedLabel={(n) => `${n} channels`}
+            options={[
+              { value: 'WIDGET', label: 'Widget' },
+              { value: 'WHATSAPP', label: 'WhatsApp' },
+              { value: 'DEMO', label: 'Demo' },
+            ]}
           />
+
+          {/* 8-11: Export button (TZ toggle lives inside the date picker) */}
+          <div className="ml-auto">
+            <AnalyticsExportButton
+              summaryData={summaryQuery.data}
+              agentData={exportAgentsQuery.data?.data ?? []}
+              startDate={analyticsParams.startDate}
+              endDate={analyticsParams.endDate}
+              orgName={profile?.organization?.name ?? 'all'}
+              disabled={showEmptyState}
+              onOpenChange={handleExportOpenChange}
+            />
+          </div>
         </div>
+
+        {/* Active filter chips */}
+        {filterChips.length > 0 && (
+          <div className="flex flex-wrap items-center gap-2">
+            {filterChips.map((chip) => (
+              <button
+                key={chip.key}
+                type="button"
+                onClick={chip.onRemove}
+                className="group inline-flex items-center gap-1 rounded-full border bg-muted/50 py-1 pl-2.5 pr-2 text-xs transition-colors hover:bg-muted"
+              >
+                <span className="max-w-40 truncate">{chip.label}</span>
+                <X className="size-3 text-muted-foreground group-hover:text-foreground" />
+              </button>
+            ))}
+            <Button
+              variant="ghost"
+              size="sm"
+              className="h-7 px-2 text-xs text-muted-foreground"
+              onClick={clearAllFilters}
+            >
+              Clear all
+            </Button>
+          </div>
+        )}
       </div>
 
       {/* M2: Error banner */}
@@ -273,38 +356,28 @@ export function AnalyticsPageClient() {
       {showEmptyState ? (
         <AnalyticsEmptyState hasAgents={hasAgents} />
       ) : (
-        <>
-          {/* KPI Summary Cards (Story 8-3) */}
-          <KpiSummaryCards data={summaryQuery.data} isLoading={summaryQuery.isLoading} />
+        // Tabs split the page by the question each answers (overview / what's
+        // being discussed / voice health). Only the active tab is mounted, so
+        // each view fires just its own queries instead of all of them at once.
+        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AnalyticsTab)} className="gap-6">
+          <TabsList>
+            <TabsTrigger value="overview">Overview</TabsTrigger>
+            <TabsTrigger value="conversations">Conversations</TabsTrigger>
+            <TabsTrigger value="voice">Voice</TabsTrigger>
+          </TabsList>
 
-          {/* Charts Grid */}
-          <div className="grid gap-6 lg:grid-cols-2">
-            <ConversationsChart
-              data={conversationsQuery.data}
-              isLoading={conversationsQuery.isLoading}
-              isError={conversationsQuery.isError}
-            />
-            <ResponseTimesChart
-              data={responseTimesQuery.data}
-              isLoading={responseTimesQuery.isLoading}
-              isError={responseTimesQuery.isError}
-            />
-            <MessageVolumeHeatmap
-              data={messageVolumeQuery.data}
-              isLoading={messageVolumeQuery.isLoading}
-              isError={messageVolumeQuery.isError}
-            />
-          </div>
+          <TabsContent value="overview">
+            <AnalyticsOverviewTab params={analyticsParams} pollingOptions={pollingOptions} />
+          </TabsContent>
 
-          {/* Agent Analytics Table (Story 8-8) */}
-          <AgentAnalyticsTable params={analyticsParams} pollingOptions={pollingOptions} />
+          <TabsContent value="conversations">
+            <AnalyticsConversationsTab params={analyticsParams} pollingOptions={pollingOptions} />
+          </TabsContent>
 
-          {/* Voice Analytics Section (Story 10-14) */}
-          <div>
-            <h2 className="mb-4 text-lg font-semibold">Voice Analytics</h2>
+          <TabsContent value="voice">
             <VoiceAnalyticsSection params={analyticsParams} pollingOptions={pollingOptions} />
-          </div>
-        </>
+          </TabsContent>
+        </Tabs>
       )}
     </div>
   );

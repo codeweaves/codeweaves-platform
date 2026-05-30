@@ -131,6 +131,8 @@ function buildQueryString(params: AnalyticsParams, extra?: Record<string, string
 
 export interface AnalyticsQueryOptions {
   refetchInterval?: number | false;
+  /** Gate the query. Defaults to enabled; pass false to defer the fetch. */
+  enabled?: boolean;
 }
 
 /** When polling is active, staleTime must be shorter than the interval so React Query actually refetches. */
@@ -187,6 +189,87 @@ export function useMessageVolumeChart(params: AnalyticsParams, options?: Analyti
   return useQuery<MessageVolumeResponse>({
     queryKey: ['analytics', 'message-volume', params],
     queryFn: () => api.get(`/analytics/charts/message-volume?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+  });
+}
+
+// ==========================================
+// Conversation Classification & Channel Types & Hooks
+// ==========================================
+
+// Matches API: analytics.service.ts → getConversationCategories()
+export interface CategoryEntry {
+  category: string;
+  count: number;
+  percentage: number;
+}
+
+export interface ConversationCategoriesResponse {
+  categories: CategoryEntry[];
+  /** Conversations not yet classified (null category) — shown for honest coverage. */
+  uncategorized: number;
+}
+
+// Matches API: analytics.service.ts → getConversationLanguages()
+export interface ConversationLanguageEntry {
+  language: string;
+  count: number;
+  percentage: number;
+}
+
+export interface ConversationLanguagesResponse {
+  languages: ConversationLanguageEntry[];
+}
+
+// Matches API: analytics.service.ts → getConversationChannels()
+export interface ChannelEntry {
+  source: string;
+  count: number;
+  percentage: number;
+}
+
+export interface ConversationChannelsResponse {
+  channels: ChannelEntry[];
+}
+
+export function useConversationCategories(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<ConversationCategoriesResponse>({
+    queryKey: ['analytics', 'conversation-categories', params],
+    queryFn: () => api.get(`/analytics/conversations/categories?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useConversationLanguages(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<ConversationLanguagesResponse>({
+    queryKey: ['analytics', 'conversation-languages', params],
+    queryFn: () => api.get(`/analytics/conversations/languages?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useConversationChannels(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<ConversationChannelsResponse>({
+    queryKey: ['analytics', 'conversation-channels', params],
+    queryFn: () => api.get(`/analytics/conversations/channels?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -290,7 +373,7 @@ export function useAgentAnalytics(params: AgentAnalyticsParams, options?: Analyt
     queryKey: ['analytics', 'agents', params],
     queryFn: () =>
       api.get(`/analytics/agents?${buildQueryString(baseParams, { page, limit, sortBy, sortOrder })}`),
-    enabled: isAuthenticated && !authLoading,
+    enabled: isAuthenticated && !authLoading && (options?.enabled !== false),
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
     refetchIntervalInBackground: false,
