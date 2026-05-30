@@ -601,6 +601,131 @@ export class AnalyticsService {
   }
 
   // ==========================================
+  // Conversation Classification & Channel Analytics
+  // ==========================================
+
+  /**
+   * Distribution of conversations across the AI-classifier categories
+   * (`chat_sessions.category`). Percentages are computed over *classified*
+   * sessions only; the count of still-unclassified sessions is returned
+   * separately so the UI can be honest about coverage rather than skewing
+   * the breakdown.
+   */
+  async getConversationCategories(query: AnalyticsQuery, user: CurrentUserData) {
+    const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc } = this.resolveRange(query);
+    const sf = this.getSourceFilter(query.source, query.sources);
+
+    if (agentIds.length === 0) {
+      return { categories: [], uncategorized: 0 };
+    }
+
+    const result = await this.prisma.$queryRaw<{ category: string | null; count: bigint }[]>`
+      SELECT "category", COUNT(*) as count
+      FROM chat_sessions
+      WHERE "agentId" = ANY(${agentIds}::text[])
+        AND "createdAt" >= ${startUtc}
+        AND "createdAt" < ${endUtc}
+        ${sf}
+      GROUP BY "category"
+      ORDER BY count DESC
+    `;
+
+    let uncategorized = 0;
+    const named: { category: string; count: number }[] = [];
+    for (const r of result) {
+      const count = Number(r.count);
+      if (r.category === null) {
+        uncategorized += count;
+      } else {
+        named.push({ category: r.category, count });
+      }
+    }
+
+    const total = named.reduce((sum, c) => sum + c.count, 0);
+    return {
+      categories: named.map((c) => ({
+        category: c.category,
+        count: c.count,
+        percentage: total > 0 ? Math.round((c.count / total) * 10000) / 100 : 0,
+      })),
+      uncategorized,
+    };
+  }
+
+  /**
+   * Distribution of conversations across the classifier-detected language
+   * (`chat_sessions.detectedLanguage`). Covers ALL conversations (text +
+   * voice) — distinct from `getLanguageDistribution`, which reads the
+   * per-message voice STT language and only counts voice turns.
+   */
+  async getConversationLanguages(query: AnalyticsQuery, user: CurrentUserData) {
+    const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc } = this.resolveRange(query);
+    const sf = this.getSourceFilter(query.source, query.sources);
+
+    if (agentIds.length === 0) {
+      return { languages: [] };
+    }
+
+    const result = await this.prisma.$queryRaw<{ language: string; count: bigint }[]>`
+      SELECT "detectedLanguage" as language, COUNT(*) as count
+      FROM chat_sessions
+      WHERE "agentId" = ANY(${agentIds}::text[])
+        AND "createdAt" >= ${startUtc}
+        AND "createdAt" < ${endUtc}
+        AND "detectedLanguage" IS NOT NULL
+        ${sf}
+      GROUP BY "detectedLanguage"
+      ORDER BY count DESC
+    `;
+
+    const total = result.reduce((sum, r) => sum + Number(r.count), 0);
+    return {
+      languages: result.map((r) => ({
+        language: r.language,
+        count: Number(r.count),
+        percentage: total > 0 ? Math.round((Number(r.count) / total) * 10000) / 100 : 0,
+      })),
+    };
+  }
+
+  /**
+   * Conversation volume split by channel/source (WIDGET, WHATSAPP, DEMO).
+   * When the caller has narrowed `sources`, only those channels appear —
+   * consistent with every other endpoint's source filter.
+   */
+  async getConversationChannels(query: AnalyticsQuery, user: CurrentUserData) {
+    const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc } = this.resolveRange(query);
+    const sf = this.getSourceFilter(query.source, query.sources);
+
+    if (agentIds.length === 0) {
+      return { channels: [] };
+    }
+
+    const result = await this.prisma.$queryRaw<{ source: string; count: bigint }[]>`
+      SELECT "source"::text as source, COUNT(*) as count
+      FROM chat_sessions
+      WHERE "agentId" = ANY(${agentIds}::text[])
+        AND "createdAt" >= ${startUtc}
+        AND "createdAt" < ${endUtc}
+        ${sf}
+      GROUP BY "source"
+      ORDER BY count DESC
+    `;
+
+    const total = result.reduce((sum, r) => sum + Number(r.count), 0);
+    return {
+      channels: result.map((r) => ({
+        source: r.source,
+        count: Number(r.count),
+        percentage: total > 0 ? Math.round((Number(r.count) / total) * 10000) / 100 : 0,
+      })),
+    };
+  }
+
+  // ==========================================
   // Voice Analytics Methods (Story 10-14)
   // ==========================================
 

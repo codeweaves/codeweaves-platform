@@ -109,6 +109,52 @@ export class AnalyticsController {
   }
 
   // ==========================================
+  // Conversation Classification & Channel Endpoints
+  // ==========================================
+
+  @Get('conversations/categories')
+  @ApiOperation({ summary: 'Get conversation distribution by AI-classified category' })
+  @ApiQuery({ name: 'startDate', required: true, type: String, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'endDate', required: true, type: String, description: 'End date (ISO 8601)' })
+  @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
+  @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
+  @ApiResponse({ status: 200, description: 'Category distribution with uncategorized count' })
+  async getConversationCategories(
+    @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.analyticsService.getConversationCategories(query, user);
+  }
+
+  @Get('conversations/languages')
+  @ApiOperation({ summary: 'Get conversation distribution by detected language (all conversations)' })
+  @ApiQuery({ name: 'startDate', required: true, type: String, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'endDate', required: true, type: String, description: 'End date (ISO 8601)' })
+  @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
+  @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
+  @ApiResponse({ status: 200, description: 'Language distribution data' })
+  async getConversationLanguages(
+    @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.analyticsService.getConversationLanguages(query, user);
+  }
+
+  @Get('conversations/channels')
+  @ApiOperation({ summary: 'Get conversation volume split by channel/source' })
+  @ApiQuery({ name: 'startDate', required: true, type: String, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'endDate', required: true, type: String, description: 'End date (ISO 8601)' })
+  @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
+  @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
+  @ApiResponse({ status: 200, description: 'Channel/source distribution data' })
+  async getConversationChannels(
+    @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.analyticsService.getConversationChannels(query, user);
+  }
+
+  // ==========================================
   // Voice Analytics Endpoints (Story 10-14)
   // ==========================================
 

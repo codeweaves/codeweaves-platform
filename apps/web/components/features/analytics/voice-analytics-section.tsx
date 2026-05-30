@@ -1,12 +1,5 @@
 'use client';
 
-import {
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
-  Tooltip,
-} from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import {
@@ -18,7 +11,9 @@ import {
   TableRow,
 } from '@/components/ui/table';
 import { KpiCard } from './kpi-card';
-import { Mic, Timer, Languages, AlertTriangle } from 'lucide-react';
+import { BreakdownBars } from './breakdown-bars';
+import { languageLabel } from './language-labels';
+import { Mic, Timer, Languages, Activity } from 'lucide-react';
 import type {
   AnalyticsParams,
   AnalyticsQueryOptions,
@@ -32,71 +27,45 @@ import {
   useVoiceLatency,
 } from '@/hooks/use-analytics';
 
-const PIE_COLORS = [
-  'hsl(var(--chart-1))',
-  'hsl(var(--chart-2))',
-  'hsl(var(--chart-3))',
-  'hsl(var(--chart-4))',
-  'hsl(var(--chart-5))',
-  '#8884d8',
-  '#82ca9d',
-  '#ffc658',
-];
-
-const LANGUAGE_LABELS: Record<string, string> = {
-  en: 'English',
-  hi: 'Hindi',
-  mr: 'Marathi',
-  bn: 'Bengali',
-  ta: 'Tamil',
-  te: 'Telugu',
-  gu: 'Gujarati',
-  kn: 'Kannada',
-  ml: 'Malayalam',
-  pa: 'Punjabi',
-  or: 'Odia',
-  hinglish: 'Hinglish',
-};
-
 interface VoiceAnalyticsSectionProps {
   params: AnalyticsParams;
   pollingOptions?: AnalyticsQueryOptions;
 }
 
+/**
+ * Voice analytics content (rendered inside the Voice tab). Language/latency
+ * queries stay gated behind `hasVoiceData` so we don't fire them for text-only
+ * orgs; when there's no voice data we show a friendly empty state instead.
+ */
 export function VoiceAnalyticsSection({ params, pollingOptions }: VoiceAnalyticsSectionProps) {
   const summaryQuery = useVoiceSummary(params, pollingOptions);
   const summary = summaryQuery.data;
-  const hasVoiceData = summary && summary.totalVoiceMessages > 0;
+  const hasVoiceData = !!summary && summary.totalVoiceMessages > 0;
 
-  // Only fetch language/latency data when we know voice data exists
-  const languagesQuery = useLanguageDistribution(params, { ...pollingOptions, enabled: !!hasVoiceData });
-  const latencyQuery = useVoiceLatency(params, { ...pollingOptions, enabled: !!hasVoiceData });
+  const languagesQuery = useLanguageDistribution(params, { ...pollingOptions, enabled: hasVoiceData });
+  const latencyQuery = useVoiceLatency(params, { ...pollingOptions, enabled: hasVoiceData });
+
+  if (!summaryQuery.isLoading && !hasVoiceData) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <Mic className="mb-4 size-12 text-muted-foreground/40" />
+          <h3 className="text-lg font-medium">No voice conversations yet</h3>
+          <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+            Enable voice on an agent to see voice volume, languages and provider latency here.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   return (
     <div className="space-y-6">
-      {/* Voice KPI Cards */}
       <VoiceSummaryCards data={summary} isLoading={summaryQuery.isLoading} />
-
-      {/* Empty state */}
-      {!summaryQuery.isLoading && !hasVoiceData && (
-        <Card>
-          <CardContent className="flex flex-col items-center justify-center py-12 text-center">
-            <Mic className="mb-4 h-12 w-12 text-muted-foreground/50" />
-            <h3 className="text-lg font-medium">No voice conversations yet</h3>
-            <p className="mt-1 text-sm text-muted-foreground">
-              Enable voice on an agent to get started.
-            </p>
-          </CardContent>
-        </Card>
-      )}
-
-      {/* Charts + Table — only show when there's data */}
-      {hasVoiceData && (
-        <div className="grid gap-6 lg:grid-cols-2">
-          <LanguagePieChart data={languagesQuery.data} isLoading={languagesQuery.isLoading} />
-          <ProviderLatencyTable data={latencyQuery.data} isLoading={latencyQuery.isLoading} />
-        </div>
-      )}
+      <div className="grid gap-6 lg:grid-cols-2">
+        <VoiceLanguageCard data={languagesQuery.data} isLoading={languagesQuery.isLoading} />
+        <ProviderLatencyTable data={latencyQuery.data} isLoading={latencyQuery.isLoading} />
+      </div>
     </div>
   );
 }
@@ -114,12 +83,7 @@ function VoiceSummaryCards({ data, isLoading }: { data?: VoiceSummaryResponse; i
         icon={Mic}
         isLoading={isLoading}
       />
-      <KpiCard
-        title="Voice / Text Ratio"
-        value={voiceRatioPercent}
-        icon={Mic}
-        isLoading={isLoading}
-      />
+      <KpiCard title="Voice / Text Ratio" value={voiceRatioPercent} icon={Mic} isLoading={isLoading} />
       <KpiCard
         title="Avg STT Latency"
         value={data ? `${data.avgSttLatencyMs}ms` : '0ms'}
@@ -138,53 +102,31 @@ function VoiceSummaryCards({ data, isLoading }: { data?: VoiceSummaryResponse; i
   );
 }
 
-// --- Language Distribution Pie Chart ---
-function LanguagePieChart({ data, isLoading }: { data?: LanguageDistributionResponse; isLoading: boolean }) {
-  if (isLoading) {
-    return (
-      <Card>
-        <CardHeader><Skeleton className="h-5 w-40" /></CardHeader>
-        <CardContent><Skeleton className="h-50 w-full" /></CardContent>
-      </Card>
-    );
-  }
-
-  const chartData = (data?.languages ?? []).map((l) => ({
-    name: LANGUAGE_LABELS[l.language] ?? l.language,
-    value: l.count,
-    percentage: l.percentage,
-  }));
+// --- Voice Language Distribution (horizontal bars; replaces pie) ---
+function VoiceLanguageCard({ data, isLoading }: { data?: LanguageDistributionResponse; isLoading: boolean }) {
+  const languages = data?.languages ?? [];
 
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <Languages className="h-4 w-4" />
-          Language Distribution
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <Languages className="size-4 text-muted-foreground" />
+          Voice Languages
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {chartData.length === 0 ? (
+        {isLoading ? (
+          <div className="space-y-3">
+            {Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-8 w-full" />
+            ))}
+          </div>
+        ) : languages.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">No language data available</p>
         ) : (
-          <ResponsiveContainer width="100%" height={250}>
-            <PieChart>
-              <Pie
-                data={chartData}
-                dataKey="value"
-                nameKey="name"
-                cx="50%"
-                cy="50%"
-                outerRadius={90}
-                label
-              >
-                {chartData.map((_, i) => (
-                  <Cell key={i} fill={PIE_COLORS[i % PIE_COLORS.length]} />
-                ))}
-              </Pie>
-              <Tooltip />
-            </PieChart>
-          </ResponsiveContainer>
+          <BreakdownBars
+            items={languages.map((l) => ({ label: languageLabel(l.language), count: l.count, percentage: l.percentage }))}
+          />
         )}
       </CardContent>
     </Card>
@@ -209,8 +151,8 @@ function ProviderLatencyTable({ data, isLoading }: { data?: VoiceLatencyResponse
   return (
     <Card>
       <CardHeader>
-        <CardTitle className="flex items-center gap-2 text-base">
-          <AlertTriangle className="h-4 w-4" />
+        <CardTitle className="flex items-center gap-2 text-base font-medium">
+          <Activity className="size-4 text-muted-foreground" />
           Provider Latency
         </CardTitle>
       </CardHeader>

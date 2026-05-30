@@ -27,6 +27,8 @@ interface AnalyticsExportButtonProps {
   endDate: string;
   orgName: string;
   disabled?: boolean;
+  /** Fired when the menu opens — lets the parent lazily fetch export-only data. */
+  onOpenChange?: (open: boolean) => void;
 }
 
 export function AnalyticsExportButton({
@@ -36,6 +38,7 @@ export function AnalyticsExportButton({
   endDate,
   orgName,
   disabled,
+  onOpenChange,
 }: AnalyticsExportButtonProps) {
   const api = useApiClient();
 
@@ -72,7 +75,7 @@ export function AnalyticsExportButton({
   const isDisabled = disabled || !summaryData;
 
   return (
-    <DropdownMenu>
+    <DropdownMenu onOpenChange={onOpenChange}>
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" disabled={isDisabled}>
           <Download className="mr-2 h-4 w-4" />
