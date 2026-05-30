@@ -25,15 +25,6 @@ jest.mock('@sentry/nestjs', () => ({
   captureMessage: jest.fn(),
 }));
 
-interface ConversationResult {
-  transcription: { text: string; detectedLanguage: string; confidence: number };
-  response: { text: string; audio: string | null; audioFormat: string | null; audioDurationMs: number | null };
-  sessionId: string;
-  messageId: string;
-  metrics: { sttLatencyMs: number; aiLatencyMs: number; ttsLatencyMs: number; totalLatencyMs: number };
-  ttsError?: { errorCode: string; message: string };
-}
-
 interface ErrorResult {
   error: boolean;
   errorCode: string;
@@ -169,8 +160,9 @@ describe('VoiceController', () => {
     mockMessageRateLimitService.getDeviceIdentifier.mockReturnValue('test-device');
     mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({ allowed: true });
 
-    // Default: no webhook URL → legacy sequential path
-    mockAgentsService.getEffectiveWebhookUrl.mockRejectedValue(new Error('No webhook URL'));
+    // Default: webhook URL configured (streaming is the only path now).
+    // Tests that need to exercise the "no webhook" 412 branch override per-test.
+    mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue('https://n8n.example.com/webhook/abc');
 
     // Default: prisma mocks
     mockPrismaService.chatMessage.update.mockResolvedValue({});
@@ -191,305 +183,70 @@ describe('VoiceController', () => {
   });
 
   // ============================
-  // POST /voice/conversation
+  // POST /voice/conversation (streaming-only)
   // ============================
-  describe('voiceConversation', () => {
-    it('should complete full STT → Chat → TTS flow and return all fields', async () => {
+  describe('voiceConversation (streaming-only)', () => {
+    function streamingReq(): Request {
+      return createMockRequest({ accept: 'application/x-ndjson' });
+    }
+
+    it('should return 406 if the client does not accept application/x-ndjson', async () => {
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
+      const req = createMockRequest(); // no Accept header
+      const res = createMockResponse();
       mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
+
+      const result = (await controller.voiceConversation(audioFile, dto, req, res)) as ErrorResult;
+
+      expect(res.status).toHaveBeenCalledWith(HttpStatus.NOT_ACCEPTABLE);
+      expect(result.errorCode).toBe(voiceErrorCodes.PROVIDER_UNAVAILABLE);
+      expect(mockN8nStreamingService.streamFromWebhookUrl).not.toHaveBeenCalled();
+    });
+
+    it('should return 412 if the agent has no webhook URL configured', async () => {
+      mockAgentsService.getEffectiveWebhookUrl.mockRejectedValueOnce(new Error('No webhook URL'));
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
-      const req = createMockRequest();
       const res = createMockResponse();
 
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
+      const result = (await controller.voiceConversation(audioFile, dto, streamingReq(), res)) as ErrorResult;
 
-      expect(result.transcription).toEqual({
-        text: 'Hello, how are you?',
-        detectedLanguage: 'en',
-        confidence: 0.95,
-      });
-      expect(result.response.text).toBe('I am doing great, thanks!');
-      expect(result.response.audio).toBe(mockTtsResult.audio.toString('base64'));
-      expect(result.response.audioFormat).toBe('audio/mp3');
-      expect(result.response.audioDurationMs).toBe(2000);
-      expect(result.sessionId).toBe(SESSION_ID);
-      expect(result.messageId).toBe('msg-uuid');
-      expect(result.metrics).toHaveProperty('sttLatencyMs');
-      expect(result.metrics).toHaveProperty('aiLatencyMs');
-      expect(result.metrics).toHaveProperty('ttsLatencyMs');
-      expect(result.metrics).toHaveProperty('totalLatencyMs');
-      expect(result.ttsError).toBeUndefined();
+      expect(res.status).toHaveBeenCalledWith(HttpStatus.PRECONDITION_FAILED);
+      expect(result.errorCode).toBe(voiceErrorCodes.PROVIDER_UNAVAILABLE);
+      expect(mockN8nStreamingService.streamFromWebhookUrl).not.toHaveBeenCalled();
     });
 
-    it('should skip TTS and return audio: null when ttsEnabled is false', async () => {
-      mockVoiceService.getVoiceConfig.mockResolvedValue({
-        sttEnabled: true,
-        ttsEnabled: false,
-        defaultLanguage: 'en',
-        supportedLanguages: ['en'],
-        ttsSpeed: 1.0,
-        autoDetectLanguage: true,
-      });
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
-
-      expect(result.response.audio).toBeNull();
-      expect(result.response.audioFormat).toBeNull();
-      expect(result.response.audioDurationMs).toBeNull();
-      expect(result.metrics.ttsLatencyMs).toBe(0);
-      expect(mockVoiceService.synthesize).not.toHaveBeenCalled();
-    });
-
-    it('should pass transcribed text to chatService.sendMessage', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      await controller.voiceConversation(audioFile, dto, req, res);
-
-      expect(mockChatService.sendMessage).toHaveBeenCalledWith({
-        agentId: AGENT_ID,
-        chatInput: 'Hello, how are you?',
-        sessionId: SESSION_ID,
-        source: 'WIDGET',
-      });
-    });
-
-    it('should pass STT detected language to TTS synthesis', async () => {
-      const hiSttResult = { ...mockSttResult, detectedLanguage: 'hi' as const };
-      mockVoiceService.transcribe.mockResolvedValue(hiSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      await controller.voiceConversation(audioFile, dto, req, res);
-
-      expect(mockVoiceService.synthesize).toHaveBeenCalledWith(
-        expect.objectContaining({ language: 'hi' }),
-      );
-    });
-
-    it('should calculate metrics correctly', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
-
-      const { metrics } = result;
-      expect(typeof metrics.sttLatencyMs).toBe('number');
-      expect(typeof metrics.aiLatencyMs).toBe('number');
-      expect(typeof metrics.ttsLatencyMs).toBe('number');
-      expect(typeof metrics.totalLatencyMs).toBe('number');
-      expect(metrics.totalLatencyMs).toBeGreaterThanOrEqual(
-        metrics.sttLatencyMs + metrics.aiLatencyMs + metrics.ttsLatencyMs,
-      );
-    });
-
-    it('should return rate limit error with RATE_LIMITED errorCode', async () => {
-      mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({
+    it('should return RATE_LIMITED before checking streaming requirements', async () => {
+      mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValueOnce({
         allowed: false,
-        message: "You're sending messages too quickly. Please wait a moment.",
-        retryAfterSeconds: 45,
+        message: 'Slow down',
+        retryAfterSeconds: 30,
       });
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ErrorResult;
-
-      expect(result).toEqual({
-        error: true,
-        errorCode: voiceErrorCodes.RATE_LIMITED,
-        message: "You're sending messages too quickly. Please wait a moment.",
-        retryAfterSeconds: 45,
-      });
-      expect(res.status).toHaveBeenCalledWith(HttpStatus.TOO_MANY_REQUESTS);
-      expect(mockVoiceService.transcribe).not.toHaveBeenCalled();
-    });
-
-    it('should always derive deviceId from request, ignoring dto.deviceId', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID, deviceId: 'attacker-supplied-id' };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      await controller.voiceConversation(audioFile, dto, req, res);
-
-      expect(mockMessageRateLimitService.getDeviceIdentifier).toHaveBeenCalledWith(req);
-      expect(mockMessageRateLimitService.checkMessageRateLimit).toHaveBeenCalledWith(
-        'test-device',
-        AGENT_ID,
-      );
-    });
-
-    it('should return AUDIO_TOO_SHORT error when STT returns empty transcript', async () => {
-      mockVoiceService.transcribe.mockResolvedValue({
-        ...mockSttResult,
-        transcript: '   ',
-      });
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ErrorResult;
-
-      expect(result.error).toBe(true);
-      expect(result.errorCode).toBe(voiceErrorCodes.AUDIO_TOO_SHORT);
-      expect(res.status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
-      expect(mockChatService.sendMessage).not.toHaveBeenCalled();
-    });
-
-    it('should skip TTS when chatResult.reply is empty', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue({ ...mockChatResult, reply: '' });
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
-
-      expect(result.response.audio).toBeNull();
-      expect(mockVoiceService.synthesize).not.toHaveBeenCalled();
-    });
-  });
-
-  // ============================
-  // Voice metadata storage (Story 10-14)
-  // ============================
-  describe('voice metadata storage', () => {
-    it('should store voice metadata on user message after successful conversation', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
-      const req = createMockRequest();
       const res = createMockResponse();
 
-      await controller.voiceConversation(audioFile, dto, req, res);
+      const result = (await controller.voiceConversation(audioFile, dto, streamingReq(), res)) as ErrorResult;
 
-      // User message metadata — includes aiLatencyMs (P3) and defensive spread (P4)
-      expect(mockPrismaService.chatMessage.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'msg-uuid' },
-          data: {
-            metadata: expect.objectContaining({
-              inputType: 'voice',
-              detectedLanguage: 'en',
-              languageConfidence: 0.95,
-              sttProvider: 'deepgram',
-              aiLatencyMs: expect.any(Number),
-            }),
-          },
-        }),
-      );
+      expect(res.status).toHaveBeenCalledWith(HttpStatus.TOO_MANY_REQUESTS);
+      expect(result.errorCode).toBe(voiceErrorCodes.RATE_LIMITED);
     });
 
-    it('should store TTS provider metadata on assistant message', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
+    it('should return NO_SPEECH_DETECTED when STT yields an empty transcript', async () => {
+      mockVoiceService.transcribe.mockResolvedValueOnce({ ...mockSttResult, transcript: '   ' });
 
       const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
       const res = createMockResponse();
 
-      await controller.voiceConversation(audioFile, dto, req, res);
+      const result = (await controller.voiceConversation(audioFile, dto, streamingReq(), res)) as ErrorResult;
 
-      // Assistant message metadata — ttsError key omitted when no error (P1)
-      const assistantCall = mockPrismaService.chatMessage.update.mock.calls.find(
-        (call: [{ where: { id: string }; data: { metadata: Record<string, unknown> } }]) => call[0].where.id === 'assistant-msg-uuid',
-      );
-      expect(assistantCall).toBeDefined();
-      const assistantMeta = assistantCall![0].data.metadata as Record<string, unknown>;
-      expect(assistantMeta.inputType).toBe('voice');
-      expect(assistantMeta.ttsProvider).toBe('elevenlabs');
-      expect(assistantMeta).not.toHaveProperty('ttsError');
-    });
-
-    it('should store ttsError code in assistant metadata when TTS fails', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockRejectedValue(
-        new VoiceProviderError('elevenlabs', 'TTS failed'),
-      );
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      await controller.voiceConversation(audioFile, dto, req, res);
-
-      // Assistant message should have ttsError
-      expect(mockPrismaService.chatMessage.update).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { id: 'assistant-msg-uuid' },
-          data: {
-            metadata: expect.objectContaining({
-              ttsError: voiceErrorCodes.TTS_FAILED,
-            }),
-          },
-        }),
-      );
-    });
-
-    it('should not fail the response if metadata storage fails (retries once)', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
-      mockPrismaService.chatMessage.update.mockRejectedValue(new Error('DB error'));
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
-
-      // Fire-and-forget: allow retry to complete
-      await new Promise((r) => setTimeout(r, 50));
-
-      // Should still return successful response
-      expect(result.transcription.text).toBe('Hello, how are you?');
-      expect(result.response.text).toBe('I am doing great, thanks!');
+      expect(res.status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
+      expect(result.errorCode).toBe(voiceErrorCodes.NO_SPEECH_DETECTED);
     });
   });
 
@@ -822,89 +579,6 @@ describe('VoiceController', () => {
       expect(res.status).toHaveBeenCalledWith(HttpStatus.BAD_GATEWAY);
     });
 
-    it('should return text-only response with ttsError when TTS fails (graceful degradation)', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockRejectedValue(
-        new VoiceProviderError('elevenlabs', 'API returned 500'),
-      );
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
-
-      // Should NOT be an error response — should be a successful response with text
-      expect(result.transcription.text).toBe('Hello, how are you?');
-      expect(result.response.text).toBe('I am doing great, thanks!');
-      expect(result.response.audio).toBeNull();
-      expect(result.response.audioFormat).toBeNull();
-      expect(result.ttsError).toEqual({
-        errorCode: voiceErrorCodes.TTS_FAILED,
-        message: 'Voice playback unavailable',
-      });
-      // Should NOT set error HTTP status — this is a 200 with degraded response
-      expect(res.status).not.toHaveBeenCalled();
-    });
-
-    it('should return text-only response when TTS fallback chain is exhausted (not 500)', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockRejectedValue(
-        new VoiceProviderError('sarvam', 'No TTS provider supports language: mr', HttpStatus.BAD_GATEWAY),
-      );
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
-
-      // AC #11: TTS fallback exhausted should return text-only, NOT a 500
-      expect(result.response.text).toBe('I am doing great, thanks!');
-      expect(result.response.audio).toBeNull();
-      expect(result.ttsError).toBeDefined();
-      expect(result.ttsError!.errorCode).toBe(voiceErrorCodes.TTS_FAILED);
-    });
-
-    it('should return PROVIDER_UNAVAILABLE error when chatService fails', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockRejectedValue(new Error('n8n webhook down'));
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ErrorResult;
-
-      expect(result.error).toBe(true);
-      expect(result.errorCode).toBe(voiceErrorCodes.PROVIDER_UNAVAILABLE);
-      expect(result.message).toBe('AI service temporarily unavailable');
-      expect(res.status).toHaveBeenCalledWith(HttpStatus.BAD_GATEWAY);
-    });
-
-    it('should default to TTS enabled when getVoiceConfig fails', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.getVoiceConfig.mockRejectedValue(new Error('DB connection lost'));
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
-
-      // Should still attempt TTS since default is ttsEnabled: true
-      expect(mockVoiceService.synthesize).toHaveBeenCalled();
-      expect(result.response.audio).toBe(mockTtsResult.audio.toString('base64'));
-    });
-
     it('should report STT errors to Sentry with voice context', async () => {
       mockVoiceService.transcribe.mockRejectedValue(
         new VoiceProviderError('deepgram', 'API failure'),
@@ -912,29 +586,11 @@ describe('VoiceController', () => {
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, languageHint: 'hi' as const };
-      const req = createMockRequest();
+      const req = createMockRequest({ accept: 'application/x-ndjson' });
       const res = createMockResponse();
 
       await controller.voiceConversation(audioFile, dto, req, res);
 
-      expect(Sentry.withScope).toHaveBeenCalled();
-    });
-
-    it('should report TTS errors to Sentry as warning (graceful degradation)', async () => {
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockRejectedValue(
-        new VoiceProviderError('elevenlabs', 'TTS failed'),
-      );
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      await controller.voiceConversation(audioFile, dto, req, res);
-
-      // Sentry should be called for TTS failure
       expect(Sentry.withScope).toHaveBeenCalled();
     });
   });
@@ -1000,39 +656,6 @@ describe('VoiceController', () => {
       expect(parsed[0].text).toBe('Hello, how are you?');
       expect(parsed[1].type).toBe('audio');
       expect(parsed[2].type).toBe('end');
-    });
-
-    it('should fall back to legacy path when webhookUrl is not available', async () => {
-      mockAgentsService.getEffectiveWebhookUrl.mockRejectedValue(new Error('No webhook'));
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      const result = await controller.voiceConversation(audioFile, dto, req, res) as ConversationResult;
-
-      expect(result.transcription).toBeDefined();
-      expect(result.response.text).toBe('I am doing great, thanks!');
-      expect(mockChatService.sendMessage).toHaveBeenCalled();
-    });
-
-    it('should fall back to legacy path when TTS is disabled', async () => {
-      mockVoiceService.getVoiceConfig.mockResolvedValue({ ttsEnabled: false });
-      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
-      mockChatService.sendMessage.mockResolvedValue(mockChatResult);
-
-      const audioFile = createMockAudioFile();
-      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      await controller.voiceConversation(audioFile, dto, req, res);
-
-      expect(mockN8nStreamingService.streamFromWebhookUrl).not.toHaveBeenCalled();
     });
 
     it('should write error chunk on streaming failure', async () => {

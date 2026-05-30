@@ -66,13 +66,66 @@ export class ChatService {
     return agent;
   }
 
-  async resolveOrCreateSession(agentId: string, sessionId?: string, source: 'DEMO' | 'WIDGET' | 'WHATSAPP' = 'DEMO'): Promise<ChatSession> {
+  // Hard session lifetime, measured from createdAt (NOT lastMessageAt). A
+  // session is bounded — after 6h from its first message the row is sealed,
+  // the next message from the same widget rotates to a brand-new session.
+  // Reasoning is in the conversations PRD / classifier comments: bounded
+  // lifetime gives cleaner analytics and a deterministic moment for the
+  // classifier to run. The web widget separately resets sessionId on page
+  // reload / tab close (handled in apps/widget session-manager); this 6h
+  // backstop catches the long-running-tab case and is the ONLY rule for
+  // channels with no page concept (WhatsApp).
+  private static readonly SESSION_LIFETIME_MS = 6 * 60 * 60 * 1000;
+
+  async resolveOrCreateSession(
+    agentId: string,
+    sessionId?: string,
+    source: 'DEMO' | 'WIDGET' | 'WHATSAPP' = 'DEMO',
+    visitorId?: string,
+  ): Promise<ChatSession> {
     if (sessionId) {
       const existing = await this.prisma.chatSession.findFirst({
         where: { sessionId, agentId, status: 'ACTIVE' },
       });
       if (!existing) {
         throw new NotFoundException('Session not found or does not belong to this agent');
+      }
+
+      // Auto-rotate when the session has lived past its lifetime cap. We
+      // measure from `createdAt` — not `lastMessageAt` — so sessions have a
+      // bounded length even when someone keeps the conversation going.
+      // Old row gets stamped EXPIRED (the dashboard + classifier rely on it
+      // to tell live conversations apart from closed ones); the next call
+      // gets a brand-new sessionId in the response and rotates client-side.
+      const isExpired =
+        Date.now() - existing.createdAt.getTime() > ChatService.SESSION_LIFETIME_MS;
+      if (isExpired) {
+        await this.prisma.chatSession.update({
+          where: { id: existing.id },
+          data: { status: 'EXPIRED' },
+        });
+        return this.prisma.chatSession.create({
+          data: {
+            agentId,
+            sessionId: randomUUID(),
+            source,
+            visitorId: visitorId ?? null,
+          },
+        });
+      }
+
+      // Backfill visitorId on an existing session when missing, OR when the
+      // stored value is a loopback address (::1, 127.0.0.1) — this happens
+      // when the first request arrived before the widget's public-IP lookup
+      // resolved, so req.ip fell back to localhost.
+      const isLoopback = existing.visitorId === '::1'
+        || existing.visitorId === '127.0.0.1'
+        || existing.visitorId?.startsWith('::ffff:127.');
+      if (visitorId && (!existing.visitorId || isLoopback)) {
+        return this.prisma.chatSession.update({
+          where: { id: existing.id },
+          data: { visitorId },
+        });
       }
       return existing;
     }
@@ -81,8 +134,20 @@ export class ChatService {
         agentId,
         sessionId: randomUUID(),
         source,
+        visitorId: visitorId ?? null,
       },
     });
+  }
+
+  /** Extract client IP from an Express request (req.ip → X-Forwarded-For). */
+  static extractVisitorIp(request: { headers: Record<string, string | string[] | undefined>; ip?: string }): string | undefined {
+    if (request.ip) return request.ip;
+    const forwarded = request.headers['x-forwarded-for'];
+    if (forwarded) {
+      const first = Array.isArray(forwarded) ? forwarded[0]! : String(forwarded).split(',')[0]!;
+      return first.trim() || undefined;
+    }
+    return undefined;
   }
 
   /**
@@ -158,14 +223,14 @@ export class ChatService {
    * analytics (`responseLatencyMs`, `timeToFirstToken`, `streamingMode`) work
    * identically regardless of which engine served the reply.
    */
-  async sendMessage(dto: SendMessageDto) {
+  async sendMessage(dto: SendMessageDto, visitorIp?: string) {
     const agent = await this.resolveAgent(dto.agentId);
     const routingMode = resolveRoutingMode(agent.aiConfig);
 
     if (routingMode === 'direct') {
-      return this.sendDirectMessage(dto, agent.id);
+      return this.sendDirectMessage(dto, agent.id, visitorIp);
     }
-    return this.sendN8nMessage(dto, agent);
+    return this.sendN8nMessage(dto, agent, visitorIp);
   }
 
   /**
@@ -173,12 +238,12 @@ export class ChatService {
    * the resulting message with metadata that mirrors the n8n shape plus our
    * richer native fields (cachedInputTokens, traceId, cost, etc.).
    */
-  private async sendDirectMessage(dto: SendMessageDto, agentId: string) {
+  private async sendDirectMessage(dto: SendMessageDto, agentId: string, visitorIp?: string) {
     const backendReceivedAt = new Date();
     // Need the full Agent entity (with systemPrompt + organizationId) for
     // the orchestrator — `resolveAgent` only returns a stripped projection.
     const fullAgent = await this.prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
-    const session = await this.resolveOrCreateSession(agentId, dto.sessionId, dto.source ?? 'DEMO');
+    const session = await this.resolveOrCreateSession(agentId, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
 
     const result = await this.directChatService.send({
       agent: fullAgent,
@@ -251,9 +316,10 @@ export class ChatService {
   private async sendN8nMessage(
     dto: SendMessageDto,
     agent: { id: string; hmacEnabled: boolean },
+    visitorIp?: string,
   ) {
     const backendReceivedAt = new Date();
-    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO');
+    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
 
     // Call n8n webhook BEFORE storing messages to avoid orphaned user messages on failure
     const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
@@ -323,11 +389,11 @@ export class ChatService {
    * Stores user message before calling n8n, stores AI message after response.
    * Returns data for SSE streaming by the controller.
    */
-  async streamMessage(dto: SendMessageDto) {
+  async streamMessage(dto: SendMessageDto, visitorIp?: string) {
     const backendReceivedAt = new Date();
 
     const agent = await this.resolveAgent(dto.agentId);
-    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO');
+    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
 
     // Store user message BEFORE calling n8n
     const userMessage = await this.prisma.chatMessage.create({

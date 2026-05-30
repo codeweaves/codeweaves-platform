@@ -22,6 +22,9 @@ describe('AnalyticsController', () => {
     getResponseTimeDistribution: jest.fn(),
     getMessageVolumeHeatmap: jest.fn(),
     getAgentMetrics: jest.fn(),
+    getConversationCategories: jest.fn(),
+    getConversationLanguages: jest.fn(),
+    getConversationChannels: jest.fn(),
     logExport: jest.fn(),
   };
 
@@ -85,8 +88,9 @@ describe('AnalyticsController', () => {
 
   describe('getSummary', () => {
     const query = {
-      startDate: new Date('2026-01-01'),
-      endDate: new Date('2026-01-31'),
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      timezone: 'UTC',
     };
 
     const mockSummary = {
@@ -142,7 +146,7 @@ describe('AnalyticsController', () => {
   // ==========================================
 
   describe('getConversationsChart', () => {
-    const query = { startDate: new Date('2026-01-01'), endDate: new Date('2026-01-31') };
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
     const mockChart = { data: [{ date: '2026-01-01', count: 10 }] };
 
     it('should return conversations chart data', async () => {
@@ -155,7 +159,7 @@ describe('AnalyticsController', () => {
   });
 
   describe('getResponseTimeDistribution', () => {
-    const query = { startDate: new Date('2026-01-01'), endDate: new Date('2026-01-31') };
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
     const mockDistribution = {
       buckets: [{ label: '<1s', min: 0, max: 1000, count: 50, percentage: 50 }],
       percentiles: { p50: 800, p95: 2500, p99: 5000 },
@@ -171,7 +175,7 @@ describe('AnalyticsController', () => {
   });
 
   describe('getMessageVolumeHeatmap', () => {
-    const query = { startDate: new Date('2026-01-01'), endDate: new Date('2026-01-31') };
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
     const mockHeatmap = { data: [{ day: 0, hour: 9, count: 15 }] };
 
     it('should return message volume heatmap data', async () => {
@@ -184,13 +188,60 @@ describe('AnalyticsController', () => {
   });
 
   // ==========================================
+  // Conversation Classification & Channel Endpoints
+  // ==========================================
+
+  describe('getConversationCategories', () => {
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
+    const mockCategories = { categories: [{ category: 'Pricing', count: 10, percentage: 100 }], uncategorized: 2 };
+
+    it('should return category distribution', async () => {
+      mockAnalyticsService.getConversationCategories.mockResolvedValue(mockCategories);
+
+      const result = await controller.getConversationCategories(query, adminUser);
+
+      expect(result).toEqual(mockCategories);
+      expect(mockAnalyticsService.getConversationCategories).toHaveBeenCalledWith(query, adminUser);
+    });
+  });
+
+  describe('getConversationLanguages', () => {
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
+    const mockLanguages = { languages: [{ language: 'en', count: 10, percentage: 100 }] };
+
+    it('should return language distribution', async () => {
+      mockAnalyticsService.getConversationLanguages.mockResolvedValue(mockLanguages);
+
+      const result = await controller.getConversationLanguages(query, adminUser);
+
+      expect(result).toEqual(mockLanguages);
+      expect(mockAnalyticsService.getConversationLanguages).toHaveBeenCalledWith(query, adminUser);
+    });
+  });
+
+  describe('getConversationChannels', () => {
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
+    const mockChannels = { channels: [{ source: 'WIDGET', count: 10, percentage: 100 }] };
+
+    it('should return channel split', async () => {
+      mockAnalyticsService.getConversationChannels.mockResolvedValue(mockChannels);
+
+      const result = await controller.getConversationChannels(query, adminUser);
+
+      expect(result).toEqual(mockChannels);
+      expect(mockAnalyticsService.getConversationChannels).toHaveBeenCalledWith(query, adminUser);
+    });
+  });
+
+  // ==========================================
   // Agent Metrics Endpoint (AC: 11)
   // ==========================================
 
   describe('getAgentMetrics', () => {
     const query = {
-      startDate: new Date('2026-01-01'),
-      endDate: new Date('2026-01-31'),
+      startDate: '2026-01-01',
+      endDate: '2026-01-31',
+      timezone: 'UTC',
       page: 1,
       limit: 20,
       sortBy: 'conversations' as const,
@@ -299,8 +350,29 @@ describe('AnalyticsController', () => {
 
     it('should accept valid date range', () => {
       const result = queryPipe.transform({ startDate: '2026-01-01', endDate: '2026-01-31' });
-      expect(result.startDate).toBeInstanceOf(Date);
-      expect(result.endDate).toBeInstanceOf(Date);
+      expect(result.startDate).toBe('2026-01-01');
+      expect(result.endDate).toBe('2026-01-31');
+      // timezone defaults to UTC when not supplied
+      expect(result.timezone).toBe('UTC');
+    });
+
+    it('should accept and preserve timezone', () => {
+      const result = queryPipe.transform({
+        startDate: '2026-01-01',
+        endDate: '2026-01-31',
+        timezone: 'Asia/Kolkata',
+      });
+      expect(result.timezone).toBe('Asia/Kolkata');
+    });
+
+    it('should reject invalid timezone', () => {
+      expect(() =>
+        queryPipe.transform({
+          startDate: '2026-01-01',
+          endDate: '2026-01-31',
+          timezone: 'Not/A/Real/Zone',
+        }),
+      ).toThrow(BadRequestException);
     });
 
     it('should accept optional agentId', () => {
@@ -363,13 +435,13 @@ describe('AnalyticsController', () => {
       ).toThrow(BadRequestException);
     });
 
-    it('should coerce date strings to Date objects', () => {
-      const result = queryPipe.transform({
-        startDate: '2026-01-01T00:00:00.000Z',
-        endDate: '2026-01-31T23:59:59.999Z',
-      });
-      expect(result.startDate).toBeInstanceOf(Date);
-      expect(result.endDate).toBeInstanceOf(Date);
+    it('should reject ISO datetime strings (only YYYY-MM-DD accepted)', () => {
+      expect(() =>
+        queryPipe.transform({
+          startDate: '2026-01-01T00:00:00.000Z',
+          endDate: '2026-01-31T23:59:59.999Z',
+        }),
+      ).toThrow(BadRequestException);
     });
 
     // Export log body validation (Story 8-11)

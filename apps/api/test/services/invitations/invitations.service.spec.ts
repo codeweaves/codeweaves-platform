@@ -212,7 +212,7 @@ describe('InvitationsService', () => {
 
       expect(mockEmailService.send).toHaveBeenCalledWith({
         to: mockInvitation.email,
-        subject: 'You have been invited to CodeWeaves',
+        subject: 'You have been invited to Klivo',
         html: expect.stringContaining('Set Your Password'),
       });
     });
@@ -276,7 +276,7 @@ describe('InvitationsService', () => {
       // Email still sent with fallback signup URL
       expect(mockEmailService.send).toHaveBeenCalledWith({
         to: mockInvitation.email,
-        subject: 'You have been invited to CodeWeaves',
+        subject: 'You have been invited to Klivo',
         html: expect.stringContaining('Create Your Account'),
       });
     });
@@ -316,13 +316,32 @@ describe('InvitationsService', () => {
       expect(mockPrisma.userInvitation.count).toHaveBeenCalledWith({ where: expectedWhere });
     });
 
-    it('should apply status filter', async () => {
+    it('should apply status filter (single value translates to IN clause)', async () => {
       mockPrisma.userInvitation.findMany.mockResolvedValue([]);
       mockPrisma.userInvitation.count.mockResolvedValue(0);
 
       await service.findAll({ page: 1, limit: 10, status: InvitationStatus.PENDING, sortBy: 'createdAt', sortOrder: 'desc' });
 
-      const expectedWhere = { status: InvitationStatus.PENDING };
+      // Single + multi status filters share one `IN (...)` query path.
+      const expectedWhere = { status: { in: [InvitationStatus.PENDING] } };
+      expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: expectedWhere }),
+      );
+    });
+
+    it('should apply multi-status filter via statuses array', async () => {
+      mockPrisma.userInvitation.findMany.mockResolvedValue([]);
+      mockPrisma.userInvitation.count.mockResolvedValue(0);
+
+      await service.findAll({
+        page: 1, limit: 10,
+        statuses: [InvitationStatus.PENDING, InvitationStatus.EXPIRED],
+        sortBy: 'createdAt', sortOrder: 'desc',
+      });
+
+      const expectedWhere = {
+        status: { in: [InvitationStatus.PENDING, InvitationStatus.EXPIRED] },
+      };
       expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expectedWhere }),
       );
@@ -339,7 +358,7 @@ describe('InvitationsService', () => {
 
       const expectedWhere = {
         email: { contains: 'admin', mode: 'insensitive' },
-        status: InvitationStatus.EXPIRED,
+        status: { in: [InvitationStatus.EXPIRED] },
       };
       expect(mockPrisma.userInvitation.findMany).toHaveBeenCalledWith(
         expect.objectContaining({ where: expectedWhere }),

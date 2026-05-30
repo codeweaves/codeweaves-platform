@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import type { PreviewFormData } from './agent-editor-context';
 import { ChatWidgetSurface, type ChatWidgetMessage } from './chat-widget-surface';
 
@@ -22,8 +22,9 @@ export function AgentPreview({
   onSendMessage,
 }: AgentPreviewProps) {
   const [isMinimized, setIsMinimized] = useState(true);
-  const [isWindowMinimized, setIsWindowMinimized] = useState(false);
   const [showBubble, setShowBubble] = useState(true);
+  const [scale, setScale] = useState(1);
+  const containerRef = useRef<HTMLDivElement>(null);
 
   const chatMessages: ChatWidgetMessage[] = useMemo(
     () =>
@@ -43,6 +44,23 @@ export function AgentPreview({
       messages[messages.length - 1]?.type === 'user',
   );
 
+  // Scale the preview down if the container is too short for the widget + launcher + offset.
+  // Widget uses clamp(520px, 58vh, 800px), so `needed` depends on the current viewport.
+  const updateScale = useCallback(() => {
+    const el = containerRef.current;
+    if (!el) return;
+    const available = el.clientHeight;
+    const widgetHeight = Math.max(520, Math.min(800, window.innerHeight * 0.58));
+    const needed = widgetHeight + 80; // 60 launcher + 20 offset
+    setScale(available < needed ? Math.max(0.7, available / needed) : 1);
+  }, []);
+
+  useEffect(() => {
+    updateScale();
+    window.addEventListener('resize', updateScale);
+    return () => window.removeEventListener('resize', updateScale);
+  }, [updateScale]);
+
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
@@ -50,16 +68,23 @@ export function AgentPreview({
         <h3 className="text-lg font-semibold text-gray-900">Live Preview</h3>
       </div>
 
-      {/* Preview container */}
-      <div className="scrollarea relative min-h-0 flex-1 overflow-y-auto bg-gradient-to-br from-gray-50 to-gray-100">
-        <div className="relative" style={{ minHeight: '100%' }}>
+      {/* Preview container — scales widget to fit */}
+      <div
+        ref={containerRef}
+        className="relative min-h-0 flex-1 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100"
+      >
+        <div
+          className="relative h-full w-full"
+          style={{
+            transform: scale < 1 ? `scale(${scale})` : undefined,
+            transformOrigin: 'bottom right',
+          }}
+        >
           <ChatWidgetSurface
             formData={formData}
             messages={chatMessages}
             isMinimized={isMinimized}
             onMinimizedChange={setIsMinimized}
-            isWindowMinimized={isWindowMinimized}
-            onWindowMinimizedChange={setIsWindowMinimized}
             showBubble={showBubble}
             onBubbleChange={setShowBubble}
             onSendMessage={onSendMessage}

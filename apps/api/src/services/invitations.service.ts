@@ -93,14 +93,21 @@ export class InvitationsService {
   }
 
   async findAll(query: InvitationListQuery = { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' }) {
-    const { page, limit, search, status, sortBy, sortOrder } = query;
+    const { page, limit, search, status, statuses, sortBy, sortOrder } = query;
     const skip = (page - 1) * limit;
+
+    // Combine the legacy single-status filter with the multi-select array.
+    // Both client forms map to the same `IN (...)` query.
+    const statusList = [
+      ...(status ? [status] : []),
+      ...(statuses ?? []),
+    ];
 
     const where: Prisma.UserInvitationWhereInput = {
       ...(search
         ? { email: { contains: search, mode: 'insensitive' as const } }
         : {}),
-      ...(status ? { status } : {}),
+      ...(statusList.length > 0 ? { status: { in: statusList } } : {}),
     };
 
     const [data, total] = await Promise.all([
@@ -350,9 +357,9 @@ export class InvitationsService {
 
     await this.emailService.send({
       to: invitation.email,
-      subject: 'You have been invited to CodeWeaves',
+      subject: 'You have been invited to Klivo',
       html: `
-        <h1>Welcome to CodeWeaves!</h1>
+        <h1>Welcome to Klivo!</h1>
         <p>You have been invited to join the platform.</p>
         <p>Click the link below to ${actionLabel.toLowerCase()}:</p>
         <a href="${actionUrl}">${actionLabel}</a>

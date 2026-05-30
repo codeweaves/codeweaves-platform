@@ -26,13 +26,17 @@ if (process.env.SENTRY_DSN) {
 async function bootstrap() {
   const app = await NestFactory.create(AppModule);
 
+  // Trust the reverse proxy in front of us (Vercel/Cloudflare/nginx) so
+  // req.ip resolves to the real client IP via X-Forwarded-For.
+  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+
   // Security headers — must be first middleware applied (before CORS, prefix, pipes)
   app.use(helmet(getHelmetOptions(process.env.NODE_ENV)));
 
   // Global API prefix. `dev/*` is excluded so the AI orchestration test page
   // works at a short URL in the browser (http://localhost:3001/dev/ai/test-chat)
   // — NODE_ENV=production gates the endpoints themselves.
-  app.setGlobalPrefix('api/codeweaves/v1', {
+  app.setGlobalPrefix('api/klivo/v1', {
     exclude: [
       'health',
       'health/ready',
@@ -55,8 +59,8 @@ async function bootstrap() {
   // Swagger/OpenAPI documentation (disabled in production)
   if (process.env.NODE_ENV !== 'production') {
     const config = new DocumentBuilder()
-      .setTitle('Codeweaves API')
-      .setDescription('Codeweaves platform REST API documentation')
+      .setTitle('Klivo API')
+      .setDescription('Klivo platform REST API documentation')
       .setVersion('1.0')
       .addBearerAuth()
       .build();
@@ -72,7 +76,7 @@ async function bootstrap() {
   const port = process.env.PORT || 3001;
   await app.listen(port);
   const logger = new Logger('Bootstrap');
-  logger.log(`API running on http://localhost:${port}/api/codeweaves/v1`);
+  logger.log(`API running on http://localhost:${port}/api/klivo/v1`);
   logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
 }
 

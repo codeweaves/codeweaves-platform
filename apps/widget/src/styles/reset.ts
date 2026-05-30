@@ -19,7 +19,7 @@ export const resetCSS = `
 
 .cw-widget-root {
   /* Block inherited properties from host page — these leak through Shadow DOM */
-  font-family: var(--cw-font-family, Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
+  font-family: var(--cw-font-family, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif);
   font-size: var(--cw-font-size, 14px);
   font-style: normal;
   font-weight: 400;

@@ -1,7 +1,7 @@
 export const API_BASE_URL =
   process.env.NEXT_PUBLIC_API_URL || 'http://localhost:3001';
 
-export const API_PREFIX = '/api/codeweaves/v1';
+export const API_PREFIX = '/api/klivo/v1';
 
 export function apiUrl(path: string): string {
   const base = API_BASE_URL.replace(/\/$/, '');

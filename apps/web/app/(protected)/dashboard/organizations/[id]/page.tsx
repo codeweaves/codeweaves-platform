@@ -1,13 +1,14 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
-import { AlertCircle, ArrowLeft, Calendar, Users } from 'lucide-react';
+import { AlertCircle, ArrowLeft, Calendar, Trash2, Users } from 'lucide-react';
 import { useProfile } from '@/hooks/use-profile';
 import { useOrganization } from '@/hooks/use-organizations';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { DeleteOrganizationDialog } from '@/components/features/organizations/delete-organization-dialog';
 
 function formatDate(dateString: string) {
   return new Date(dateString).toLocaleDateString('en-US', {
@@ -22,6 +23,12 @@ export default function OrganizationDetailPage() {
   const params = useParams<{ id: string }>();
   const { profile, isLoading: profileLoading } = useProfile();
   const { data: org, isLoading: orgLoading, isError } = useOrganization(params.id);
+  const [deleteOpen, setDeleteOpen] = useState(false);
+
+  // SUPER_ADMIN only — both ADMIN and SUPER_ADMIN are platform-level roles
+  // (no org of their own), but rename/delete are intentionally narrowed to
+  // SUPER_ADMIN to keep the destructive action gated.
+  const canDelete = profile?.role === 'SUPER_ADMIN';
 
   useEffect(() => {
     if (!profileLoading && profile?.role === 'CLIENT') {
@@ -66,9 +73,21 @@ export default function OrganizationDetailPage() {
         </div>
       ) : org ? (
         <>
-          <div>
-            <h1 className="text-2xl font-bold tracking-tight">{org.name}</h1>
-            <p className="text-muted-foreground font-mono text-sm">{org.slug}</p>
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div>
+              <h1 className="text-2xl font-bold tracking-tight">{org.name}</h1>
+              <p className="text-muted-foreground font-mono text-sm">{org.slug}</p>
+            </div>
+            {canDelete && (
+              <Button
+                variant="destructive"
+                size="sm"
+                onClick={() => setDeleteOpen(true)}
+              >
+                <Trash2 className="mr-2 h-4 w-4" />
+                Delete organization
+              </Button>
+            )}
           </div>
 
           <div className="grid gap-4 md:grid-cols-2">
@@ -126,6 +145,16 @@ export default function OrganizationDetailPage() {
             The organization you&apos;re looking for doesn&apos;t exist.
           </p>
         </div>
+      )}
+
+      {org && canDelete && (
+        <DeleteOrganizationDialog
+          open={deleteOpen}
+          onOpenChange={setDeleteOpen}
+          organizationId={org.id}
+          organizationName={org.name}
+          onDeleted={() => router.replace('/dashboard/organizations')}
+        />
       )}
     </div>
   );

@@ -33,7 +33,14 @@ export type ReissueInvitationDto = z.infer<typeof reissueInvitationSchema>;
 
 export const invitationListQuerySchema = paginationSchema.extend({
   search: z.string().optional(),
+  /** Single status filter (legacy / single-select callers) */
   status: z.nativeEnum(InvitationStatus).optional(),
+  /** Multi-status filter (comma-separated). Combined with `status` server-side. */
+  statuses: z
+    .string()
+    .optional()
+    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .pipe(z.array(z.nativeEnum(InvitationStatus)).optional()),
   sortBy: z.enum(['email', 'status', 'createdAt', 'expiresAt']).default('createdAt'),
   sortOrder: z.enum(['asc', 'desc']).default('desc'),
 });

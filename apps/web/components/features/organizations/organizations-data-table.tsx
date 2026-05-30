@@ -1,53 +1,29 @@
 'use client';
 
-import { useCallback, useState } from 'react';
+import { useCallback, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Building2 } from 'lucide-react';
+import { AlertCircle, Building2, Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react';
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableFetchParams,
 } from '@/components/ui/data-table';
+import { Button } from '@/components/ui/button';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import {
   useOrganizations,
   type Organization,
 } from '@/hooks/use-organizations';
+import { useProfile } from '@/hooks/use-profile';
 import { formatDate } from '@/lib/utils';
-
-const columns: ColumnDef<Organization, unknown>[] = [
-  {
-    accessorKey: 'name',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Name" />
-    ),
-    cell: ({ row }) => (
-      <span className="block max-w-xs break-all font-semibold py-1">{row.getValue('name')}</span>
-    ),
-  },
-  {
-    id: 'agentsCount',
-    accessorFn: (row) => row._count.agents,
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Agents" className="justify-center" />
-    ),
-    cell: ({ row }) => <div className="text-center py-1">{row.original._count.agents}</div>,
-  },
-  {
-    id: 'usersCount',
-    accessorFn: (row) => row._count.users,
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Users" className="justify-center" />
-    ),
-    cell: ({ row }) => <div className="text-center py-1">{row.original._count.users}</div>,
-  },
-  {
-    accessorKey: 'createdAt',
-    header: ({ column }) => (
-      <DataTableColumnHeader column={column} title="Created" />
-    ),
-    cell: ({ row }) => <div className="py-1">{formatDate(row.getValue('createdAt'))}</div>,
-  },
-];
+import { DeleteOrganizationDialog } from './delete-organization-dialog';
+import { RenameOrganizationDialog } from './rename-organization-dialog';
+import { toast } from 'sonner';
 
 const SORTABLE_COLUMNS: Record<string, string> = {
   name: 'name',
@@ -70,6 +46,97 @@ export function OrganizationsDataTable({
     search: '',
     filters: {},
   });
+  const [deleteTarget, setDeleteTarget] = useState<Organization | null>(null);
+  const [renameTarget, setRenameTarget] = useState<Organization | null>(null);
+
+  const { profile } = useProfile();
+  // SUPER_ADMIN only — ADMIN and SUPER_ADMIN are platform-level roles, but
+  // delete + rename are intentionally narrowed to SUPER_ADMIN.
+  const canMutate = profile?.role === 'SUPER_ADMIN';
+  const showActionsColumn = canMutate;
+
+  const columns = useMemo<ColumnDef<Organization, unknown>[]>(() => {
+    const base: ColumnDef<Organization, unknown>[] = [
+      {
+        accessorKey: 'name',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Name" />
+        ),
+        cell: ({ row }) => (
+          <span className="block max-w-xs break-all font-semibold py-1">{row.getValue('name')}</span>
+        ),
+      },
+      {
+        id: 'agentsCount',
+        accessorFn: (row) => row._count.agents,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Agents" className="justify-center" />
+        ),
+        cell: ({ row }) => <div className="text-center py-1">{row.original._count.agents}</div>,
+      },
+      {
+        id: 'usersCount',
+        accessorFn: (row) => row._count.users,
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Users" className="justify-center" />
+        ),
+        cell: ({ row }) => <div className="text-center py-1">{row.original._count.users}</div>,
+      },
+      {
+        accessorKey: 'createdAt',
+        header: ({ column }) => (
+          <DataTableColumnHeader column={column} title="Created" />
+        ),
+        cell: ({ row }) => <div className="py-1">{formatDate(row.getValue('createdAt'))}</div>,
+      },
+    ];
+
+    if (!showActionsColumn) return base;
+
+    return [
+      ...base,
+      {
+        id: 'actions',
+        header: () => <div className="text-center">Actions</div>,
+        enableSorting: false,
+        cell: ({ row }) => {
+          const org = row.original;
+          return (
+            <TooltipProvider>
+              <div className="flex items-center justify-center gap-1">
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8"
+                      onClick={() => setRenameTarget(org)}
+                    >
+                      <Pencil className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Rename</TooltipContent>
+                </Tooltip>
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      onClick={() => setDeleteTarget(org)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete</TooltipContent>
+                </Tooltip>
+              </div>
+            </TooltipProvider>
+          );
+        },
+      },
+    ];
+  }, [showActionsColumn]);
 
   // Map DataTable fetch params to API params
   const sortField = fetchParams.sorting[0];
@@ -78,7 +145,7 @@ export function OrganizationsDataTable({
     : 'createdAt';
   const sortOrder = sortField ? (sortField.desc ? 'desc' : 'asc') : 'desc';
 
-  const { data, isLoading } = useOrganizations({
+  const { data, isLoading, isError, refetch, isFetching } = useOrganizations({
     page: fetchParams.page + 1, // API is 1-based
     limit: fetchParams.pageSize,
     search: fetchParams.search || undefined,
@@ -90,7 +157,7 @@ export function OrganizationsDataTable({
     setFetchParams(params);
   }, []);
 
-  const isEmpty = !isLoading && data?.meta.total === 0 && !fetchParams.search;
+  const isEmpty = !isLoading && !isError && data?.meta.total === 0 && !fetchParams.search;
 
   if (isEmpty && emptyAction) {
     return (
@@ -106,20 +173,77 @@ export function OrganizationsDataTable({
   }
 
   return (
-    <DataTable<Organization, unknown>
-      columns={columns}
-      data={data?.data ?? []}
-      pageCount={data?.meta.totalPages ?? 0}
-      totalItems={data?.meta.total ?? 0}
-      isLoading={isLoading}
-      onFetch={handleFetch}
-      initialPageSize={10}
-      searchConfig={{
-        placeholder: 'Search organizations...',
-        searchKey: 'search',
-      }}
-      showHeader={false}
-      hideSelectionCount
-    />
+    <>
+      <DataTable<Organization, unknown>
+        columns={columns}
+        data={data?.data ?? []}
+        pageCount={data?.meta.totalPages ?? 0}
+        totalItems={data?.meta.total ?? 0}
+        // isFetching covers both first load AND subsequent refetches (sort,
+        // search, pagination). React Query's `isLoading` is only true on the
+        // very first fetch — without this we'd never see a spinner during sort.
+        isLoading={isFetching}
+        renderLoading={() => (
+          <div className="flex h-32 items-center justify-center">
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        // Only override the default empty state when there's a real error.
+        // Otherwise DataTable's built-in "No results" message handles it.
+        {...(isError && {
+          renderEmpty: () => (
+            <div className="flex h-32 flex-col items-center justify-center gap-2">
+              <AlertCircle className="size-6 text-destructive" />
+              <span className="text-sm text-muted-foreground">Failed to load organizations</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                disabled={isFetching}
+              >
+                <RefreshCw className={`mr-1 size-3 ${isFetching ? 'animate-spin' : ''}`} />
+                Try again
+              </Button>
+            </div>
+          ),
+        })}
+        onFetch={handleFetch}
+        initialPageSize={10}
+        searchConfig={{
+          placeholder: 'Search organizations...',
+          searchKey: 'search',
+        }}
+        showHeader={false}
+        hideSelectionCount
+      />
+
+      {deleteTarget && (
+        <DeleteOrganizationDialog
+          open
+          onOpenChange={(next) => !next && setDeleteTarget(null)}
+          organizationId={deleteTarget.id}
+          organizationName={deleteTarget.name}
+          onDeleted={(result) => {
+            toast.success(
+              `Deleted "${result.name}" — ${result.cascadedAgents} agent${result.cascadedAgents === 1 ? '' : 's'} and ${result.cascadedUsers} member${result.cascadedUsers === 1 ? '' : 's'} affected.`,
+            );
+            setDeleteTarget(null);
+          }}
+        />
+      )}
+
+      {renameTarget && (
+        <RenameOrganizationDialog
+          open
+          onOpenChange={(next) => !next && setRenameTarget(null)}
+          organizationId={renameTarget.id}
+          currentName={renameTarget.name}
+          onRenamed={(updated) => {
+            toast.success(`Renamed to "${updated.name}"`);
+            setRenameTarget(null);
+          }}
+        />
+      )}
+    </>
   );
 }

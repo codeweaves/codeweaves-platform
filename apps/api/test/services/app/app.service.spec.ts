@@ -18,7 +18,7 @@ describe('AppService', () => {
 
   describe('getHello', () => {
     it('should return hello message', () => {
-      expect(service.getHello()).toBe('Hello from CodeWeaves API!');
+      expect(service.getHello()).toBe('Hello from Klivo API!');
     });
   });
 

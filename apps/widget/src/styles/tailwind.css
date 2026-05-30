@@ -74,3 +74,16 @@
     --tw-ease: initial;
   }
 }
+
+/* Voice recording bar — bouncing waveform bars + spinner. Bars heights animate to
+ * suggest live audio without actually wiring an AnalyserNode. */
+@keyframes cw-voice-wave {
+  0%, 100% { height: 4px; }
+  50% { height: 14px; }
+}
+@keyframes cw-voice-spin {
+  to { transform: rotate(360deg); }
+}
+.cw-voice-spin {
+  animation: cw-voice-spin 0.9s linear infinite;
+}

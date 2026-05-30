@@ -36,6 +36,7 @@ const ERROR_MESSAGES: { [key: string]: string | undefined } = {
   PROVIDER_UNAVAILABLE: 'Voice service temporarily unavailable',
   INVALID_AUDIO: 'Audio recording was not valid. Please try again.',
   AUDIO_TOO_SHORT: 'Recording was too short. Please speak longer.',
+  NO_SPEECH_DETECTED: "We couldn't make that out. Please try again from a quieter spot.",
   RATE_LIMITED: 'Too many voice requests. Please wait.',
 };
 
@@ -52,7 +53,6 @@ export function getErrorSeverity(errorCode: string | null): VoiceErrorSeverity {
 export interface UseVoiceOptions {
   agentId: string;
   voiceEnabled?: boolean;
-  voiceLanguage?: string;
   voiceAutoPlay?: boolean;
   /** Called when transcription arrives — add user message bubble */
   onTranscription?: (text: string) => void;
@@ -75,6 +75,10 @@ export interface UseVoiceReturn {
   cancelRecording: () => void;
   stopPlayback: () => void;
   clearError: () => void;
+  /** Returns the live AnalyserNode for the active mic stream while recording, or null
+   *  outside the listening state. Components use this to render a real-time waveform
+   *  driven by actual audio levels (see VoiceRecordingBar). */
+  getAnalyser: () => AnalyserNode | null;
 }
 
 function detectMimeType(): string | undefined {
@@ -107,7 +111,6 @@ function mapErrorToMessage(err: unknown): { message: string; errorCode: string |
 export function useVoice({
   agentId,
   voiceEnabled = true,
-  voiceLanguage,
   voiceAutoPlay = true,
   onTranscription,
   onAudioSentence,
@@ -126,6 +129,11 @@ export function useVoice({
   const voiceStateRef = useRef<VoiceState>('idle');
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
+  // Web Audio plumbing for the live waveform: a MediaStreamAudioSource feeds an
+  // AnalyserNode whose getByteFrequencyData() the recording bar polls each frame.
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioSourceRef = useRef<MediaStreamAudioSourceNode | null>(null);
   const chunksRef = useRef<Blob[]>([]);
   const autoStopTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const durationTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
@@ -173,6 +181,17 @@ export function useVoice({
     if (streamRef.current) {
       streamRef.current.getTracks().forEach((track) => track.stop());
       streamRef.current = null;
+    }
+    // Tear down Web Audio analyser plumbing so the AudioContext doesn't leak across
+    // recording sessions (Chrome caps the number of live AudioContexts per document).
+    if (audioSourceRef.current) {
+      audioSourceRef.current.disconnect();
+      audioSourceRef.current = null;
+    }
+    analyserRef.current = null;
+    if (audioContextRef.current) {
+      audioContextRef.current.close().catch(() => undefined);
+      audioContextRef.current = null;
     }
     chunksRef.current = [];
     abortRef.current?.abort();
@@ -231,11 +250,15 @@ export function useVoice({
         audio: audioBlob,
         agentId,
         sessionId: getSessionId() ?? undefined,
-        languageHint: voiceLanguage,
+        // No languageHint sent — backend auto-detects via Sarvam (one-shot detect+transcribe)
         signal: controller.signal,
         callbacks: {
           onTranscription: (text: string) => {
             onTranscriptionRef.current?.(text);
+            // Drop out of 'processing' the instant the transcript lands so the
+            // "Transcribing…" loader disappears as soon as the user sees their words.
+            // Audio chunks arriving next will independently flip state to 'playing'.
+            setVoiceStateSynced('idle');
           },
           onAudioChunk: (chunk: VoiceAudioChunk) => {
             if (!receivedFirstAudio) {
@@ -320,7 +343,7 @@ export function useVoice({
         abortRef.current = null;
       }
     }
-  }, [agentId, voiceLanguage, voiceAutoPlay, setErrorWithAutoDismiss, setVoiceStateSynced]);
+  }, [agentId, voiceAutoPlay, setErrorWithAutoDismiss, setVoiceStateSynced]);
 
   const stopRecording = useCallback(() => {
     if (recorderRef.current && recorderRef.current.state === 'recording') {
@@ -354,6 +377,24 @@ export function useVoice({
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       streamRef.current = stream;
+
+      // Tap into the live mic stream for waveform visualization. fftSize=64 gives 32
+      // frequency bins which we average into the 5 bars we render. smoothingTimeConstant
+      // damps jitter so the bars don't strobe. Failure here is non-fatal — the bar
+      // falls back to a CSS animation when the analyser isn't available.
+      try {
+        const ctx = new AudioContext();
+        const analyser = ctx.createAnalyser();
+        analyser.fftSize = 64;
+        analyser.smoothingTimeConstant = 0.7;
+        const source = ctx.createMediaStreamSource(stream);
+        source.connect(analyser);
+        audioContextRef.current = ctx;
+        analyserRef.current = analyser;
+        audioSourceRef.current = source;
+      } catch {
+        // AudioContext unavailable (older Safari, etc.) — bar uses CSS fallback
+      }
 
       const mimeType = detectMimeType();
       const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
@@ -427,6 +468,8 @@ export function useVoice({
     };
   }, [cleanup]);
 
+  const getAnalyser = useCallback(() => analyserRef.current, []);
+
   return {
     voiceState,
     isSupported,
@@ -438,5 +481,6 @@ export function useVoice({
     cancelRecording,
     stopPlayback,
     clearError,
+    getAnalyser,
   };
 }

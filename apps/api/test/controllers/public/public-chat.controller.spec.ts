@@ -87,7 +87,7 @@ describe('PublicChatController', () => {
 
       const result = await controller.sendMessage(dto, req);
 
-      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dto);
+      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dto, '127.0.0.1');
       expect(result).toEqual(mockResponse);
     });
 
@@ -98,7 +98,7 @@ describe('PublicChatController', () => {
 
       await controller.sendMessage(dtoWithSession, req);
 
-      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dtoWithSession);
+      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dtoWithSession, '127.0.0.1');
     });
 
     it('should return friendly error JSON (not 429) when rate limited', async () => {
@@ -299,7 +299,7 @@ describe('PublicChatController', () => {
       await controller.stream(dto, req, res);
 
       expect(mockChatService.resolveAgent).toHaveBeenCalledWith(dto.agentId);
-      expect(mockChatService.resolveOrCreateSession).toHaveBeenCalledWith(mockAgent.id, undefined, 'WIDGET');
+      expect(mockChatService.resolveOrCreateSession).toHaveBeenCalledWith(mockAgent.id, undefined, 'WIDGET', '127.0.0.1');
       expect(mockAgentsService.getEffectiveWebhookUrl).toHaveBeenCalledWith(mockAgent.id);
     });
 

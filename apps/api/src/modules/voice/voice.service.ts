@@ -16,6 +16,7 @@ import {
   type TTSResponse,
   type LanguageDetectionResponse,
   type SupportedLanguage,
+  type VoiceListItem,
   VOICE_PROVIDERS,
   UnsupportedLanguageError,
   VoiceProviderError,
@@ -36,8 +37,74 @@ const NO_TTS_PROVIDERS = new Set(['deepgram']);
 /** Cache TTL: 60 seconds — balances freshness with DB load */
 const VOICE_CONFIG_CACHE_TTL_MS = 60_000;
 
+/** Voice catalog rarely changes — cache aggregated provider lists for 1 hour. */
+const VOICE_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
+
+/** Preview audio for a (provider, voiceId, language) is deterministic — cache for 1 day. */
+const VOICE_PREVIEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
+
+/** Render a personalised preview line per language. Falls back to English when the language
+ *  isn't templated, and to a generic sample when the voice name isn't known. */
+function renderPreviewSample(language: SupportedLanguage, voiceName?: string): string {
+  const name = voiceName?.trim();
+
+  if (!name) {
+    const generic: Partial<Record<SupportedLanguage, string>> = {
+      en: 'Hello! This is a sample of my voice.',
+      hi: 'नमस्ते! यह मेरी आवाज़ का एक नमूना है।',
+      mr: 'नमस्कार! हे माझ्या आवाजाचे एक नमुना आहे.',
+      bn: 'নমস্কার! এটি আমার কণ্ঠের একটি নমুনা।',
+      ta: 'வணக்கம்! இது என் குரலின் ஒரு மாதிரி.',
+      te: 'నమస్కారం! ఇది నా స్వరం యొక్క ఒక నమూనా.',
+      gu: 'નમસ્તે! આ મારી અવાજનો એક નમૂનો છે.',
+      kn: 'ನಮಸ್ಕಾರ! ಇದು ನನ್ನ ಧ್ವನಿಯ ಒಂದು ಮಾದರಿ.',
+      ml: 'നമസ്കാരം! ഇത് എന്റെ ശബ്ദത്തിന്റെ ഒരു മാതൃകയാണ്.',
+      pa: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ! ਇਹ ਮੇਰੀ ਆਵਾਜ਼ ਦਾ ਇੱਕ ਨਮੂਨਾ ਹੈ।',
+      or: 'ନମସ୍କାର! ଏହା ମୋ ସ୍ୱରର ଏକ ନମୁନା।',
+      hinglish: 'Hello! Yeh meri awaaz ka ek sample hai.',
+    };
+    return generic[language] ?? generic.en!;
+  }
+
+  const personalised: Partial<Record<SupportedLanguage, string>> = {
+    en: `Hello! My name is ${name}, nice to talk to you.`,
+    hi: `नमस्ते! मेरा नाम ${name} है, आपसे बात करके अच्छा लगा।`,
+    mr: `नमस्कार! माझं नाव ${name} आहे, तुमच्याशी बोलून आनंद झाला.`,
+    bn: `নমস্কার! আমার নাম ${name}, আপনার সাথে কথা বলে ভালো লাগলো।`,
+    ta: `வணக்கம்! என் பெயர் ${name}, உங்களுடன் பேசுவதில் மகிழ்ச்சி.`,
+    te: `నమస్కారం! నా పేరు ${name}, మీతో మాట్లాడడం బాగుంది.`,
+    gu: `નમસ્તે! મારું નામ ${name} છે, તમારી સાથે વાત કરીને આનંદ થયો.`,
+    kn: `ನಮಸ್ಕಾರ! ನನ್ನ ಹೆಸರು ${name}, ನಿಮ್ಮೊಂದಿಗೆ ಮಾತನಾಡಿ ಸಂತೋಷವಾಯಿತು.`,
+    ml: `നമസ്കാരം! എന്റെ പേര് ${name}, നിങ്ങളോട് സംസാരിക്കാൻ കഴിഞ്ഞത് സന്തോഷം.`,
+    pa: `ਸਤ ਸ੍ਰੀ ਅਕਾਲ! ਮੇਰਾ ਨਾਮ ${name} ਹੈ, ਤੁਹਾਡੇ ਨਾਲ ਗੱਲ ਕਰਕੇ ਚੰਗਾ ਲੱਗਾ।`,
+    or: `ନମସ୍କାର! ମୋ ନାମ ${name}, ଆପଣଙ୍କ ସହିତ କଥା ହୋଇ ଆନନ୍ଦ ହେଲା।`,
+    hinglish: `Hello! Mera naam ${name} hai, aapse baat karke achha laga.`,
+  };
+  return personalised[language] ?? personalised.en!;
+}
+
 interface CachedVoiceConfig {
   config: VoiceConfigDto;
+  expiresAt: number;
+}
+
+export interface ProviderVoiceList {
+  provider: string;
+  voices: VoiceListItem[];
+}
+
+interface CachedVoiceList {
+  data: ProviderVoiceList[];
+  expiresAt: number;
+}
+
+export interface VoicePreviewResult {
+  audio: Buffer;
+  audioFormat: string;
+}
+
+interface CachedVoicePreview {
+  result: VoicePreviewResult;
   expiresAt: number;
 }
 
@@ -63,6 +130,9 @@ export class VoiceService {
   ]);
 
   private readonly voiceConfigCache = new Map<string, CachedVoiceConfig>();
+  private voiceListCache: CachedVoiceList | null = null;
+  private voiceListInflight: Promise<ProviderVoiceList[]> | null = null;
+  private readonly voicePreviewCache = new Map<string, CachedVoicePreview>();
 
   constructor(
     @Inject(VOICE_PROVIDERS) providers: VoiceProvider[],
@@ -130,38 +200,85 @@ export class VoiceService {
   async transcribe(request: STTRequest): Promise<STTResponse> {
     const config = await this.getVoiceConfig(request.agentId);
 
-    // If no language hint and auto-detect is on, route to Sarvam directly with 'unknown'
-    // Sarvam auto-detects AND transcribes in one call — no extra round trip
-    if (!request.languageHint && config.autoDetectLanguage !== false && !config.sttProvider) {
-      const sarvam = this.sttProviders.get('sarvam');
-      if (sarvam) {
-        this.logger.log('No language hint — routing to Sarvam for auto-detect + transcribe');
-        const startTime = Date.now();
-        const result = await sarvam.transcribe(request); // languageHint is undefined → Sarvam sends 'unknown'
-        const latencyMs = Date.now() - startTime;
-        this.logger.log(
-          `STT completed: provider=sarvam (auto-detect), language=${result.detectedLanguage}, latency=${latencyMs}ms`,
+    // 1. Agent has an STT provider override → use it as-is, skip detection.
+    if (config.sttProvider) {
+      const override = this.sttProviders.get(config.sttProvider);
+      if (override) {
+        return this.timed(override, 'transcribe', request, `override=${config.sttProvider}`);
+      }
+      this.logger.warn(
+        `STT override "${config.sttProvider}" not found — falling through to auto routing`,
+      );
+    }
+
+    // 2. Caller passed an explicit language hint → route on language.
+    if (request.languageHint) {
+      const provider = this.resolveSTTProvider(config, request.languageHint);
+      return this.timed(provider, 'transcribe', request, `hint=${request.languageHint}`);
+    }
+
+    // 3. Auto-detect path. Sarvam transcribes + detects language in one call. Then:
+    //    - Indian language detected → Sarvam's transcript is the right answer (no second call).
+    //    - English / other detected → call Deepgram fresh; Sarvam is unreliable for English
+    //      even when it returns a transcript. Deepgram failure falls back to ElevenLabs,
+    //      and finally to Sarvam's original transcript (so we never end with nothing).
+    const sarvam = this.sttProviders.get('sarvam');
+    if (!sarvam) {
+      // No Sarvam at all — fall back to default-language routing.
+      const fallback = this.resolveSTTProvider(config, config.defaultLanguage ?? 'en');
+      return this.timed(fallback, 'transcribe', request, 'no-sarvam-fallback');
+    }
+
+    this.logger.log('No language hint — Sarvam detect + transcribe (step 1)');
+    const sarvamResult = await this.timed(sarvam, 'transcribe', request, 'auto-detect-step-1');
+
+    if (this.INDIAN_LANGUAGES.has(sarvamResult.detectedLanguage)) {
+      // Sarvam is the best choice for Indian languages — accept its result (even if empty,
+      // no other provider does Indian better).
+      return sarvamResult;
+    }
+
+    // English / other language — Deepgram is the reliable transcriber.
+    const detectedLang = sarvamResult.detectedLanguage;
+    const deepgram = this.sttProviders.get('deepgram');
+    if (deepgram) {
+      try {
+        return await this.timed(deepgram, 'transcribe', { ...request, languageHint: detectedLang }, `english-step-2 (lang=${detectedLang})`);
+      } catch (error) {
+        this.logger.warn(
+          `Deepgram failed for ${detectedLang}: ${error instanceof Error ? error.message : 'unknown'} — trying fallback chain`,
         );
-        return result;
       }
     }
 
-    const provider = this.resolveSTTProvider(
-      config,
-      request.languageHint ?? config.defaultLanguage ?? 'en',
-    );
-    const hasOverride = !!config.sttProvider;
-    this.logger.log(
-      `STT routing: language=${request.languageHint ?? 'en'}, provider=${provider.name}, override=${hasOverride}`,
-    );
+    // Deepgram unavailable or threw — try ElevenLabs scribe_v2 (also supports English).
+    const elevenlabs = this.sttProviders.get('elevenlabs');
+    if (elevenlabs) {
+      try {
+        return await this.timed(elevenlabs, 'transcribe', { ...request, languageHint: detectedLang }, `english-fallback-elevenlabs`);
+      } catch (error) {
+        this.logger.warn(
+          `ElevenLabs also failed: ${error instanceof Error ? error.message : 'unknown'} — using Sarvam's auto-detect transcript`,
+        );
+      }
+    }
 
+    return sarvamResult;
+  }
+
+  /** Wraps a provider call with consistent latency logging. Keeps transcribe() readable. */
+  private async timed(
+    provider: VoiceProvider,
+    op: 'transcribe',
+    request: STTRequest,
+    note: string,
+  ): Promise<STTResponse> {
     const startTime = Date.now();
-    const result = await provider.transcribe(request);
+    const result = await provider[op](request);
     const latencyMs = Date.now() - startTime;
     this.logger.log(
-      `STT completed: provider=${provider.name}, latency=${latencyMs}ms`,
+      `STT ${op}: provider=${provider.name}, language=${result.detectedLanguage}, latency=${latencyMs}ms (${note})`,
     );
-
     return result;
   }
 
@@ -173,9 +290,19 @@ export class VoiceService {
       `TTS routing: language=${request.language}, provider=${provider.name}, override=${hasOverride}`,
     );
 
+    // Enrich the caller's request with the agent's saved voice config so the user-selected
+    // voice (and speed) are honoured by every code path that calls synthesize() — including
+    // the legacy non-streaming voiceConversation flow which never sets voiceId itself.
+    // Caller-supplied values win (e.g., the public /synthesize endpoint may override).
+    const enrichedRequest: TTSRequest = {
+      ...request,
+      voiceId: request.voiceId ?? config.ttsVoiceId,
+      speed: request.speed ?? config.ttsSpeed,
+    };
+
     const startTime = Date.now();
     try {
-      const result = await provider.synthesize(request);
+      const result = await provider.synthesize(enrichedRequest);
       const latencyMs = Date.now() - startTime;
       this.logger.log(
         `TTS completed: provider=${provider.name}, latency=${latencyMs}ms`,
@@ -186,7 +313,7 @@ export class VoiceService {
         error instanceof UnsupportedLanguageError ||
         error instanceof VoiceProviderError
       ) {
-        return this.ttsFallback(request, provider.name, error);
+        return this.ttsFallback(enrichedRequest, provider.name, error);
       }
       throw error;
     }
@@ -572,5 +699,109 @@ export class VoiceService {
 
   clearVoiceConfigCache(): void {
     this.voiceConfigCache.clear();
+  }
+
+  async listAllVoices(): Promise<ProviderVoiceList[]> {
+    const now = Date.now();
+    if (this.voiceListCache && this.voiceListCache.expiresAt > now) {
+      return this.voiceListCache.data;
+    }
+    if (this.voiceListInflight) return this.voiceListInflight;
+
+    this.voiceListInflight = this.fetchAllVoices().finally(() => {
+      this.voiceListInflight = null;
+    });
+    return this.voiceListInflight;
+  }
+
+  private async fetchAllVoices(): Promise<ProviderVoiceList[]> {
+    const tasks = Array.from(this.ttsProviders.entries())
+      .filter(([, provider]) => typeof provider.listVoices === 'function')
+      .map(async ([name, provider]): Promise<ProviderVoiceList> => {
+        try {
+          const voices = await provider.listVoices!();
+          return { provider: name, voices };
+        } catch (error) {
+          this.logger.warn(
+            `Failed to list voices from ${name}: ${error instanceof Error ? error.message : 'unknown error'}`,
+          );
+          return { provider: name, voices: [] };
+        }
+      });
+
+    const results = await Promise.all(tasks);
+    this.voiceListCache = {
+      data: results,
+      expiresAt: Date.now() + VOICE_LIST_CACHE_TTL_MS,
+    };
+    return results;
+  }
+
+  clearVoiceListCache(): void {
+    this.voiceListCache = null;
+  }
+
+  async previewVoice(
+    provider: string,
+    voiceId: string,
+    language?: SupportedLanguage,
+  ): Promise<VoicePreviewResult> {
+    const lang: SupportedLanguage = language ?? 'en';
+    const cacheKey = `${provider}:${voiceId}:${lang}`;
+
+    const now = Date.now();
+    const cached = this.voicePreviewCache.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.result;
+
+    const ttsProvider = this.ttsProviders.get(provider);
+    if (!ttsProvider) {
+      throw new BadRequestException(`Unknown TTS provider: "${provider}"`);
+    }
+
+    // Look up the voice's display name from the cached catalog so the preview can introduce
+    // itself ("Hello, my name is X..."). Falls back to a generic line when not in the catalog.
+    let voiceName: string | undefined;
+    try {
+      const catalog = await this.listAllVoices();
+      voiceName = catalog
+        .find((p) => p.provider === provider)
+        ?.voices.find((v) => v.id === voiceId)
+        ?.name;
+    } catch {
+      // listAllVoices already swallows individual provider errors; treat unknown failures
+      // as "no name available" rather than blocking the preview.
+    }
+
+    const sample = renderPreviewSample(lang, voiceName);
+
+    // Provider impls don't use agentId; placeholder satisfies the typed TTSRequest contract
+    // without going through the agent-config lookup path used by VoiceService.synthesize().
+    // Prefer synthesizePreview() — it returns WAV (no MP3 priming silence, no first-word
+    // clipping). Fall back to synthesize() (MP3) if a provider doesn't implement it; the
+    // frontend's findLeadingSilence heuristic will still mostly mask the clipping.
+    const ttsRequest: TTSRequest = {
+      text: sample,
+      language: lang,
+      voiceId,
+      speed: 1.0,
+      agentId: '__preview__',
+    };
+    const ttsResult = ttsProvider.synthesizePreview
+      ? await ttsProvider.synthesizePreview(ttsRequest)
+      : await ttsProvider.synthesize(ttsRequest);
+
+    const result: VoicePreviewResult = {
+      audio: ttsResult.audio,
+      audioFormat: ttsResult.audioFormat,
+    };
+    this.voicePreviewCache.set(cacheKey, {
+      result,
+      expiresAt: now + VOICE_PREVIEW_CACHE_TTL_MS,
+    });
+    return result;
+  }
+
+  clearVoicePreviewCache(): void {
+    this.voicePreviewCache.clear();
   }
 }

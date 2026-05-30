@@ -9,8 +9,54 @@ import type {
   TTSResponse,
   LanguageDetectionResponse,
   SupportedLanguage,
+  VoiceListItem,
 } from './voice-provider.interface';
 import { VoiceProviderError } from './voice-provider.interface';
+
+/** Sarvam bulbul:v3 speaker catalog (verified against the live API error response).
+ *  Update if Sarvam ships new speakers. */
+const SARVAM_BULBUL_V3_VOICES: ReadonlyArray<VoiceListItem> = [
+  { id: 'aayan',    name: 'Aayan',    gender: 'male' },
+  { id: 'aditya',   name: 'Aditya',   gender: 'male' },
+  { id: 'advait',   name: 'Advait',   gender: 'male' },
+  { id: 'amit',     name: 'Amit',     gender: 'male' },
+  { id: 'anand',    name: 'Anand',    gender: 'male' },
+  { id: 'ashutosh', name: 'Ashutosh', gender: 'male' },
+  { id: 'dev',      name: 'Dev',      gender: 'male' },
+  { id: 'gokul',    name: 'Gokul',    gender: 'male' },
+  { id: 'ishita',   name: 'Ishita',   gender: 'female' },
+  { id: 'kabir',    name: 'Kabir',    gender: 'male' },
+  { id: 'kavitha',  name: 'Kavitha',  gender: 'female' },
+  { id: 'kavya',    name: 'Kavya',    gender: 'female' },
+  { id: 'mani',     name: 'Mani',     gender: 'male' },
+  { id: 'manan',    name: 'Manan',    gender: 'male' },
+  { id: 'mohit',    name: 'Mohit',    gender: 'male' },
+  { id: 'neha',     name: 'Neha',     gender: 'female' },
+  { id: 'niharika', name: 'Niharika', gender: 'female' },
+  { id: 'pooja',    name: 'Pooja',    gender: 'female' },
+  { id: 'priya',    name: 'Priya',    gender: 'female' },
+  { id: 'rahul',    name: 'Rahul',    gender: 'male' },
+  { id: 'ratan',    name: 'Ratan',    gender: 'male' },
+  { id: 'rehan',    name: 'Rehan',    gender: 'male' },
+  { id: 'ritu',     name: 'Ritu',     gender: 'female' },
+  { id: 'rohan',    name: 'Rohan',    gender: 'male' },
+  { id: 'roopa',    name: 'Roopa',    gender: 'female' },
+  { id: 'rupali',   name: 'Rupali',   gender: 'female' },
+  { id: 'shreya',   name: 'Shreya',   gender: 'female' },
+  { id: 'shruti',   name: 'Shruti',   gender: 'female' },
+  { id: 'shubh',    name: 'Shubh',    gender: 'male' },
+  { id: 'simran',   name: 'Simran',   gender: 'female' },
+  { id: 'soham',    name: 'Soham',    gender: 'male' },
+  { id: 'suhani',   name: 'Suhani',   gender: 'female' },
+  { id: 'sumit',    name: 'Sumit',    gender: 'male' },
+  { id: 'sunny',    name: 'Sunny',    gender: 'male' },
+  { id: 'tanya',    name: 'Tanya',    gender: 'female' },
+  { id: 'tarun',    name: 'Tarun',    gender: 'male' },
+  { id: 'varun',    name: 'Varun',    gender: 'male' },
+  { id: 'vijay',    name: 'Vijay',    gender: 'male' },
+];
+
+const SARVAM_DEFAULT_SPEAKER = 'priya';
 
 interface SarvamSTTResponse {
   request_id: string | null;
@@ -134,8 +180,22 @@ export class SarvamProvider implements VoiceProvider {
   }
 
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
-    const startTime = Date.now();
+    return this.synthesizeWithCodec(request, 'mp3', 'audio/mp3');
+  }
 
+  /** Preview synthesis returns WAV instead of MP3 — MP3's mandatory ~24-45ms leading
+   *  priming silence (per spec) clips the first consonant on one-shot dropdown playback.
+   *  WAV has no priming. Production conversation traffic stays on MP3 via synthesize(). */
+  async synthesizePreview(request: TTSRequest): Promise<TTSResponse> {
+    return this.synthesizeWithCodec(request, 'wav', 'audio/wav');
+  }
+
+  private async synthesizeWithCodec(
+    request: TTSRequest,
+    sarvamCodec: 'mp3' | 'wav',
+    audioFormat: string,
+  ): Promise<TTSResponse> {
+    const startTime = Date.now();
     const targetLanguageCode = this.toSarvamLanguage(request.language);
 
     const response = await fetch('https://api.sarvam.ai/text-to-speech', {
@@ -148,10 +208,10 @@ export class SarvamProvider implements VoiceProvider {
         text: request.text,
         target_language_code: targetLanguageCode,
         model: 'bulbul:v3',
-        speaker: 'priya',
+        speaker: request.voiceId || SARVAM_DEFAULT_SPEAKER,
         pace: request.speed || 1.0,
         speech_sample_rate: '22050',
-        output_audio_codec: 'mp3',
+        output_audio_codec: sarvamCodec,
       }),
       signal: AbortSignal.timeout(10_000),
     }).catch((error: Error) => {
@@ -171,10 +231,16 @@ export class SarvamProvider implements VoiceProvider {
 
     return {
       audio: audioBuffer,
-      audioFormat: 'audio/mp3',
+      audioFormat,
       provider: this.name,
       latencyMs: Date.now() - startTime,
     };
+  }
+
+  async listVoices(): Promise<VoiceListItem[]> {
+    // Sarvam exposes no /voices catalog endpoint — speakers are baked into the model spec.
+    // Returning the static catalog keeps the dropdown UX consistent with ElevenLabs.
+    return SARVAM_BULBUL_V3_VOICES.map((v) => ({ ...v }));
   }
 
   async detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse> {

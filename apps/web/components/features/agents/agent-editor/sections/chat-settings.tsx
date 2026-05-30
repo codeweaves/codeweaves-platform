@@ -26,6 +26,7 @@ import { FormSection } from '../form-section';
 import { ColorPicker } from '../color-picker';
 import { TabGroup } from '../tab-group';
 import { ImageUpload } from '../image-upload';
+import { NumberField } from '../number-field';
 
 const chatTabs = [
   { id: 'header', label: 'Header', icon: <Settings className="w-4 h-4" /> },
@@ -35,18 +36,18 @@ const chatTabs = [
 ];
 
 const FONT_OPTIONS = [
-  { value: 'Inter, system-ui, sans-serif', label: 'Inter' },
   {
     value: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     label: 'System UI',
   },
+  { value: '"Open Sans", Arial, sans-serif', label: 'Open Sans' },
+  { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
+  { value: 'Inter, system-ui, sans-serif', label: 'Inter' },
   { value: '"Segoe UI", Tahoma, Geneva, Verdana, sans-serif', label: 'Segoe UI' },
   {
     value: 'Roboto, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif',
     label: 'Roboto',
   },
-  { value: '"Open Sans", Arial, sans-serif', label: 'Open Sans' },
-  { value: 'Arial, Helvetica, sans-serif', label: 'Arial' },
 ];
 
 const BOT_AVATAR_TYPES = [
@@ -132,168 +133,189 @@ export function ChatSettings() {
         id="subtitleColor"
       />
 
-      <div className="grid grid-cols-3 gap-4 items-center">
-        <Label className="text-sm font-medium text-gray-700">Border Radius (px)</Label>
-        <Input
-          type="number"
-          value={themeData.header.borderRadius}
-          onChange={(e) => updateThemeData('header.borderRadius', parseInt(e.target.value) || 14)}
-          min={0}
-          max={50}
-          className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
-        />
-      </div>
+      <NumberField
+        label="Border Radius"
+        value={themeData.header.borderRadius}
+        onChange={(val) => updateThemeData('header.borderRadius', val)}
+        min={0}
+        max={50}
+        unit="px"
+      />
     </div>
   );
 
   const renderAvatarSettings = () => (
     <div className="space-y-6">
       <FormSection title="Bot Avatar" className="p-6 rounded-lg border border-gray-200">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label className="text-sm font-medium text-gray-700">Avatar Type</Label>
-            <Select
-              value={themeData.botAvatar.type}
-              onValueChange={(val) => updateThemeData('botAvatar.type', val)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {BOT_AVATAR_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    <span className="flex items-center gap-2">
-                      {t.icon}
-                      {t.label}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm font-medium text-gray-700">Avatar Shape</Label>
-            <Select
-              value={themeData.botAvatar.shape}
-              onValueChange={(val) => updateThemeData('botAvatar.shape', val)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {AVATAR_SHAPES.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium text-gray-700">Show bot avatar in messages</Label>
+          <Switch
+            checked={themeData.botAvatar.show ?? false}
+            onCheckedChange={(checked) => updateThemeData('botAvatar.show', checked)}
+          />
         </div>
 
-        {themeData.botAvatar.type === 'custom' && (
-          <div className="space-y-3">
-            <Label className="text-sm font-medium text-gray-700">Custom Avatar Image</Label>
-            <ImageUpload
-              value={themeData.botAvatar.customImageUrl}
-              onUpload={(url) => updateThemeData('botAvatar.customImageUrl', url)}
-              onRemove={() => updateThemeData('botAvatar.customImageUrl', undefined)}
-              agentId={agent.id}
-              purpose="bot-avatar"
-              previewShape="circle"
-              hint="Upload an image file. Recommended size: 32x32px or larger. The image will be displayed as a circle."
+        {(themeData.botAvatar.show ?? false) && (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Avatar Type</Label>
+                <Select
+                  value={themeData.botAvatar.type}
+                  onValueChange={(val) => updateThemeData('botAvatar.type', val)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {BOT_AVATAR_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        <span className="flex items-center gap-2">
+                          {t.icon}
+                          {t.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Avatar Shape</Label>
+                <Select
+                  value={themeData.botAvatar.shape}
+                  onValueChange={(val) => updateThemeData('botAvatar.shape', val)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AVATAR_SHAPES.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {themeData.botAvatar.type === 'custom' && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium text-gray-700">Custom Avatar Image</Label>
+                <ImageUpload
+                  value={themeData.botAvatar.customImageUrl}
+                  onUpload={(url) => updateThemeData('botAvatar.customImageUrl', url)}
+                  onRemove={() => updateThemeData('botAvatar.customImageUrl', undefined)}
+                  agentId={agent.id}
+                  purpose="bot-avatar"
+                  previewShape="circle"
+                  hint="Upload an image file. Recommended size: 32x32px or larger. The image will be displayed as a circle."
+                />
+              </div>
+            )}
+
+            <ColorPicker
+              label="Avatar Background Color"
+              value={themeData.botAvatar.backgroundColor}
+              onChange={(color) => updateThemeData('botAvatar.backgroundColor', color)}
+              id="botAvatarBg"
             />
-          </div>
+
+            <ColorPicker
+              label="Avatar Icon Color"
+              value={themeData.botAvatar.color}
+              onChange={(color) => updateThemeData('botAvatar.color', color)}
+              id="botAvatarColor"
+            />
+          </>
         )}
-
-        <ColorPicker
-          label="Avatar Background Color"
-          value={themeData.botAvatar.backgroundColor}
-          onChange={(color) => updateThemeData('botAvatar.backgroundColor', color)}
-          id="botAvatarBg"
-        />
-
-        <ColorPicker
-          label="Avatar Icon Color"
-          value={themeData.botAvatar.color}
-          onChange={(color) => updateThemeData('botAvatar.color', color)}
-          id="botAvatarColor"
-        />
       </FormSection>
 
       <FormSection title="User Avatar" className="p-6 rounded-lg border border-gray-200">
-        <div className="grid grid-cols-2 gap-4">
-          <div className="space-y-2">
-            <Label className="text-sm font-medium text-gray-700">Avatar Type</Label>
-            <Select
-              value={themeData.userAvatar.type}
-              onValueChange={(val) => updateThemeData('userAvatar.type', val)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {USER_AVATAR_TYPES.map((t) => (
-                  <SelectItem key={t.value} value={t.value}>
-                    <span className="flex items-center gap-2">
-                      {t.icon}
-                      {t.label}
-                    </span>
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm font-medium text-gray-700">Avatar Shape</Label>
-            <Select
-              value={themeData.userAvatar.shape}
-              onValueChange={(val) => updateThemeData('userAvatar.shape', val)}
-            >
-              <SelectTrigger>
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {AVATAR_SHAPES.map((s) => (
-                  <SelectItem key={s.value} value={s.value}>
-                    {s.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
+        <div className="flex items-center justify-between">
+          <Label className="text-sm font-medium text-gray-700">Show user avatar in messages</Label>
+          <Switch
+            checked={themeData.userAvatar.show ?? false}
+            onCheckedChange={(checked) => updateThemeData('userAvatar.show', checked)}
+          />
         </div>
 
-        {themeData.userAvatar.type === 'custom' && (
-          <div className="space-y-3">
-            <Label className="text-sm font-medium text-gray-700">Custom Avatar Image</Label>
-            <ImageUpload
-              value={themeData.userAvatar.customImageUrl}
-              onUpload={(url) => updateThemeData('userAvatar.customImageUrl', url)}
-              onRemove={() => updateThemeData('userAvatar.customImageUrl', undefined)}
-              agentId={agent.id}
-              purpose="user-avatar"
-              previewShape="circle"
-              hint="Upload an image file. Recommended size: 32x32px or larger. The image will be displayed as a circle."
+        {(themeData.userAvatar.show ?? false) && (
+          <>
+            <div className="grid grid-cols-2 gap-4">
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Avatar Type</Label>
+                <Select
+                  value={themeData.userAvatar.type}
+                  onValueChange={(val) => updateThemeData('userAvatar.type', val)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {USER_AVATAR_TYPES.map((t) => (
+                      <SelectItem key={t.value} value={t.value}>
+                        <span className="flex items-center gap-2">
+                          {t.icon}
+                          {t.label}
+                        </span>
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+
+              <div className="space-y-2">
+                <Label className="text-sm font-medium text-gray-700">Avatar Shape</Label>
+                <Select
+                  value={themeData.userAvatar.shape}
+                  onValueChange={(val) => updateThemeData('userAvatar.shape', val)}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {AVATAR_SHAPES.map((s) => (
+                      <SelectItem key={s.value} value={s.value}>
+                        {s.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </div>
+
+            {themeData.userAvatar.type === 'custom' && (
+              <div className="space-y-3">
+                <Label className="text-sm font-medium text-gray-700">Custom Avatar Image</Label>
+                <ImageUpload
+                  value={themeData.userAvatar.customImageUrl}
+                  onUpload={(url) => updateThemeData('userAvatar.customImageUrl', url)}
+                  onRemove={() => updateThemeData('userAvatar.customImageUrl', undefined)}
+                  agentId={agent.id}
+                  purpose="user-avatar"
+                  previewShape="circle"
+                  hint="Upload an image file. Recommended size: 32x32px or larger. The image will be displayed as a circle."
+                />
+              </div>
+            )}
+
+            <ColorPicker
+              label="Avatar Background Color"
+              value={themeData.userAvatar.backgroundColor}
+              onChange={(color) => updateThemeData('userAvatar.backgroundColor', color)}
+              id="userAvatarBg"
             />
-          </div>
+
+            <ColorPicker
+              label="Avatar Icon Color"
+              value={themeData.userAvatar.color}
+              onChange={(color) => updateThemeData('userAvatar.color', color)}
+              id="userAvatarColor"
+            />
+          </>
         )}
-
-        <ColorPicker
-          label="Avatar Background Color"
-          value={themeData.userAvatar.backgroundColor}
-          onChange={(color) => updateThemeData('userAvatar.backgroundColor', color)}
-          id="userAvatarBg"
-        />
-
-        <ColorPicker
-          label="Avatar Icon Color"
-          value={themeData.userAvatar.color}
-          onChange={(color) => updateThemeData('userAvatar.color', color)}
-          id="userAvatarColor"
-        />
       </FormSection>
     </div>
   );
@@ -325,17 +347,14 @@ export function ChatSettings() {
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-4 items-center">
-          <Label className="text-sm font-medium text-gray-700">Message Border Radius (px)</Label>
-          <Input
-            type="number"
-            value={themeData.userMessage.borderRadius}
-            onChange={(e) => updateThemeData('userMessage.borderRadius', parseInt(e.target.value) || 14)}
-            min={0}
-            max={50}
-            className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
+        <NumberField
+          label="Message Border Radius"
+          value={themeData.userMessage.borderRadius}
+          onChange={(val) => updateThemeData('userMessage.borderRadius', val)}
+          min={0}
+          max={50}
+          unit="px"
+        />
       </FormSection>
 
       <FormSection title="System Messages" className="p-6 rounded-lg border border-gray-200">
@@ -354,17 +373,14 @@ export function ChatSettings() {
           />
         </div>
 
-        <div className="grid grid-cols-3 gap-4 items-center">
-          <Label className="text-sm font-medium text-gray-700">Message Border Radius (px)</Label>
-          <Input
-            type="number"
-            value={themeData.botMessage.borderRadius}
-            onChange={(e) => updateThemeData('botMessage.borderRadius', parseInt(e.target.value) || 14)}
-            min={0}
-            max={50}
-            className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
+        <NumberField
+          label="Message Border Radius"
+          value={themeData.botMessage.borderRadius}
+          onChange={(val) => updateThemeData('botMessage.borderRadius', val)}
+          min={0}
+          max={50}
+          unit="px"
+        />
 
         <div className="flex items-center justify-between p-4 bg-white rounded-lg border">
           <div>
@@ -428,29 +444,14 @@ export function ChatSettings() {
             id="sendButtonIconColor"
           />
 
-          <div className="grid grid-cols-3 gap-4 items-center">
-            <Label className="text-sm font-medium text-gray-700">Input Border Radius (px)</Label>
-            <Input
-              type="number"
-              value={themeData.input.borderRadius}
-              onChange={(e) => updateThemeData('input.borderRadius', parseInt(e.target.value) || 14)}
-              min={0}
-              max={50}
-              className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
-
-          <div className="grid grid-cols-3 gap-4 items-center">
-            <Label className="text-sm font-medium text-gray-700">Send Button Border Radius (px)</Label>
-            <Input
-              type="number"
-              value={themeData.sendButton.borderRadius}
-              onChange={(e) => updateThemeData('sendButton.borderRadius', parseInt(e.target.value) || 14)}
-              min={0}
-              max={50}
-              className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
-            />
-          </div>
+          <NumberField
+            label="Input Border Radius"
+            value={themeData.input.borderRadius}
+            onChange={(val) => updateThemeData('input.borderRadius', val)}
+            min={0}
+            max={50}
+            unit="px"
+          />
         </div>
       </FormSection>
     </div>
@@ -477,22 +478,14 @@ export function ChatSettings() {
         </Select>
       </div>
 
-      <div className="grid grid-cols-2 gap-4">
-        <div className="space-y-2">
-          <Label className="text-sm font-medium text-gray-700">Default Font Size (px)</Label>
-          <Input
-            type="number"
-            value={themeData.typography.baseFontSize}
-            onChange={(e) => {
-              const val = parseInt(e.target.value);
-              updateThemeData('typography.baseFontSize', Number.isNaN(val) ? 14 : Math.min(24, Math.max(10, val)));
-            }}
-            min={10}
-            max={24}
-            className="focus:ring-2 focus:ring-blue-500"
-          />
-        </div>
-      </div>
+      <NumberField
+        label="Default Font Size"
+        value={themeData.typography.baseFontSize}
+        onChange={(val) => updateThemeData('typography.baseFontSize', val)}
+        min={13}
+        max={15}
+        unit="px"
+      />
     </div>
   );
 

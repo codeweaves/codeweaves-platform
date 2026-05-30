@@ -23,6 +23,10 @@ export interface Agent {
    * epic are grandfathered as n8n-mode.
    */
   aiConfig: import('@repo/validation').AgentAiConfigDto | null;
+  /** Category labels used by the post-session classifier; empty disables it. */
+  categoryKeywords: string[];
+  /** ISO 639-1 codes + `hinglish`; empty disables language detection. */
+  supportedLanguages: string[];
   createdAt: string;
   updatedAt: string;
 }

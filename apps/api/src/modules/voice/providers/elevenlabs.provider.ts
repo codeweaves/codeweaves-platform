@@ -9,6 +9,7 @@ import type {
   TTSResponse,
   LanguageDetectionResponse,
   SupportedLanguage,
+  VoiceListItem,
 } from './voice-provider.interface';
 import { VoiceProviderError } from './voice-provider.interface';
 
@@ -31,6 +32,26 @@ interface ElevenLabsErrorResponse {
     message: string;
   };
 }
+
+interface ElevenLabsVoiceListResponse {
+  voices: Array<{
+    voice_id: string;
+    name: string;
+    preview_url?: string | null;
+    labels?: Record<string, string> | null;
+    category?: string | null;
+    high_quality_base_model_ids?: string[] | null;
+  }>;
+}
+
+/** Maps ElevenLabs `labels.language` (or accent fallback) to our SupportedLanguage codes. */
+const ELEVENLABS_LANGUAGE_MAP: Record<string, SupportedLanguage> = {
+  english: 'en',
+  hindi: 'hi',
+  tamil: 'ta',
+};
+
+const ELEVENLABS_TTS_MODEL = 'eleven_multilingual_v2';
 
 @Injectable()
 export class ElevenLabsProvider implements VoiceProvider {
@@ -132,6 +153,23 @@ export class ElevenLabsProvider implements VoiceProvider {
   }
 
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
+    return this.synthesizeWithFormat(request, 'mp3_44100_128', 'audio/mp3', 'synthesize');
+  }
+
+  /** Preview synthesis returns Ogg Opus (free-tier compatible — wav_44100 needs Pro).
+   *  Opus has a pre-skip field in its header that browsers always honor when decoding,
+   *  so unlike MP3 there's no leading priming silence to clip the first consonant.
+   *  Ref: https://medium.com/vimeo-engineering-blog/a-brief-history-of-gapless-audio-and-what-you-can-do-about-it-ea9e1c343215 */
+  async synthesizePreview(request: TTSRequest): Promise<TTSResponse> {
+    return this.synthesizeWithFormat(request, 'opus_48000_32', 'audio/ogg', 'synthesizePreview');
+  }
+
+  private async synthesizeWithFormat(
+    request: TTSRequest,
+    elevenlabsFormat: string,
+    audioFormat: string,
+    operation: string,
+  ): Promise<TTSResponse> {
     // Respect the subscription-tier concurrency cap. Blocks here until a slot
     // is free — prevents the 429 cascade that caused sentences 2-3 to fall
     // back to Sarvam (audible voice switch mid-reply).
@@ -142,7 +180,7 @@ export class ElevenLabsProvider implements VoiceProvider {
       const sanitizedVoiceId = encodeURIComponent(voiceId);
 
       const response = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}?output_format=mp3_44100_128`,
+        `https://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}?output_format=${elevenlabsFormat}`,
         {
           method: 'POST',
           headers: {
@@ -162,11 +200,11 @@ export class ElevenLabsProvider implements VoiceProvider {
           signal: AbortSignal.timeout(15_000),
         },
       ).catch((error: Error) => {
-        throw this.handleNetworkError(error, 'synthesize');
+        throw this.handleNetworkError(error, operation);
       });
 
       if (!response.ok) {
-        await this.handleErrorResponse(response, 'synthesize');
+        await this.handleErrorResponse(response, operation);
       }
 
       // CRITICAL: Response is raw binary audio, NOT JSON
@@ -175,13 +213,65 @@ export class ElevenLabsProvider implements VoiceProvider {
 
       return {
         audio,
-        audioFormat: 'audio/mp3',
+        audioFormat,
         provider: this.name,
         latencyMs: Date.now() - startTime,
       };
     } finally {
       this.releaseSlot();
     }
+  }
+
+  async listVoices(): Promise<VoiceListItem[]> {
+    const response = await fetch('https://api.elevenlabs.io/v1/voices', {
+      method: 'GET',
+      headers: { 'xi-api-key': this.apiKey },
+      signal: AbortSignal.timeout(10_000),
+    }).catch((error: Error) => {
+      throw this.handleNetworkError(error, 'listVoices');
+    });
+
+    if (!response.ok) {
+      await this.handleErrorResponse(response, 'listVoices');
+    }
+
+    const data = (await response.json()) as ElevenLabsVoiceListResponse;
+
+    return (data.voices ?? [])
+      .filter((v) => {
+        const compatibleModels = v.high_quality_base_model_ids ?? [];
+        // Keep voices either explicitly compatible with our TTS model, or with an unknown
+        // compatibility list (premade voices often omit this and still work).
+        return compatibleModels.length === 0 || compatibleModels.includes(ELEVENLABS_TTS_MODEL);
+      })
+      .map((v): VoiceListItem => {
+        const labels = v.labels ?? {};
+        const languageLabel = (labels.language ?? labels.accent ?? '').toLowerCase();
+        const language = ELEVENLABS_LANGUAGE_MAP[languageLabel];
+        const gender = labels.gender as VoiceListItem['gender'] | undefined;
+
+        // Build a human-readable descriptor from labels: combine description ("calm",
+        // "deep"), use_case ("narration"), age ("young"), and accent. Gender is shown
+        // separately. Skip ElevenLabs' top-level `category` ("premade"/"cloned") — not
+        // useful UI copy. Cap at 3 parts to keep the dropdown row readable.
+        const descriptionParts = [
+          labels.description,
+          labels.use_case,
+          labels.age,
+          labels.accent,
+        ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+        const category =
+          descriptionParts.length > 0 ? descriptionParts.slice(0, 3).join(' · ') : undefined;
+
+        return {
+          id: v.voice_id,
+          name: v.name,
+          languages: language ? [language] : undefined,
+          gender: gender && ['male', 'female', 'neutral'].includes(gender) ? gender : undefined,
+          category,
+          previewUrl: v.preview_url ?? undefined,
+        };
+      });
   }
 
   async detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse> {

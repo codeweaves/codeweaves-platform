@@ -226,7 +226,7 @@ describe('Theme Validation Schemas', () => {
         backgroundColor: '#e0e7ff',
         color: '#3b82f6',
       };
-      expect(avatarConfigSchema.parse(data)).toEqual(data);
+      expect(avatarConfigSchema.parse(data)).toEqual({ ...data, show: false });
     });
 
     it('should accept all valid types', () => {
@@ -492,7 +492,7 @@ describe('Theme Validation Schemas', () => {
         enabled: true,
         textPrefix: 'Powered by',
         useLogo: false,
-        linkText: 'CodeWeaves',
+        linkText: 'Klivo',
         linkUrl: 'https://codeweaves.com',
         textColor: '#9ca3af',
         linkColor: '#3b82f6',

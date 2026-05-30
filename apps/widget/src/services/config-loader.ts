@@ -18,6 +18,12 @@ import { debug, warn } from '../utils/debug';
 const DEFAULT_TTL_MS = 0;
 const FETCH_TIMEOUT_MS = 5_000;
 
+/** Hard ceiling on how stale the localStorage cache can be when used as a network-error
+ *  fallback. Prevents the widget from showing arbitrarily-old config (e.g. for an agent
+ *  whose origin has since been removed from allowedDomains). 24 hours is industry-standard
+ *  for stale-while-error fallbacks; expired cache is purged so it doesn't accumulate. */
+const FALLBACK_MAX_AGE_MS = 24 * 60 * 60 * 1000;
+
 const KEY_CONFIG = (id: string) => `cw_config_${id}`;
 const KEY_ETAG = (id: string) => `cw_etag_${id}`;
 const KEY_TS = (id: string) => `cw_ts_${id}`;
@@ -131,7 +137,7 @@ export async function loadConfig(
 
   // Build fetch URL (strip trailing slash from apiBaseUrl)
   const base = apiBaseUrl.replace(/\/+$/, '');
-  const url = `${base}/api/codeweaves/v1/public/agents/${encodeURIComponent(agentId)}/config`;
+  const url = `${base}/api/klivo/v1/public/agents/${encodeURIComponent(agentId)}/config`;
 
   // Task 3: Include If-None-Match header when ETag is cached
   const headers: Record<string, string> = {};
@@ -169,14 +175,22 @@ export async function loadConfig(
     warn(`API returned ${response.status}, falling back to cache`);
     return getCachedConfig(agentId);
   } catch {
-    // Task 5: Network error fallback
+    // Task 5: Network error fallback — only honour the cache while it's reasonably fresh.
+    // An indefinitely-old cache could mask a CORS revocation or agent deletion; cap it.
     const cached = getCachedConfig(agentId);
-    if (cached) {
-      warn('API unreachable, using cached config');
+    const ts = readTs(agentId);
+    const age = ts === null ? Infinity : Date.now() - ts;
+    if (cached && age < FALLBACK_MAX_AGE_MS) {
+      warn(`API unreachable, using cached config (${Math.floor(age / 60000)}m old)`);
       return cached;
     }
 
-    warn('API unreachable and no cached config available');
+    if (cached) {
+      warn(`Cached config too stale (${Math.floor(age / 3600000)}h old) — purging`);
+      clearConfigCache(agentId);
+    } else {
+      warn('API unreachable and no cached config available');
+    }
     return null;
   }
 }

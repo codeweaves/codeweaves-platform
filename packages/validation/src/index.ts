@@ -18,6 +18,9 @@ export * from './chat.js';
 // Re-export analytics schemas and types
 export * from './analytics.js';
 
+// Re-export conversations schemas and types
+export * from './conversations.js';
+
 // Re-export voice schemas and types
 export * from './voice.js';
 
@@ -188,6 +191,44 @@ export const createAgentSchema = z.object({
 
 export type CreateAgentDto = z.infer<typeof createAgentSchema>;
 
+// 24 categories per agent is well above any realistic taxonomy
+// ("Pricing, Support, Refunds, Product, …"); names are kept short and
+// non-empty so the LLM has something concrete to pick from. Trimming is
+// applied via .transform so trailing spaces don't fragment analytics.
+export const categoryKeywordSchema = z
+  .string()
+  .trim()
+  .min(1, 'Category cannot be empty')
+  .max(60, 'Category must be at most 60 characters');
+
+export const categoryKeywordsSchema = z
+  .array(categoryKeywordSchema)
+  .max(24, 'At most 24 categories per agent')
+  .default([]);
+
+// Languages the agent owner wants conversations classified against. Mostly
+// ISO 639-1 codes; `hinglish` is a non-standard sentinel for code-mixed
+// Hindi-English (no ISO code exists for it). Kept as an enum so the agent
+// editor's multi-select and the AI classifier's response schema both
+// reference a single source of truth.
+export const supportedLanguageEnum = z.enum([
+  'en', 'hi', 'mr', 'bn', 'ta', 'te', 'gu', 'pa', 'kn', 'ml', 'ur',
+  'es', 'fr', 'de', 'pt', 'it', 'nl', 'ja', 'ko', 'zh', 'ar', 'ru',
+  'hinglish',
+]);
+export type SupportedLanguage = z.infer<typeof supportedLanguageEnum>;
+
+export const supportedLanguagesSchema = z
+  .array(supportedLanguageEnum)
+  .max(15, 'At most 15 languages per agent')
+  // The classifier de-dupes server-side anyway, but rejecting up front gives
+  // a clearer error than a silent dedupe on save.
+  .refine(
+    (langs) => new Set(langs).size === langs.length,
+    { message: 'Duplicate languages are not allowed' },
+  )
+  .default([]);
+
 export const updateAgentSchema = z
   .object({
     name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters').optional(),
@@ -201,6 +242,8 @@ export const updateAgentSchema = z
     // ~125K tokens) and let the chat pipeline append it at assembly time.
     systemPrompt: z.string().max(50000).nullable().optional(),
     aiConfig: agentAiConfigUpdateSchema.nullable().optional(),
+    categoryKeywords: categoryKeywordsSchema.optional(),
+    supportedLanguages: supportedLanguagesSchema.optional(),
   })
   .refine(
     (data) =>
@@ -211,7 +254,9 @@ export const updateAgentSchema = z
       data.voiceConfig !== undefined ||
       data.welcomeMessage !== undefined ||
       data.systemPrompt !== undefined ||
-      data.aiConfig !== undefined,
+      data.aiConfig !== undefined ||
+      data.categoryKeywords !== undefined ||
+      data.supportedLanguages !== undefined,
     { message: 'At least one field must be provided' },
   );
 

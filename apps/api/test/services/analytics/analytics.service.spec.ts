@@ -64,8 +64,9 @@ describe('AnalyticsService', () => {
   };
 
   const baseQuery = {
-    startDate: new Date('2026-01-01'),
-    endDate: new Date('2026-01-31'),
+    startDate: '2026-01-01',
+    endDate: '2026-01-31',
+    timezone: 'UTC',
   };
 
   // Helper to mock all $queryRaw calls needed for getSummary (8 calls total):
@@ -170,7 +171,7 @@ describe('AnalyticsService', () => {
       expect(mockPrismaService.agent.findMany).toHaveBeenCalledWith({
         where: expect.objectContaining({
           deletedAt: null,
-          organizationId: otherOrgId,
+          organizationId: { in: [otherOrgId] },
         }),
         select: { id: true },
       });
@@ -213,7 +214,7 @@ describe('AnalyticsService', () => {
       expect(mockPrismaService.agent.findMany).toHaveBeenCalledWith({
         where: expect.objectContaining({
           deletedAt: null,
-          id: agentId1,
+          id: { in: [agentId1] },
         }),
         select: { id: true },
       });
@@ -245,7 +246,8 @@ describe('AnalyticsService', () => {
 
       expect(result.period).toBeDefined();
       expect(result.period.start).toBe('2026-01-01T00:00:00.000Z');
-      expect(result.period.end).toBe('2026-01-31T00:00:00.000Z');
+      // Exclusive upper bound = start of the day after endDate in the requested timezone.
+      expect(result.period.end).toBe('2026-02-01T00:00:00.000Z');
 
       // Check KPI structure
       expect(result.kpis.totalUsers).toHaveProperty('value');
@@ -336,6 +338,113 @@ describe('AnalyticsService', () => {
       const result = await service.getConversationsChart(baseQuery, adminUser);
 
       expect(result.data).toEqual([]);
+    });
+  });
+
+  // ==========================================
+  // Conversation Classification & Channel Analytics
+  // ==========================================
+
+  describe('getConversationCategories', () => {
+    beforeEach(() => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+    });
+
+    it('should split named categories from uncategorized and compute percentages over classified sessions', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValueOnce([
+        { category: 'Pricing', count: BigInt(60) },
+        { category: 'Support', count: BigInt(30) },
+        { category: 'Refunds', count: BigInt(10) },
+        { category: null, count: BigInt(25) },
+      ]);
+
+      const result = await service.getConversationCategories(baseQuery, adminUser);
+
+      expect(result.uncategorized).toBe(25);
+      expect(result.categories).toHaveLength(3);
+      // Percentages are over the 100 classified sessions, not 125 total
+      expect(result.categories[0]).toEqual({ category: 'Pricing', count: 60, percentage: 60 });
+      expect(result.categories[1]).toEqual({ category: 'Support', count: 30, percentage: 30 });
+      expect(result.categories[2]).toEqual({ category: 'Refunds', count: 10, percentage: 10 });
+    });
+
+    it('should return only the uncategorized count when nothing is classified', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValueOnce([{ category: null, count: BigInt(7) }]);
+
+      const result = await service.getConversationCategories(baseQuery, adminUser);
+
+      expect(result.categories).toEqual([]);
+      expect(result.uncategorized).toBe(7);
+    });
+
+    it('should return empty when no agents found', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([]);
+
+      const result = await service.getConversationCategories(baseQuery, adminUser);
+
+      expect(result).toEqual({ categories: [], uncategorized: 0 });
+    });
+  });
+
+  describe('getConversationLanguages', () => {
+    beforeEach(() => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+    });
+
+    it('should return language distribution with percentages', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValueOnce([
+        { language: 'en', count: BigInt(70) },
+        { language: 'hi', count: BigInt(30) },
+      ]);
+
+      const result = await service.getConversationLanguages(baseQuery, adminUser);
+
+      expect(result.languages).toHaveLength(2);
+      expect(result.languages[0]).toEqual({ language: 'en', count: 70, percentage: 70 });
+      expect(result.languages[1]).toEqual({ language: 'hi', count: 30, percentage: 30 });
+    });
+
+    it('should return empty array when no agents found', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([]);
+
+      const result = await service.getConversationLanguages(baseQuery, adminUser);
+
+      expect(result.languages).toEqual([]);
+    });
+  });
+
+  describe('getConversationChannels', () => {
+    beforeEach(() => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+    });
+
+    it('should return channel split with percentages', async () => {
+      mockPrismaService.$queryRaw.mockResolvedValueOnce([
+        { source: 'WIDGET', count: BigInt(50) },
+        { source: 'WHATSAPP', count: BigInt(30) },
+        { source: 'DEMO', count: BigInt(20) },
+      ]);
+
+      const result = await service.getConversationChannels(baseQuery, adminUser);
+
+      expect(result.channels).toHaveLength(3);
+      expect(result.channels[0]).toEqual({ source: 'WIDGET', count: 50, percentage: 50 });
+      expect(result.channels[1]).toEqual({ source: 'WHATSAPP', count: 30, percentage: 30 });
+      expect(result.channels[2]).toEqual({ source: 'DEMO', count: 20, percentage: 20 });
+    });
+
+    it('should return empty array when no agents found', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([]);
+
+      const result = await service.getConversationChannels(baseQuery, adminUser);
+
+      expect(result.channels).toEqual([]);
+    });
+
+    it('should throw ForbiddenException for CLIENT without organization', async () => {
+      await expect(service.getConversationCategories(baseQuery, clientUserNoOrg)).rejects.toThrow(ForbiddenException);
+      await expect(service.getConversationLanguages(baseQuery, clientUserNoOrg)).rejects.toThrow(ForbiddenException);
+      await expect(service.getConversationChannels(baseQuery, clientUserNoOrg)).rejects.toThrow(ForbiddenException);
     });
   });
 

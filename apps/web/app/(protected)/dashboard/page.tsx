@@ -1,8 +1,8 @@
 'use client';
 
 import Link from 'next/link';
-import { useAuth } from '@/hooks/use-auth';
-import { Bot, Palette, BarChart3, Users, Settings } from 'lucide-react';
+import { useProfile } from '@/hooks/use-profile';
+import { Bot, BarChart3, Users } from 'lucide-react';
 import {
   Card,
   CardHeader,
@@ -18,12 +18,6 @@ const quickLinks = [
     icon: Bot,
   },
   {
-    title: 'Theme Editor',
-    description: 'Customize your widget appearance',
-    href: '/dashboard/theme',
-    icon: Palette,
-  },
-  {
     title: 'Analytics',
     description: 'View performance metrics',
     href: '/dashboard/analytics',
@@ -35,24 +29,20 @@ const quickLinks = [
     href: '/dashboard/team',
     icon: Users,
   },
-  {
-    title: 'Settings',
-    description: 'Configure your account',
-    href: '/dashboard/settings',
-    icon: Settings,
-  },
 ];
 
 export default function DashboardPage() {
-  const { user } = useAuth();
+  const { profile } = useProfile();
+  // Prefer the DB-side display name; fall back to email when it's not set.
+  const greeting = profile?.name?.trim() || profile?.email || 'there';
 
   return (
     <div>
       <h1 className="text-2xl font-bold">
-        Welcome, {user?.name || 'User'}!
+        Welcome, {greeting}!
       </h1>
       <p className="mt-2 text-muted-foreground">
-        This is your CodeWeaves dashboard. Manage your AI chat agents, customize
+        This is your Klivo dashboard. Manage your AI chat agents, customize
         themes, and view analytics.
       </p>
 

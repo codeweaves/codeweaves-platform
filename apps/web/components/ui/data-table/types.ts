@@ -11,14 +11,21 @@ export interface DataTableFilterOption {
   icon?: React.ComponentType<{ className?: string }>;
 }
 
-/** Configuration for a filter dropdown */
+/** Configuration for a filter */
 export interface DataTableFilterConfig {
   id: string;
   label: string;
   placeholder?: string;
-  options: DataTableFilterOption[];
-  /** Enable multi-select for this filter */
+  /** Filter type — 'select' (default), 'dateRange', or 'combobox' (single-select with search) */
+  type?: 'select' | 'dateRange' | 'combobox';
+  /** Options for select/multiSelect filters */
+  options?: DataTableFilterOption[];
+  /** Enable multi-select for select filters */
   multiSelect?: boolean;
+  /** For dateRange: the 'from' key sent in filters (default: `${id}From`) */
+  fromKey?: string;
+  /** For dateRange: the 'to' key sent in filters (default: `${id}To`) */
+  toKey?: string;
 }
 
 // ============================================================================
@@ -30,6 +37,8 @@ export interface DataTableSearchConfig {
   placeholder: string;
   searchKey: string;
   debounceMs?: number;
+  /** Custom min-width class for the search input container (default: 'min-w-[200px]') */
+  minWidth?: string;
 }
 
 // ============================================================================
@@ -74,14 +83,6 @@ export interface DataTableExpandableConfig<TData, TSubRow> {
    * Render sub-row as individual cells aligned with parent columns.
    * Return an array of DataTableSubRowCell objects where each cell
    * can span one or more parent columns.
-   *
-   * Example: If parent has columns [Name, Email, Role, Phone, Status]
-   * Return: [
-   *   { content: <span>Office Name</span>, colSpan: 1 },  // aligns with Name
-   *   { content: <span>Address</span>, colSpan: 2 },      // spans Email + Role
-   *   { content: <span>Phone</span>, colSpan: 1 },        // aligns with Phone
-   *   { content: <span>Active</span>, colSpan: 1 },       // aligns with Status
-   * ]
    */
   renderSubRowCells?: (subRow: TSubRow, parentRow: TData, index: number) => DataTableSubRowCell[];
 
@@ -239,7 +240,6 @@ export interface DataTableProps<TData, TValue, TSubRow = unknown> {
 
   // ============================================================================
   // Controlled API (for advanced use cases)
-  // Pass these to fully control state from parent component
   // ============================================================================
 
   /** Current page index (0-based) - controlled mode */

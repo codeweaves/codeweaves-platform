@@ -46,13 +46,14 @@ enum InvitationStatus {
 }
 
 model Organization {
-  id        String   @id @default(uuid())
+  id        String    @id @default(uuid())
   name      String
-  slug      String   @unique
+  slug      String    @unique
   users     User[]
   agents    Agent[]
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
+  createdAt DateTime  @default(now())
+  updatedAt DateTime  @updatedAt
+  deletedAt DateTime?
 
   @@index([slug])
   @@map("organizations")
@@ -112,6 +113,15 @@ model Agent {
   // temperature, context strategy, fallback models, RAG settings.
   // Null/absent = defaults to 'n8n' routing for backwards compatibility.
   aiConfig       Json?         @db.JsonB
+  // Category names this agent's conversations get classified into by the
+  // post-session AI classifier (e.g. ["Pricing", "Support", "Refunds"]).
+  // Empty array disables categorisation for the agent.
+  categoryKeywords String[]    @default([])
+  // Languages this agent's conversations get classified against by the same
+  // post-session classifier. Codes are mostly ISO 639-1 (en, hi, mr, …) plus
+  // one non-standard value: `hinglish` (code-mixed Hindi-English, Latin script).
+  // Empty array disables language detection for the agent.
+  supportedLanguages String[]  @default([])
   systemPrompt   String?       @db.Text
   welcomeMessage String?
   secret         AgentSecret?
@@ -210,15 +220,27 @@ model ChatSession {
   // when the conversation outgrows the token budget). Complements the
   // in-memory cache — DB persistence survives restarts so Redis/memory cache
   // loss doesn't force re-summarisation on every turn.
-  summary       String?       @db.Text
-  messages      ChatMessage[]
-  createdAt     DateTime      @default(now())
-  updatedAt     DateTime      @updatedAt
-  lastMessageAt DateTime?
+  summary          String?       @db.Text
+  // Conversation category picked by the post-session LLM classifier from the
+  // agent's `categoryKeywords` list. Null until classification runs (after a
+  // period of inactivity) or when the agent has no keywords configured.
+  category         String?       @db.VarChar(100)
+  // Primary language of the conversation, detected by the same classifier
+  // pass. ISO 639-1 code (e.g. "en", "hi", "mr"). Null when undetermined.
+  detectedLanguage String?       @db.VarChar(8)
+  // Timestamp of the most recent classifier run. Used to skip already-
+  // classified sessions and (later) to expire stale labels when keywords change.
+  categorizedAt    DateTime?
+  messages         ChatMessage[]
+  createdAt        DateTime      @default(now())
+  updatedAt        DateTime      @updatedAt
+  lastMessageAt    DateTime?
 
   @@index([agentId])
   @@index([source])
   @@index([visitorId])
+  @@index([category])
+  @@index([detectedLanguage])
   @@map("chat_sessions")
 }
 

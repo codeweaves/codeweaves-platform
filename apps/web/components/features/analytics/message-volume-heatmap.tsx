@@ -47,7 +47,12 @@ interface HoverInfo {
   y: number;
 }
 
-export function MessageVolumeHeatmap({ data, isLoading, isError, className }: MessageVolumeHeatmapProps) {
+export function MessageVolumeHeatmap({
+  data,
+  isLoading,
+  isError,
+  className,
+}: MessageVolumeHeatmapProps) {
   const [hover, setHover] = useState<HoverInfo | null>(null);
 
   const handleCellEnter = useCallback(

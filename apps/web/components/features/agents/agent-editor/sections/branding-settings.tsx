@@ -108,7 +108,7 @@ export function BrandingSettings() {
                     onChange={(e) =>
                       updateThemeData('branding.linkText', e.target.value)
                     }
-                    placeholder="CodeWeaves"
+                    placeholder="Klivo"
                     className="col-span-2"
                   />
                 </div>

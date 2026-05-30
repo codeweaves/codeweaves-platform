@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 import { VoiceController } from './voice.controller';
+import { VoicesController } from './voices.controller';
 import { VoiceService } from './voice.service';
 import { StubProvider } from './providers/stub.provider';
 import { SarvamProvider } from './providers/sarvam.provider';
@@ -14,7 +15,7 @@ import { AiModule } from '../ai/ai.module';
 
 @Module({
   imports: [ChatModule, AgentsModule, PrismaModule, AiModule],
-  controllers: [VoiceController],
+  controllers: [VoiceController, VoicesController],
   providers: [
     StubProvider,
     SarvamProvider,

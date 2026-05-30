@@ -4,7 +4,7 @@ import { useCallback, useState } from 'react';
 import Link from 'next/link';
 import { useRouter } from 'next/navigation';
 import type { ColumnDef } from '@tanstack/react-table';
-import { Bot, Pencil, Code, ExternalLink, Trash2 } from 'lucide-react';
+import { AlertCircle, Bot, Pencil, Code, ExternalLink, Loader2, RefreshCw, Trash2 } from 'lucide-react';
 import {
   DataTable,
   DataTableColumnHeader,
@@ -75,10 +75,13 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
     : 'createdAt';
   const sortOrder = sortField ? (sortField.desc ? 'desc' : 'asc') : 'desc';
 
-  const statusFilter = fetchParams.filters?.status as string | undefined;
+  const statusRaw = fetchParams.filters?.status;
+  const statusFilter = Array.isArray(statusRaw)
+    ? (statusRaw.length === 1 ? statusRaw[0] : undefined)
+    : statusRaw;
   const orgFilter = fetchParams.filters?.organizationId as string | undefined;
 
-  const { data, isLoading } = useAgents({
+  const { data, isLoading, isError, refetch, isFetching } = useAgents({
     page: fetchParams.page + 1, // API is 1-based
     limit: fetchParams.pageSize,
     search: fetchParams.search || undefined,
@@ -224,22 +227,14 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
 
   // Build filters based on role
   const filters: DataTableFilterConfig[] = [
-    {
-      id: 'status',
-      label: 'Status',
-      placeholder: 'Status',
-      options: [
-        { label: 'Active', value: 'ACTIVE' },
-        { label: 'Inactive', value: 'INACTIVE' },
-      ],
-    },
-    // Organization filter only for admins
+    // Organization filter only for admins — shown first
     ...(isAdmin && orgsData?.data
       ? [
           {
             id: 'organizationId',
             label: 'Organization',
             placeholder: 'Organization',
+            type: 'combobox' as const,
             options: orgsData.data.map((org) => ({
               label: org.name,
               value: org.id,
@@ -247,10 +242,20 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
           },
         ]
       : []),
+    {
+      id: 'status',
+      label: 'Status',
+      placeholder: 'Status',
+      multiSelect: true,
+      options: [
+        { label: 'Active', value: 'ACTIVE' },
+        { label: 'Inactive', value: 'INACTIVE' },
+      ],
+    },
   ];
 
   const isEmpty =
-    !isLoading && data?.meta.total === 0 && !fetchParams.search && !statusFilter && !orgFilter;
+    !isLoading && !isError && data?.meta.total === 0 && !fetchParams.search && !statusFilter && !orgFilter;
 
   if (isEmpty && emptyAction) {
     return (
@@ -272,7 +277,34 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
         data={data?.data ?? []}
         pageCount={data?.meta.totalPages ?? 0}
         totalItems={data?.meta.total ?? 0}
-        isLoading={isLoading}
+        // isFetching covers both first load AND subsequent refetches (sort,
+        // search, pagination). React Query's `isLoading` is only true on the
+        // very first fetch — without this we'd never see a spinner during sort.
+        isLoading={isFetching}
+        renderLoading={() => (
+          <div className="flex h-32 items-center justify-center">
+            <Loader2 className="size-6 animate-spin text-muted-foreground" />
+          </div>
+        )}
+        // Only override the default empty state when there's a real error.
+        // Otherwise DataTable's built-in "No results" message handles it.
+        {...(isError && {
+          renderEmpty: () => (
+            <div className="flex h-32 flex-col items-center justify-center gap-2">
+              <AlertCircle className="size-6 text-destructive" />
+              <span className="text-sm text-muted-foreground">Failed to load agents</span>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={() => refetch()}
+                disabled={isFetching}
+              >
+                <RefreshCw className={`mr-1 size-3 ${isFetching ? 'animate-spin' : ''}`} />
+                Try again
+              </Button>
+            </div>
+          ),
+        })}
         onFetch={handleFetch}
         initialPageSize={10}
         pageSizeOptions={[5, 10, 50, 100]}

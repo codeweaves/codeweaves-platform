@@ -54,7 +54,7 @@ const CRITICAL_STYLES = [
   'overflow: visible !important',
   'display: block !important',
   'visibility: visible !important',
-  'font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important',
+  'font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important',
   'font-size: 14px !important',
   'font-weight: 400 !important',
   'font-style: normal !important',
@@ -98,7 +98,7 @@ function applyCriticalStyles(el: HTMLElement): void {
   el.style.setProperty('visibility', 'visible', 'important');
   el.style.setProperty('opacity', revealed ? '1' : '0', 'important');
   // Block inherited CSS properties from host page (these leak through Shadow DOM)
-  el.style.setProperty('font-family', 'Inter, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', 'important');
+  el.style.setProperty('font-family', 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', 'important');
   el.style.setProperty('font-size', '14px', 'important');
   el.style.setProperty('font-weight', '400', 'important');
   el.style.setProperty('font-style', 'normal', 'important');
@@ -124,7 +124,6 @@ let shadowRoot: ShadowRoot | null = null;
 let mountPoint: HTMLDivElement | null = null;
 let attributeObserver: MutationObserver | null = null;
 let bodyObserver: MutationObserver | null = null;
-let viewportResizeHandler: (() => void) | null = null;
 let savedScrollY = 0;
 let isScrollLocked = false;
 let savedBodyStyles: {
@@ -134,6 +133,29 @@ let savedBodyStyles: {
   right: string;
 } | null = null;
 let loadedFontFace: FontFace | null = null;
+
+// ── Web Font Loading (Google Fonts) ────────────────────────────────────
+
+const GOOGLE_FONTS_HREF =
+  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Open+Sans:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap';
+const GOOGLE_FONTS_MARKER = 'data-cw-google-fonts';
+
+/**
+ * Inject a Google Fonts stylesheet into document.head so the families
+ * referenced in the theme (Inter, Open Sans, Roboto) actually render
+ * inside the Shadow DOM. @font-face declarations in the light DOM are
+ * available to the shadow root because FontFaceSet is per-document.
+ * Idempotent: subsequent calls are no-ops if the link already exists.
+ */
+function injectGoogleFontsLink(): void {
+  if (document.querySelector(`link[${GOOGLE_FONTS_MARKER}]`)) return;
+  const link = document.createElement('link');
+  link.rel = 'stylesheet';
+  link.href = GOOGLE_FONTS_HREF;
+  link.setAttribute(GOOGLE_FONTS_MARKER, '');
+  link.crossOrigin = 'anonymous';
+  document.head.appendChild(link);
+}
 
 // ── Task 1: Host Element Creation ──────────────────────────────────────
 
@@ -265,26 +287,10 @@ export async function loadCustomFont(
   }
 }
 
-// ── Task 10: iOS Keyboard Handling ─────────────────────────────────────
-
-function setupKeyboardHandling(root: ShadowRoot): void {
-  const vv = window.visualViewport;
-  if (!vv) return;
-
-  viewportResizeHandler = () => {
-    const keyboardHeight = window.innerHeight - vv.height;
-    const widgetRoot = root.querySelector(`.${MOUNT_CLASS}`) as HTMLElement;
-    if (!widgetRoot) return;
-
-    if (keyboardHeight > 50) {
-      widgetRoot.style.paddingBottom = `${keyboardHeight}px`;
-    } else {
-      widgetRoot.style.paddingBottom = '';
-    }
-  };
-
-  vv.addEventListener('resize', viewportResizeHandler);
-}
+// Mobile keyboard sizing is handled entirely by CSS (100dvh +
+// env(keyboard-inset-height)) — see styles/components.ts and Widget.tsx.
+// A previous JS-based visualViewport listener was removed because it
+// double-compensated against the new CSS approach.
 
 // ── Task 12: Mobile Scroll Locking ─────────────────────────────────────
 
@@ -331,12 +337,6 @@ export function destroy(): void {
   if (bodyObserver) {
     bodyObserver.disconnect();
     bodyObserver = null;
-  }
-
-  // Remove VisualViewport listener
-  if (viewportResizeHandler && window.visualViewport) {
-    window.visualViewport.removeEventListener('resize', viewportResizeHandler);
-    viewportResizeHandler = null;
   }
 
   // Unlock scroll if locked
@@ -409,11 +409,11 @@ export function initShadowDom(): ShadowDomResult {
   // Task 3: Adopt constructable stylesheets (reset, theme, components)
   adoptStylesheets(shadowRoot);
 
+  // Load web fonts referenced by the theme picker so they render inside Shadow DOM
+  injectGoogleFontsLink();
+
   // Task 5: Setup MutationObserver protection
   setupMutationObservers(host);
-
-  // Task 10: iOS keyboard handling
-  setupKeyboardHandling(shadowRoot);
 
   initialized = true;
 

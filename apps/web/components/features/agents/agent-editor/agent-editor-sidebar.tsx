@@ -9,6 +9,7 @@ import {
   ScrollText,
   Plug,
   BadgeInfo,
+  Sparkles,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProfile } from '@/hooks/use-profile';
@@ -20,6 +21,7 @@ export type CategoryId =
   | 'behavior'
   | 'voice'
   | 'prompt'
+  | 'classification'
   | 'integration'
   | 'branding';
 
@@ -68,6 +70,12 @@ const allCategories: Category[] = [
     icon: <ScrollText className="h-5 w-5" />,
     description: 'Initial context and knowledge base',
     adminOnly: true,
+  },
+  {
+    id: 'classification',
+    title: 'Classification',
+    icon: <Sparkles className="h-5 w-5" />,
+    description: 'AI tagging: conversation topics & language detection',
   },
   {
     id: 'integration',

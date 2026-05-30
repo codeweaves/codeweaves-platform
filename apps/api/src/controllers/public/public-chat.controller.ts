@@ -50,7 +50,8 @@ export class PublicChatController {
       return { error: true, message: rateLimitResult.message, retryAfterSeconds: rateLimitResult.retryAfterSeconds };
     }
 
-    return this.chatService.sendMessage(dto);
+    const visitorIp = ChatService.extractVisitorIp(req);
+    return this.chatService.sendMessage(dto, visitorIp);
   }
 
   @Post('stream')
@@ -102,7 +103,8 @@ export class PublicChatController {
 
     try {
       const agent = await this.chatService.resolveAgent(dto.agentId);
-      const session = await this.chatService.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'WIDGET');
+      const visitorIp = ChatService.extractVisitorIp(req);
+      const session = await this.chatService.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'WIDGET', visitorIp);
       const routingMode = resolveRoutingMode(agent.aiConfig);
 
       // IG1: Warn when HMAC is enabled — streaming responses cannot be HMAC-verified.

@@ -127,7 +127,6 @@ export function ChatWindow({
   const voiceConfig = useMemo(() => {
     return {
       enabled: agentConfig.voiceEnabled === true && agentConfig.voiceConfig?.sttEnabled !== false,
-      language: agentConfig.voiceConfig?.defaultLanguage,
       autoPlay: agentConfig.voiceConfig?.ttsEnabled !== false,
     };
   }, [agentConfig.voiceEnabled, agentConfig.voiceConfig]);
@@ -185,7 +184,6 @@ export function ChatWindow({
   } = useVoice({
     agentId,
     voiceEnabled: voiceConfig.enabled,
-    voiceLanguage: voiceConfig.language,
     voiceAutoPlay: voiceConfig.autoPlay,
     onTranscription: useCallback((text: string) => {
       addUserMessage(text);

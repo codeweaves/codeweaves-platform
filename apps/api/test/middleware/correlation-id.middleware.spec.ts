@@ -13,7 +13,7 @@ describe('CorrelationIdMiddleware', () => {
     const req = {
       headers,
       method: 'GET',
-      originalUrl: '/api/codeweaves/v1/organizations',
+      originalUrl: '/api/klivo/v1/organizations',
     } as unknown as Request;
 
     const resHeaders: Record<string, string> = {};
@@ -76,7 +76,7 @@ describe('CorrelationIdMiddleware', () => {
       expect(store).toBeDefined();
       expect(store!.correlationId).toBe('test-correlation');
       expect(store!.method).toBe('GET');
-      expect(store!.url).toBe('/api/codeweaves/v1/organizations');
+      expect(store!.url).toBe('/api/klivo/v1/organizations');
       expect(store!.userId).toBeUndefined();
       expect(store!.auth0Id).toBeUndefined();
       done();

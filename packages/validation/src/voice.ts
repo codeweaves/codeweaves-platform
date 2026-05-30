@@ -16,6 +16,9 @@ export const voiceErrorCodes = {
   PROVIDER_UNAVAILABLE: 'PROVIDER_UNAVAILABLE',
   INVALID_AUDIO: 'INVALID_AUDIO',
   AUDIO_TOO_SHORT: 'AUDIO_TOO_SHORT',
+  /** STT processed normal-length audio but couldn't extract clear speech.
+   *  Usually background noise/static, mic too quiet, or mumbled input. */
+  NO_SPEECH_DETECTED: 'NO_SPEECH_DETECTED',
   RATE_LIMITED: 'RATE_LIMITED',
   RECORDING_FAILED: 'RECORDING_FAILED',
 } as const;
@@ -95,3 +98,41 @@ export const synthesizeSchema = z.object({
 });
 
 export type SynthesizeDto = z.infer<typeof synthesizeSchema>;
+
+// ============================================
+// Voice Catalog (List + Preview) Schemas
+// ============================================
+
+export const voiceListItemSchema = z.object({
+  id: z.string(),
+  name: z.string(),
+  // Display-only language hint (e.g. "en", "ta"). Looser than supportedLanguageEnum because
+  // providers may surface languages we don't expose in agent config (e.g. Tamil).
+  languages: z.array(z.string()).optional(),
+  gender: z.enum(['male', 'female', 'neutral']).optional(),
+  category: z.string().optional(),
+  previewUrl: z.string().url().optional(),
+});
+
+export type VoiceListItemDto = z.infer<typeof voiceListItemSchema>;
+
+export const voiceProviderListSchema = z.object({
+  provider: ttsProviderEnum,
+  voices: z.array(voiceListItemSchema),
+});
+
+export type VoiceProviderListDto = z.infer<typeof voiceProviderListSchema>;
+
+export const voiceListResponseSchema = z.object({
+  providers: z.array(voiceProviderListSchema),
+});
+
+export type VoiceListResponseDto = z.infer<typeof voiceListResponseSchema>;
+
+export const voicePreviewRequestSchema = z.object({
+  provider: ttsProviderEnum,
+  voiceId: z.string().min(1, 'Voice ID is required').max(255),
+  language: supportedLanguageEnum.optional(),
+});
+
+export type VoicePreviewRequestDto = z.infer<typeof voicePreviewRequestSchema>;

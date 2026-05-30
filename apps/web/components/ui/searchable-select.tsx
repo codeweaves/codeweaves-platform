@@ -24,7 +24,10 @@ interface SearchableSelectProps {
   disabled?: boolean;
   className?: string;
   triggerClassName?: string;
-  renderOption?: (option: SearchableSelectOption) => React.ReactNode;
+  renderOption?: (option: SearchableSelectOption, context: 'trigger' | 'list') => React.ReactNode;
+  itemClassName?: string | ((option: SearchableSelectOption) => string | undefined);
+  onSearchChange?: (search: string) => void;
+  shouldFilter?: boolean;
 }
 
 function SearchableSelect({
@@ -39,8 +42,18 @@ function SearchableSelect({
   className,
   triggerClassName,
   renderOption,
+  itemClassName,
+  onSearchChange,
+  shouldFilter,
 }: SearchableSelectProps) {
   const [open, setOpen] = React.useState(false);
+
+  // Reset the parent-tracked search term whenever the popover closes so stale search state
+  // doesn't leak into the next open of this (or another) dropdown.
+  React.useEffect(() => {
+    if (!open) onSearchChange?.('');
+  }, [open, onSearchChange]);
+
   const triggerRef = React.useRef<HTMLButtonElement>(null);
   const [portalContainer, setPortalContainer] = React.useState<HTMLElement | null>(null);
 
@@ -61,8 +74,8 @@ function SearchableSelect({
     <Popover open={open} onOpenChange={setOpen} modal>
       <PopoverTrigger asChild>
         <button
-          id={id}
           ref={triggerRef}
+          id={id}
           type='button'
           role='combobox'
           aria-expanded={open}
@@ -70,12 +83,16 @@ function SearchableSelect({
           data-slot='searchable-select-trigger'
           data-placeholder={!selectedOption ? '' : undefined}
           className={cn(
-            "border-input data-placeholder:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 flex h-9 w-full min-w-0 cursor-pointer items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
+            "border-input data-placeholder:text-muted-foreground [&_svg:not([class*='text-'])]:text-muted-foreground focus-visible:border-ring focus-visible:ring-ring/50 aria-invalid:ring-destructive/20 dark:aria-invalid:ring-destructive/40 aria-invalid:border-destructive dark:bg-input/30 dark:hover:bg-input/50 flex h-9 w-full cursor-pointer items-center justify-between gap-2 rounded-md border bg-transparent px-3 py-2 text-sm whitespace-nowrap shadow-xs transition-[color,box-shadow] outline-none focus-visible:ring-[3px] disabled:cursor-not-allowed disabled:opacity-50 [&_svg]:pointer-events-none [&_svg]:shrink-0 [&_svg:not([class*='size-'])]:size-4",
             triggerClassName,
           )}
         >
-          <span className='min-w-0 flex-1 truncate text-left'>
-            {selectedOption ? (renderOption ? renderOption(selectedOption) : selectedOption.label) : placeholder}
+          <span className='line-clamp-1 flex items-center gap-2'>
+            {selectedOption
+              ? renderOption
+                ? renderOption(selectedOption, 'trigger')
+                : selectedOption.label
+              : placeholder}
           </span>
           <ChevronDownIcon className='size-4 opacity-50' />
         </button>
@@ -85,32 +102,41 @@ function SearchableSelect({
         className={cn('w-[var(--radix-popover-trigger-width)] p-0', className)}
         onWheel={(e) => e.stopPropagation()}
       >
-        <Command filter={(value: string, search: string) => (value.toLowerCase().includes(search.trim().toLowerCase()) ? 1 : 0)}>
-          <CommandInput placeholder={searchPlaceholder} className='text-sm sm:text-sm' />
+        <Command
+          shouldFilter={shouldFilter}
+          filter={(value, search) => (value.toLowerCase().includes(search.trim().toLowerCase()) ? 1 : 0)}
+        >
+          <CommandInput placeholder={searchPlaceholder} onValueChange={onSearchChange} className='text-sm sm:text-sm' />
           <CommandList className='max-h-48 [scrollbar-width:thin]'>
             <CommandEmpty>{emptyMessage}</CommandEmpty>
             <CommandGroup>
-              {options.map((option) => (
-                <CommandItem
-                  key={option.value}
-                  value={option.label}
-                  disabled={option.disabled}
-                  onSelect={() => {
-                    if (!option.disabled) {
-                      onValueChange?.(option.value === value ? '' : option.value);
-                      setOpen(false);
-                    }
-                  }}
-                  className='pr-8 text-sm sm:text-sm'
-                >
-                  <span className='min-w-0 flex-1 truncate text-sm'>{renderOption ? renderOption(option) : option.label}</span>
-                  {option.value === value && (
-                    <span className='absolute right-2 flex size-3.5 items-center justify-center'>
-                      <CheckIcon className='size-4' />
+              {options.map((option) => {
+                const extraItemClassName =
+                  typeof itemClassName === 'function' ? itemClassName(option) : itemClassName;
+                return (
+                  <CommandItem
+                    key={option.value}
+                    value={option.label}
+                    disabled={option.disabled}
+                    onSelect={() => {
+                      if (!option.disabled) {
+                        onValueChange?.(option.value === value ? '' : option.value);
+                        setOpen(false);
+                      }
+                    }}
+                    className={cn('pr-8 text-sm sm:text-sm', extraItemClassName)}
+                  >
+                    <span className='min-w-0 flex-1 truncate'>
+                      {renderOption ? renderOption(option, 'list') : option.label}
                     </span>
-                  )}
-                </CommandItem>
-              ))}
+                    {option.value === value && (
+                      <span className='absolute right-2 flex size-3.5 items-center justify-center'>
+                        <CheckIcon className='size-4' />
+                      </span>
+                    )}
+                  </CommandItem>
+                );
+              })}
             </CommandGroup>
           </CommandList>
         </Command>

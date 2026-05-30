@@ -14,6 +14,8 @@ import { AnalyticsModule } from './analytics.module';
 import { AiTraceModule } from './ai/trace/ai-trace.module';
 import { DevModule } from './dev.module';
 import { AgentCacheModule } from '../common/cache/agent-cache.module';
+import { ConversationsModule } from './conversations.module';
+import { ConversationClassifierModule } from './conversation-classifier.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
 import { RedisModule } from '../common/redis/redis.module';
@@ -49,6 +51,8 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     AiTraceModule,
     DevModule,
     AgentCacheModule,
+    ConversationsModule,
+    ConversationClassifierModule,
     TracerModule,
     CryptoModule,
     RedisModule,

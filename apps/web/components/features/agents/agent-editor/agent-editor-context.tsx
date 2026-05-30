@@ -44,6 +44,16 @@ export interface AgentFormData {
   knowledgeContent: string;
   knowledgeSourceFileName: string | null;
   knowledgeSourceMimeType: string | null;
+  /**
+   * Labels used by the background conversation classifier (e.g. ["Pricing",
+   * "Support"]). Empty array disables categorisation for this agent.
+   */
+  categoryKeywords: string[];
+  /**
+   * ISO 639-1 codes (plus the non-standard `hinglish`) for the languages the
+   * classifier should detect. Empty array disables language detection.
+   */
+  supportedLanguages: string[];
 }
 
 interface AgentEditorContextType {
@@ -130,6 +140,7 @@ export interface PreviewFormData {
   iconBorderRadius: number;
   iconShadow: string;
   iconCustomImage: string;
+  bubbleEnabled: boolean;
   bubbleText: string;
   bubbleBg: string;
   bubbleTextColor: string;
@@ -145,11 +156,13 @@ export interface PreviewFormData {
   headerSubtitleColor: string;
   headerBorderRadius: number;
   // Chat Interface
+  botAvatarShow: boolean;
   botAvatarType: 'robot' | 'machine' | 'bot' | 'support' | 'custom';
   botCustomImage: string;
   botAvatarShape: string;
   botAvatarBg: string;
   botAvatarColor: string;
+  userAvatarShow: boolean;
   userAvatarType: string;
   userAvatarShape: string;
   userAvatarBg: string;
@@ -169,7 +182,6 @@ export interface PreviewFormData {
   inputTextColor: string;
   inputBorderRadius: number;
   sendButtonBg: string;
-  sendButtonBorderRadius: number;
   sendButtonIconColor: string;
   // Typography
   fontFamily: string;
@@ -206,6 +218,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     iconShadow: themeData.icon.shadow,
     iconCustomImage: themeData.icon.customImageUrl ?? '',
     // Bubble
+    bubbleEnabled: themeData.bubble.enabled,
     bubbleText: themeData.bubble.text,
     bubbleBg: themeData.bubble.backgroundColor,
     bubbleTextColor: themeData.bubble.textColor,
@@ -221,6 +234,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     headerSubtitleColor: themeData.header.subtitleColor,
     headerBorderRadius: themeData.header.borderRadius,
     // Bot messages
+    botAvatarShow: themeData.botAvatar.show ?? false,
     botAvatarType: themeData.botAvatar.type as PreviewFormData['botAvatarType'],
     botCustomImage: themeData.botAvatar.customImageUrl ?? '',
     botAvatarShape: themeData.botAvatar.shape,
@@ -230,6 +244,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     systemMessageTextColor: themeData.botMessage.textColor,
     systemMessageBorderRadius: themeData.botMessage.borderRadius,
     // User messages
+    userAvatarShow: themeData.userAvatar.show ?? false,
     userAvatarType: themeData.userAvatar.type,
     userAvatarShape: themeData.userAvatar.shape,
     userAvatarBg: themeData.userAvatar.backgroundColor,
@@ -250,7 +265,6 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     inputBorderRadius: themeData.input.borderRadius,
     // Send button
     sendButtonBg: themeData.sendButton.backgroundColor,
-    sendButtonBorderRadius: themeData.sendButton.borderRadius,
     sendButtonIconColor: themeData.sendButton.iconColor,
     // Typography
     fontFamily: themeData.typography.fontFamily,
@@ -327,6 +341,8 @@ export function agentToFormData(
     knowledgeContent: initialKnowledge?.content ?? '',
     knowledgeSourceFileName: initialKnowledge?.sourceFileName ?? null,
     knowledgeSourceMimeType: initialKnowledge?.sourceMimeType ?? null,
+    categoryKeywords: agent.categoryKeywords ?? [],
+    supportedLanguages: agent.supportedLanguages ?? [],
   };
 }
 

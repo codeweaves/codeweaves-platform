@@ -143,16 +143,29 @@ export class VoiceController {
     const sttLatencyMs = Date.now() - sttStart;
 
     if (!sttResult.transcript.trim()) {
+      // STT couldn't extract clear speech. Could be noisy audio, mumbled input, or a
+      // too-short recording — we don't differentiate; one generic message keeps copy simple.
       res.status(HttpStatus.UNPROCESSABLE_ENTITY);
       return {
         error: true,
-        errorCode: voiceErrorCodes.AUDIO_TOO_SHORT,
-        message: 'Could not transcribe audio — no speech detected',
+        errorCode: voiceErrorCodes.NO_SPEECH_DETECTED,
+        message: "We couldn't make that out. Please try again from a quieter spot.",
       };
     }
 
-    // Streaming path: requires (webhookUrl OR direct mode) + TTS enabled + client opt-in via Accept header
+    // Streaming-only path. Clients MUST send Accept: application/x-ndjson.
+    // Branches into direct-mode (no webhook needed) or n8n-mode (webhook URL
+    // required) based on the agent's aiConfig.routingMode. Legacy non-streaming
+    // fallback was removed — every voice consumer uses streaming exclusively.
     const clientAcceptsNdjson = req.headers['accept']?.includes('application/x-ndjson');
+    if (!clientAcceptsNdjson) {
+      res.status(HttpStatus.NOT_ACCEPTABLE);
+      return {
+        error: true,
+        errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
+        message: 'Voice conversation requires a streaming-capable client (Accept: application/x-ndjson).',
+      };
+    }
 
     // Resolve full agent for routing-mode + aiConfig inspection. ChatService.resolveAgent
     // returns a stripped projection, so we hit the DB again for the full record.
@@ -163,7 +176,7 @@ export class VoiceController {
     const routingMode = resolveRoutingMode(fullAgent.aiConfig);
 
     let webhookUrl: string | null = null;
-    if (clientAcceptsNdjson && routingMode === 'n8n') {
+    if (routingMode === 'n8n') {
       try {
         webhookUrl = await this.agentsService.getEffectiveWebhookUrl(resolvedAgentId);
       } catch (error) {
@@ -172,7 +185,14 @@ export class VoiceController {
             `Failed to fetch webhook URL for agent ${resolvedAgentId}: ${error instanceof Error ? error.message : 'unknown'}`,
           );
         }
-        // No webhook URL or error — fall through to legacy sequential path
+      }
+      if (!webhookUrl) {
+        res.status(HttpStatus.PRECONDITION_FAILED);
+        return {
+          error: true,
+          errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
+          message: 'Agent is not configured for voice conversations (no webhook URL).',
+        };
       }
     }
 
@@ -186,10 +206,12 @@ export class VoiceController {
       voiceConfig = { ttsEnabled: true } as VoiceConfigDto;
     }
 
+    const visitorIp = ChatService.extractVisitorIp(req);
+
     // Direct-mode streaming: agent has aiConfig.routingMode = 'direct', so we
     // bypass n8n entirely and pipe DirectChatService → voice adapter → existing
     // VoiceService.streamingTTS pipeline. No webhook URL needed.
-    if (routingMode === 'direct' && voiceConfig.ttsEnabled !== false && clientAcceptsNdjson) {
+    if (routingMode === 'direct' && voiceConfig.ttsEnabled !== false) {
       await this.handleStreamingVoice(
         dto,
         sttResult,
@@ -201,11 +223,12 @@ export class VoiceController {
         startTime,
         res,
         resolvedAgentId,
+        visitorIp,
       );
       return;
     }
 
-    if (webhookUrl && voiceConfig.ttsEnabled !== false && clientAcceptsNdjson) {
+    if (webhookUrl && voiceConfig.ttsEnabled !== false) {
       await this.handleStreamingVoice(
         dto,
         sttResult,
@@ -217,153 +240,17 @@ export class VoiceController {
         startTime,
         res,
         resolvedAgentId,
+        visitorIp,
       );
       return;
     }
 
-    // Legacy sequential path: Chat → TTS
-    const aiStart = Date.now();
-    let chatResult;
-    try {
-      chatResult = await this.chatService.sendMessage({
-        agentId: resolvedAgentId,
-        chatInput: sttResult.transcript,
-        sessionId: dto.sessionId,
-        source: dto.source ?? 'WIDGET',
-      });
-    } catch (error) {
-      this.logger.error(
-        `Chat service failed for agent ${resolvedAgentId}: ${error instanceof Error ? error.message : 'unknown'}`,
-      );
-      this.reportVoiceErrorToSentry(error, {
-        provider: 'chat',
-        language: sttResult.detectedLanguage,
-        agentId: resolvedAgentId,
-        operation: 'stt',
-        errorType: 'chat_failure',
-      });
-      res.status(HttpStatus.BAD_GATEWAY);
-      return {
-        error: true,
-        errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
-        message: 'AI service temporarily unavailable',
-      };
-    }
-    const aiLatencyMs = Date.now() - aiStart;
-
-    // Step 3: TTS (skip if disabled) — graceful degradation on failure
-    let ttsAudio: string | null = null;
-    let ttsFormat: string | null = null;
-    let ttsDurationMs: number | null = null;
-    let ttsLatencyMs = 0;
-    let ttsProvider: string | null = null;
-    let ttsError: { errorCode: string; message: string } | undefined;
-
-    if (voiceConfig.ttsEnabled !== false && chatResult.reply.trim()) {
-      const ttsStart = Date.now();
-      try {
-        const ttsResult = await this.voiceService.synthesize({
-          text: chatResult.reply,
-          language: sttResult.detectedLanguage,
-          agentId: resolvedAgentId,
-        });
-        ttsLatencyMs = Date.now() - ttsStart;
-        ttsAudio = ttsResult.audio.toString('base64');
-        ttsFormat = ttsResult.audioFormat;
-        ttsDurationMs = ttsResult.durationMs ?? null;
-        ttsProvider = ttsResult.provider;
-      } catch (error) {
-        ttsLatencyMs = Date.now() - ttsStart;
-        // TTS failure is graceful degradation — return text response, not 500
-        this.reportVoiceErrorToSentry(
-          error,
-          {
-            provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
-            language: sttResult.detectedLanguage,
-            agentId: resolvedAgentId,
-            operation: 'tts',
-            errorType: 'tts_failure',
-            fallbackAttempted: true,
-          },
-          'warning',
-        );
-        ttsError = {
-          errorCode: voiceErrorCodes.TTS_FAILED,
-          message: 'Voice playback unavailable',
-        };
-        this.logger.warn(
-          `TTS failed for agent ${resolvedAgentId}, returning text-only response: ${error instanceof Error ? error.message : 'unknown'}`,
-        );
-      }
-    }
-
-    // Store voice metadata on user and assistant messages for analytics (AC #1, #2, #3)
-    const ttsAttempted = ttsAudio !== null || ttsError !== undefined;
-    const userMetadata = {
-      ...(chatResult.metadata as Record<string, unknown> ?? {}),
-      inputType: 'voice' as const,
-      detectedLanguage: sttResult.detectedLanguage,
-      languageConfidence: sttResult.confidence,
-      sttProvider: sttResult.provider ?? 'unknown',
-      sttLatencyMs,
-      aiLatencyMs,
-    };
-    const assistantMetadata = {
-      ...(chatResult.metadata as Record<string, unknown> ?? {}),
-      inputType: 'voice' as const,
-      ...(ttsAttempted && { ttsProvider: ttsProvider ?? 'unknown' }),
-      ...(ttsAttempted && { ttsLatencyMs }),
-      ...(ttsError && { ttsError: ttsError.errorCode }),
-    };
-
-    const storeMetadata = async (attempt = 1) => {
-      try {
-        await Promise.all([
-          this.prisma.chatMessage.update({
-            where: { id: chatResult.messageId },
-            data: { metadata: userMetadata },
-          }),
-          this.prisma.chatMessage.update({
-            where: { id: chatResult.assistantMessageId },
-            data: { metadata: assistantMetadata },
-          }),
-        ]);
-      } catch (metadataError) {
-        if (attempt < 2) {
-          this.logger.warn(
-            `Voice metadata write attempt ${attempt} failed for message ${chatResult.messageId}, retrying...`,
-          );
-          return storeMetadata(attempt + 1);
-        }
-        this.logger.warn(
-          `Failed to store voice metadata for message ${chatResult.messageId} after ${attempt} attempts: ${metadataError instanceof Error ? metadataError.message : 'unknown'}`,
-        );
-      }
-    };
-    // Fire-and-forget — don't block the response
-    storeMetadata();
-
+    // TTS disabled or no valid routing — return error (legacy sequential path removed)
+    res.status(HttpStatus.PRECONDITION_FAILED);
     return {
-      transcription: {
-        text: sttResult.transcript,
-        detectedLanguage: sttResult.detectedLanguage,
-        confidence: sttResult.confidence,
-      },
-      response: {
-        text: chatResult.reply,
-        audio: ttsAudio,
-        audioFormat: ttsFormat,
-        audioDurationMs: ttsDurationMs,
-      },
-      sessionId: chatResult.sessionId,
-      messageId: chatResult.messageId,
-      metrics: {
-        sttLatencyMs,
-        aiLatencyMs,
-        ttsLatencyMs,
-        totalLatencyMs: Date.now() - startTime,
-      },
-      ...(ttsError && { ttsError }),
+      error: true,
+      errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
+      message: 'Voice conversation requires TTS-enabled agent with a routing configuration.',
     };
   }
 
@@ -514,9 +401,10 @@ export class VoiceController {
     startTime: number,
     res: Response,
     resolvedAgentId: string,
+    visitorIp?: string,
   ): Promise<void> {
     // Resolve session for message storage
-    const session = await this.chatService.resolveOrCreateSession(resolvedAgentId, dto.sessionId, dto.source ?? 'WIDGET');
+    const session = await this.chatService.resolveOrCreateSession(resolvedAgentId, dto.sessionId, dto.source ?? 'WIDGET', visitorIp);
     const userMessage = await this.chatService.saveUserMessage(session.id, sttResult.transcript);
 
     // Set chunked response headers
@@ -678,6 +566,10 @@ export class VoiceController {
             },
           },
         }),
+        // Keep ChatSession.lastMessageAt in lockstep with the text flow so
+        // voice sessions sort alongside widget chats on the dashboard
+        // Conversations list. Without this, voice sessions stay null forever.
+        this.chatService.updateSessionTimestamp(session.id),
       ]);
     } catch (err) {
       this.logger.warn(

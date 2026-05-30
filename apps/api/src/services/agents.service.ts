@@ -24,6 +24,25 @@ import { CryptoService } from '../common/crypto/crypto.service';
 const MAX_PUBLIC_ID_RETRIES = 3;
 const WEBHOOK_TEST_TIMEOUT = 10_000;
 
+/**
+ * Dedupes a list of category keywords case-insensitively while preserving the
+ * casing of the FIRST occurrence. Whitespace-only entries are dropped — Zod
+ * already trims them but defending against future schema drift is cheap.
+ */
+function dedupeCategoryKeywords(keywords: string[]): string[] {
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of keywords) {
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const key = trimmed.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(trimmed);
+  }
+  return out;
+}
+
 @Injectable()
 export class AgentsService {
   private readonly logger = new Logger(AgentsService.name);
@@ -211,6 +230,12 @@ export class AgentsService {
     }
 
     try {
+      // When `categoryKeywords` changes, previously-classified sessions are
+      // still labelled against the OLD list. We don't auto-reclassify here
+      // (would be expensive on a big agent) — the next message into a session
+      // re-opens it, then the cron will pick it up again. Stale labels on
+      // closed sessions stay until manually refreshed, which is acceptable
+      // for an MVP and surfaceable later as a "reclassify all" admin action.
       const updated = await this.prisma.agent.update({
         where: { id },
         data: {
@@ -222,6 +247,18 @@ export class AgentsService {
           ...(dto.welcomeMessage !== undefined && { welcomeMessage: dto.welcomeMessage }),
           ...(dto.systemPrompt !== undefined && { systemPrompt: dto.systemPrompt }),
           ...(aiConfigData !== undefined && { aiConfig: aiConfigData }),
+          ...(dto.categoryKeywords !== undefined && {
+            // Dedupe case-insensitively but preserve the user's casing for the
+            // first occurrence — Sentry vs sentry shouldn't both end up in
+            // the analytics dropdown.
+            categoryKeywords: dedupeCategoryKeywords(dto.categoryKeywords),
+          }),
+          ...(dto.supportedLanguages !== undefined && {
+            // Zod already enforces enum membership + de-duplication; storing
+            // verbatim. Order is preserved so the UI can echo back the agent
+            // owner's chosen ordering on edit.
+            supportedLanguages: dto.supportedLanguages,
+          }),
         },
         include: { organization: { select: { id: true, name: true } } },
       });

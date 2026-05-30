@@ -26,7 +26,7 @@ describe('AllExceptionsFilter', () => {
     const response = { status };
     const request = {
       method: 'GET',
-      originalUrl: '/api/codeweaves/v1/test',
+      originalUrl: '/api/klivo/v1/test',
     };
 
     const host = {
@@ -140,7 +140,7 @@ describe('AllExceptionsFilter', () => {
     expect(mockSentryService.captureException).toHaveBeenCalledWith(error, {
       correlationId: 'corr-5xx',
       method: 'GET',
-      url: '/api/codeweaves/v1/test',
+      url: '/api/klivo/v1/test',
     });
   });
 

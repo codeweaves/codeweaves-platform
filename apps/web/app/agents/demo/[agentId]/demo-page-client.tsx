@@ -603,7 +603,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
               </button>
             </form>
             <p className="mt-2 text-center text-xs text-gray-400">
-              Powered by CodeWeaves
+              Powered by Klivo
             </p>
           </div>
         </div>
