@@ -23,6 +23,7 @@ import { AgentsService } from '../../services/agents.service';
 import { PrismaService } from '../../services/prisma.service';
 import { MessageRateLimitService } from '../../services/message-rate-limit.service';
 import { DirectChatService } from '../ai/direct-chat.service';
+import type { DirectChatResult } from '../ai/interfaces/direct-chat.interfaces';
 import { directChatToN8nStream } from '../ai/adapters/voice-token-stream.adapter';
 import { resolveRoutingMode } from '@repo/validation';
 import type { N8nStreamChunk } from '../../services/n8n-stream.interface';
@@ -414,9 +415,13 @@ export class VoiceController {
     res.setHeader('X-Session-Id', session.id);
     res.setHeader('X-Message-Id', userMessage.id);
 
-    // Send transcription chunk immediately so the client can show the user's message
+    // Send transcription chunk immediately so the client can show the user's message.
+    // Includes `sessionId` (external public id) so multi-turn voice clients can
+    // round-trip it on the next request — without this, every voice call creates
+    // a fresh session instead of appending to the conversation.
     const transcriptionChunk = {
       type: 'transcription' as const,
+      sessionId: session.sessionId,
       text: sttResult.transcript,
       detectedLanguage: sttResult.detectedLanguage,
       confidence: sttResult.confidence,
@@ -452,7 +457,14 @@ export class VoiceController {
     // webhook, depending on the agent's routing mode. Both sources yield
     // chunks in N8nStreamChunk format (the direct-mode path adapts via
     // directChatToN8nStream) so the downstream voice pipeline is unchanged.
+    //
+    // For direct mode, we also capture the LLM's per-turn result (ttftMs,
+    // tokens, cost, model, finishReason) via the adapter's onFinish callback
+    // so we can persist them into the assistant-message metadata below — that
+    // gives analytics a full STT/LLM/TTS breakdown per voice turn instead of
+    // only the aggregate timings.
     let tokenStream: AsyncGenerator<N8nStreamChunk>;
+    let llmResult: DirectChatResult | null = null;
     if (mode === 'direct') {
       const directStream = this.directChatService.stream({
         agent: fullAgent,
@@ -462,7 +474,9 @@ export class VoiceController {
         feature: 'voice',
         abortSignal: abortController.signal,
       });
-      tokenStream = directChatToN8nStream(directStream);
+      tokenStream = directChatToN8nStream(directStream, (r) => {
+        llmResult = r;
+      });
     } else {
       if (!webhookUrl) {
         // Should never happen — routing mode was 'n8n' but webhookUrl absent.
@@ -480,6 +494,13 @@ export class VoiceController {
     }
 
     const ttsLatencies: number[] = [];
+    // Track WS-specific metrics across all sentences when streaming was used.
+    // We aggregate then write into the assistant-message metadata so analytics
+    // can compare batch vs WS performance per turn.
+    const wsFirstChunkLatencies: number[] = [];
+    const wsChunkCounts: number[] = [];
+    let wsTotalBytes = 0;
+    const ttsProtocols = new Set<'http' | 'websocket'>();
     let fullText = '';
     let totalSentences = 0;
     let timeToFirstChunkMs: number | null = null;
@@ -496,9 +517,25 @@ export class VoiceController {
         if (closed) break;
 
         if (chunk.type === 'audio') {
-          ttsLatencies.push(chunk.ttsLatencyMs);
+          // `timeToFirstChunkMs` = when the user first hears ANY audio. With
+          // per-chunk WS delivery this lands EARLIER than before (first audio
+          // bytes of the first sentence) — that's the perceptual win we're
+          // measuring.
           if (timeToFirstChunkMs === null) {
             timeToFirstChunkMs = Date.now() - startTime;
+          }
+          if (chunk.ttsProtocol) ttsProtocols.add(chunk.ttsProtocol);
+          // First-chunk + final-chunk markers carry the per-sentence WS
+          // diagnostics. Aggregate across the turn.
+          if (chunk.wsFirstChunkLatencyMs !== undefined) {
+            wsFirstChunkLatencies.push(chunk.wsFirstChunkLatencyMs);
+          }
+          if (chunk.isFinalChunk) {
+            // Per-sentence totals are only meaningful on the LAST chunk —
+            // that's when sentence-level latency is settled.
+            ttsLatencies.push(chunk.ttsLatencyMs);
+            if (chunk.wsChunkCount !== undefined) wsChunkCounts.push(chunk.wsChunkCount);
+            if (chunk.wsTotalBytes !== undefined) wsTotalBytes += chunk.wsTotalBytes;
           }
         }
         if (chunk.type === 'end') {
@@ -538,15 +575,70 @@ export class VoiceController {
       ? Math.round(ttsLatencies.reduce((a, b) => a + b, 0) / ttsLatencies.length)
       : 0;
 
+    // Pull LLM metrics off the direct-mode result if present. We spread these
+    // into the metadata at the top level (rather than nesting under `llm:`) so
+    // existing analytics queries that look for `model` / `ttftMs` / `cost` on
+    // text messages also work for voice messages.
+    const llmMetadata: Record<string, unknown> =
+      mode === 'direct' && llmResult
+        ? {
+            model: (llmResult as DirectChatResult).model,
+            llmTtftMs: (llmResult as DirectChatResult).ttftMs,
+            llmLatencyMs: (llmResult as DirectChatResult).latencyMs,
+            inputTokens: (llmResult as DirectChatResult).usage.inputTokens,
+            outputTokens: (llmResult as DirectChatResult).usage.outputTokens,
+            totalTokens: (llmResult as DirectChatResult).usage.totalTokens,
+            cachedInputTokens:
+              (llmResult as DirectChatResult).usage.cachedInputTokens ?? null,
+            reasoningTokens:
+              (llmResult as DirectChatResult).usage.reasoningTokens ?? null,
+            cost: (llmResult as DirectChatResult).cost,
+            finishReason: (llmResult as DirectChatResult).finishReason,
+            traceId: (llmResult as DirectChatResult).traceId,
+            historyCount: (llmResult as DirectChatResult).historyCount,
+            historyTruncated: (llmResult as DirectChatResult).historyTruncated,
+          }
+        : {};
+
+    // Aggregate WS-specific metrics across all sentences. Mixed-transport
+    // turns (some sentences streamed, some fell back to batch) are reported
+    // with `ttsProtocol: 'mixed'` so analytics can spot the failure-fallback
+    // pattern.
+    const wsAvgFirstChunkLatencyMs =
+      wsFirstChunkLatencies.length > 0
+        ? Math.round(
+            wsFirstChunkLatencies.reduce((a, b) => a + b, 0) /
+              wsFirstChunkLatencies.length,
+          )
+        : null;
+    const wsTotalChunks =
+      wsChunkCounts.length > 0
+        ? wsChunkCounts.reduce((a, b) => a + b, 0)
+        : null;
+    const ttsProtocol: 'http' | 'websocket' | 'mixed' | null =
+      ttsProtocols.size === 0
+        ? null
+        : ttsProtocols.size === 1
+          ? (ttsProtocols.values().next().value as 'http' | 'websocket')
+          : 'mixed';
+
     const metadata = {
       inputType: 'voice' as const,
       streaming: true,
+      routingMode: mode,
       detectedLanguage: sttResult.detectedLanguage,
       sttLatencyMs,
       totalSentences,
       averageTtsLatencyMs,
       timeToFirstChunkMs,
       totalLatencyMs: Date.now() - startTime,
+      // WS-streaming TTS instrumentation. Null/absent on batch-only turns so
+      // existing analytics queries that COALESCE these to 0 still work.
+      ttsProtocol,
+      wsAvgFirstChunkLatencyMs,
+      wsTotalChunks,
+      wsTotalBytes: wsTotalBytes > 0 ? wsTotalBytes : null,
+      ...llmMetadata,
     };
 
     try {

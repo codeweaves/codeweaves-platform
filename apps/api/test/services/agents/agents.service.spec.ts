@@ -5,6 +5,7 @@ import { AgentsService } from '../../../src/services/agents.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentLoggerService } from '../../../src/common/logger/agent.logger';
 import { CryptoService } from '../../../src/common/crypto/crypto.service';
+import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
 import { Prisma, Role } from '@prisma/client';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 import * as publicIdUtils from '../../../src/utils/public-id';
@@ -48,6 +49,11 @@ describe('AgentsService', () => {
   const mockCryptoService = {
     encrypt: jest.fn((val: string) => `encrypted:${val}`),
     decrypt: jest.fn((val: string) => val.replace('encrypted:', '')),
+  };
+
+  const mockAgentCacheService = {
+    getAgentWithKnowledge: jest.fn().mockResolvedValue(null),
+    invalidate: jest.fn().mockResolvedValue(undefined),
   };
 
   const mockConfigService = {
@@ -138,6 +144,7 @@ describe('AgentsService', () => {
         { provide: AgentLoggerService, useValue: mockAgentLogger },
         { provide: CryptoService, useValue: mockCryptoService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: AgentCacheService, useValue: mockAgentCacheService },
       ],
     }).compile();
 
@@ -929,6 +936,7 @@ describe('AgentsService', () => {
       ttsVoiceId: 'Xb7hH8MSUJpSbSDYk0k2',
       ttsSpeed: 1.0,
       autoDetectLanguage: true,
+      ttsStreaming: false,
     };
 
     it('should reject voiceEnabled: true when no voiceConfig exists', async () => {

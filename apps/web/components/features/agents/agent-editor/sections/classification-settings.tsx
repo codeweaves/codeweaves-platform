@@ -5,7 +5,7 @@ import { X } from 'lucide-react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
-import { MultiSelect } from '@/components/ui/multi-select';
+import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
 import { useAgentEditor } from '../agent-editor-context';
 
 // Mirror the validation schema (`categoryKeywordsSchema`) — must stay in sync.
@@ -167,9 +167,11 @@ export function ClassificationSettings() {
           <strong> Hinglish</strong> is code-mixed Hindi-English in Latin
           script — pick it alongside English/Hindi if your audience uses it.
         </p>
-        <MultiSelect
+        <SearchableMultiSelect
           triggerClassName="w-full max-w-md"
           placeholder="No languages selected — detection disabled"
+          searchPlaceholder="Search languages..."
+          emptyMessage="No matching language"
           values={languages}
           onValuesChange={(v) => {
             // Cap server-side too, but stop here to avoid the round-trip.

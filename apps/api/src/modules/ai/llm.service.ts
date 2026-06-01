@@ -382,6 +382,29 @@ function buildModelSettings(
  *     merged as #7964 which added the parameter passthrough). Confirmed
  *     present in our 3.0.53.
  *   - Max 64 chars. Agent UUIDs (36 chars) fit comfortably.
+ *
+ * `promptCacheRetention: '24h'` extends the cache TTL from the default 5-10
+ * min (in_memory) to up to 24 hours, with the K/V tensors offloaded to
+ * GPU-local storage. Critical for low-traffic widgets: without this, a visitor
+ * who shows up 30 min after the last user pays the full cold-start tax on
+ * their first message (~1500-2500ms LLM TTFT). With 24h retention, even the
+ * day's first visitor hits a warm cache (~700-900ms TTFT).
+ *   - Supported on gpt-4.1, gpt-4.1-mini, gpt-5*, and all future OpenAI
+ *     models. Earlier models silently ignore unknown fields.
+ *   - Pricing: cached tokens are still billed at the 50% cached discount.
+ *     No extra cost for the 24h retention itself.
+ *
+ * GROQ: Qwen3 family ships with reasoning ON by default, which emits a
+ * `<think>...</think>` chain-of-thought block in the response stream. For
+ * chatbot use cases this both bloats TTFT (model spends 1-3s reasoning
+ * before user-visible tokens) AND leaks the raw thoughts into the message
+ * the user sees. We disable reasoning by default for Qwen3 via Groq's
+ * `reasoning_effort: 'none'` — if we later add reasoning-heavy agents
+ * (math, coding) we can gate this on an `aiConfig.reasoning` flag the same
+ * way we'd gate Gemini's thinkingBudget.
+ *   - Other reasoning models on Groq (DeepSeek-R1-Distill, GPT-OSS) emit
+ *     reasoning via separate channels per their model cards, not in the
+ *     text content, so they don't need this. Scoped to Qwen3 explicitly.
  */
 function buildProviderOptions(
   request: LlmCompletionRequest,
@@ -403,6 +426,15 @@ function buildProviderOptions(
     return {
       openai: {
         promptCacheKey: `agent-${request.agentId}`,
+        promptCacheRetention: '24h',
+      },
+    };
+  }
+
+  if (parsed.provider === 'groq' && /^qwen[/-]/i.test(parsed.modelName)) {
+    return {
+      groq: {
+        reasoningEffort: 'none',
       },
     };
   }
@@ -485,6 +517,10 @@ function logProviderDiagnosticsFree(
     openrouter: openrouter ? { usage: openrouter.usage } : undefined,
   };
 
+  // Verified: extractCachedTokens() correctly surfaces sdkCacheRead /
+  // sdkCachedInput for OpenAI 24h-retention cache hits. Trace's
+  // cachedInputTokens field is reliable. Leaving at .debug() so prod is quiet
+  // but devs can flip log level to see hit rates if cache health regresses.
   logger.debug(`LLM_DIAGNOSTICS ${JSON.stringify(summary)}`);
 }
 
@@ -493,15 +529,21 @@ function logProviderDiagnosticsFree(
  * path carries it. AI SDK v6 normalises this UNEVENLY across providers:
  *
  *   - Anthropic: `usage.inputTokenDetails.cacheReadTokens` (well-supported)
- *   - OpenAI:    `providerMetadata.openai.cachedPromptTokens`
+ *   - OpenAI:    `providerMetadata.openai.cachedPromptTokens` (legacy field)
  *                OR `providerMetadata.openai.usage.prompt_tokens_details.cached_tokens`
- *                (the latter is the raw OpenAI passthrough shape)
+ *                   (raw OpenAI passthrough — current standard shape)
+ *                OR `providerMetadata.openai.promptTokensDetails.cachedTokens`
+ *                   (camelCase variant some AI SDK versions emit)
  *   - Google:    `providerMetadata.google.cachedContentTokenCount`
  *   - OpenRouter: varies by upstream model
  *
  * We try each path; whichever is a number wins. Missing on every path → return
  * undefined so downstream code / trace can distinguish "not populated" from
  * "zero (cache definitively missed)".
+ *
+ * NB: With `prompt_cache_retention: '24h'`, OpenAI still reports cache hits via
+ * the same `prompt_tokens_details.cached_tokens` field — the storage tier is
+ * different (GPU-local KV offload) but the response shape is unchanged.
  */
 function extractCachedTokens(
   usage: LanguageModelUsage,
@@ -514,20 +556,46 @@ function extractCachedTokens(
 
   if (!metadata) return undefined;
 
-  // 2. OpenAI providerMetadata — two possible shapes depending on AI SDK version.
+  // 2. OpenAI providerMetadata — multiple possible shapes depending on AI SDK
+  // version and whether the call went through chat.completions vs responses
+  // endpoint vs how the AI SDK normalises camelCase/snake_case.
   const openai = metadata.openai as
     | {
         cachedPromptTokens?: number;
+        promptTokensDetails?: { cachedTokens?: number; cached_tokens?: number };
+        prompt_tokens_details?: { cached_tokens?: number; cachedTokens?: number };
         usage?: {
-          prompt_tokens_details?: { cached_tokens?: number };
+          prompt_tokens_details?: { cached_tokens?: number; cachedTokens?: number };
+          promptTokensDetails?: { cachedTokens?: number; cached_tokens?: number };
+          cachedPromptTokens?: number;
         };
       }
     | undefined;
   if (typeof openai?.cachedPromptTokens === 'number') {
     return openai.cachedPromptTokens;
   }
-  const openaiRaw = openai?.usage?.prompt_tokens_details?.cached_tokens;
-  if (typeof openaiRaw === 'number') return openaiRaw;
+  // camelCase top-level (AI SDK v6 normalisation in some paths)
+  const camelTop =
+    openai?.promptTokensDetails?.cachedTokens ??
+    openai?.promptTokensDetails?.cached_tokens;
+  if (typeof camelTop === 'number') return camelTop;
+  // snake_case top-level (raw OpenAI passthrough)
+  const snakeTop =
+    openai?.prompt_tokens_details?.cached_tokens ??
+    openai?.prompt_tokens_details?.cachedTokens;
+  if (typeof snakeTop === 'number') return snakeTop;
+  // nested under usage (older AI SDK shape)
+  const nestedSnake =
+    openai?.usage?.prompt_tokens_details?.cached_tokens ??
+    openai?.usage?.prompt_tokens_details?.cachedTokens;
+  if (typeof nestedSnake === 'number') return nestedSnake;
+  const nestedCamel =
+    openai?.usage?.promptTokensDetails?.cachedTokens ??
+    openai?.usage?.promptTokensDetails?.cached_tokens;
+  if (typeof nestedCamel === 'number') return nestedCamel;
+  if (typeof openai?.usage?.cachedPromptTokens === 'number') {
+    return openai.usage.cachedPromptTokens;
+  }
 
   // 3. Google Gemini providerMetadata — implicit + explicit context caching.
   const google = metadata.google as

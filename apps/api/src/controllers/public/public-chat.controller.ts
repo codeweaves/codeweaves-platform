@@ -1,7 +1,8 @@
-import { Controller, Post, Body, Res, Req, HttpException, Logger } from '@nestjs/common';
+import { Controller, Post, Body, Res, Req, HttpException, Logger, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
+import { z } from 'zod';
 import { Public } from '../../decorators/public.decorator';
 import { ChatService } from '../../services/chat.service';
 import { PrismaService } from '../../services/prisma.service';
@@ -14,6 +15,11 @@ import { sendMessageSchema, type SendMessageDto, resolveRoutingMode } from '@rep
 import type { ChatMessageMetadata } from '../../services/chat-metadata.interface';
 
 const STREAM_TIMEOUT_MS = 30_000;
+
+const warmupSchema = z.object({
+  agentId: z.string().min(1).max(128),
+});
+type WarmupDto = z.infer<typeof warmupSchema>;
 
 @ApiTags('Public Chat')
 @Public()
@@ -29,6 +35,86 @@ export class PublicChatController {
     private readonly directChatService: DirectChatService,
     private readonly prisma: PrismaService,
   ) {}
+
+  /**
+   * Warmup: fire a tiny LLM call to populate OpenAI's prompt cache for this
+   * agent's system prompt + KB before the user types their first message.
+   *
+   * Triggered by the widget when it loads (or when the user first opens it).
+   * By the time the user actually types (~5-60s later), OpenAI has the
+   * 1280-token prefix cached → first-message LLM TTFT drops from ~1500-2500ms
+   * cold to ~700-900ms warm. Combined with `prompt_cache_retention: '24h'`,
+   * the cache stays alive across the entire day.
+   *
+   * Fire-and-forget: returns 204 immediately. The background LLM call runs to
+   * completion (~700-1500ms) and populates the cache. If the call fails (rate
+   * limit, network), the next real user message just pays the cold tax — same
+   * as before this endpoint existed. No downstream consequences.
+   *
+   * Rate-limit via the existing per-device message rate limiter — abuse here
+   * would translate to LLM cost, so we cap it.
+   */
+  @Post('warmup')
+  @HttpCode(204)
+  @ApiOperation({ summary: 'Pre-warm the agent\'s LLM prompt cache' })
+  @ApiResponse({ status: 204, description: 'Warmup queued' })
+  async warmup(
+    @Body(new ZodValidationPipe(warmupSchema)) dto: WarmupDto,
+    @Req() req: Request,
+  ): Promise<void> {
+    const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
+      deviceId,
+      dto.agentId,
+    );
+    // Silently skip if rate-limited — warmup is a perf hint, not a real action.
+    if (!rateLimitResult.allowed) return;
+
+    // Resolve agent first (cheap, will hit allowedDomains middleware cache too).
+    // If the agent doesn't exist we silently no-op — never leak existence info
+    // via the warmup endpoint.
+    let agent: Awaited<ReturnType<ChatService['resolveAgent']>>;
+    try {
+      agent = await this.chatService.resolveAgent(dto.agentId);
+    } catch {
+      return;
+    }
+
+    const routingMode = resolveRoutingMode(agent.aiConfig);
+    // Only OpenAI-backed agents benefit from auto-cache. n8n mode is a no-op.
+    if (routingMode !== 'direct') return;
+
+    // Fire-and-forget the LLM call. Use the streaming path so the actual wire
+    // format matches what the real chat endpoint sends — that's what OpenAI's
+    // cache fingerprints on. We discard chunks; we only care about the prefix
+    // landing in the backend's cache.
+    const fullAgent = await this.prisma.agent.findUniqueOrThrow({
+      where: { id: agent.id },
+    });
+
+    void (async () => {
+      try {
+        const stream = this.directChatService.stream({
+          agent: fullAgent,
+          chatSessionId: 'warmup',
+          externalSessionId: 'warmup',
+          newUserMessage: 'ping',
+          recentHistory: [],
+          feature: 'warmup',
+        });
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        for await (const _chunk of stream) {
+          // Drain the stream. We don't need any chunk content — the side
+          // effect (populating OpenAI's prompt cache) happens server-side as
+          // the LLM call progresses, independent of whether we read chunks.
+        }
+      } catch (err) {
+        this.logger.warn(
+          `Warmup failed for agent ${agent.id}: ${err instanceof Error ? err.message : String(err)}`,
+        );
+      }
+    })();
+  }
 
   @Post('send')
   @ApiOperation({ summary: 'Send a chat message to an agent' })
@@ -67,6 +153,11 @@ export class PublicChatController {
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('Connection', 'keep-alive');
     res.setHeader('X-Accel-Buffering', 'no');
+    // Flush headers immediately so the browser stops the "Waiting for server
+    // response" timer right away instead of waiting until the first text-delta
+    // chunk arrives ~2-3s later. Without this the DevTools network panel shows
+    // the entire LLM TTFT under "TTFB", which is misleading.
+    res.flushHeaders?.();
 
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
@@ -99,12 +190,9 @@ export class PublicChatController {
       }
     }, STREAM_TIMEOUT_MS);
 
-    let userMessageId: string | null = null;
-
     try {
       const agent = await this.chatService.resolveAgent(dto.agentId);
       const visitorIp = ChatService.extractVisitorIp(req);
-      const session = await this.chatService.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'WIDGET', visitorIp);
       const routingMode = resolveRoutingMode(agent.aiConfig);
 
       // IG1: Warn when HMAC is enabled — streaming responses cannot be HMAC-verified.
@@ -116,9 +204,43 @@ export class PublicChatController {
         );
       }
 
-      // P3: Use ChatService for DB operations instead of direct Prisma
-      const userMessage = await this.chatService.saveUserMessage(session.id, dto.chatInput);
-      userMessageId = userMessage.id;
+      // Parallelize the two remaining DB hits — they don't depend on each
+      // other (both only need agent.id). Running them concurrently saves one
+      // Supabase round-trip (~250-450ms) on every turn. fullAgent is only
+      // needed in direct mode, but we optimistically fetch it in parallel:
+      // n8n mode discards it (cheap). Direct mode is the common case in prod.
+      const sessionPromise = this.chatService.resolveOrCreateSession(
+        agent.id,
+        dto.sessionId,
+        dto.source ?? 'WIDGET',
+        visitorIp,
+      );
+      const fullAgentPromise = routingMode === 'direct'
+        ? this.prisma.agent.findUniqueOrThrow({ where: { id: agent.id } })
+        : Promise.resolve(null);
+
+      const [session, fullAgentResult] = await Promise.all([sessionPromise, fullAgentPromise]);
+
+      // Push an early `session` event so the client knows the connection is
+      // alive and which session to round-trip on the next turn. Without this,
+      // clients see dead air until the LLM responds. Mirrors the dev test
+      // endpoint pattern.
+      if (!closed) {
+        res.write(`data: ${JSON.stringify({ type: 'session', sessionId: session.sessionId })}\n\n`);
+      }
+
+      // Fire-and-forget: persisting the user message must not block the LLM
+      // call. We pre-generate the UUID so the row is identifiable if needed,
+      // matching the dev test endpoint's pattern. Saves the awaited Supabase
+      // round-trip (~300-500ms) before the orchestrator starts.
+      const userMessageId = randomUUID();
+      void this.chatService
+        .saveUserMessage(session.id, dto.chatInput, userMessageId)
+        .catch((err) => {
+          this.logger.warn(
+            `saveUserMessage failed (sessionId=${session.sessionId}, messageId=${userMessageId}): ${err instanceof Error ? err.message : String(err)}`,
+          );
+        });
 
       // ----- Routing fork ---------------------------------------------------
       // Both branches eventually write `metadata: ChatMessageMetadata` with the
@@ -129,9 +251,7 @@ export class PublicChatController {
       let metadata: ChatMessageMetadata;
 
       if (routingMode === 'direct') {
-        const fullAgent = await this.prisma.agent.findUniqueOrThrow({
-          where: { id: agent.id },
-        });
+        const fullAgent = fullAgentResult!;
 
         let firstTokenTime: number | null = null;
         let lastTokenTime: number | null = null;
@@ -294,15 +414,6 @@ export class PublicChatController {
           });
       }
     } catch (error) {
-      // D1: Clean up orphaned user message on stream failure
-      if (userMessageId) {
-        try {
-          await this.chatService.deleteMessage(userMessageId);
-        } catch (cleanupError) {
-          this.logger.warn(`Failed to clean up orphaned user message ${userMessageId}: ${cleanupError}`);
-        }
-      }
-
       if (!closed) {
         // IG2: Map service timeout errors to the friendly controller timeout message
         const isTimeout = error instanceof Error && error.message.includes('timed out');

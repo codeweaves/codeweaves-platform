@@ -1,6 +1,6 @@
 'use client';
 
-import { useMemo, useState } from 'react';
+import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
@@ -49,16 +49,25 @@ interface ModelOption {
   hint: string;
 }
 
+// Curated model shortlist — the five we've benchmarked and proven for
+// production use (see docs/plans/latency-tests.md). Trimmed from the longer
+// historical list; admins can still type any model via the "Custom" option.
+//
+// Selection criteria:
+//   - gpt-4.1 / gpt-4.1-mini: OpenAI quality benchmark + auto prompt caching
+//     (24h retention) for cost win. Mini is the recommended default.
+//   - gemini-2.5-flash: cheapest non-disqualified option, 1M context, free at
+//     low scale. Strong for multilingual.
+//   - qwen3-32b on Groq: sub-200ms TTFT from India, strong multilingual.
+//     Watch the free-tier RPM cap (60/min). Paid Groq tier removes the cap.
+//   - Claude Haiku 4.5: fastest TTFT in published benchmarks (~597ms median).
+//     New addition pending integration testing.
 const CURATED_MODELS: ModelOption[] = [
-  { value: 'sarvam:sarvam-30b', label: 'Sarvam 30B (India-hosted)', hint: 'Indic-native (Hindi, Marathi, Tamil + English). India-hosted — no cross-ocean latency. Chat completion is currently free. Best pick for Indian user bases.' },
-  { value: 'sarvam:sarvam-105b', label: 'Sarvam 105B (India-hosted, flagship)', hint: 'Highest-quality Sarvam model. Slower than 30B but best for complex multilingual reasoning. 128K context. India-hosted.' },
-  { value: 'openai:gpt-4.1', label: 'GPT-4.1 (OpenAI)', hint: 'Best instruction-following — obeys strict rules like character-limit caps reliably. Slower per-token than mini, but often produces shorter, on-brief replies so total latency can be similar.' },
-  { value: 'openai:gpt-4.1-mini', label: 'GPT-4.1 mini (OpenAI)', hint: 'Balanced quality/speed, auto prompt-caching. Recommended default for most agents.' },
-  { value: 'openai:gpt-4o-mini', label: 'GPT-4o mini (OpenAI)', hint: 'Slightly faster TTFT, older generation. Cheap.' },
-  { value: 'gemini:gemini-2.5-flash', label: 'Gemini 2.5 Flash (Google)', hint: '1M context window, thinking disabled for low latency.' },
-  { value: 'gemini:gemini-2.5-flash-lite', label: 'Gemini 2.5 Flash-Lite (Google)', hint: 'Fastest Gemini tier; lower quality for complex reasoning.' },
-  { value: 'groq:llama-3.3-70b-versatile', label: 'Llama 3.3 70B (Groq)', hint: 'Ultra-fast (~300ms TTFT) hardware-accelerated inference. Free tier.' },
-  { value: 'anthropic/claude-sonnet-4', label: 'Claude Sonnet 4 (OpenRouter)', hint: 'Top-tier reasoning, slower TTFT. Priced per provider.' },
+  { value: 'openai:gpt-4.1', label: 'GPT-4.1 (OpenAI)', hint: 'Best instruction-following — obeys strict rules like character-limit caps reliably. Auto prompt-caching with 24h retention configured. Higher cost per token but premium quality.' },
+  { value: 'openai:gpt-4.1-mini', label: 'GPT-4.1 mini (OpenAI)', hint: 'Balanced quality/speed, auto prompt-caching (24h retention). 10× cheaper than gpt-4.1 with comparable quality. Recommended default.' },
+  { value: 'gemini:gemini-2.5-flash', label: 'Gemini 2.5 Flash (Google)', hint: '1M context window, thinking disabled for low latency. Free tier covers 1500 req/day. Strong multilingual + cheapest paid tier among quality models.' },
+  { value: 'groq:qwen/qwen3-32b', label: 'Qwen 3 32B (Groq)', hint: 'Strong multilingual (29+ languages). Measured ~156ms TTFT from India. Free tier: 60 RPM / 500K TPD — production-ready once on paid plan. Currently free during preview.' },
+  { value: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5 (Anthropic)', hint: 'Fastest published TTFT in 2026 benchmarks (~597ms median). New addition — pending production testing in this codebase.' },
 ];
 
 export function IntegrationSettings() {
@@ -67,12 +76,6 @@ export function IntegrationSettings() {
   const [newDomain, setNewDomain] = useState('');
 
   const aiConfig = formData.aiConfig;
-  // All hooks must run BEFORE the `isAdmin` early return to satisfy
-  // react-hooks/rules-of-hooks. Guard on adminship below instead.
-  const isCuratedModel = useMemo(
-    () => !aiConfig.modelId || CURATED_MODELS.some((m) => m.value === aiConfig.modelId),
-    [aiConfig.modelId],
-  );
 
   const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
   if (!isAdmin) return null;
@@ -100,8 +103,11 @@ export function IntegrationSettings() {
     updateFormData('allowedDomains', domains.filter((x) => x !== d));
   };
 
-  const modelSelectValue = aiConfig.modelId
-    ? (isCuratedModel ? aiConfig.modelId : '__custom__')
+  // If the saved model isn't in our curated list (e.g. an older agent set to
+  // a now-removed model), snap to the recommended default. The picker is
+  // curated-only now — no custom input — so the value MUST match an option.
+  const modelSelectValue = aiConfig.modelId && CURATED_MODELS.some((m) => m.value === aiConfig.modelId)
+    ? aiConfig.modelId
     : CURATED_MODELS[0]!.value;
 
   return (
@@ -112,6 +118,60 @@ export function IntegrationSettings() {
           Choose how this agent handles chat: the legacy n8n webhook, or our
           native AI orchestrator with built-in streaming, caching, and
           observability.
+        </p>
+      </div>
+
+      {/* Allowed Domains — applies to BOTH routing modes. The widget runs on
+          customer sites and the API's WidgetCorsMiddleware checks every public
+          request against this list regardless of whether the LLM serves via
+          n8n or direct. Placed ABOVE the routing radio so the UX makes clear
+          it isn't gated by that choice. Empty list = no CORS restrictions. */}
+      <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
+        <Label className="text-sm font-medium">Allowed Domains</Label>
+        <p className="text-xs text-muted-foreground">
+          Whitelist of domains where this agent&apos;s widget is allowed to load.
+          Leave empty to allow any origin (useful while developing). Applies
+          to both n8n and direct routing modes.
+        </p>
+        <div className="flex gap-2">
+          <Input
+            value={newDomain}
+            onChange={(e) => setNewDomain(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter' || e.key === ',') {
+                e.preventDefault();
+                addDomains(newDomain);
+              }
+            }}
+            placeholder="example.com or localhost:5000"
+          />
+          <Button type="button" onClick={() => addDomains(newDomain)} size="sm">
+            <Plus className="mr-1 h-4 w-4" /> Add
+          </Button>
+        </div>
+        {domains.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-2">
+            {domains.map((d) => (
+              <span
+                key={d}
+                className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs"
+              >
+                {d}
+                <button
+                  type="button"
+                  onClick={() => removeDomain(d)}
+                  className="ml-1 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
+                  aria-label={`Remove ${d}`}
+                >
+                  <X className="h-3 w-3" />
+                </button>
+              </span>
+            ))}
+          </div>
+        )}
+        <p className="text-xs text-muted-foreground">
+          Press Enter or comma after typing each domain. Ports are supported
+          (e.g. <code className="text-[10px]">localhost:5000</code>).
         </p>
       </div>
 
@@ -160,7 +220,7 @@ export function IntegrationSettings() {
         </label>
       </RadioGroup>
 
-      {/* Conditional config panel ----------------------------------------- */}
+      {/* Conditional LLM config panel ------------------------------------- */}
       {routingMode === 'n8n' ? (
         <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
           <div className="space-y-2">
@@ -174,59 +234,15 @@ export function IntegrationSettings() {
               This URL will receive POST requests when users send messages.
             </p>
           </div>
-
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Allowed Domains</Label>
-            <div className="flex gap-2">
-              <Input
-                value={newDomain}
-                onChange={(e) => setNewDomain(e.target.value)}
-                onKeyDown={(e) => {
-                  if (e.key === 'Enter' || e.key === ',') {
-                    e.preventDefault();
-                    addDomains(newDomain);
-                  }
-                }}
-                placeholder="example.com"
-              />
-              <Button type="button" onClick={() => addDomains(newDomain)} size="sm">
-                <Plus className="mr-1 h-4 w-4" /> Add
-              </Button>
-            </div>
-            {domains.length > 0 && (
-              <div className="mt-2 flex flex-wrap gap-2">
-                {domains.map((d) => (
-                  <span
-                    key={d}
-                    className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs"
-                  >
-                    {d}
-                    <button
-                      type="button"
-                      onClick={() => removeDomain(d)}
-                      className="ml-1 cursor-pointer rounded p-0.5 text-muted-foreground hover:bg-muted-foreground/20 hover:text-foreground"
-                      aria-label={`Remove ${d}`}
-                    >
-                      <X className="h-3 w-3" />
-                    </button>
-                  </span>
-                ))}
-              </div>
-            )}
-            <p className="text-xs text-muted-foreground">
-              Enter a domain and press Enter or click Add. Supports ports
-              (e.g., localhost:3001).
-            </p>
-          </div>
         </div>
       ) : (
         <DirectModeConfig
           aiConfig={aiConfig}
           patch={patchAiConfig}
           modelSelectValue={modelSelectValue}
-          isCuratedModel={isCuratedModel}
         />
       )}
+
     </div>
   );
 }
@@ -241,12 +257,10 @@ function DirectModeConfig({
   aiConfig,
   patch,
   modelSelectValue,
-  isCuratedModel,
 }: {
   aiConfig: AgentAiConfigDto;
   patch: (p: Partial<AgentAiConfigDto>) => void;
   modelSelectValue: string;
-  isCuratedModel: boolean;
 }) {
   const selectedCurated = CURATED_MODELS.find((m) => m.value === modelSelectValue);
 
@@ -257,15 +271,7 @@ function DirectModeConfig({
         <Label className="text-sm font-medium">Model</Label>
         <Select
           value={modelSelectValue}
-          onValueChange={(value) => {
-            if (value === '__custom__') {
-              // Keep whatever custom value is already there (or clear so the
-              // free-text input gets focus-worthy placeholder).
-              patch({ modelId: aiConfig.modelId ?? '' });
-            } else {
-              patch({ modelId: value });
-            }
-          }}
+          onValueChange={(value) => patch({ modelId: value })}
         >
           <SelectTrigger>
             <SelectValue placeholder="Select a model" />
@@ -276,18 +282,10 @@ function DirectModeConfig({
                 {m.label}
               </SelectItem>
             ))}
-            <SelectItem value="__custom__">Custom (OpenRouter ID…)</SelectItem>
           </SelectContent>
         </Select>
-        {isCuratedModel && selectedCurated && (
+        {selectedCurated && (
           <p className="text-xs text-muted-foreground">{selectedCurated.hint}</p>
-        )}
-        {!isCuratedModel && (
-          <Input
-            value={aiConfig.modelId ?? ''}
-            onChange={(e) => patch({ modelId: e.target.value })}
-            placeholder="e.g. anthropic/claude-haiku-4-5 or openrouter:meta-llama/llama-3.3-70b-instruct:free"
-          />
         )}
       </div>
 

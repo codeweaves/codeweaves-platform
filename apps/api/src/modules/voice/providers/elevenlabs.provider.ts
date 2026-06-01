@@ -1,12 +1,14 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpStatus } from '@nestjs/common';
+import { WebSocket } from 'undici';
 import type {
   VoiceProvider,
   STTRequest,
   STTResponse,
   TTSRequest,
   TTSResponse,
+  TTSStreamChunk,
   LanguageDetectionResponse,
   SupportedLanguage,
   VoiceListItem,
@@ -51,7 +53,12 @@ const ELEVENLABS_LANGUAGE_MAP: Record<string, SupportedLanguage> = {
   tamil: 'ta',
 };
 
-const ELEVENLABS_TTS_MODEL = 'eleven_multilingual_v2';
+// Turbo v2.5 over Multilingual v2: independently measured 264ms TTFT vs
+// 1232ms on Coval/Gradium benchmark, 0.5 credits/char vs 1 credit/char on the
+// ElevenLabs free tier, and supports the same 32 languages including Hindi /
+// Marathi / Tamil. Quality WER 5.2% vs 3.9% — small drop, but for short
+// chatbot replies that drop is imperceptible against the 5× latency win.
+const ELEVENLABS_TTS_MODEL = 'eleven_turbo_v2_5';
 
 @Injectable()
 export class ElevenLabsProvider implements VoiceProvider {
@@ -189,7 +196,7 @@ export class ElevenLabsProvider implements VoiceProvider {
           },
           body: JSON.stringify({
             text: request.text,
-            model_id: 'eleven_multilingual_v2',
+            model_id: ELEVENLABS_TTS_MODEL,
             language_code: request.language,
             voice_settings: {
               stability: 0.5,
@@ -218,6 +225,206 @@ export class ElevenLabsProvider implements VoiceProvider {
         latencyMs: Date.now() - startTime,
       };
     } finally {
+      this.releaseSlot();
+    }
+  }
+
+  /**
+   * WebSocket streaming TTS.
+   *
+   * Wins vs batch synthesize(): the provider starts emitting audio chunks ~200ms
+   * into the request (per ElevenLabs docs + independent benchmarks) instead of
+   * waiting for the full sentence to render (~600ms+ for Turbo v2.5 batch HTTP).
+   * The caller (VoiceService) decides whether to forward chunks to the client
+   * as they arrive (true streaming UX) or collect server-side (foundation
+   * mode — same UX as today but faster TTFB at the server boundary).
+   *
+   * Protocol (per https://elevenlabs.io/docs/eleven-api/concepts/latency):
+   *   Open WS → send initial frame with voice_settings + auth → send the text
+   *   → send EOS empty-text → receive audio chunks → server closes WS on isFinal.
+   *
+   * Audio format: `mp3_44100_128` — same as batch synthesize() so client
+   * playback is bit-identical when chunks are concatenated.
+   *
+   * Fallback semantics: this method `throw`s on any WS protocol error; callers
+   * MUST be ready to fall back to `synthesize()` to preserve reliability. The
+   * concurrency-cap semaphore is shared with batch (paid-tier limit applies to
+   * both transport modes per ElevenLabs).
+   */
+  async *synthesizeStream(request: TTSRequest): AsyncIterable<TTSStreamChunk> {
+    await this.acquireSlot();
+    const startTime = Date.now();
+    const voiceId = request.voiceId || this.defaultVoiceId;
+    const sanitizedVoiceId = encodeURIComponent(voiceId);
+
+    const url = new URL(
+      `wss://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}/stream-input`,
+    );
+    url.searchParams.set('model_id', ELEVENLABS_TTS_MODEL);
+    // Raw PCM 24kHz 16-bit signed LE. Each chunk is independently playable
+    // (no MP3-style header dependency), so VoiceService can forward chunks
+    // to the client as they arrive instead of collecting them server-side.
+    // 24kHz mono = ~48KB/s — ~3x bandwidth vs MP3 128kbps but trivial at
+    // chat-reply scale and the streaming-perception win is worth it.
+    url.searchParams.set('output_format', 'pcm_24000');
+
+    // ws bridge: undici WebSocket fires events; we bridge into an async queue
+    // so callers can `for await` over chunks naturally.
+    const queue: TTSStreamChunk[] = [];
+    let wsClosed = false;
+    let wsError: Error | null = null;
+    let wakeResolver: (() => void) | null = null;
+    const waitForChunk = (): Promise<void> =>
+      new Promise<void>((resolve) => {
+        wakeResolver = resolve;
+      });
+    const notify = (): void => {
+      if (wakeResolver) {
+        const r = wakeResolver;
+        wakeResolver = null;
+        r();
+      }
+    };
+
+    const ws = new WebSocket(url);
+
+    ws.addEventListener('open', () => {
+      // Initial frame: voice config + API key. The leading-space text triggers
+      // ElevenLabs to set up the synthesis context; subsequent text frames
+      // append to the synthesis input.
+      ws.send(
+        JSON.stringify({
+          text: ' ',
+          voice_settings: {
+            stability: 0.5,
+            similarity_boost: 0.75,
+            speed: request.speed || 1.0,
+          },
+          xi_api_key: this.apiKey,
+        }),
+      );
+      // Send the actual text and EOS in one go — we have the full sentence
+      // ready (sentence-bounded streaming). Once we move to token-streaming,
+      // these would be multiple frames followed by a final empty-text EOS.
+      ws.send(JSON.stringify({ text: request.text }));
+      ws.send(JSON.stringify({ text: '' }));
+    });
+
+    ws.addEventListener('message', (event) => {
+      try {
+        // Undici's WebSocket MessageEvent type doesn't match DOM's well; cast
+        // and extract the payload by shape. Server-side WS always sends text
+        // frames containing JSON for this endpoint, so we expect a string.
+        const data = (event as unknown as { data: string | Buffer | ArrayBuffer }).data;
+        const raw =
+          typeof data === 'string'
+            ? data
+            : data instanceof Buffer
+              ? data.toString('utf-8')
+              : new TextDecoder().decode(data);
+        const parsed = JSON.parse(raw) as { audio?: string | null; isFinal?: boolean };
+        if (parsed.audio) {
+          queue.push({
+            audio: Buffer.from(parsed.audio, 'base64'),
+            // Raw PCM 24kHz 16-bit signed little-endian. Client plays each
+            // chunk via AudioContext.createBuffer (no decodeAudioData needed).
+            audioFormat: 'audio/pcm; rate=24000',
+            latencyMs: Date.now() - startTime,
+            isFinal: !!parsed.isFinal,
+            provider: this.name,
+          });
+          notify();
+        }
+        if (parsed.isFinal) {
+          // Server sends a final message with isFinal:true and (usually) no
+          // audio; close gracefully.
+          try {
+            ws.close();
+          } catch {
+            // ignore
+          }
+        }
+      } catch (err) {
+        wsError = err instanceof Error ? err : new Error(String(err));
+        wsClosed = true;
+        notify();
+      }
+    });
+
+    ws.addEventListener('error', () => {
+      // Undici WS doesn't pass a real Error object — we surface a generic
+      // failure; the consumer falls back to batch synthesize().
+      wsError = new Error('ElevenLabs WebSocket connection error');
+      wsClosed = true;
+      notify();
+    });
+
+    ws.addEventListener('close', (event) => {
+      // Capture close code + reason so we can diagnose why EL is killing the
+      // stream (rate limit, concurrency cap, auth, bad voice ID, etc.). The
+      // 'error' event above is opaque per WS spec; the close event is where
+      // the diagnostic info actually lives.
+      // Common codes: 1000 normal, 1006 abnormal (network), 1008 policy
+      // violation (rate/auth), 1011 server error, 4000+ provider-specific.
+      const closeEvent = event as unknown as { code?: number; reason?: string };
+      const code = closeEvent.code;
+      const reason = closeEvent.reason;
+      if (!wsError && (code === undefined || (code !== 1000 && code !== 1005))) {
+        // Surface non-normal closures as errors so the consumer can react
+        // (and operators can see the code in logs). Normal close (1000) or
+        // no-status (1005) after we've already streamed audio is fine.
+        wsError = new Error(
+          `ElevenLabs WebSocket closed unexpectedly (code=${code ?? 'unknown'}${reason ? `, reason="${reason}"` : ''})`,
+        );
+      }
+      // Temporarily logged at .log() (was .debug()) so we can see the close
+      // code that's causing the mid-stream failure. Revert to .debug() once
+      // the EL WS issue is diagnosed.
+      this.logger.log(
+        `ElevenLabs WS closed: code=${code ?? 'unknown'} reason="${reason ?? ''}" hadError=${!!wsError}`,
+      );
+      wsClosed = true;
+      notify();
+    });
+
+    // Safety: if WS hangs (no message in 15s) we throw to let caller fall back.
+    const hardTimeout = setTimeout(() => {
+      if (!wsClosed) {
+        wsError = new Error('ElevenLabs WebSocket hard timeout (15s)');
+        wsClosed = true;
+        try {
+          ws.close();
+        } catch {
+          // ignore
+        }
+        notify();
+      }
+    }, 15_000);
+
+    try {
+      while (true) {
+        while (queue.length > 0) {
+          const chunk = queue.shift()!;
+          yield chunk;
+          if (chunk.isFinal) return;
+        }
+        if (wsClosed) {
+          if (wsError) throw wsError;
+          // Closed cleanly without a final-chunk flag — emit a synthetic final
+          // marker so consumers know the stream is done.
+          return;
+        }
+        await waitForChunk();
+      }
+    } finally {
+      clearTimeout(hardTimeout);
+      if (!wsClosed) {
+        try {
+          ws.close();
+        } catch {
+          // ignore
+        }
+      }
       this.releaseSlot();
     }
   }

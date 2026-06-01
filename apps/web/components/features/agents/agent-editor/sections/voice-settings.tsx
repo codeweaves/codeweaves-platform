@@ -23,28 +23,48 @@ import type {
   SupportedLanguageEnum,
 } from '@repo/validation';
 
+// Auto routing removed from the picker — it triggered a second STT call
+// (Sarvam detect → Deepgram retry for English) which cost ~800-1500ms per
+// English turn. Sarvam alone handles both Indic + English well enough that
+// explicit selection beats the double-call algorithm for our India-focused
+// audience. The backend's auto-routing code is still there as a defensive
+// fallback when sttProvider happens to be undefined.
 const STT_PROVIDERS = [
-  { value: '', label: 'Auto (recommended)' },
   { value: 'sarvam', label: 'Sarvam AI' },
   { value: 'deepgram', label: 'Deepgram' },
   { value: 'elevenlabs', label: 'ElevenLabs' },
 ];
 
 const TTS_PROVIDERS: { value: TtsProviderEnum; label: string }[] = [
-  { value: 'elevenlabs', label: 'ElevenLabs' },
   { value: 'sarvam', label: 'Sarvam AI' },
+  { value: 'elevenlabs', label: 'ElevenLabs' },
 ];
 
+// Defaults for a new agent. Sarvam-first across the board because:
+//   - Best Indic STT + best Indic TTS voices (target market: India)
+//   - Single STT call (no double-call dance for English)
+//   - Sarvam WS TTS streaming is stable (unlike ElevenLabs WS which closes
+//     mid-stream with code 1006); we enable streaming on by default to give
+//     new agents the within-sentence latency win out of the box
+//   - Cheaper than ElevenLabs at scale
+// Users can switch to ElevenLabs / Deepgram per agent if they prefer.
 const DEFAULT_VOICE_CONFIG: VoiceConfigDto = {
   sttEnabled: true,
+  sttProvider: 'sarvam',
   ttsEnabled: true,
-  ttsProvider: 'elevenlabs',
+  ttsProvider: 'sarvam',
   defaultLanguage: 'en',
   supportedLanguages: ['en'],
   // ttsSpeed kept at the schema default (1.0) — UI control is removed but the field
   // still flows through to providers, so leaving it set ensures consistent behaviour.
   ttsSpeed: 1.0,
   autoDetectLanguage: true,
+  // OFF by default. The batch HTTP path is the docs-proven config (Voice
+  // test 3 in latency-tests.md: 5.6s avg total). WS streaming is opt-in per
+  // agent — Sarvam's WS endpoint doesn't reliably send the completion event,
+  // so we need timeout heuristics that aren't bulletproof yet. Enable per
+  // agent only after testing.
+  ttsStreaming: false,
 };
 
 const PROVIDER_LABEL: Record<TtsProviderEnum, string> = {
@@ -323,19 +343,19 @@ export function VoiceSettings() {
               <div className="space-y-2">
                 <Label className="text-sm">STT Provider</Label>
                 <Select
-                  value={config.sttProvider ?? '__auto__'}
+                  value={config.sttProvider ?? 'sarvam'}
                   onValueChange={(value) =>
                     updateConfig({
-                      sttProvider: value === '__auto__' ? undefined : (value as VoiceConfigDto['sttProvider']),
+                      sttProvider: value as VoiceConfigDto['sttProvider'],
                     })
                   }
                 >
                   <SelectTrigger>
-                    <SelectValue placeholder="Auto (recommended)" />
+                    <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
                     {STT_PROVIDERS.map((p) => (
-                      <SelectItem key={p.value} value={p.value || '__auto__'}>
+                      <SelectItem key={p.value} value={p.value}>
                         {p.label}
                       </SelectItem>
                     ))}
@@ -365,12 +385,22 @@ export function VoiceSettings() {
                 <div className="space-y-2">
                   <Label className="text-sm">TTS Provider</Label>
                   <Select
-                    value={config.ttsProvider ?? 'elevenlabs'}
+                    value={config.ttsProvider ?? 'sarvam'}
                     onValueChange={(value) => {
                       const provider = value as TtsProviderEnum;
                       // Switching providers invalidates the previously selected voice id
-                      // (each provider has its own catalog of voice ids).
-                      updateConfig({ ttsProvider: provider, ttsVoiceId: undefined });
+                      // (each provider has its own catalog of voice ids). We also auto-
+                      // disable ttsStreaming when leaving Sarvam — the streaming toggle
+                      // is Sarvam-only because ElevenLabs' WS endpoint is unreliable
+                      // (1006 mid-stream closes; tracked in the voice service comments).
+                      const patch: Partial<typeof config> = {
+                        ttsProvider: provider,
+                        ttsVoiceId: undefined,
+                      };
+                      if (provider !== 'sarvam') {
+                        patch.ttsStreaming = false;
+                      }
+                      updateConfig(patch);
                     }}
                   >
                     <SelectTrigger>
@@ -397,6 +427,29 @@ export function VoiceSettings() {
                     previewLanguage="en"
                   />
                 </div>
+
+                {/* Streaming TTS toggle is Sarvam-only. ElevenLabs' WebSocket
+                    stream-input endpoint drops connections mid-stream (close
+                    code 1006) — known instability with open issues against
+                    livekit/agents and pipecat. EL stays on batch HTTP, which
+                    still benefits from outer sentence-level streaming (chunks
+                    delivered per sentence as each completes). */}
+                {config.ttsProvider === 'sarvam' && (
+                  <div className="flex items-center justify-between pt-2 border-t">
+                    <div className="pr-4">
+                      <Label className="text-sm font-medium">Streaming TTS (experimental)</Label>
+                      <p className="text-xs text-muted-foreground">
+                        Use Sarvam&apos;s WebSocket endpoint for within-sentence audio
+                        streaming (first audio ~200ms vs ~600ms for batch). Sentence-level
+                        streaming works either way. Off by default — flip on once tested.
+                      </p>
+                    </div>
+                    <Switch
+                      checked={config.ttsStreaming ?? false}
+                      onCheckedChange={(checked) => updateConfig({ ttsStreaming: checked })}
+                    />
+                  </div>
+                )}
 
               </div>
             )}

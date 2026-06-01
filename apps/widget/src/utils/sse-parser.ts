@@ -10,6 +10,11 @@
  *   { type: 'error', message }
  */
 
+export interface SSESessionEvent {
+  type: 'session';
+  sessionId: string;
+}
+
 export interface SSEChunkEvent {
   type: 'chunk';
   content: string;
@@ -27,7 +32,7 @@ export interface SSEErrorEvent {
   message: string;
 }
 
-export type SSEEvent = SSEChunkEvent | SSEDoneEvent | SSEErrorEvent;
+export type SSEEvent = SSESessionEvent | SSEChunkEvent | SSEDoneEvent | SSEErrorEvent;
 
 /**
  * Async generator that reads from a ReadableStream, buffers partial lines,
@@ -96,6 +101,10 @@ function parseSSEMessage(message: string): SSEEvent | null {
   try {
     const data = JSON.parse(dataStr) as Record<string, unknown>;
     const type = data.type as string;
+
+    if (type === 'session') {
+      return { type: 'session', sessionId: data.sessionId as string };
+    }
 
     if (type === 'chunk') {
       return { type: 'chunk', content: data.content as string };

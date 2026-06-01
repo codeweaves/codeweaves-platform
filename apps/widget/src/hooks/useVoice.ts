@@ -261,6 +261,12 @@ export function useVoice({
             setVoiceStateSynced('idle');
           },
           onAudioChunk: (chunk: VoiceAudioChunk) => {
+            // Skip empty-audio chunks. The server's per-sentence final marker
+            // (isFinalChunk=true) carries no audio bytes — it only exists to
+            // settle metrics on the server side. Enqueuing an empty buffer
+            // would throw in createBuffer (requires ≥1 sample).
+            if (!chunk.audio) return;
+
             if (!receivedFirstAudio) {
               receivedFirstAudio = true;
               if (voiceAutoPlay) {

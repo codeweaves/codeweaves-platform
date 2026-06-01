@@ -54,6 +54,12 @@ export interface AgentFormData {
    * classifier should detect. Empty array disables language detection.
    */
   supportedLanguages: string[];
+  /**
+   * Max chat-session lifetime from createdAt, in hours. Range 6-24,
+   * default 6. After this elapses the backend rotates the visitor to a
+   * fresh session on their next message.
+   */
+  sessionLifetimeHours: number;
 }
 
 interface AgentEditorContextType {
@@ -343,6 +349,7 @@ export function agentToFormData(
     knowledgeSourceMimeType: initialKnowledge?.sourceMimeType ?? null,
     categoryKeywords: agent.categoryKeywords ?? [],
     supportedLanguages: agent.supportedLanguages ?? [],
+    sessionLifetimeHours: agent.sessionLifetimeHours ?? 6,
   };
 }
 

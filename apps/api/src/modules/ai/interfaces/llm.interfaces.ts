@@ -30,7 +30,8 @@ export type LlmFeature =
   | 'rag-query'
   | 'rag-contextual'
   | 'rag-evaluation'
-  | 'embedding';
+  | 'embedding'
+  | 'warmup';
 
 /**
  * Input shape for LLM completions. Shared between `generateCompletion()`

@@ -48,6 +48,30 @@ function ensureInit(): void {
   }
 }
 
+/**
+ * Fire-and-forget warmup hint to the backend. Pre-populates OpenAI's prompt
+ * cache for this agent so the user's first real message lands on a warm cache
+ * (~700-900ms LLM TTFT instead of ~1500-2500ms cold). Combined with the
+ * server's `prompt_cache_retention: '24h'`, this benefits every user that
+ * opens the widget — even the day's first visitor.
+ *
+ * Returns immediately. The fetch is sent without awaiting the response — if
+ * the backend takes 700ms to fire its LLM call in the background, we don't
+ * care, the widget UI shouldn't block. Errors are swallowed.
+ */
+export function warmupAgent(agentId: string): void {
+  if (!baseUrl) return;
+  // Use fetch directly (no retry, no error mapping) — this is a hint, not a
+  // contract. If it fails, the user just pays the cold-start tax on their
+  // first message — same as before this function existed.
+  void fetch(`${baseUrl}/api/klivo/v1/public/chat/warmup`, {
+    method: 'POST',
+    headers: buildHeaders(),
+    body: JSON.stringify({ agentId }),
+    keepalive: true, // tolerate page unload races
+  }).catch(() => { /* swallow */ });
+}
+
 // ── sendMessage (Task 2) ────────────────────────────────────────────
 
 /**
@@ -116,12 +140,18 @@ export async function sendMessage(
  * `updateSession()` from `session-manager` when it parses the session ID
  * from the SSE stream.
  */
+export interface ChatHistoryItem {
+  role: 'user' | 'assistant';
+  content: string;
+}
+
 export async function streamMessage(
   agentId: string,
   message: string,
   sessionId?: string,
   deviceId?: string,
   signal?: AbortSignal,
+  recentHistory?: ChatHistoryItem[],
 ): Promise<ReadableStreamDefaultReader<Uint8Array>> {
   ensureInit();
 
@@ -132,13 +162,25 @@ export async function streamMessage(
   const headers = buildHeaders(deviceId, resolvedSessionId);
   headers['Accept'] = 'text/event-stream';
 
+  // Send client-held history so the backend can skip its DB lookup for prior
+  // messages — saves ~150-450ms per turn. Send the array even when empty
+  // (turn 1) so the server takes the in-memory branch (~3ms) instead of the
+  // DB findMany branch (~170ms) in context-assembly.
+  const body: Record<string, unknown> = {
+    chatInput: message,
+    agentId,
+    sessionId: resolvedSessionId,
+    source: 'WIDGET',
+    recentHistory: recentHistory ?? [],
+  };
+
   // Use longer timeout for streaming connections (90s) — the initial connection
   // must complete within this window; actual stream reads are unbounded.
   // Disable retry — POST is non-idempotent and server may have already
   // saved the message / triggered the AI pipeline.
   const response = await fetchWithRetry(
     url,
-    { method: 'POST', headers, body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId, source: 'WIDGET' }), signal },
+    { method: 'POST', headers, body: JSON.stringify(body), signal },
     90_000,
     false,
   );

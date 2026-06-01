@@ -258,6 +258,7 @@ function AgentEditorContent() {
         aiConfig: formData.aiConfig,
         categoryKeywords: formData.categoryKeywords,
         supportedLanguages: formData.supportedLanguages,
+        sessionLifetimeHours: formData.sessionLifetimeHours,
       };
 
       // Save agent config, webhook, and theme in parallel

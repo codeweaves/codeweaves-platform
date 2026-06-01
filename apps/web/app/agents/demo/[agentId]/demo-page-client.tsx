@@ -191,6 +191,18 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
       }
     }
     fetchAgent();
+
+    // Fire-and-forget warmup. Pre-populates OpenAI's prompt cache for this
+    // agent so the user's first real message lands on a warm cache
+    // (~700-900ms LLM TTFT vs ~1500-2500ms cold). Mirrors the widget's
+    // warmupAgent() in apps/widget. Combined with the server's 24h prompt
+    // cache retention, this benefits every demo visitor's first turn.
+    void fetch(apiUrl('/public/chat/warmup'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId }),
+      keepalive: true,
+    }).catch(() => { /* swallow — warmup is a hint, not a contract */ });
   }, [agentId]);
 
   // Abort in-flight stream on unmount
@@ -302,7 +314,14 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                 continue;
               }
 
-              if (parsed.type === 'chunk' && parsed.content) {
+              if (parsed.type === 'session' && parsed.sessionId) {
+                // Early session ack — server flushes this before the LLM
+                // starts streaming so clients can pin sessionId for the next
+                // turn immediately. We also still capture it on `done` as a
+                // fallback (the IDs are identical).
+                sessionIdRef.current = parsed.sessionId;
+                setVoiceSessionId(parsed.sessionId);
+              } else if (parsed.type === 'chunk' && parsed.content) {
                 typewriterBufferRef.current += parsed.content;
               } else if (parsed.type === 'done') {
                 if (parsed.sessionId) {

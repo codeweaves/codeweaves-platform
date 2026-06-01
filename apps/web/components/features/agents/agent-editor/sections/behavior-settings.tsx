@@ -63,6 +63,39 @@ export function BehaviorSettings() {
               }
             />
           </div>
+
+          <div className="space-y-2 rounded-lg border p-4">
+            <div className="flex items-center justify-between gap-4">
+              <div>
+                <Label
+                  htmlFor="session-lifetime-hours"
+                  className="text-sm font-medium"
+                >
+                  Session lifetime (hours)
+                </Label>
+                <p className="text-xs text-muted-foreground">
+                  Max length of a single chat session, measured from when it
+                  started. After this, the visitor&apos;s next message begins a new
+                  session (the old one closes). Range 6–24.
+                </p>
+              </div>
+              <Input
+                id="session-lifetime-hours"
+                type="number"
+                min={6}
+                max={24}
+                step={1}
+                value={formData.sessionLifetimeHours}
+                onChange={(e) => {
+                  const raw = Number(e.target.value);
+                  if (!Number.isFinite(raw)) return;
+                  const clamped = Math.min(24, Math.max(6, Math.round(raw)));
+                  updateFormData('sessionLifetimeHours', clamped);
+                }}
+                className="w-20 text-center"
+              />
+            </div>
+          </div>
         </div>
       </FormSection>
 

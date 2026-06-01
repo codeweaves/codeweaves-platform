@@ -1098,11 +1098,19 @@ textarea.cw-input::-webkit-scrollbar {
   height: 0;
 }
 
-/* iOS Safari auto-zooms inputs whose computed font-size is < 16px on focus.
- * Floor at 16px but let the inherited base size scale the input on bigger settings.
- * The inline style on the element is the authoritative fix; this is a safety net. */
+/* The input honors the selected base font-size everywhere (matches message text).
+ * iOS Safari is the only browser that auto-zooms the page when an input whose
+ * computed font-size is < 16px gains focus. @supports (-webkit-touch-callout: none)
+ * matches iOS/iPadOS Safari ONLY — macOS Safari, Windows, Chrome, Firefox and Android
+ * all fail this check — so the 16px floor applies on real iPhones/iPads and nowhere
+ * else. Every desktop/Android device renders the user's chosen size exactly. */
 .cw-window textarea.cw-input {
-  font-size: max(16px, 1em) !important;
+  font-size: 1em;
+}
+@supports (-webkit-touch-callout: none) {
+  .cw-window textarea.cw-input {
+    font-size: max(16px, 1em) !important;
+  }
 }
 
 /* ── Mobile fullscreen (≤ 480px) ──────────────────────────────────── */

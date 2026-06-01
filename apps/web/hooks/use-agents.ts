@@ -27,6 +27,8 @@ export interface Agent {
   categoryKeywords: string[];
   /** ISO 639-1 codes + `hinglish`; empty disables language detection. */
   supportedLanguages: string[];
+  /** Max chat-session lifetime from createdAt, in hours. 6-24, default 6. */
+  sessionLifetimeHours: number;
   createdAt: string;
   updatedAt: string;
 }

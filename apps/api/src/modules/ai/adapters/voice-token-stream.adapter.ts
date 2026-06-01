@@ -1,5 +1,8 @@
 import type { N8nStreamChunk } from '../../../services/n8n-stream.interface';
-import type { DirectChatStreamChunk } from '../interfaces/direct-chat.interfaces';
+import type {
+  DirectChatResult,
+  DirectChatStreamChunk,
+} from '../interfaces/direct-chat.interfaces';
 
 /**
  * Voice token-stream adapter: convert a DirectChatService stream into the
@@ -23,19 +26,29 @@ import type { DirectChatStreamChunk } from '../interfaces/direct-chat.interfaces
  *   - `text-delta` chunks become `{ type: 'item', content, metadata: { timestamp } }`
  *     — the shape SentenceBuffer expects.
  *
- * What's dropped:
+ * What's exposed via `onFinish` callback (rather than yielded):
+ *   - The LLM's full `DirectChatResult` — ttftMs, model, usage tokens, cost,
+ *     latencyMs, finishReason, traceId. The voice pipeline doesn't need these
+ *     to do its job, but the controller persists them into the assistant
+ *     message metadata so analytics can show LLM-vs-STT-vs-TTS breakdown.
+ *
+ * What's dropped silently:
  *   - `trace` chunks (orchestration metadata, not tokens) — callers that want
  *     trace events should subscribe separately via AiTraceService.subscribe.
- *   - `finish` chunks — voice pipeline has its own "end of stream" semantics.
- *   - `error` chunks — caller must handle these BEFORE reaching the adapter
- *     (throw if needed). If an `error` arrives here we re-throw so the voice
- *     stream terminates cleanly rather than hanging.
+ *   - `error` chunks — re-thrown so the voice pipeline's try/catch maps them
+ *     to a user-facing NDJSON error chunk.
  *
- * @param source The DirectChatService stream (from `.stream()`)
+ * @param source   The DirectChatService stream (from `.stream()`)
+ * @param onFinish Optional callback invoked once when the LLM stream finishes.
+ *                 Receives the full DirectChatResult including LLM TTFT, tokens,
+ *                 cost, etc. The yielded `end` chunk does NOT carry these
+ *                 because N8nStreamChunk lacks those fields; the callback is
+ *                 the side-channel.
  * @returns An AsyncGenerator matching N8nStreamingService.streamFromWebhookUrl
  */
 export async function* directChatToN8nStream(
   source: AsyncIterable<DirectChatStreamChunk>,
+  onFinish?: (result: DirectChatResult) => void,
 ): AsyncGenerator<N8nStreamChunk> {
   let hasEmittedBegin = false;
 
@@ -61,7 +74,11 @@ export async function* directChatToN8nStream(
         break;
 
       case 'finish':
-        // Emit the matching 'end' so the voice stream knows we're done.
+        // Expose the LLM result before yielding `end` so the caller has the
+        // values in time to bake them into the assistant-message metadata.
+        if (onFinish) {
+          onFinish(chunk.result);
+        }
         yield {
           type: 'end',
           metadata: { timestamp: Date.now() },

@@ -72,10 +72,9 @@ export class ChatService {
   // Reasoning is in the conversations PRD / classifier comments: bounded
   // lifetime gives cleaner analytics and a deterministic moment for the
   // classifier to run. The web widget separately resets sessionId on page
-  // reload / tab close (handled in apps/widget session-manager); this 6h
-  // backstop catches the long-running-tab case and is the ONLY rule for
-  // channels with no page concept (WhatsApp).
-  private static readonly SESSION_LIFETIME_MS = 6 * 60 * 60 * 1000;
+  // reload / tab close (handled in apps/widget session-manager); the
+  // per-agent `sessionLifetimeHours` catches the long-running-tab case and
+  // is the ONLY rule for channels with no page concept (WhatsApp).
 
   async resolveOrCreateSession(
     agentId: string,
@@ -86,6 +85,10 @@ export class ChatService {
     if (sessionId) {
       const existing = await this.prisma.chatSession.findFirst({
         where: { sessionId, agentId, status: 'ACTIVE' },
+        // Pull the agent's per-row lifetime alongside the session so the
+        // expiry check uses the agent's configured value (6-24h range,
+        // default 6h) rather than a hardcoded constant.
+        include: { agent: { select: { sessionLifetimeHours: true } } },
       });
       if (!existing) {
         throw new NotFoundException('Session not found or does not belong to this agent');
@@ -97,8 +100,9 @@ export class ChatService {
       // Old row gets stamped EXPIRED (the dashboard + classifier rely on it
       // to tell live conversations apart from closed ones); the next call
       // gets a brand-new sessionId in the response and rotates client-side.
+      const lifetimeMs = existing.agent.sessionLifetimeHours * 60 * 60 * 1000;
       const isExpired =
-        Date.now() - existing.createdAt.getTime() > ChatService.SESSION_LIFETIME_MS;
+        Date.now() - existing.createdAt.getTime() > lifetimeMs;
       if (isExpired) {
         await this.prisma.chatSession.update({
           where: { id: existing.id },
@@ -118,14 +122,27 @@ export class ChatService {
       // stored value is a loopback address (::1, 127.0.0.1) — this happens
       // when the first request arrived before the widget's public-IP lookup
       // resolved, so req.ip fell back to localhost.
+      //
+      // Fire-and-forget: the chat hot-path doesn't read session.visitorId, so
+      // we don't need to await the write. The UPDATE lands ~300-500ms after
+      // the response is already streaming; analytics consumers see the fresh
+      // value on the next query. In local testing where req.ip is always
+      // loopback, this was triggering an extra serial Prisma write on EVERY
+      // turn — the dominant remaining controller pre-stream cost.
       const isLoopback = existing.visitorId === '::1'
         || existing.visitorId === '127.0.0.1'
         || existing.visitorId?.startsWith('::ffff:127.');
       if (visitorId && (!existing.visitorId || isLoopback)) {
-        return this.prisma.chatSession.update({
-          where: { id: existing.id },
-          data: { visitorId },
-        });
+        void this.prisma.chatSession
+          .update({
+            where: { id: existing.id },
+            data: { visitorId },
+          })
+          .catch((err) => {
+            this.logger.warn(
+              `visitorId backfill failed (session=${existing.id}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
       }
       return existing;
     }
@@ -152,10 +169,19 @@ export class ChatService {
 
   /**
    * Save a user message to the database.
+   *
+   * Accepts an optional explicit `id` so streaming callers can pre-generate
+   * the UUID and fire-and-forget the persist while still tracking the row for
+   * later operations (e.g. orphan cleanup). Mirrors `saveAssistantMessage`.
    */
-  async saveUserMessage(chatSessionId: string, content: string) {
+  async saveUserMessage(chatSessionId: string, content: string, id?: string) {
     return this.prisma.chatMessage.create({
-      data: { chatSessionId, role: 'USER', content },
+      data: {
+        ...(id ? { id } : {}),
+        chatSessionId,
+        role: 'USER',
+        content,
+      },
     });
   }
 

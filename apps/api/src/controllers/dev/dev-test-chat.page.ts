@@ -294,7 +294,7 @@ export const devTestChatHtml = /* html */ `<!DOCTYPE html>
         // Voice endpoint lives under the global API prefix (not excluded from
         // prefix like /dev/ai/* is). Accept: application/x-ndjson opts us into
         // the streaming path (transcription + audio chunks + end).
-        const res = await fetch('/api/codeweaves/v1/public/voice/conversation', {
+        const res = await fetch('/api/klivo/v1/public/voice/conversation', {
           method: 'POST',
           headers: { 'Accept': 'application/x-ndjson' },
           body: formData,
@@ -376,6 +376,13 @@ export const devTestChatHtml = /* html */ `<!DOCTYPE html>
         case 'transcription':
           // Server transcribed user's speech — add as user message
           clearEmpty(messagesEl);
+          // Capture session ID from the FIRST chunk of a voice turn so
+          // subsequent voice + text turns append to the same conversation
+          // instead of creating a fresh session each time.
+          if (currentSessionId == null && chunk.sessionId) {
+            currentSessionId = chunk.sessionId;
+            sessionLabel.textContent = currentSessionId.slice(0, 8) + '…';
+          }
           const userDiv = document.createElement('div');
           userDiv.className = 'msg user';
           userDiv.textContent = chunk.text;
@@ -514,6 +521,36 @@ export const devTestChatHtml = /* html */ `<!DOCTYPE html>
       if (!isPlayingQueue) playNextInQueue();
     }
 
+    /**
+     * Decode raw PCM bytes (16-bit signed LE) into an AudioBuffer at the
+     * given sample rate. Used for WebSocket-streamed chunks where the server
+     * sends 'audio/pcm; rate=N' — each chunk is independently playable
+     * without decodeAudioData() (which only handles complete encoded files).
+     */
+    function decodePcmChunk(ctx, base64, sampleRate) {
+      const bytes = atob(base64);
+      const sampleCount = Math.floor(bytes.length / 2);
+      const audioBuffer = ctx.createBuffer(1, sampleCount, sampleRate);
+      const channel = audioBuffer.getChannelData(0);
+      // Convert Int16 LE samples to Float32 in [-1, 1]
+      for (let i = 0; i < sampleCount; i++) {
+        const lo = bytes.charCodeAt(i * 2);
+        const hi = bytes.charCodeAt(i * 2 + 1);
+        // Sign-extend a 16-bit little-endian sample
+        const u16 = (hi << 8) | lo;
+        const s16 = u16 >= 0x8000 ? u16 - 0x10000 : u16;
+        channel[i] = s16 / 32768;
+      }
+      return audioBuffer;
+    }
+
+    /** Parse 'rate=N' out of 'audio/pcm; rate=N'. Returns null if not PCM. */
+    function parsePcmSampleRate(mimeType) {
+      if (!mimeType || !mimeType.toLowerCase().startsWith('audio/pcm')) return null;
+      const m = mimeType.match(/rate\\s*=\\s*(\\d+)/i);
+      return m ? parseInt(m[1], 10) : 24000; // sensible default for ElevenLabs pcm_24000
+    }
+
     async function playNextInQueue() {
       const next = audioPlaybackQueue.shift();
       if (!next) {
@@ -531,28 +568,38 @@ export const devTestChatHtml = /* html */ `<!DOCTYPE html>
         if (ctx.state !== 'running') {
           await ctx.resume().catch(() => {});
         }
-        // base64 → ArrayBuffer
-        const bytes = atob(next.base64);
-        const buffer = new ArrayBuffer(bytes.length);
-        const view = new Uint8Array(buffer);
-        for (let i = 0; i < bytes.length; i++) view[i] = bytes.charCodeAt(i);
 
-        // Decode the compressed audio into a PCM AudioBuffer.
-        const audioBuffer = await ctx.decodeAudioData(buffer);
+        let audioBuffer;
+        let leadingSilence = 0;
+        const pcmRate = parsePcmSampleRate(next.mimeType);
 
-        // FIX: MP3 encoders inject ~1024 "priming samples" (24-45ms of silence)
-        // at the start of every file per the MP3 spec. Chrome/Firefox/Edge's
-        // decodeAudioData() returns those silent samples in the buffer; Safari
-        // removes them automatically. If we play from offset 0, we hear
-        // 24-45ms of silence before the real content starts — which on
-        // sequential sentences creates a perceived "cut off first word" effect.
-        //
-        // Detect the leading silence by scanning for the first non-zero sample,
-        // then pass that offset to source.start(when, offset) so playback
-        // begins at real audio content.
-        //
-        // Ref: https://jakearchibald.com/2016/sounds-fun/
-        const leadingSilence = findLeadingSilence(audioBuffer);
+        if (pcmRate !== null) {
+          // Raw PCM path (WebSocket streaming). Each chunk is independently
+          // playable — no decodeAudioData needed, no priming silence to strip
+          // (raw samples have no encoder header).
+          audioBuffer = decodePcmChunk(ctx, next.base64, pcmRate);
+        } else {
+          // Compressed audio path (batch HTTP MP3/WAV/Opus).
+          const bytes = atob(next.base64);
+          const buffer = new ArrayBuffer(bytes.length);
+          const view = new Uint8Array(buffer);
+          for (let i = 0; i < bytes.length; i++) view[i] = bytes.charCodeAt(i);
+          audioBuffer = await ctx.decodeAudioData(buffer);
+
+          // FIX: MP3 encoders inject ~1024 "priming samples" (24-45ms of silence)
+          // at the start of every file per the MP3 spec. Chrome/Firefox/Edge's
+          // decodeAudioData() returns those silent samples in the buffer; Safari
+          // removes them automatically. If we play from offset 0, we hear
+          // 24-45ms of silence before the real content starts — which on
+          // sequential sentences creates a perceived "cut off first word" effect.
+          //
+          // Detect the leading silence by scanning for the first non-zero sample,
+          // then pass that offset to source.start(when, offset) so playback
+          // begins at real audio content.
+          //
+          // Ref: https://jakearchibald.com/2016/sounds-fun/
+          leadingSilence = findLeadingSilence(audioBuffer);
+        }
 
         // Schedule the buffer. On the VERY FIRST chunk of a conversation, we
         // add a small lookahead (250ms per Jake Archibald's recommendation)

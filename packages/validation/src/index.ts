@@ -229,6 +229,17 @@ export const supportedLanguagesSchema = z
   )
   .default([]);
 
+// Maximum age of a single chat session (from createdAt) before the backend
+// rotates the visitor to a new sessionId on their next message. Bounded to
+// 6-24 hours: under 6h causes too much session churn for analytics, over 24h
+// makes a single "conversation" span multiple distinct visits and degrades
+// the category/language buckets.
+export const sessionLifetimeHoursSchema = z
+  .number()
+  .int()
+  .min(6, 'Session lifetime must be at least 6 hours')
+  .max(24, 'Session lifetime must be at most 24 hours');
+
 export const updateAgentSchema = z
   .object({
     name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters').optional(),
@@ -244,6 +255,7 @@ export const updateAgentSchema = z
     aiConfig: agentAiConfigUpdateSchema.nullable().optional(),
     categoryKeywords: categoryKeywordsSchema.optional(),
     supportedLanguages: supportedLanguagesSchema.optional(),
+    sessionLifetimeHours: sessionLifetimeHoursSchema.optional(),
   })
   .refine(
     (data) =>
@@ -256,7 +268,8 @@ export const updateAgentSchema = z
       data.systemPrompt !== undefined ||
       data.aiConfig !== undefined ||
       data.categoryKeywords !== undefined ||
-      data.supportedLanguages !== undefined,
+      data.supportedLanguages !== undefined ||
+      data.sessionLifetimeHours !== undefined,
     { message: 'At least one field must be provided' },
   );
 

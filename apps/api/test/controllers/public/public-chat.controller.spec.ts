@@ -6,6 +6,8 @@ import { ChatService } from '../../../src/services/chat.service';
 import { AgentsService } from '../../../src/services/agents.service';
 import { N8nStreamingService } from '../../../src/services/n8n-streaming.service';
 import { MessageRateLimitService } from '../../../src/services/message-rate-limit.service';
+import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
+import { PrismaService } from '../../../src/services/prisma.service';
 
 describe('PublicChatController', () => {
   let controller: PublicChatController;
@@ -48,6 +50,8 @@ describe('PublicChatController', () => {
         { provide: AgentsService, useValue: mockAgentsService },
         { provide: N8nStreamingService, useValue: mockN8nStreamingService },
         { provide: MessageRateLimitService, useValue: mockMessageRateLimitService },
+        { provide: DirectChatService, useValue: { send: jest.fn(), stream: jest.fn() } },
+        { provide: PrismaService, useValue: {} },
       ],
     }).compile();
 
@@ -231,8 +235,13 @@ describe('PublicChatController', () => {
       const parsed = JSON.parse(doneEvents[0]!.replace('data: ', '').trim());
       expect(parsed.type).toBe('done');
       expect(parsed.sessionId).toBe('session-uuid');
-      // P1: messageId is the ASSISTANT message ID, not user message ID
-      expect(parsed.messageId).toBe('assistant-msg-id');
+      // P1: messageId is the ASSISTANT message ID. We now pre-generate the
+      // UUID inline (via randomUUID) so we can return it in the `done` event
+      // without waiting for the DB write to complete. Validate it looks like
+      // a UUID rather than matching a fixed mock value.
+      expect(parsed.messageId).toMatch(
+        /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/,
+      );
       expect(parsed.metadata).toBeDefined();
       expect(parsed.metadata.totalChunks).toBe(3);
       expect(parsed.metadata.n8nReceivedAt).toBeDefined();
@@ -261,11 +270,14 @@ describe('PublicChatController', () => {
       expect(parsed.metadata.totalChunks).toBe(0);
       expect(parsed.metadata.timeToFirstToken).toBeNull();
 
-      // Should still save assistant message (empty)
+      // Should still save assistant message (empty). The controller now
+      // pre-generates the UUID and passes it as the 4th argument so the
+      // `done` event can include the messageId before the DB write resolves.
       expect(mockChatService.saveAssistantMessage).toHaveBeenCalledWith(
         mockSession.id,
         '',
         expect.objectContaining({ totalChunks: 0 }),
+        expect.any(String),
       );
     });
 
@@ -318,17 +330,25 @@ describe('PublicChatController', () => {
       );
     });
 
-    it('should use ChatService for DB operations (P3) — save user before, assistant after', async () => {
+    it('should use ChatService for DB operations (P3) — fire-and-forget user save + assistant save', async () => {
       setupStreamingMocks();
       const req = createMockRequest();
       const res = createMockResponse();
 
       await controller.stream(dto, req, res);
 
-      // User message saved before streaming
-      expect(mockChatService.saveUserMessage).toHaveBeenCalledWith(mockSession.id, dto.chatInput);
+      // User message persisted via fire-and-forget with a pre-generated UUID
+      // (the 3rd arg). This unblocks the LLM call from waiting on the DB
+      // write — pattern matches the dev test endpoint.
+      expect(mockChatService.saveUserMessage).toHaveBeenCalledWith(
+        mockSession.id,
+        dto.chatInput,
+        expect.any(String),
+      );
 
-      // Assistant message saved after streaming with full response and metadata
+      // Assistant message saved with full response, metadata, and a
+      // pre-generated UUID (4th arg) so the `done` event can carry the
+      // messageId without waiting for the DB write.
       expect(mockChatService.saveAssistantMessage).toHaveBeenCalledWith(
         mockSession.id,
         'Hello world!',
@@ -336,34 +356,23 @@ describe('PublicChatController', () => {
           totalChunks: 3,
           streamDurationMs: 2000,
         }),
+        expect.any(String),
       );
 
       // Session timestamp updated
       expect(mockChatService.updateSessionTimestamp).toHaveBeenCalledWith(mockSession.id);
     });
 
-    it('should clean up orphaned user message on stream failure (D1)', async () => {
-      mockChatService.resolveAgent.mockResolvedValue(mockAgent);
-      mockChatService.resolveOrCreateSession.mockResolvedValue(mockSession);
-      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue('https://n8n.example.com/webhook/chat');
-      mockChatService.saveUserMessage.mockResolvedValue({ id: 'orphan-msg-id' });
-      mockChatService.deleteMessage.mockResolvedValue({});
+    // Orphan-message cleanup on stream failure was removed: with the
+    // fire-and-forget `saveUserMessage` we can't synchronously detect
+    // whether the row landed before issuing the delete (race condition),
+    // and the dev test endpoint never had cleanup either. The user
+    // message stays as a record of what the visitor typed; the next turn
+    // simply doesn't get a corresponding assistant reply. Same behaviour
+    // as the dev page. Test removed; the graceful-stream-failure
+    // assertion below covers the error path that matters.
 
-      async function* errorGenerator() {
-        yield { type: 'begin' as const, metadata: { timestamp: 1711000000000 } };
-        throw new Error('Stream broke');
-      }
-      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(errorGenerator());
-
-      const req = createMockRequest();
-      const res = createMockResponse();
-
-      await controller.stream(dto, req, res);
-
-      expect(mockChatService.deleteMessage).toHaveBeenCalledWith('orphan-msg-id');
-    });
-
-    it('should not fail if orphan cleanup itself fails (D1 graceful)', async () => {
+    it('should not fail when stream errors after agent resolve fails (D1 graceful)', async () => {
       mockChatService.resolveAgent.mockRejectedValue(new Error('DB down'));
       // No user message saved, so deleteMessage should not be called
       const req = createMockRequest();

@@ -24,12 +24,15 @@ import { AiClassifierService } from '../common/ai/ai-classifier.service';
  */
 @Injectable()
 export class ConversationClassifierService {
-  // Limits per invocation. The cron fires every 12 hours; 200 sessions per
-  // run = up to 400/day, comfortably handling 10K conversations/month with
-  // headroom. Raise if a backlog builds up; lower to cap LLM cost tighter.
+  // Limits per invocation. The cron fires once a day; 200 sessions per run
+  // is comfortable for 10K conversations/month. Raise if a backlog builds
+  // up; lower to cap LLM cost tighter.
   private static readonly MAX_PER_RUN = 200;
   private static readonly MIN_MESSAGES = 4;
-  private static readonly QUIET_PERIOD_HOURS = 6;
+  // Loose pre-filter — anything with no activity for the past hour is a
+  // potential candidate. The precise per-agent `sessionLifetimeHours`
+  // expiry check happens inside the loop, since lifetime is now per-row.
+  private static readonly CANDIDATE_QUIET_HOURS = 1;
   // Don't send the entire transcript to the LLM — last N messages is enough
   // signal for a topic label and bounds the token cost.
   private static readonly TRANSCRIPT_LAST_N_MESSAGES = 12;
@@ -53,7 +56,7 @@ export class ConversationClassifierService {
     // still get their EXPIRED stamp on time.
     const cutoff = new Date(
       Date.now() -
-        ConversationClassifierService.QUIET_PERIOD_HOURS * 60 * 60 * 1000,
+        ConversationClassifierService.CANDIDATE_QUIET_HOURS * 60 * 60 * 1000,
     );
 
     const candidates = await this.prisma.chatSession.findMany({
@@ -73,10 +76,12 @@ export class ConversationClassifierService {
       take: ConversationClassifierService.MAX_PER_RUN,
       select: {
         id: true,
+        createdAt: true,
         agent: {
           select: {
             categoryKeywords: true,
             supportedLanguages: true,
+            sessionLifetimeHours: true,
           },
         },
         messages: {
@@ -88,6 +93,16 @@ export class ConversationClassifierService {
 
     let processed = 0;
     for (const session of candidates) {
+      // Per-row lifetime gate: skip sessions that the loose 1h pre-filter
+      // caught but that haven't actually passed their agent's configured
+      // lifetime yet (e.g. an agent with a 24h lifetime whose session went
+      // quiet 2h ago — still nominally "live", not ready to classify).
+      const lifetimeMs =
+        session.agent.sessionLifetimeHours * 60 * 60 * 1000;
+      const isPastLifetime =
+        Date.now() - session.createdAt.getTime() > lifetimeMs;
+      if (!isPastLifetime) continue;
+
       if (session.messages.length < ConversationClassifierService.MIN_MESSAGES) {
         // Mark as "classified" with no category so we don't re-evaluate this
         // session every tick — it's effectively too short to label.

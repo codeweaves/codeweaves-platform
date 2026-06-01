@@ -259,6 +259,9 @@ export class AgentsService {
             // owner's chosen ordering on edit.
             supportedLanguages: dto.supportedLanguages,
           }),
+          ...(dto.sessionLifetimeHours !== undefined && {
+            sessionLifetimeHours: dto.sessionLifetimeHours,
+          }),
         },
         include: { organization: { select: { id: true, name: true } } },
       });
