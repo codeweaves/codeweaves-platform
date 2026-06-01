@@ -6,6 +6,7 @@ import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentLoggerService } from '../../../src/common/logger/agent.logger';
 import { CryptoService } from '../../../src/common/crypto/crypto.service';
 import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
+import { WidgetCorsCacheService } from '../../../src/common/cache/widget-cors-cache.service';
 import { Prisma, Role } from '@prisma/client';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 import * as publicIdUtils from '../../../src/utils/public-id';
@@ -54,6 +55,13 @@ describe('AgentsService', () => {
   const mockAgentCacheService = {
     getAgentWithKnowledge: jest.fn().mockResolvedValue(null),
     invalidate: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockWidgetCorsCacheService = {
+    get: jest.fn().mockReturnValue(null),
+    set: jest.fn(),
+    invalidate: jest.fn(),
+    clearAll: jest.fn(),
   };
 
   const mockConfigService = {
@@ -145,6 +153,7 @@ describe('AgentsService', () => {
         { provide: CryptoService, useValue: mockCryptoService },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: AgentCacheService, useValue: mockAgentCacheService },
+        { provide: WidgetCorsCacheService, useValue: mockWidgetCorsCacheService },
       ],
     }).compile();
 
