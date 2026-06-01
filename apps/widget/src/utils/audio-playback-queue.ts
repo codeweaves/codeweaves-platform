@@ -85,9 +85,16 @@ export class AudioPlaybackQueue {
   private onFinished: (() => void) | null = null;
   private streamComplete = false;
   private resolvers: Array<() => void> = [];
+  private finished = false;
 
   constructor(onFinished: () => void) {
     this.onFinished = onFinished;
+  }
+
+  private fireFinished(): void {
+    if (this.finished) return;
+    this.finished = true;
+    this.onFinished?.();
   }
 
   enqueue(audio: string, audioFormat: string): void {
@@ -119,7 +126,7 @@ export class AudioPlaybackQueue {
     }
     // If nothing is queued AND nothing is mid-scheduling, we're done.
     if (!this.playing && this.queue.length === 0) {
-      this.onFinished?.();
+      this.fireFinished();
     }
   }
 
@@ -230,7 +237,7 @@ export class AudioPlaybackQueue {
         const wait = (this.nextScheduledTime - this.audioContext.currentTime) * 1000;
         await new Promise((r) => setTimeout(r, wait));
       }
-      if (!this.stopped) this.onFinished?.();
+      if (!this.stopped) this.fireFinished();
     }
   }
 }

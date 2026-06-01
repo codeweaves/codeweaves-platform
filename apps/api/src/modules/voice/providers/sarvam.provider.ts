@@ -657,15 +657,22 @@ export class SarvamProvider implements VoiceProvider {
       if (!wsOpened) onOpenError(wsFatalError);
     });
 
+    // Keepalive ping every 20s (Sarvam's docs: connection auto-closes after
+    // ~1 min idle; pipecat uses 20s). Declared before the close handler so
+    // the handler can clear it without TDZ issues.
+    let pingInterval: ReturnType<typeof setInterval> | null = null;
+
     ws.addEventListener('close', () => {
       wsClosed = true;
       currentDone = true;
       wakeCurrent();
+      if (pingInterval) {
+        clearInterval(pingInterval);
+        pingInterval = null;
+      }
     });
 
-    // Keepalive ping every 20s (Sarvam's docs: connection auto-closes after
-    // ~1 min idle; pipecat uses 20s).
-    const pingInterval = setInterval(() => {
+    pingInterval = setInterval(() => {
       if (!wsClosed && wsOpened) {
         try {
           ws.send(JSON.stringify({ type: 'ping' }));
@@ -674,6 +681,7 @@ export class SarvamProvider implements VoiceProvider {
         }
       }
     }, 20_000);
+    pingInterval.unref?.();
 
     // Wait for the WS to open (or fail fast).
     await openPromise;
@@ -725,7 +733,10 @@ export class SarvamProvider implements VoiceProvider {
         }
       },
       async close() {
-        clearInterval(pingInterval);
+        if (pingInterval) {
+          clearInterval(pingInterval);
+          pingInterval = null;
+        }
         if (!wsClosed) {
           try {
             ws.close();

@@ -88,12 +88,12 @@ export class PublicChatController {
     // format matches what the real chat endpoint sends — that's what OpenAI's
     // cache fingerprints on. We discard chunks; we only care about the prefix
     // landing in the backend's cache.
-    const fullAgent = await this.prisma.agent.findUniqueOrThrow({
-      where: { id: agent.id },
-    });
-
     void (async () => {
       try {
+        const fullAgent = await this.prisma.agent.findUnique({
+          where: { id: agent.id },
+        });
+        if (!fullAgent) return;
         const stream = this.directChatService.stream({
           agent: fullAgent,
           chatSessionId: 'warmup',
