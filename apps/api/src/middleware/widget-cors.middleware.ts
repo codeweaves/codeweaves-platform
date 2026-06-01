@@ -1,6 +1,7 @@
 import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { PrismaService } from '../services/prisma.service';
+import { WidgetCorsCacheService } from '../common/cache/widget-cors-cache.service';
 import { normalizeDomain } from '../utils/domain';
 
 /**
@@ -20,14 +21,10 @@ export class WidgetCorsMiddleware implements NestMiddleware {
   private readonly logger = new Logger(WidgetCorsMiddleware.name);
   private readonly dashboardOrigin: string;
 
-  /** Simple in-memory cache: agentIdentifier → { domains, expiresAt } */
-  private readonly cache = new Map<string, { domains: string[]; expiresAt: number }>();
-  // allowedDomains is changed rarely (agent editor UI). A long TTL is fine —
-  // we just want to avoid hammering Supabase on every widget request from
-  // a cold cache. 10min is the sweet spot between freshness and cost.
-  private static readonly CACHE_TTL_MS = 10 * 60_000; // 10 minutes
-
-  constructor(private readonly prisma: PrismaService) {
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly cache: WidgetCorsCacheService,
+  ) {
     this.dashboardOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
   }
 
@@ -146,11 +143,9 @@ export class WidgetCorsMiddleware implements NestMiddleware {
     // The actual request will be validated
     if (agentId === '__preflight__') return [];
 
-    // Check cache
+    // Check cache (keyed by whichever identifier the wire sent — publicId or UUID).
     const cached = this.cache.get(agentId);
-    if (cached && cached.expiresAt > Date.now()) {
-      return cached.domains;
-    }
+    if (cached !== null) return cached;
 
     try {
       // Single query covering both lookup paths — agent identifiers from the
@@ -168,16 +163,16 @@ export class WidgetCorsMiddleware implements NestMiddleware {
             { id: agentId },
           ],
         },
-        select: { allowedDomains: true },
+        select: { id: true, publicId: true, allowedDomains: true },
       });
 
       if (!agent) return null;
 
       const domains = agent.allowedDomains as string[];
-      this.cache.set(agentId, {
-        domains,
-        expiresAt: Date.now() + WidgetCorsMiddleware.CACHE_TTL_MS,
-      });
+      // Populate under BOTH keys so the next request can hit cache regardless
+      // of which identifier it sends (the widget config endpoint sends
+      // publicId; chat/voice POST bodies send the UUID).
+      this.cache.set({ publicId: agent.publicId, id: agent.id }, domains);
       return domains;
     } catch (error) {
       this.logger.error(`Failed to look up allowedDomains for agent "${agentId}": ${error}`);

@@ -19,6 +19,7 @@ import { generatePublicId } from '../utils/public-id';
 import { deduplicateDomains, isValidDomain } from '../utils/domain';
 import { AgentLoggerService } from '../common/logger/agent.logger';
 import { AgentCacheService } from '../common/cache/agent-cache.service';
+import { WidgetCorsCacheService } from '../common/cache/widget-cors-cache.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 
 const MAX_PUBLIC_ID_RETRIES = 3;
@@ -53,6 +54,7 @@ export class AgentsService {
     private readonly cryptoService: CryptoService,
     private readonly configService: ConfigService,
     private readonly agentCache: AgentCacheService,
+    private readonly widgetCorsCache: WidgetCorsCacheService,
   ) {}
 
   async create(dto: CreateAgentDto, user: CurrentUserData) {
@@ -320,6 +322,12 @@ export class AgentsService {
       // Bust the cache so the next chat turn reads fresh aiConfig / systemPrompt /
       // voiceConfig. Invalidation is best-effort (fail-open, see AgentCacheService).
       await this.agentCache.invalidate(updated.id);
+      // If allowedDomains changed, also bust the per-replica CORS cache so the
+      // very next widget request from this node sees the new list — without
+      // this, dashboard edits sit behind the 10-min TTL.
+      if (normalizedDomains !== undefined) {
+        this.widgetCorsCache.invalidate({ id: updated.id, publicId: updated.publicId });
+      }
       return this.stripSensitiveFields(updated, user);
     } catch (error) {
       if (
