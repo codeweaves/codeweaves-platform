@@ -1,65 +1,32 @@
 'use client';
 
-import { use, useEffect, useState } from 'react';
+import { use } from 'react';
 import { useRouter } from 'next/navigation';
 import { Loader2 } from 'lucide-react';
-import { useAgent } from '@/hooks/use-agents';
-import { useApiClient } from '@/lib/api-client';
-import { useProfile } from '@/hooks/use-profile';
+import { useAgentEditorConfig } from '@/hooks/use-agent-editor-config';
 import { AgentEditorLayout } from '@/components/features/agents/agent-editor/agent-editor-layout';
-import type { WidgetTheme } from '@repo/validation';
 
 interface AgentDetailPageProps {
   params: Promise<{ id: string }>;
 }
 
+/**
+ * Agent editor entry point. Hydrates the editor from a single bundled GET —
+ * `GET /agents/:id/editor-config` — so we only pay one HTTP round-trip on
+ * mount instead of fanning out 4 parallel requests for agent / webhook /
+ * theme / knowledge.
+ *
+ * Save path (see `agent-editor-layout.tsx::handleSave`) writes the new state
+ * into the `['agent-editor-config', id]` query cache on success, avoiding a
+ * refetch after every Save click.
+ */
 export default function AgentDetailPage({ params }: AgentDetailPageProps) {
   const { id } = use(params);
   const router = useRouter();
-  const { profile } = useProfile();
-  const api = useApiClient();
-  const { data: agent, isLoading, error } = useAgent(id);
-  const [webhookUrl, setWebhookUrl] = useState('');
-  const [themeData, setThemeData] = useState<WidgetTheme | undefined>(undefined);
-  const [extrasLoaded, setExtrasLoaded] = useState(false);
 
-  const isAdmin =
-    profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  const { data, isLoading, error } = useAgentEditorConfig(id);
 
-  // Fetch webhook URL (admins only) and theme data in parallel.
-  // Must wait for profile before running — isAdmin depends on profile which
-  // loads async. Without this guard, isAdmin is false on first run and the
-  // webhook fetch is skipped entirely, leaving the input empty.
-  useEffect(() => {
-    if (!agent || !profile) return;
-    let cancelled = false;
-
-    const webhookPromise = isAdmin
-      ? api
-          .get(`/agents/${agent.id}/webhook`)
-          .then((res: { webhookUrl: string | null }) => {
-            if (!cancelled) setWebhookUrl(res?.webhookUrl ?? '');
-          })
-          .catch(() => { /* Webhook might not exist yet */ })
-      : Promise.resolve();
-
-    const themePromise = api
-      .get(`/agents/${agent.id}/theme`)
-      .then((res: { config: WidgetTheme }) => {
-        if (!cancelled && res?.config) setThemeData(res.config);
-      })
-      .catch(() => { /* Theme might not exist yet — defaults will be used */ });
-
-    Promise.all([webhookPromise, themePromise]).finally(() => {
-      if (!cancelled) setExtrasLoaded(true);
-    });
-
-    return () => {
-      cancelled = true;
-    };
-  }, [agent, profile, isAdmin, api]);
-
-  if (isLoading || !extrasLoaded) {
+  if (isLoading) {
     return (
       <div className="flex h-[60vh] items-center justify-center">
         <Loader2 className="h-8 w-8 animate-spin text-muted-foreground" />
@@ -67,7 +34,7 @@ export default function AgentDetailPage({ params }: AgentDetailPageProps) {
     );
   }
 
-  if (error || !agent) {
+  if (error || !data?.agent) {
     return (
       <div className="flex h-[60vh] flex-col items-center justify-center gap-4 text-center">
         <h2 className="text-2xl font-bold">Agent not found</h2>
@@ -87,9 +54,20 @@ export default function AgentDetailPage({ params }: AgentDetailPageProps) {
 
   return (
     <AgentEditorLayout
-      agent={agent}
-      webhookUrl={webhookUrl}
-      initialThemeData={themeData}
+      agent={data.agent}
+      webhookUrl={data.webhookUrl ?? ''}
+      // Unwrap `.config` — the bundle returns the full theme envelope
+      // `{ config, version }` for ETag parity with the standalone endpoint.
+      initialThemeData={data.theme?.config ?? undefined}
+      initialKnowledge={
+        data.knowledge
+          ? {
+              content: data.knowledge.content,
+              sourceFileName: data.knowledge.sourceFileName,
+              sourceMimeType: data.knowledge.sourceMimeType,
+            }
+          : null
+      }
     />
   );
 }

@@ -11,6 +11,9 @@ import { AgentsModule } from './agents.module';
 import { ChatModule } from './chat.module';
 import { VoiceModule } from './voice/voice.module';
 import { AnalyticsModule } from './analytics.module';
+import { AiTraceModule } from './ai/trace/ai-trace.module';
+import { DevModule } from './dev.module';
+import { AgentCacheModule } from '../common/cache/agent-cache.module';
 import { ConversationsModule } from './conversations.module';
 import { ConversationClassifierModule } from './conversation-classifier.module';
 import { TracerModule } from '../common/tracer/tracer.module';
@@ -45,6 +48,9 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     ChatModule,
     VoiceModule,
     AnalyticsModule,
+    AiTraceModule,
+    DevModule,
+    AgentCacheModule,
     ConversationsModule,
     ConversationClassifierModule,
     TracerModule,

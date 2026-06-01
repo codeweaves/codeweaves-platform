@@ -3,6 +3,8 @@ import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AgentsController } from '../../../src/controllers/agents/agents.controller';
 import { AgentsService } from '../../../src/services/agents.service';
+import { AgentThemesService } from '../../../src/services/agent-themes.service';
+import { AgentKnowledgeService } from '../../../src/services/agent-knowledge.service';
 import { RolesGuard } from '../../../src/guards/roles.guard';
 import { ZodValidationPipe } from '../../../src/pipes/zod-validation.pipe';
 import {
@@ -65,6 +67,11 @@ describe('AgentsController', () => {
       controllers: [AgentsController],
       providers: [
         { provide: AgentsService, useValue: mockAgentsService },
+        // Co-resident services on AgentsController — mocked stubs so the
+        // controller can resolve. The tests in this file don't exercise
+        // them, so trivial empty mocks suffice.
+        { provide: AgentThemesService, useValue: {} },
+        { provide: AgentKnowledgeService, useValue: {} },
         Reflector,
       ],
     })

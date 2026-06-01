@@ -14,6 +14,7 @@ import {
   type STTResponse,
   type TTSRequest,
   type TTSResponse,
+  type TTSSession,
   type LanguageDetectionResponse,
   type SupportedLanguage,
   type VoiceListItem,
@@ -339,6 +340,22 @@ export class VoiceService {
     return firstProvider.detectLanguage(audio, audioFormat);
   }
 
+  /**
+   * Streams LLM tokens → sentence-bounded TTS audio chunks.
+   *
+   * PARALLEL TTS: Each sentence's TTS call is kicked off as soon as its
+   * boundary is detected — we do NOT wait for the previous sentence's TTS to
+   * complete. Audio chunks are still yielded IN ORDER (index 0, 1, 2, ...) so
+   * playback is correct. The key win: total time ≈ max(TTS latencies), not
+   * sum. On a typical 3-sentence response with ~2.5s TTS each, this is
+   * ~5s faster.
+   *
+   * Why not await each TTS? Previously the outer `for await` loop would
+   * BLOCK on each TTS call via `yield*`, which back-pressured the LLM token
+   * stream: the next token couldn't be consumed until the current sentence's
+   * TTS returned. That serialization was adding 5-8s of latency on top of
+   * real inference time.
+   */
   async *streamingTTS(
     tokenStream: AsyncGenerator<N8nStreamChunk>,
     language: string,
@@ -347,36 +364,363 @@ export class VoiceService {
   ): AsyncGenerator<VoiceStreamChunk> {
     const resolvedConfig = config ?? await this.getVoiceConfig(agentId);
     const provider = this.resolveTTSProvider(resolvedConfig, language as SupportedLanguage);
+    const lang = language as SupportedLanguage;
+    const useStreaming = resolvedConfig.ttsStreaming === true;
+
+    // Pattern A — persistent WS session (one WS for the whole voice turn).
+    // Pipecat/LiveKit do this for Sarvam: avoids the ~150-300ms WS handshake
+    // gap between sentences. Disabled for EL: their `/stream-input` endpoint
+    // is unstable mid-stream; the proper fix is the `/multi-stream-input`
+    // protocol which is a separate refactor.
+    const providerStreamingDisabled = provider.name === 'elevenlabs';
+    const sessionEligible =
+      useStreaming &&
+      !providerStreamingDisabled &&
+      typeof provider.openSynthesisSession === 'function';
+
+    if (sessionEligible) {
+      yield* this.streamingTTSWithSession(
+        tokenStream,
+        lang,
+        agentId,
+        resolvedConfig,
+        provider,
+      );
+      return;
+    }
+
+    // Pattern B — per-sentence parallel TTS (legacy / fallback). Used when
+    // the provider doesn't expose a session, when ttsStreaming is off, or
+    // when WS streaming is force-disabled for the provider (EL).
+    yield* this.streamingTTSPerSentence(
+      tokenStream,
+      lang,
+      agentId,
+      resolvedConfig,
+      provider,
+    );
+  }
+
+  /**
+   * Persistent-WS-session pipeline. One WS open for the entire voice turn;
+   * sentences are synthesized sequentially on that single connection. This
+   * eliminates the per-sentence WS handshake gap (~150-300ms) that's audible
+   * after short sentences like "Certainly." Returning the audible win is the
+   * whole point of moving to session-based TTS.
+   *
+   * Sentence ordering: LLM tokens stream in continuously, but each sentence's
+   * synthesize() must finish (event_type=final) before the next is sent. This
+   * is structurally serial — Sarvam's WS is single-context. The user still
+   * gets continuous audio because Sarvam synthesises ~3x real-time, so by the
+   * time the user finishes hearing sentence N, sentence N+1 has already
+   * been synthesised and is queued at the network layer.
+   */
+  private async *streamingTTSWithSession(
+    tokenStream: AsyncGenerator<N8nStreamChunk>,
+    lang: SupportedLanguage,
+    agentId: string,
+    config: VoiceConfigDto,
+    provider: VoiceProvider,
+  ): AsyncGenerator<VoiceStreamChunk> {
+    // openSynthesisSession is guaranteed by the caller's check, but TS can't
+    // narrow that across the method boundary — fall through to per-sentence
+    // mode defensively if the provider lost the capability between checks.
+    if (typeof provider.openSynthesisSession !== 'function') {
+      yield* this.streamingTTSPerSentence(tokenStream, lang, agentId, config, provider);
+      return;
+    }
+
     const sentenceBuffer = new SentenceBuffer();
-    let sentenceIndex = 0;
     let fullText = '';
+    let sentenceIndex = 0;
+    let successCount = 0;
+    let session: TTSSession | null = null;
 
-    for await (const chunk of tokenStream) {
-      if (chunk.type === 'item' && chunk.content) {
-        fullText += chunk.content;
-        const sentences = sentenceBuffer.addToken(chunk.content);
+    try {
+      session = await provider.openSynthesisSession({
+        language: lang,
+        agentId,
+        voiceId: config.ttsVoiceId,
+        speed: config.ttsSpeed,
+      });
 
-        for (const sentence of sentences) {
-          const result = yield* this.synthesizeSentenceWithFallback(
-            sentence, language as SupportedLanguage, agentId,
-            resolvedConfig, provider, sentenceIndex,
+      // Tokens stream in; we synthesise each sentence sequentially on the
+      // session as it forms. The session itself manages the WS lifecycle.
+      const renderSentence = async function* (
+        this: VoiceService,
+        sentence: string,
+      ): AsyncGenerator<VoiceStreamChunk> {
+        const idx = sentenceIndex++;
+        const ttsStart = Date.now();
+        let chunkCount = 0;
+        let totalBytes = 0;
+        let firstChunkLatencyMs: number | null = null;
+        let lastAudioFormat = 'audio/pcm; rate=24000';
+
+        try {
+          for await (const chunk of session!.synthesize(sentence)) {
+            if (firstChunkLatencyMs === null) {
+              firstChunkLatencyMs = chunk.latencyMs;
+            }
+            totalBytes += chunk.audio.length;
+            lastAudioFormat = chunk.audioFormat;
+
+            yield {
+              type: 'audio',
+              sentenceIndex: idx,
+              subChunkIndex: chunkCount,
+              isFinalChunk: false,
+              text: chunkCount === 0 ? sentence : '',
+              audio: chunk.audio.toString('base64'),
+              audioFormat: chunk.audioFormat,
+              audioDurationMs: null,
+              ttsLatencyMs: chunk.latencyMs,
+              ttsProtocol: 'websocket',
+              ...(chunkCount === 0
+                ? { wsFirstChunkLatencyMs: firstChunkLatencyMs }
+                : {}),
+            };
+            chunkCount += 1;
+          }
+        } catch (err) {
+          // Mid-sentence session failure: if any chunks were yielded, accept
+          // truncation (don't fall back — re-synthesising the full sentence
+          // would double-play). If NO chunks yielded, fall back to batch HTTP.
+          if (chunkCount > 0) {
+            this.logger.warn(
+              `Session synthesise mid-stream failure for sentence ${idx} after ${chunkCount} chunks: ${err instanceof Error ? err.message : 'unknown'}`,
+            );
+            // emit the per-sentence final marker so analytics settle
+            yield {
+              type: 'audio',
+              sentenceIndex: idx,
+              subChunkIndex: chunkCount,
+              isFinalChunk: true,
+              text: '',
+              audio: '',
+              audioFormat: lastAudioFormat,
+              audioDurationMs: null,
+              ttsLatencyMs: Date.now() - ttsStart,
+              ttsProtocol: 'websocket',
+              wsChunkCount: chunkCount,
+              wsTotalBytes: totalBytes,
+            };
+            successCount++;
+            return;
+          }
+          // Zero chunks emitted — fall back to batch HTTP for this sentence.
+          this.logger.warn(
+            `Session synthesise failed before any chunks for sentence ${idx}: ${err instanceof Error ? err.message : 'unknown'} — falling back to batch`,
           );
-          if (result) sentenceIndex++;
+          try {
+            const batchResult = await provider.synthesize({
+              text: sentence,
+              language: lang,
+              agentId,
+              voiceId: config.ttsVoiceId,
+              speed: config.ttsSpeed,
+            });
+            yield {
+              type: 'audio',
+              sentenceIndex: idx,
+              subChunkIndex: 0,
+              isFinalChunk: true,
+              text: sentence,
+              audio: batchResult.audio.toString('base64'),
+              audioFormat: batchResult.audioFormat,
+              audioDurationMs: batchResult.durationMs ?? null,
+              ttsLatencyMs: batchResult.latencyMs,
+              ttsProtocol: 'http',
+            };
+            successCount++;
+            return;
+          } catch (batchErr) {
+            this.logger.error(
+              `Batch fallback also failed for sentence ${idx}: ${batchErr instanceof Error ? batchErr.message : 'unknown'}`,
+            );
+            yield {
+              type: 'error',
+              errorCode: 'TTS_ALL_PROVIDERS_FAILED',
+              message: 'Voice synthesis unavailable for this sentence',
+              sentenceIndex: idx,
+            };
+            return;
+          }
+        }
+
+        // Sentence completed cleanly — emit the per-sentence final marker.
+        yield {
+          type: 'audio',
+          sentenceIndex: idx,
+          subChunkIndex: chunkCount,
+          isFinalChunk: true,
+          text: '',
+          audio: '',
+          audioFormat: lastAudioFormat,
+          audioDurationMs: null,
+          ttsLatencyMs: Date.now() - ttsStart,
+          ttsProtocol: 'websocket',
+          wsChunkCount: chunkCount,
+          wsTotalBytes: totalBytes,
+        };
+        successCount++;
+      }.bind(this);
+
+      // Drive the LLM token stream → sentence buffer → session.synthesize.
+      for await (const chunk of tokenStream) {
+        if (chunk.type === 'item' && chunk.content) {
+          fullText += chunk.content;
+          const sentences = sentenceBuffer.addToken(chunk.content);
+          for (const sentence of sentences) {
+            yield* renderSentence(sentence);
+          }
+        }
+      }
+      // Tail (partial sentence without terminator)
+      const remaining = sentenceBuffer.flush();
+      if (remaining) {
+        yield* renderSentence(remaining);
+      }
+    } finally {
+      if (session) {
+        try {
+          await session.close();
+        } catch {
+          // ignore — session is being torn down anyway
         }
       }
     }
 
-    // Flush remaining buffer
-    const remaining = sentenceBuffer.flush();
-    if (remaining) {
-      const result = yield* this.synthesizeSentenceWithFallback(
-        remaining, language as SupportedLanguage, agentId,
-        resolvedConfig, provider, sentenceIndex,
-      );
-      if (result) sentenceIndex++;
+    yield { type: 'end', fullText, totalSentences: successCount };
+  }
+
+  /**
+   * Per-sentence parallel pipeline (legacy / fallback). Opens a new WS or
+   * fires a new batch HTTP request per sentence. Sentences synthesize in
+   * parallel, yields stay in order. Used when:
+   *   - provider doesn't implement `openSynthesisSession` (EL today)
+   *   - ttsStreaming is OFF (batch HTTP path)
+   *   - WS streaming is force-disabled for the provider
+   */
+  private async *streamingTTSPerSentence(
+    tokenStream: AsyncGenerator<N8nStreamChunk>,
+    lang: SupportedLanguage,
+    agentId: string,
+    config: VoiceConfigDto,
+    provider: VoiceProvider,
+  ): AsyncGenerator<VoiceStreamChunk> {
+    const sentenceBuffer = new SentenceBuffer();
+    const ttsPromises: Promise<VoiceStreamChunk[]>[] = [];
+    let fullText = '';
+
+    const wake: { fn: (() => void) | null } = { fn: null };
+    const waitForNewPromise = () =>
+      new Promise<void>((resolve) => {
+        wake.fn = resolve;
+      });
+    const notifyYielder = () => {
+      if (wake.fn) {
+        wake.fn();
+        wake.fn = null;
+      }
+    };
+
+    let llmConsumerDone = false;
+    let llmConsumerError: unknown = null;
+
+    const llmConsumer = (async () => {
+      try {
+        for await (const chunk of tokenStream) {
+          if (chunk.type === 'item' && chunk.content) {
+            fullText += chunk.content;
+            const sentences = sentenceBuffer.addToken(chunk.content);
+            for (const sentence of sentences) {
+              ttsPromises.push(
+                this.synthesizeSentenceToChunks(
+                  sentence,
+                  lang,
+                  agentId,
+                  config,
+                  provider,
+                  ttsPromises.length,
+                ),
+              );
+              notifyYielder();
+            }
+          }
+        }
+        const remaining = sentenceBuffer.flush();
+        if (remaining) {
+          ttsPromises.push(
+            this.synthesizeSentenceToChunks(
+              remaining,
+              lang,
+              agentId,
+              config,
+              provider,
+              ttsPromises.length,
+            ),
+          );
+          notifyYielder();
+        }
+      } catch (err) {
+        llmConsumerError = err;
+      } finally {
+        llmConsumerDone = true;
+        notifyYielder();
+      }
+    })();
+
+    let yielded = 0;
+    let successCount = 0;
+    while (true) {
+      if (yielded < ttsPromises.length) {
+        const chunks = await ttsPromises[yielded]!;
+        yielded++;
+        let sentenceSucceeded = false;
+        for (const c of chunks) {
+          if (c.type === 'audio' && c.isFinalChunk) sentenceSucceeded = true;
+          yield c;
+        }
+        if (sentenceSucceeded) successCount++;
+      } else if (llmConsumerDone) {
+        break;
+      } else {
+        await waitForNewPromise();
+      }
     }
 
-    yield { type: 'end', fullText, totalSentences: sentenceIndex };
+    await llmConsumer;
+    if (llmConsumerError) throw llmConsumerError;
+
+    yield { type: 'end', fullText, totalSentences: successCount };
+  }
+
+  /**
+   * Adapter: collect a `synthesizeSentenceWithFallback` generator's yields
+   * into an array so the parent can run it as a Promise (for parallel
+   * scheduling). The existing generator yields 0-1 chunks per call.
+   */
+  private async synthesizeSentenceToChunks(
+    sentence: string,
+    language: SupportedLanguage,
+    agentId: string,
+    config: VoiceConfigDto,
+    primaryProvider: VoiceProvider,
+    sentenceIndex: number,
+  ): Promise<VoiceStreamChunk[]> {
+    const out: VoiceStreamChunk[] = [];
+    for await (const chunk of this.synthesizeSentenceWithFallback(
+      sentence,
+      language,
+      agentId,
+      config,
+      primaryProvider,
+      sentenceIndex,
+    )) {
+      out.push(chunk);
+    }
+    return out;
   }
 
   private async *synthesizeSentenceWithFallback(
@@ -395,24 +739,54 @@ export class VoiceService {
       speed: config.ttsSpeed,
     };
 
-    // Try primary provider
+    // Try primary provider. When `voiceConfig.ttsStreaming` is true AND the
+    // provider implements `synthesizeStream()`, we forward each WebSocket
+    // chunk to the client as its own `audio` event (with subChunkIndex). This
+    // is what unlocks the real perceptual win: first audio starts playing in
+    // ~600ms instead of ~1600ms because we don't wait for the full sentence
+    // to render before sending bytes to the client.
+    //
+    // Otherwise (or on fallback) we use batch HTTP which emits one chunk per
+    // sentence with subChunkIndex=0, isFinalChunk=true.
+    // Track whether the primary path emitted any audio to the client. Hoisted
+    // above the try/catch so the catch block can branch on it (see double-play
+    // note below).
+    let primaryFirstYielded = false;
     try {
-      const ttsStart = Date.now();
-      const ttsResult = await primaryProvider.synthesize(request);
-      const ttsLatencyMs = Date.now() - ttsStart;
-
-      yield {
-        type: 'audio',
+      const useStreaming = config.ttsStreaming === true;
+      for await (const chunk of this.synthesizeWithProvider(
+        request,
+        primaryProvider,
+        sentence,
         sentenceIndex,
-        text: sentence,
-        audio: ttsResult.audio.toString('base64'),
-        audioFormat: ttsResult.audioFormat,
-        audioDurationMs: ttsResult.durationMs ?? null,
-        ttsLatencyMs,
-      };
-      return true;
-    } catch {
-      // Try fallback providers
+        useStreaming,
+      )) {
+        yield chunk;
+        primaryFirstYielded = true;
+      }
+      return primaryFirstYielded;
+    } catch (err) {
+      // CRITICAL: if the primary already yielded any chunks before failing,
+      // the client has ALREADY queued / played that partial audio. Falling
+      // back to another provider would re-synthesise the FULL sentence and
+      // the client would play it on top — user hears the same sentence
+      // twice (the EL→Sarvam double-play bug). Accept the truncation and
+      // skip the fallback; the user gets a slightly cut-off sentence but
+      // not a duplicate one.
+      if (primaryFirstYielded) {
+        this.logger.warn(
+          `Primary TTS ${primaryProvider.name} mid-stream failure for sentence ${sentenceIndex} after partial audio sent — skipping fallback to avoid double-play. Error: ${err instanceof Error ? err.message : 'unknown'}`,
+        );
+        return true;
+      }
+
+      this.logger.warn(
+        `Primary TTS ${primaryProvider.name} failed for sentence ${sentenceIndex} (streaming=${config.ttsStreaming === true}): ${err instanceof Error ? err.message : 'unknown'} — trying fallback providers`,
+      );
+
+      // Try fallback providers ONLY when nothing was emitted to the client.
+      // ALWAYS use batch HTTP for fallback — if the streaming path failed
+      // on the primary, the goal is "get audio out at all", not "fast".
       const fallbackOrder = ['elevenlabs', 'sarvam'];
       for (const providerName of fallbackOrder) {
         if (providerName === primaryProvider.name) continue;
@@ -423,20 +797,18 @@ export class VoiceService {
           this.logger.warn(
             `Streaming TTS fallback: ${primaryProvider.name} → ${providerName} for sentence ${sentenceIndex}`,
           );
-          const ttsStart = Date.now();
-          const ttsResult = await fallbackProvider.synthesize(request);
-          const ttsLatencyMs = Date.now() - ttsStart;
-
-          yield {
-            type: 'audio',
+          let firstYielded = false;
+          for await (const chunk of this.synthesizeWithProvider(
+            request,
+            fallbackProvider,
+            sentence,
             sentenceIndex,
-            text: sentence,
-            audio: ttsResult.audio.toString('base64'),
-            audioFormat: ttsResult.audioFormat,
-            audioDurationMs: ttsResult.durationMs ?? null,
-            ttsLatencyMs,
-          };
-          return true;
+            false, // batch only for fallback
+          )) {
+            yield chunk;
+            firstYielded = true;
+          }
+          if (firstYielded) return true;
         } catch {
           continue;
         }
@@ -454,6 +826,149 @@ export class VoiceService {
       };
       return false;
     }
+  }
+
+  /**
+   * Synthesise one sentence via either WebSocket streaming (yields multiple
+   * audio chunks as the provider renders) or batch HTTP (yields exactly one
+   * audio chunk). Both modes emit `VoiceAudioChunk`s with the same shape so
+   * downstream code is transport-agnostic.
+   *
+   * Streaming details:
+   *   - Provider yields raw PCM chunks (ElevenLabs pcm_24000, Sarvam wav with
+   *     header stripped). Each chunk carries `audioFormat: 'audio/pcm;
+   *     rate=<N>'` so the client knows the sample rate without inspection.
+   *   - We forward each provider chunk as its own client `audio` event with
+   *     `subChunkIndex` 0..N-1 and `isFinalChunk` true on the last one.
+   *   - The first chunk carries `wsFirstChunkLatencyMs` (the perceptual TTFA);
+   *     the final chunk carries `wsChunkCount` + `wsTotalBytes` (analytics).
+   *   - `ttsLatencyMs` on each chunk = time from request start to THAT chunk.
+   */
+  private async *synthesizeWithProvider(
+    request: TTSRequest,
+    provider: VoiceProvider,
+    sentence: string,
+    sentenceIndex: number,
+    useStreaming: boolean,
+  ): AsyncGenerator<VoiceStreamChunk> {
+    const ttsStart = Date.now();
+
+    // ElevenLabs' WebSocket stream-input endpoint drops connections
+    // mid-stream with close code 1006 (no proper close frame) — a known
+    // instability with open issues against livekit/agents and pipecat. The
+    // result for users is partial / spliced audio: first sentence cut to a
+    // fraction of a word, second sentence cuts in unexpectedly.
+    //
+    // Until ElevenLabs ships a more reliable streaming endpoint (their newer
+    // multi-stream-input is an option later), force EL down the batch HTTP
+    // path even when ttsStreaming is enabled at the agent level. The
+    // outer sentence-level streaming still works (one HTTP call per sentence,
+    // chunks delivered as each sentence completes) — same behaviour as
+    // develop. Only WITHIN-sentence WS streaming is disabled for EL.
+    //
+    // The agent editor UI also hides the ttsStreaming toggle when EL is
+    // selected; this gate is defense-in-depth for agents that already had
+    // the flag enabled before the UI fix lands.
+    //
+    // Sarvam WS is stable and continues to use the streaming path normally.
+    const providerStreamingDisabled = provider.name === 'elevenlabs';
+    const effectiveStreaming = useStreaming && !providerStreamingDisabled;
+
+    if (effectiveStreaming && typeof provider.synthesizeStream === 'function') {
+      // Yield each chunk to the client AS IT ARRIVES — no look-ahead buffering.
+      // Pattern mirrors pipecat's Sarvam TTS implementation (reactive, not
+      // predictive) — see reference-server.pipecat.ai/.../sarvam/tts.html. The
+      // previous look-ahead held chunk N hostage until chunk N+1 arrived to
+      // know which one was "final"; that added ~150-300ms to the perceived
+      // time-to-first-audio for nothing. Clients don't actually need
+      // `isFinalChunk` to play audio — they consume each chunk independently
+      // — so we emit a separate synthetic "audio-final" marker after the loop
+      // ends. Per-sentence WS totals also land on that marker chunk.
+      let firstChunkLatencyMs: number | null = null;
+      let chunkCount = 0;
+      let totalBytes = 0;
+      // Track the provider's audioFormat from the last chunk so the synthetic
+      // final-marker can mirror it. Hard-coding a sample rate here is a footgun
+      // — providers differ (Sarvam bulbul:v3 = 24000, ElevenLabs PCM = 24000,
+      // Sarvam bulbul:v2 = 22050).
+      let lastAudioFormat = 'audio/pcm; rate=24000';
+
+      try {
+        for await (const chunk of provider.synthesizeStream(request)) {
+          if (firstChunkLatencyMs === null) {
+            firstChunkLatencyMs = chunk.latencyMs;
+          }
+          totalBytes += chunk.audio.length;
+          lastAudioFormat = chunk.audioFormat;
+
+          const out: VoiceStreamChunk = {
+            type: 'audio',
+            sentenceIndex,
+            subChunkIndex: chunkCount,
+            // We don't know if this is the last chunk yet — only the provider
+            // does. We emit a separate final-marker chunk after the stream
+            // ends to settle per-sentence totals.
+            isFinalChunk: false,
+            text: chunkCount === 0 ? sentence : '',
+            audio: chunk.audio.toString('base64'),
+            audioFormat: chunk.audioFormat,
+            audioDurationMs: null,
+            ttsLatencyMs: chunk.latencyMs,
+            ttsProtocol: 'websocket',
+            ...(chunkCount === 0
+              ? { wsFirstChunkLatencyMs: firstChunkLatencyMs }
+              : {}),
+          };
+          chunkCount += 1;
+          yield out;
+        }
+
+        // Final marker — empty audio, signals "this sentence is done" so the
+        // outer voice controller can stamp per-sentence aggregate metrics
+        // (totalSentences increments, wsChunkCount + wsTotalBytes attach).
+        // Empty-audio chunks are a no-op on the client's playback queue.
+        yield {
+          type: 'audio',
+          sentenceIndex,
+          subChunkIndex: chunkCount,
+          isFinalChunk: true,
+          text: '',
+          audio: '',
+          audioFormat: lastAudioFormat,
+          audioDurationMs: null,
+          ttsLatencyMs: Date.now() - ttsStart,
+          ttsProtocol: 'websocket',
+          wsChunkCount: chunkCount,
+          wsTotalBytes: totalBytes,
+        };
+      } catch (err) {
+        // Re-throw so the outer try/catch falls back to batch on another
+        // provider (only if no chunks were yielded — see the double-play
+        // guard in synthesizeSentenceWithFallback). Log first so ops can
+        // spot WS failures.
+        this.logger.warn(
+          `WS synthesizeStream on ${provider.name} threw after ${chunkCount} chunks: ${err instanceof Error ? err.message : 'unknown'}`,
+        );
+        throw err;
+      }
+      return;
+    }
+
+    // Batch HTTP path (legacy + fallback). Single chunk per sentence.
+    const ttsResult = await provider.synthesize(request);
+    const ttsLatencyMs = Date.now() - ttsStart;
+    yield {
+      type: 'audio',
+      sentenceIndex,
+      subChunkIndex: 0,
+      isFinalChunk: true,
+      text: sentence,
+      audio: ttsResult.audio.toString('base64'),
+      audioFormat: ttsResult.audioFormat,
+      audioDurationMs: ttsResult.durationMs ?? null,
+      ttsLatencyMs,
+      ttsProtocol: 'http',
+    };
   }
 
   private resolveSTTProvider(

@@ -37,11 +37,17 @@ describe('ConversationClassifierService', () => {
     keywords: string[];
     languages: string[];
     messageCount: number;
+    /** How long ago this session was created, in hours. Default 24h (well
+     *  past the default lifetime of 6h) so the per-row expiry check passes. */
+    createdHoursAgo: number;
+    sessionLifetimeHours: number;
   }> = {}) {
     const id = overrides.id ?? 's1';
     const keywords = overrides.keywords ?? ['Pricing', 'Support'];
     const languages = overrides.languages ?? ['en', 'hi'];
     const count = overrides.messageCount ?? 5;
+    const createdHoursAgo = overrides.createdHoursAgo ?? 24;
+    const sessionLifetimeHours = overrides.sessionLifetimeHours ?? 6;
     const messages = Array.from({ length: count }, (_, i) => ({
       role: i % 2 === 0 ? 'USER' : 'ASSISTANT',
       content: `message ${i}`,
@@ -49,7 +55,12 @@ describe('ConversationClassifierService', () => {
     }));
     return {
       id,
-      agent: { categoryKeywords: keywords, supportedLanguages: languages },
+      createdAt: new Date(Date.now() - createdHoursAgo * 60 * 60 * 1000),
+      agent: {
+        categoryKeywords: keywords,
+        supportedLanguages: languages,
+        sessionLifetimeHours,
+      },
       messages,
     };
   }
@@ -104,16 +115,24 @@ describe('ConversationClassifierService', () => {
       expect(arg.orderBy).toEqual({ lastMessageAt: 'asc' });
     });
 
-    it('uses a quiet-period cutoff of 6 hours (matches the 6h session-inactivity window)', async () => {
+    it('uses a 1h pre-filter cutoff on lastMessageAt (precise per-agent expiry happens in the loop)', async () => {
       const before = Date.now();
       await service.runBatch();
       const after = Date.now();
       const arg = mockPrisma.chatSession.findMany.mock.calls[0][0];
       const cutoffMs = (arg.where.lastMessageAt.lte as Date).getTime();
-      const sixHoursMs = 6 * 60 * 60 * 1000;
-      // Cutoff is 6 hours BEFORE the call timestamp, allowing for runtime drift.
-      expect(cutoffMs).toBeGreaterThanOrEqual(before - sixHoursMs - 100);
-      expect(cutoffMs).toBeLessThanOrEqual(after - sixHoursMs + 100);
+      const oneHourMs = 60 * 60 * 1000;
+      // Loose pre-filter: any session quiet for 1h+ is a candidate. The
+      // actual lifetime gate is per-agent and lives in the for-loop.
+      expect(cutoffMs).toBeGreaterThanOrEqual(before - oneHourMs - 100);
+      expect(cutoffMs).toBeLessThanOrEqual(after - oneHourMs + 100);
+    });
+
+    it('also selects createdAt + agent.sessionLifetimeHours for the per-row expiry check', async () => {
+      await service.runBatch();
+      const arg = mockPrisma.chatSession.findMany.mock.calls[0][0];
+      expect(arg.select.createdAt).toBe(true);
+      expect(arg.select.agent.select.sessionLifetimeHours).toBe(true);
     });
   });
 
@@ -207,6 +226,25 @@ describe('ConversationClassifierService', () => {
 
       expect(mockAi.categorize).toHaveBeenCalledTimes(1);
       expect(mockAi.detectLanguage).toHaveBeenCalledTimes(1);
+    });
+
+    it('skips sessions that haven\'t passed their per-agent lifetime yet', async () => {
+      // Quiet for over an hour (passes the loose pre-filter) but only 2h old
+      // with a 24h lifetime — must NOT be processed this run.
+      mockPrisma.chatSession.findMany.mockResolvedValue([
+        makeSession({
+          id: 'still-live',
+          createdHoursAgo: 2,
+          sessionLifetimeHours: 24,
+        }),
+      ]);
+
+      const processed = await service.runBatch();
+
+      expect(processed).toBe(0);
+      expect(mockPrisma.chatSession.update).not.toHaveBeenCalled();
+      expect(mockAi.categorize).not.toHaveBeenCalled();
+      expect(mockAi.detectLanguage).not.toHaveBeenCalled();
     });
 
     it('processes multiple sessions in a single batch', async () => {

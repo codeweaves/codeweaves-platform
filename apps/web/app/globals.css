@@ -102,15 +102,37 @@
   }
 }
 
-/* Agent editor scrollbar — space always reserved, thumb fades in while scrolling */
+/* Agent editor scrollbar — stable gutter + thumb that fades on scroll/hover.
+ *
+ * `scrollbar-gutter: stable` reserves the scrollbar column permanently, so the
+ * form content has the SAME width whether the thumb is visible or not —
+ * eliminates the left/right shift that was jarring with plain `overflow: auto`.
+ * (The previous `overflow: overlay` approach got deprecated in modern Chromium;
+ * `scrollbar-gutter: stable` is the canonical replacement and is well-supported
+ * in Chrome 94+ / Edge 94+ / Firefox 97+ / Safari 16+.)
+ *
+ * Visual behaviour:
+ *   - Thumb is fully transparent by default (track always present but empty).
+ *   - Fades to a soft pill while actively scrolling (toggled by
+ *     `handleScrollBarVisibility` → `.scrolling`) OR on panel hover.
+ *   - Darkens further on thumb hover so it's grabbable.
+ *
+ * Firefox quirk: `scrollbar-gutter: stable` works alongside `scrollbar-color`
+ * but not `scrollbar-width: none` (which removes the gutter). Keep both colour
+ * channels transparent when idle to simulate the same "invisible scrollbar"
+ * effect as WebKit.
+ */
 .scrollarea {
-  scrollbar-width: thin;
-  scrollbar-color: transparent transparent;
+  overflow-y: auto;
   scrollbar-gutter: stable;
+  scrollbar-width: thin; /* Firefox */
+  scrollbar-color: transparent transparent; /* Firefox: idle state */
 }
-.scrollarea.scrolling {
-  scrollbar-color: rgba(0, 0, 0, 0.35) transparent;
+.scrollarea.scrolling,
+.scrollarea:hover {
+  scrollbar-color: rgba(0, 0, 0, 0.28) transparent; /* Firefox: active state */
 }
+
 .scrollarea::-webkit-scrollbar {
   width: 8px;
 }
@@ -119,11 +141,16 @@
 }
 .scrollarea::-webkit-scrollbar-thumb {
   background-color: transparent;
-  border-radius: 8px;
-  transition: background-color 0.2s;
+  border-radius: 9999px;
+  transition: background-color 0.25s ease;
 }
-.scrollarea.scrolling::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.35);
+.scrollarea.scrolling::-webkit-scrollbar-thumb,
+.scrollarea:hover::-webkit-scrollbar-thumb {
+  background-color: rgba(0, 0, 0, 0.28);
+}
+.scrollarea.scrolling::-webkit-scrollbar-thumb:hover,
+.scrollarea:hover::-webkit-scrollbar-thumb:hover {
+  background-color: rgba(0, 0, 0, 0.45);
 }
 
 /* Chat body — hide scrollbar entirely (content still scrolls via wheel/trackpad/keyboard) */

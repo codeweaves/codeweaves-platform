@@ -1,7 +1,10 @@
 {
   "name": "klivo-platform",
   "private": true,
-  "workspaces": ["apps/*", "packages/*"],
+  "workspaces": [
+    "apps/*",
+    "packages/*"
+  ],
   "scripts": {
     "build": "turbo run build",
     "dev": "turbo run dev",
@@ -11,11 +14,13 @@
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
     "test:cov": "turbo run test:cov",
-    "seed:analytics": "turbo run seed:analytics"
+    "seed:analytics": "turbo run seed:analytics",
+    "doctor": "npx react-doctor@latest"
   },
   "devDependencies": {
     "eslint": "^9.39.2",
     "prettier": "^3.7.4",
+    "react-doctor": "^0.2.15",
     "turbo": "^2.6.1",
     "typescript": "5.9.2"
   },

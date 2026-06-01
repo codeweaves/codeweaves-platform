@@ -4,9 +4,11 @@ import { AgentsService } from './agents.service';
 import { HmacService } from '../common/security/hmac.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { TracerService } from '../common/tracer/tracer.service';
+import { DirectChatService } from '../modules/ai/direct-chat.service';
 import type { SendMessageDto } from '@repo/validation';
+import { resolveRoutingMode } from '@repo/validation';
 import type { ChatSession, Prisma } from '@prisma/client';
-import type { SimulatedStreamingMetadata } from './chat-metadata.interface';
+import type { ChatMessageMetadata } from './chat-metadata.interface';
 import { randomUUID } from 'crypto';
 
 const N8N_TIMEOUT_MS = 10_000;
@@ -22,13 +24,14 @@ export class ChatService {
     private readonly hmacService: HmacService,
     private readonly cryptoService: CryptoService,
     private readonly tracerService: TracerService,
+    private readonly directChatService: DirectChatService,
   ) {}
 
   private buildMetadata(
     backendReceivedAt: Date,
     backendRespondedAt: Date,
     n8nResponse: { n8nReceivedAt?: string; agentRepliedAt?: string },
-  ): SimulatedStreamingMetadata {
+  ): ChatMessageMetadata {
     return {
       streamingMode: 'simulated',
       backendReceivedAt: backendReceivedAt.toISOString(),
@@ -36,6 +39,13 @@ export class ChatService {
       agentRepliedAt: n8nResponse.agentRepliedAt ?? null,
       backendRespondedAt: backendRespondedAt.toISOString(),
       responseLatencyMs: backendRespondedAt.getTime() - backendReceivedAt.getTime(),
+      // Streaming fields are null on the simulated-sync path — analytics can
+      // `COALESCE(timeToFirstToken, responseLatencyMs)` if it wants a unified
+      // "time-to-usable-output" metric across modes.
+      timeToFirstToken: null,
+      timeToLastToken: null,
+      totalChunks: null,
+      streamDurationMs: null,
     };
   }
 
@@ -48,7 +58,7 @@ export class ChatService {
         deletedAt: null,
         status: 'ACTIVE',
       },
-      select: { id: true, hmacEnabled: true },
+      select: { id: true, hmacEnabled: true, aiConfig: true },
     });
     if (!agent) {
       throw new NotFoundException('Agent not found or inactive');
@@ -62,10 +72,9 @@ export class ChatService {
   // Reasoning is in the conversations PRD / classifier comments: bounded
   // lifetime gives cleaner analytics and a deterministic moment for the
   // classifier to run. The web widget separately resets sessionId on page
-  // reload / tab close (handled in apps/widget session-manager); this 6h
-  // backstop catches the long-running-tab case and is the ONLY rule for
-  // channels with no page concept (WhatsApp).
-  private static readonly SESSION_LIFETIME_MS = 6 * 60 * 60 * 1000;
+  // reload / tab close (handled in apps/widget session-manager); the
+  // per-agent `sessionLifetimeHours` catches the long-running-tab case and
+  // is the ONLY rule for channels with no page concept (WhatsApp).
 
   async resolveOrCreateSession(
     agentId: string,
@@ -76,6 +85,10 @@ export class ChatService {
     if (sessionId) {
       const existing = await this.prisma.chatSession.findFirst({
         where: { sessionId, agentId, status: 'ACTIVE' },
+        // Pull the agent's per-row lifetime alongside the session so the
+        // expiry check uses the agent's configured value (6-24h range,
+        // default 6h) rather than a hardcoded constant.
+        include: { agent: { select: { sessionLifetimeHours: true } } },
       });
       if (!existing) {
         throw new NotFoundException('Session not found or does not belong to this agent');
@@ -87,8 +100,9 @@ export class ChatService {
       // Old row gets stamped EXPIRED (the dashboard + classifier rely on it
       // to tell live conversations apart from closed ones); the next call
       // gets a brand-new sessionId in the response and rotates client-side.
+      const lifetimeMs = existing.agent.sessionLifetimeHours * 60 * 60 * 1000;
       const isExpired =
-        Date.now() - existing.createdAt.getTime() > ChatService.SESSION_LIFETIME_MS;
+        Date.now() - existing.createdAt.getTime() > lifetimeMs;
       if (isExpired) {
         await this.prisma.chatSession.update({
           where: { id: existing.id },
@@ -108,14 +122,27 @@ export class ChatService {
       // stored value is a loopback address (::1, 127.0.0.1) — this happens
       // when the first request arrived before the widget's public-IP lookup
       // resolved, so req.ip fell back to localhost.
+      //
+      // Fire-and-forget: the chat hot-path doesn't read session.visitorId, so
+      // we don't need to await the write. The UPDATE lands ~300-500ms after
+      // the response is already streaming; analytics consumers see the fresh
+      // value on the next query. In local testing where req.ip is always
+      // loopback, this was triggering an extra serial Prisma write on EVERY
+      // turn — the dominant remaining controller pre-stream cost.
       const isLoopback = existing.visitorId === '::1'
         || existing.visitorId === '127.0.0.1'
         || existing.visitorId?.startsWith('::ffff:127.');
       if (visitorId && (!existing.visitorId || isLoopback)) {
-        return this.prisma.chatSession.update({
-          where: { id: existing.id },
-          data: { visitorId },
-        });
+        void this.prisma.chatSession
+          .update({
+            where: { id: existing.id },
+            data: { visitorId },
+          })
+          .catch((err) => {
+            this.logger.warn(
+              `visitorId backfill failed (session=${existing.id}): ${err instanceof Error ? err.message : String(err)}`,
+            );
+          });
       }
       return existing;
     }
@@ -142,19 +169,45 @@ export class ChatService {
 
   /**
    * Save a user message to the database.
+   *
+   * Accepts an optional explicit `id` so streaming callers can pre-generate
+   * the UUID and fire-and-forget the persist while still tracking the row for
+   * later operations (e.g. orphan cleanup). Mirrors `saveAssistantMessage`.
    */
-  async saveUserMessage(chatSessionId: string, content: string) {
+  async saveUserMessage(chatSessionId: string, content: string, id?: string) {
     return this.prisma.chatMessage.create({
-      data: { chatSessionId, role: 'USER', content },
+      data: {
+        ...(id ? { id } : {}),
+        chatSessionId,
+        role: 'USER',
+        content,
+      },
     });
   }
 
   /**
    * Save an assistant message with metadata to the database.
+   *
+   * Accepts an optional explicit `id` so the caller can pre-generate the UUID
+   * and return it to the client (in the SSE `done` event) BEFORE the DB write
+   * completes. This lets the public chat endpoint fire-and-forget the persist
+   * instead of holding the response open for the ~300-500ms Supabase round
+   * trip. If `id` isn't supplied, Prisma generates one as before.
    */
-  async saveAssistantMessage(chatSessionId: string, content: string, metadata: Prisma.InputJsonValue) {
+  async saveAssistantMessage(
+    chatSessionId: string,
+    content: string,
+    metadata: Prisma.InputJsonValue,
+    id?: string,
+  ) {
     return this.prisma.chatMessage.create({
-      data: { chatSessionId, role: 'ASSISTANT', content, metadata },
+      data: {
+        ...(id ? { id } : {}),
+        chatSessionId,
+        role: 'ASSISTANT',
+        content,
+        metadata,
+      },
     });
   }
 
@@ -189,12 +242,109 @@ export class ChatService {
   }
 
   /**
-   * Send a message to an agent and get an AI response via n8n webhook.
+   * Send a message to an agent and get an AI response. Routes to either the
+   * n8n webhook or our native DirectChatService depending on `aiConfig.routingMode`.
+   *
+   * Both paths persist messages with the unified `ChatMessageMetadata` shape so
+   * analytics (`responseLatencyMs`, `timeToFirstToken`, `streamingMode`) work
+   * identically regardless of which engine served the reply.
    */
   async sendMessage(dto: SendMessageDto, visitorIp?: string) {
-    const backendReceivedAt = new Date();
-
     const agent = await this.resolveAgent(dto.agentId);
+    const routingMode = resolveRoutingMode(agent.aiConfig);
+
+    if (routingMode === 'direct') {
+      return this.sendDirectMessage(dto, agent.id, visitorIp);
+    }
+    return this.sendN8nMessage(dto, agent, visitorIp);
+  }
+
+  /**
+   * Direct-mode sync send. Delegates to DirectChatService.send() and persists
+   * the resulting message with metadata that mirrors the n8n shape plus our
+   * richer native fields (cachedInputTokens, traceId, cost, etc.).
+   */
+  private async sendDirectMessage(dto: SendMessageDto, agentId: string, visitorIp?: string) {
+    const backendReceivedAt = new Date();
+    // Need the full Agent entity (with systemPrompt + organizationId) for
+    // the orchestrator — `resolveAgent` only returns a stripped projection.
+    const fullAgent = await this.prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
+    const session = await this.resolveOrCreateSession(agentId, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
+
+    const result = await this.directChatService.send({
+      agent: fullAgent,
+      chatSessionId: session.id,
+      externalSessionId: session.sessionId,
+      newUserMessage: dto.chatInput,
+      recentHistory: dto.recentHistory,
+      feature: 'chat',
+    });
+    const backendRespondedAt = new Date();
+
+    const metadata: ChatMessageMetadata = {
+      streamingMode: 'direct',
+      backendReceivedAt: backendReceivedAt.toISOString(),
+      backendRespondedAt: backendRespondedAt.toISOString(),
+      responseLatencyMs: backendRespondedAt.getTime() - backendReceivedAt.getTime(),
+      // Non-streaming direct call: no per-token timing available, but we still
+      // populate the shape so downstream queries can `COALESCE` consistently.
+      timeToFirstToken: null,
+      timeToLastToken: null,
+      totalChunks: null,
+      streamDurationMs: null,
+      // n8n-only fields intentionally omitted (undefined → absent in JSONB).
+      // Native direct-mode fields:
+      traceId: result.traceId,
+      model: result.model,
+      cost: result.cost,
+      inputTokens: result.usage.inputTokens,
+      outputTokens: result.usage.outputTokens,
+      totalTokens: result.usage.totalTokens,
+      cachedInputTokens: result.usage.cachedInputTokens ?? null,
+      reasoningTokens: result.usage.reasoningTokens ?? null,
+      finishReason: result.finishReason,
+      historyCount: result.historyCount,
+      historyTruncated: result.historyTruncated,
+    };
+
+    const [userMessage, assistantMessage] = await this.prisma.$transaction([
+      this.prisma.chatMessage.create({
+        data: { chatSessionId: session.id, role: 'USER', content: dto.chatInput },
+      }),
+      this.prisma.chatMessage.create({
+        data: {
+          chatSessionId: session.id,
+          role: 'ASSISTANT',
+          content: result.text,
+          metadata,
+        },
+      }),
+      this.prisma.chatSession.update({
+        where: { id: session.id },
+        data: { lastMessageAt: backendRespondedAt },
+      }),
+    ]);
+
+    return {
+      sessionId: session.sessionId,
+      messageId: userMessage.id,
+      reply: result.text,
+      assistantMessageId: assistantMessage.id,
+      metadata,
+    };
+  }
+
+  /**
+   * Legacy n8n-mode sync send. Original behaviour — calls the configured
+   * webhook, HMAC-verifies if enabled, persists with simulated-streaming
+   * metadata. Will be removed once n8n is retired.
+   */
+  private async sendN8nMessage(
+    dto: SendMessageDto,
+    agent: { id: string; hmacEnabled: boolean },
+    visitorIp?: string,
+  ) {
+    const backendReceivedAt = new Date();
     const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
 
     // Call n8n webhook BEFORE storing messages to avoid orphaned user messages on failure

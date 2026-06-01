@@ -6,7 +6,7 @@
  * callbacks for progressive message rendering.
  */
 
-import { streamMessage } from './api-client';
+import { streamMessage, type ChatHistoryItem } from './api-client';
 import { WidgetApiError } from './api-errors';
 import { updateSession } from './session-manager';
 import { parseSSEStream } from '../utils/sse-parser';
@@ -46,6 +46,7 @@ export function startStream(
   agentId: string,
   chatInput: string,
   callbacks: StreamCallbacks,
+  recentHistory?: ChatHistoryItem[],
 ): StreamHandle {
   const abortController = new AbortController();
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
@@ -80,6 +81,7 @@ export function startStream(
         undefined,
         undefined,
         abortController.signal,
+        recentHistory,
       );
 
       resetInactivityTimeout();
@@ -119,6 +121,14 @@ export function startStream(
 
   function handleEvent(event: SSEEvent): void {
     switch (event.type) {
+      case 'session':
+        // Early session event arrives BEFORE the LLM responds (server flushes
+        // headers + writes this after resolving the session). Persist the
+        // session ID right away so the next turn's recentHistory and sessionId
+        // round-trips already know it. This is also what the dev test page
+        // uses for its "Session: …" badge — clean acknowledge before content.
+        updateSession(agentId, event.sessionId);
+        break;
       case 'chunk':
         // P7: Skip empty content chunks to avoid creating empty bubbles
         if (!event.content) break;

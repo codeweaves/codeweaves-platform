@@ -7,7 +7,7 @@ import { applyTheme, setupPreviewMode, teardownPreviewMode } from '../services/t
 import { revealWidget } from '../shadow-dom';
 import { isDomainAllowed } from '../utils/domain-validator';
 import { debug, warn } from '../utils/debug';
-import { initApiClient } from '../services/api-client';
+import { initApiClient, warmupAgent } from '../services/api-client';
 import { initVoiceClient } from '../services/voice-client';
 import { initSession, getSessionId } from '../services/session-manager';
 import {
@@ -73,13 +73,15 @@ function extractBubbleConfig(theme: Record<string, unknown> | null): {
   text: string;
   delayMs: number;
 } {
-  if (!theme) return { enabled: false, text: '', delayMs: 3000 };
+  // Fall back to the same defaults the agent-editor preview uses
+  // (packages/validation → defaultWidgetTheme.bubble) so an agent that never
+  // saved a theme still shows the default prompt, exactly like the preview.
+  const bubble = (theme?.bubble ?? {}) as Record<string, unknown>;
 
-  const bubble = theme.bubble as Record<string, unknown> | undefined;
-  if (!bubble) return { enabled: false, text: '', delayMs: 3000 };
-
-  const text = typeof bubble.text === 'string' ? bubble.text.trim() : '';
-  const enabled = bubble.enabled === true && text.length > 0;
+  const rawText = typeof bubble.text === 'string' ? bubble.text.trim() : '';
+  const text = rawText || 'Hi there! How can I help?';
+  // Default to enabled; only an explicit `false` turns the bubble off.
+  const enabled = bubble.enabled !== false && text.length > 0;
   const delayMs = typeof bubble.delayMs === 'number' && bubble.delayMs >= 0 ? bubble.delayMs : 3000;
 
   return { enabled, text, delayMs };
@@ -150,6 +152,12 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
           initApiClient(apiBaseUrl);
           initVoiceClient(apiBaseUrl);
           initSession(agentId);
+
+          // Fire-and-forget warmup: pre-populates OpenAI's prompt cache for
+          // this agent so the user's first real message lands on a warm cache
+          // (~700-900ms LLM TTFT vs ~1500-2500ms cold). Combined with the
+          // server's 24h cache retention, this benefits every widget load.
+          warmupAgent(agentId);
 
           // Initialize store persistence and restore messages (Story 5-21)
           initPersistence(agentId);

@@ -9,7 +9,12 @@ import {
   type ReactNode,
 } from 'react';
 import type { Agent } from '@/hooks/use-agents';
-import { type WidgetTheme, defaultWidgetTheme, type VoiceConfigDto } from '@repo/validation';
+import {
+  type WidgetTheme,
+  defaultWidgetTheme,
+  type VoiceConfigDto,
+  type AgentAiConfigDto,
+} from '@repo/validation';
 
 export interface AgentFormData {
   name: string;
@@ -21,6 +26,25 @@ export interface AgentFormData {
   voiceEnabled: boolean;
   voiceConfig: VoiceConfigDto | null;
   /**
+   * AI orchestration config — routingMode (n8n/direct), model, temperature,
+   * etc. Seeded from `agent.aiConfig` OR from Zod defaults if the agent has
+   * never been configured. Always a full object in-memory so sections can
+   * read fields without null-checking every access; only DIRTY fields get
+   * sent on save.
+   */
+  aiConfig: AgentAiConfigDto;
+  /**
+   * Knowledge Base content (static reference text prepended to the system
+   * prompt on every direct-mode turn). Lives in the form state so the single
+   * main "Save Changes" button commits it alongside the rest — see
+   * `handleSave` in agent-editor-layout.tsx. Empty string means no knowledge
+   * attached; the save flow DELETEs a previously-stored record when the
+   * content transitions from non-empty to empty.
+   */
+  knowledgeContent: string;
+  knowledgeSourceFileName: string | null;
+  knowledgeSourceMimeType: string | null;
+  /**
    * Labels used by the background conversation classifier (e.g. ["Pricing",
    * "Support"]). Empty array disables categorisation for this agent.
    */
@@ -30,6 +54,12 @@ export interface AgentFormData {
    * classifier should detect. Empty array disables language detection.
    */
   supportedLanguages: string[];
+  /**
+   * Max chat-session lifetime from createdAt, in hours. Range 6-24,
+   * default 6. After this elapses the backend rotates the visitor to a
+   * fresh session on their next message.
+   */
+  sessionLifetimeHours: number;
 }
 
 interface AgentEditorContextType {
@@ -262,9 +292,42 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
   };
 }
 
+/**
+ * AI config defaults — mirror the Zod schema defaults in `agentAiConfigSchema`
+ * but declared here so the frontend doesn't pull in `zod`'s parse machinery
+ * just for defaults. Keep these in sync with packages/validation when Zod
+ * defaults change.
+ */
+const DEFAULT_AI_CONFIG: import('@repo/validation').AgentAiConfigDto = {
+  routingMode: 'n8n',
+  temperature: 0.7,
+  maxTokens: 4096,
+  maxContextMessages: 20,
+  maxInputTokens: 8000,
+  contextStrategy: 'sliding-window',
+  ragEnabled: true,
+  ragTopK: 5,
+  ragSimilarityThreshold: 0.7,
+  ragRerankEnabled: true,
+  ragContextualChunking: false,
+  cachingEnabled: true,
+};
+
+/**
+ * Shape of the `AgentKnowledge` row when returned from GET /agents/:id/knowledge.
+ * Kept minimal (only the fields the form needs) so this file stays decoupled
+ * from the full use-agent-knowledge hook's type.
+ */
+export interface InitialAgentKnowledge {
+  content: string;
+  sourceFileName: string | null;
+  sourceMimeType: string | null;
+}
+
 export function agentToFormData(
   agent: Agent,
   webhookUrl = '',
+  initialKnowledge: InitialAgentKnowledge | null = null,
 ): AgentFormData {
   return {
     name: agent.name,
@@ -274,8 +337,19 @@ export function agentToFormData(
     webhookUrl,
     voiceEnabled: agent.voiceEnabled ?? false,
     voiceConfig: agent.voiceConfig ?? null,
+    // Merge stored aiConfig over defaults so every field has a value —
+    // sections don't need to null-check each read. On save, the backend's
+    // partial-update Zod schema accepts whichever fields we send.
+    aiConfig: { ...DEFAULT_AI_CONFIG, ...(agent.aiConfig ?? {}) },
+    // Knowledge base: empty string when no record exists. Save logic in the
+    // layout compares this against `savedFormData` to decide whether to
+    // PUT /knowledge, DELETE /knowledge, or skip.
+    knowledgeContent: initialKnowledge?.content ?? '',
+    knowledgeSourceFileName: initialKnowledge?.sourceFileName ?? null,
+    knowledgeSourceMimeType: initialKnowledge?.sourceMimeType ?? null,
     categoryKeywords: agent.categoryKeywords ?? [],
     supportedLanguages: agent.supportedLanguages ?? [],
+    sessionLifetimeHours: agent.sessionLifetimeHours ?? 6,
   };
 }
 

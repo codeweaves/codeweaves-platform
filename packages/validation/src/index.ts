@@ -3,6 +3,7 @@
  * Shared Zod schemas for validation across frontend and backend
  */
 import { z } from 'zod';
+import { agentAiConfigUpdateSchema } from './agent-ai-config.js';
 import { voiceConfigSchema } from './voice.js';
 
 // Re-export zod for convenience
@@ -22,6 +23,12 @@ export * from './conversations.js';
 
 // Re-export voice schemas and types
 export * from './voice.js';
+
+// Re-export agent AI configuration schemas and types
+export * from './agent-ai-config.js';
+
+// Re-export agent knowledge schemas and types
+export * from './agent-knowledge.js';
 
 // ============================================
 // Common Schemas
@@ -222,6 +229,17 @@ export const supportedLanguagesSchema = z
   )
   .default([]);
 
+// Maximum age of a single chat session (from createdAt) before the backend
+// rotates the visitor to a new sessionId on their next message. Bounded to
+// 6-24 hours: under 6h causes too much session churn for analytics, over 24h
+// makes a single "conversation" span multiple distinct visits and degrades
+// the category/language buckets.
+export const sessionLifetimeHoursSchema = z
+  .number()
+  .int()
+  .min(6, 'Session lifetime must be at least 6 hours')
+  .max(24, 'Session lifetime must be at most 24 hours');
+
 export const updateAgentSchema = z
   .object({
     name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters').optional(),
@@ -230,9 +248,14 @@ export const updateAgentSchema = z
     voiceEnabled: z.boolean().optional(),
     voiceConfig: voiceConfigSchema.nullable().optional(),
     welcomeMessage: z.string().max(500).nullable().optional(),
-    systemPrompt: z.string().max(10000).nullable().optional(),
+    // 50K chars (~12K tokens) accommodates most persona + inline KB cases.
+    // For larger knowledge bases, use AgentKnowledge (supports up to 500KB /
+    // ~125K tokens) and let the chat pipeline append it at assembly time.
+    systemPrompt: z.string().max(50000).nullable().optional(),
+    aiConfig: agentAiConfigUpdateSchema.nullable().optional(),
     categoryKeywords: categoryKeywordsSchema.optional(),
     supportedLanguages: supportedLanguagesSchema.optional(),
+    sessionLifetimeHours: sessionLifetimeHoursSchema.optional(),
   })
   .refine(
     (data) =>
@@ -243,8 +266,10 @@ export const updateAgentSchema = z
       data.voiceConfig !== undefined ||
       data.welcomeMessage !== undefined ||
       data.systemPrompt !== undefined ||
+      data.aiConfig !== undefined ||
       data.categoryKeywords !== undefined ||
-      data.supportedLanguages !== undefined,
+      data.supportedLanguages !== undefined ||
+      data.sessionLifetimeHours !== undefined,
     { message: 'At least one field must be provided' },
   );
 

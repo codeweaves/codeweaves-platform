@@ -6,6 +6,7 @@ import { AgentsService } from '../../../src/services/agents.service';
 import { HmacService } from '../../../src/common/security/hmac.service';
 import { CryptoService } from '../../../src/common/crypto/crypto.service';
 import { TracerService } from '../../../src/common/tracer/tracer.service';
+import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -46,6 +47,11 @@ describe('ChatService', () => {
     logAuditEvent: jest.fn(),
   };
 
+  const mockDirectChatService = {
+    send: jest.fn(),
+    stream: jest.fn(),
+  };
+
   const MOCK_AGENT_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
   const MOCK_SESSION_ID = 'session-uuid-1234';
   const MOCK_SESSION_DB_ID = 'db-session-uuid-1234';
@@ -62,6 +68,10 @@ describe('ChatService', () => {
     createdAt: new Date(),
     updatedAt: new Date(),
     lastMessageAt: null,
+    // Included for `resolveOrCreateSession`'s per-agent lifetime check.
+    // 6h is the default; createdAt being fresh keeps these sessions
+    // well inside the lifetime cap during tests.
+    agent: { sessionLifetimeHours: 6 },
   };
 
   const mockN8nResponse = {
@@ -99,6 +109,7 @@ describe('ChatService', () => {
         { provide: HmacService, useValue: mockHmacService },
         { provide: CryptoService, useValue: mockCryptoService },
         { provide: TracerService, useValue: mockTracerService },
+        { provide: DirectChatService, useValue: mockDirectChatService },
       ],
     }).compile();
 
@@ -237,6 +248,9 @@ describe('ChatService', () => {
             agentId: MOCK_AGENT_ID,
             status: 'ACTIVE',
           },
+          // The lookup pulls the agent's per-row lifetime so the expiry
+          // check uses the configured value, not a hardcoded constant.
+          include: { agent: { select: { sessionLifetimeHours: true } } },
         });
         expect(mockPrismaService.chatSession.create).not.toHaveBeenCalled();
         expect(result.sessionId).toBe(MOCK_SESSION_ID);
@@ -324,6 +338,24 @@ describe('ChatService', () => {
         });
         expect(mockPrismaService.chatSession.create).toHaveBeenCalled();
       });
+
+      it('respects per-agent sessionLifetimeHours: 7h-old session keeps living when agent allows 24h', async () => {
+        // Same age as the rotation test (7h ago), but this agent is
+        // configured for a 24h lifetime — must NOT rotate.
+        const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000);
+        mockPrismaService.chatSession.findFirst.mockResolvedValue({
+          ...mockSession,
+          createdAt: sevenHoursAgo,
+          agent: { sessionLifetimeHours: 24 },
+        });
+
+        await service.sendMessage(dtoWithSession);
+
+        expect(mockPrismaService.chatSession.update).not.toHaveBeenCalledWith(
+          expect.objectContaining({ data: { status: 'EXPIRED' } }),
+        );
+        expect(mockPrismaService.chatSession.create).not.toHaveBeenCalled();
+      });
     });
 
     describe('agent not found / inactive', () => {
@@ -341,7 +373,7 @@ describe('ChatService', () => {
 
         expect(mockPrismaService.agent.findFirst).toHaveBeenCalledWith({
           where: { id: MOCK_AGENT_ID, deletedAt: null, status: 'ACTIVE' },
-          select: { id: true, hmacEnabled: true },
+          select: { id: true, hmacEnabled: true, aiConfig: true },
         });
       });
     });
@@ -623,6 +655,7 @@ describe('ChatService', () => {
 
       expect(mockPrismaService.chatSession.findFirst).toHaveBeenCalledWith({
         where: { sessionId: MOCK_SESSION_ID, agentId: MOCK_AGENT_ID, status: 'ACTIVE' },
+        include: { agent: { select: { sessionLifetimeHours: true } } },
       });
       expect(mockPrismaService.chatSession.create).not.toHaveBeenCalled();
     });

@@ -191,6 +191,18 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
       }
     }
     fetchAgent();
+
+    // Fire-and-forget warmup. Pre-populates OpenAI's prompt cache for this
+    // agent so the user's first real message lands on a warm cache
+    // (~700-900ms LLM TTFT vs ~1500-2500ms cold). Mirrors the widget's
+    // warmupAgent() in apps/widget. Combined with the server's 24h prompt
+    // cache retention, this benefits every demo visitor's first turn.
+    void fetch(apiUrl('/public/chat/warmup'), {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ agentId }),
+      keepalive: true,
+    }).catch(() => { /* swallow — warmup is a hint, not a contract */ });
   }, [agentId]);
 
   // Abort in-flight stream on unmount
@@ -206,7 +218,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   }, [messages, isTyping]);
 
   const sendMessageToBackend = useCallback(
-    async (content: string) => {
+    async (content: string, priorHistory: Message[] = []) => {
       if (!agent) return;
 
       // Abort any previous in-flight request
@@ -220,6 +232,18 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
 
       let buffer = '';
 
+      // Shape the history into the backend's accepted format. 'bot' → 'assistant',
+      // 'system' entries (welcome banner etc.) are dropped — the agent's system
+      // prompt owns its own greeting, so those aren't real LLM-visible turns.
+      // Send up to last 20; server enforces the agent's `maxContextMessages` cap.
+      const recentHistory = priorHistory
+        .filter((m) => m.role === 'user' || m.role === 'bot')
+        .map((m) => ({
+          role: m.role === 'bot' ? ('assistant' as const) : ('user' as const),
+          content: m.content,
+        }))
+        .slice(-20);
+
       try {
         const res = await fetch(apiUrl('/public/chat/stream'), {
           method: 'POST',
@@ -229,6 +253,9 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
             chatInput: content,
             source: 'DEMO',
             ...(sessionIdRef.current && { sessionId: sessionIdRef.current }),
+            // Send client-held history so the backend can skip its DB
+            // lookup for prior messages — saves ~150-450ms per turn.
+            ...(recentHistory.length > 0 && { recentHistory }),
           }),
           signal: AbortSignal.any([
             controller.signal,
@@ -287,7 +314,14 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                 continue;
               }
 
-              if (parsed.type === 'chunk' && parsed.content) {
+              if (parsed.type === 'session' && parsed.sessionId) {
+                // Early session ack — server flushes this before the LLM
+                // starts streaming so clients can pin sessionId for the next
+                // turn immediately. We also still capture it on `done` as a
+                // fallback (the IDs are identical).
+                sessionIdRef.current = parsed.sessionId;
+                setVoiceSessionId(parsed.sessionId);
+              } else if (parsed.type === 'chunk' && parsed.content) {
                 typewriterBufferRef.current += parsed.content;
               } else if (parsed.type === 'done') {
                 if (parsed.sessionId) {
@@ -364,6 +398,13 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
 
       setStartersVisible(false);
 
+      // Snapshot history BEFORE appending the new user message. The backend
+      // treats `chatInput` as the current turn; `recentHistory` is prior turns
+      // only. Passed explicitly because the `setMessages` below is async and
+      // a closure capture of `messages` would show stale data inside
+      // sendMessageToBackend on the next render.
+      const historySnapshot = messages;
+
       const userMsg: Message = {
         id: crypto.randomUUID(),
         role: 'user',
@@ -373,9 +414,9 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
       setMessages((prev) => [...prev, userMsg]);
       setInput('');
 
-      await sendMessageToBackend(content.trim());
+      await sendMessageToBackend(content.trim(), historySnapshot);
     },
-    [agent, isTyping, isStreaming, sendMessageToBackend],
+    [agent, isTyping, isStreaming, messages, sendMessageToBackend],
   );
 
   const handleSubmit = (e: React.FormEvent) => {

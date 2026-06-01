@@ -11,9 +11,10 @@ import { ChatModule } from '../chat.module';
 import { AgentsModule } from '../agents.module';
 import { MessageRateLimitService } from '../../services/message-rate-limit.service';
 import { PrismaModule } from '../prisma.module';
+import { AiModule } from '../ai/ai.module';
 
 @Module({
-  imports: [ChatModule, AgentsModule, PrismaModule],
+  imports: [ChatModule, AgentsModule, PrismaModule, AiModule],
   controllers: [VoiceController, VoicesController],
   providers: [
     StubProvider,

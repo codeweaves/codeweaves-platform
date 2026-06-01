@@ -14,6 +14,8 @@
  * include it in the request body.
  */
 
+import { sessionId as sessionIdSignal } from '../state/chat-store';
+
 // ── Internal state ──────────────────────────────────────────────────
 
 let currentSessionId: string | null = null;
@@ -31,6 +33,7 @@ export function initSession(agentId: string): void {
   void agentId; // reserved for future per-agent state; signature kept stable for callers
   currentSessionId = null;
   sessionActive = false;
+  sessionIdSignal.value = null;
 }
 
 /**
@@ -58,6 +61,11 @@ export function updateSession(agentId: string, newSessionId: string): void {
   void agentId; // reserved for future per-agent state; signature kept stable for callers
   currentSessionId = newSessionId;
   sessionActive = true;
+  // Mirror into the chat-store signal so the sessionStorage persistence key
+  // includes the real session ID (instead of always 'none'). Without this,
+  // every session's messages get accumulated under the `_none` key and leak
+  // across reloads.
+  sessionIdSignal.value = newSessionId;
 }
 
 /**
@@ -80,6 +88,7 @@ function clearSession(agentId: string): void {
   void agentId; // reserved for future per-agent state
   currentSessionId = null;
   sessionActive = false;
+  sessionIdSignal.value = null;
 }
 
 /**

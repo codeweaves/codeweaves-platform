@@ -135,7 +135,7 @@ describe('ElevenLabsProvider', () => {
 
       const body = JSON.parse(mockFetch.mock.calls[0][1].body);
       expect(body.text).toBe('Hello world');
-      expect(body.model_id).toBe('eleven_multilingual_v2');
+      expect(body.model_id).toBe('eleven_turbo_v2_5');
       expect(body.language_code).toBe('en');
       expect(body.voice_settings.stability).toBe(0.5);
       expect(body.voice_settings.similarity_boost).toBe(0.75);
@@ -542,7 +542,8 @@ describe('ElevenLabsProvider', () => {
                 age: 'young',
               },
               category: 'premade',
-              high_quality_base_model_ids: ['eleven_multilingual_v2'],
+              // Provider now filters against eleven_turbo_v2_5 (current TTS model)
+              high_quality_base_model_ids: ['eleven_turbo_v2_5'],
             },
             {
               voice_id: 'voice-2',
@@ -613,7 +614,7 @@ describe('ElevenLabsProvider', () => {
       expect(voices[0]?.gender).toBeUndefined();
     });
 
-    it('should filter out voices not compatible with eleven_multilingual_v2', async () => {
+    it('should filter out voices not compatible with eleven_turbo_v2_5', async () => {
       mockFetch.mockResolvedValueOnce({
         ok: true,
         json: async () => ({
@@ -621,12 +622,12 @@ describe('ElevenLabsProvider', () => {
             {
               voice_id: 'compatible',
               name: 'Compatible',
-              high_quality_base_model_ids: ['eleven_multilingual_v2', 'eleven_turbo_v2'],
+              high_quality_base_model_ids: ['eleven_turbo_v2_5', 'eleven_multilingual_v2'],
             },
             {
               voice_id: 'incompatible',
               name: 'Incompatible',
-              high_quality_base_model_ids: ['eleven_turbo_v2'],
+              high_quality_base_model_ids: ['eleven_multilingual_v2'],
             },
           ],
         }),

@@ -268,6 +268,19 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
     requestAnimationFrame(() => inputRef.current?.focus());
   }, []);
 
+  // Return focus to the input once a send/stream finishes. The textarea is
+  // `disabled` while loading/streaming/rate-limited, so the focus() call inside
+  // handleSend is a no-op during that window — we restore focus on the
+  // disabled → enabled edge so the user can keep typing without re-clicking.
+  const sendDisabled = loading || streaming || rateLimited;
+  const wasSendDisabled = useRef(false);
+  useEffect(() => {
+    if (wasSendDisabled.current && !sendDisabled) {
+      requestAnimationFrame(() => inputRef.current?.focus());
+    }
+    wasSendDisabled.current = sendDisabled;
+  }, [sendDisabled]);
+
   // Auto-resize textarea based on content (max 144px ≈ 6 lines)
   useEffect(() => {
     const el = inputRef.current;
@@ -356,7 +369,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
               <h4 class="cw-header-title font-semibold leading-tight" style={{ fontSize: '1.07em' }}>
                 {str(header, 'title') || agentConfig.name}
               </h4>
-              {str(header, 'subtitle') && (
+              {str(header, 'subtitle', 'We usually reply within a few minutes') && (
                 <p
                   class="cw-header-subtitle"
                   style={{
@@ -365,7 +378,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                     opacity: str(header, 'subtitleColor') ? 1 : 0.9,
                   }}
                 >
-                  {str(header, 'subtitle')}
+                  {str(header, 'subtitle', 'We usually reply within a few minutes')}
                 </p>
               )}
             </div>
@@ -545,16 +558,17 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
               onKeyDown={handleKeyDown}
               onFocus={() => setIsInputFocused(true)}
               onBlur={() => setIsInputFocused(false)}
-              placeholder={str(input, 'placeholderText', 'Message...')}
+              placeholder={str(input, 'placeholderText', 'Type your message...')}
               disabled={loading || streaming || rateLimited || isVoiceActive}
               rows={1}
               class="cw-input w-full resize-none border-0 bg-transparent p-0 leading-snug outline-none"
               style={{
                 color: str(input, 'textColor', '#1f2937'),
                 maxHeight: '144px',
-                // iOS Safari auto-zooms inputs whose computed font-size is < 16px on focus.
-                // Floor at 16px but allow base font-size to scale the input up on bigger settings.
-                fontSize: 'max(16px, 1em)',
+                // Honor the selected base font-size (matches the chat message text).
+                // The iOS-only 16px floor that prevents focus auto-zoom lives in the
+                // stylesheet (components.ts) scoped to @supports (-webkit-touch-callout).
+                fontSize: '1em',
               }}
             />
             <div class="cw-input-actions mt-2 flex items-center justify-between">

@@ -68,7 +68,7 @@ const allCategories: Category[] = [
     id: 'prompt',
     title: 'Prompt',
     icon: <ScrollText className="h-5 w-5" />,
-    description: 'Initial context and organization info',
+    description: 'Initial context and knowledge base',
     adminOnly: true,
   },
   {
@@ -81,7 +81,7 @@ const allCategories: Category[] = [
     id: 'integration',
     title: 'Integration',
     icon: <Plug className="h-5 w-5" />,
-    description: 'Webhooks and external connections',
+    description: 'Routing: n8n webhook or native AI orchestrator',
     adminOnly: true,
   },
   {

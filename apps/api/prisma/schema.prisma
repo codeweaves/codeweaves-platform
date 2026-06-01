@@ -117,6 +117,11 @@ model Agent {
   // post-session AI classifier (e.g. ["Pricing", "Support", "Refunds"]).
   // Empty array disables categorisation for the agent.
   categoryKeywords String[]    @default([])
+  // How long a single chat session can live (from createdAt) before the
+  // backend rotates the visitor to a new sessionId. Tighter values produce
+  // more "distinct conversations" in analytics; looser values let one visit
+  // stay continuous longer. Range 1-168 (1h to 1 week), default 6h.
+  sessionLifetimeHours Int     @default(6)
   // Languages this agent's conversations get classified against by the same
   // post-session classifier. Codes are mostly ISO 639-1 (en, hi, mr, …) plus
   // one non-standard value: `hinglish` (code-mixed Hindi-English, Latin script).

@@ -33,9 +33,19 @@ async function bootstrap() {
   // Security headers — must be first middleware applied (before CORS, prefix, pipes)
   app.use(helmet(getHelmetOptions(process.env.NODE_ENV)));
 
-  // Global API prefix
+  // Global API prefix. `dev/*` is excluded so the AI orchestration test page
+  // works at a short URL in the browser (http://localhost:3001/dev/ai/test-chat)
+  // — NODE_ENV=production gates the endpoints themselves.
   app.setGlobalPrefix('api/klivo/v1', {
-    exclude: ['health', 'health/ready'],
+    exclude: [
+      'health',
+      'health/ready',
+      'dev/ai/test-chat',
+      'dev/ai/test-chat/stream',
+      'dev/ai/agents',
+      'dev/ai/traces/:traceId',
+      'dev/ai/sessions/:sessionId',
+    ],
   });
 
   app.useGlobalPipes(

@@ -56,6 +56,15 @@ export const voiceConfigSchema = z.object({
   ttsVoiceId: z.string().max(255).optional(),
   ttsSpeed: z.number().min(0.5).max(2.0).default(1.0),
   autoDetectLanguage: z.boolean().default(true),
+  /**
+   * Per-agent rollout flag for WebSocket streaming TTS. When `true`,
+   * VoiceService.streamingTTS uses `provider.synthesizeStream()` if the
+   * resolved provider implements it; falls back to batch `synthesize()`
+   * otherwise. Defaults to `false` so existing agents keep the
+   * (predictable, well-tested) batch behaviour until manually flipped.
+   * Expected gain: ~300-800ms per sentence of audio latency.
+   */
+  ttsStreaming: z.boolean().default(false),
 });
 
 export type VoiceConfigDto = z.infer<typeof voiceConfigSchema>;

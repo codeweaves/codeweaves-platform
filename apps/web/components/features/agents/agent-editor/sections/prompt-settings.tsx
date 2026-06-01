@@ -4,14 +4,21 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useAgentEditor } from '../agent-editor-context';
 import { useProfile } from '@/hooks/use-profile';
+import { KnowledgeSettings } from './knowledge-settings';
 
+/**
+ * "Prompt" section — everything the agent's LLM sees BEFORE the user's first
+ * turn: the system prompt plus any reference knowledge. Flat layout — just
+ * the two fields stacked, no intermediate headings.
+ *
+ * The greeting/welcome message is deliberately NOT here — it's a chat-flow UX
+ * thing (what the visitor sees on widget open) and lives in BehaviorSettings.
+ */
 export function PromptSettings() {
   const { profile } = useProfile();
   const { formData, updateFormData } = useAgentEditor();
 
-  const isAdmin =
-    profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
-
+  const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
   if (!isAdmin) return null;
 
   return (
@@ -19,37 +26,29 @@ export function PromptSettings() {
       <div>
         <h3 className="text-lg font-semibold">Prompt</h3>
         <p className="text-sm text-muted-foreground">
-          Define the agent&apos;s initial context and your organization&apos;s
-          information.
+          The agent&apos;s persona and reference knowledge, sent to the model
+          on every chat turn.
         </p>
       </div>
 
-      <div className="space-y-4">
-        <div className="space-y-2">
-          <Label className="text-sm font-medium">Initial Context</Label>
-          <Textarea
-            value={formData.systemPrompt}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) => updateFormData('systemPrompt', e.target.value)}
-            placeholder="e.g., You are a helpful support assistant for ACME Corp. Answer succinctly, ask clarifying questions when needed, and follow brand tone."
-            className="min-h-[120px]"
-          />
-        </div>
-
-        <div className="space-y-2">
-          <Label className="text-sm font-medium">Welcome Message</Label>
-          <Textarea
-            value={formData.welcomeMessage}
-            onChange={(e: React.ChangeEvent<HTMLTextAreaElement>) =>
-              updateFormData('welcomeMessage', e.target.value)
-            }
-            placeholder="e.g., Hello! How can I help you today?"
-            className="min-h-[80px]"
-          />
-          <p className="text-xs text-muted-foreground">
-            The first message displayed to users when the chat widget opens.
-          </p>
-        </div>
+      {/* System prompt -------------------------------------------------- */}
+      <div className="space-y-2">
+        <Label className="text-sm font-medium">System Prompt</Label>
+        <Textarea
+          value={formData.systemPrompt}
+          onChange={(e) => updateFormData('systemPrompt', e.target.value)}
+          placeholder="e.g., You are a helpful support assistant for ACME Corp. Answer succinctly, ask clarifying questions when needed, and follow brand tone."
+          className="min-h-32"
+        />
+        <p className="text-xs text-muted-foreground">
+          Keep this focused on who the agent is and how it should behave. Put
+          factual reference material in the Knowledge Base below so it stays
+          separately editable.
+        </p>
       </div>
+
+      {/* Knowledge Base (no extra heading — embedded directly below) ---- */}
+      <KnowledgeSettings />
     </div>
   );
 }

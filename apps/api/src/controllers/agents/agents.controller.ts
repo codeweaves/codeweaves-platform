@@ -15,6 +15,8 @@ import {
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
 import { AgentsService } from '../../services/agents.service';
+import { AgentThemesService } from '../../services/agent-themes.service';
+import { AgentKnowledgeService } from '../../services/agent-knowledge.service';
 import { Roles } from '../../decorators/roles.decorator';
 import { RequirePermission } from '../../decorators/require-permission.decorator';
 import { RolesGuard } from '../../guards/roles.guard';
@@ -39,7 +41,11 @@ import type {
 @Controller('agents')
 @UseGuards(RolesGuard)
 export class AgentsController {
-  constructor(private readonly agentsService: AgentsService) {}
+  constructor(
+    private readonly agentsService: AgentsService,
+    private readonly themesService: AgentThemesService,
+    private readonly knowledgeService: AgentKnowledgeService,
+  ) {}
 
   @Post()
   @RequirePermission(Resource.Agent, Action.Create)
@@ -86,6 +92,64 @@ export class AgentsController {
     @CurrentUser() user: CurrentUserData,
   ) {
     return this.agentsService.findById(id, user);
+  }
+
+  /**
+   * Bundled GET used by the admin agent-editor page so a single render doesn't
+   * have to fan out 4 parallel requests (agent + webhook + theme + knowledge).
+   *
+   * Why bundle here and not unify the standalone endpoints:
+   *   - `/theme` is also consumed by the public widget embed (no auth). Keep it.
+   *   - `/webhook`, `/knowledge`, `/:id` have their own permission surfaces
+   *     and PATCH round-trips. Keep them for non-editor callers.
+   *   - This endpoint is a VIEW on top of them, not a replacement.
+   *
+   * Composition — all four fetches run in parallel via Promise.allSettled so
+   * a missing theme/knowledge/webhook row doesn't fail the whole request. The
+   * agent itself is required; if it 404s we re-throw so the page can show the
+   * "not found" state.
+   *
+   * Admin-gated because the payload includes the webhook URL (sensitive field
+   * not exposed to CLIENT users).
+   */
+  @Get(':id/editor-config')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @ApiOperation({
+    summary: 'Bundled agent + webhook + theme + knowledge for the admin editor',
+  })
+  @ApiParam({ name: 'id', description: 'Agent UUID' })
+  @ApiResponse({
+    status: 200,
+    description:
+      'Editor-ready configuration bundle. Missing sub-resources return null (e.g. knowledge: null when no record exists).',
+  })
+  @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @ApiResponse({ status: 403, description: 'Forbidden — ADMIN or SUPER_ADMIN only' })
+  @ApiResponse({ status: 404, description: 'Agent not found' })
+  async getEditorConfig(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    // Always resolve the agent first — no point fetching sub-resources if the
+    // agent itself 404s, and `findById` carries the auth-scoped error.
+    const agent = await this.agentsService.findById(id, user);
+
+    const [webhookResult, themeResult, knowledgeResult] = await Promise.allSettled([
+      this.agentsService.getWebhookUrl(id, user),
+      this.themesService.getTheme(id, user),
+      this.knowledgeService.get(id),
+    ]);
+
+    return {
+      agent,
+      // Webhook: swallow any error (e.g. no secret row) — surface as null.
+      webhookUrl:
+        webhookResult.status === 'fulfilled' ? webhookResult.value.webhookUrl : null,
+      // Theme: null when none yet — widget falls back to defaults client-side.
+      theme: themeResult.status === 'fulfilled' ? themeResult.value : null,
+      // Knowledge: null when no record. Editor treats null + empty-string the same.
+      knowledge: knowledgeResult.status === 'fulfilled' ? knowledgeResult.value : null,
+    };
   }
 
   @Patch(':id')

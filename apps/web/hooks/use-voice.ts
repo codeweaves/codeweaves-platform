@@ -91,14 +91,71 @@ function mapErrorToMessage(err: unknown): { message: string; errorCode: string |
  * Manages a queue of base64 audio chunks, playing them sequentially.
  * Each chunk is decoded, converted to an Audio element, and played in order.
  */
+/**
+ * AudioPlaybackQueue (demo page) — same Web Audio API approach as the widget
+ * for gap-free playback of many small WS-streamed PCM chunks.
+ *
+ * Two decoder paths kept in lockstep with the widget queue:
+ *   - PCM (`audio/pcm; rate=N`): WS streaming path. Raw 16-bit signed LE
+ *     samples → AudioBuffer via createBuffer. No decoder state, independent
+ *     per chunk, no priming silence.
+ *   - Compressed (`audio/mpeg` etc): batch HTTP path. decodeAudioData()
+ *     parses each chunk as a complete file. MP3 priming silence stripped.
+ *
+ * Sample-accurate scheduling via `nextScheduledTime` is what makes
+ * consecutive chunks chain seamlessly with NO audible gap.
+ */
+
+const FIRST_CHUNK_LOOKAHEAD_SEC = 0.25;
+
+function parsePcmSampleRate(mimeType: string): number | null {
+  if (!mimeType || !mimeType.toLowerCase().startsWith('audio/pcm')) return null;
+  const m = mimeType.match(/rate\s*=\s*(\d+)/i);
+  return m ? parseInt(m[1] ?? '', 10) : 24000;
+}
+
+function pcmToAudioBuffer(ctx: AudioContext, base64: string, sampleRate: number): AudioBuffer {
+  const byteChars = atob(base64);
+  const sampleCount = Math.floor(byteChars.length / 2);
+  const buf = ctx.createBuffer(1, sampleCount, sampleRate);
+  const channel = buf.getChannelData(0);
+  for (let i = 0; i < sampleCount; i++) {
+    const lo = byteChars.charCodeAt(i * 2);
+    const hi = byteChars.charCodeAt(i * 2 + 1);
+    const u16 = (hi << 8) | lo;
+    const s16 = u16 >= 0x8000 ? u16 - 0x10000 : u16;
+    channel[i] = s16 / 32768;
+  }
+  return buf;
+}
+
+function findLeadingSilence(audioBuffer: AudioBuffer): number {
+  const channels: Float32Array[] = [];
+  for (let c = 0; c < audioBuffer.numberOfChannels; c++) {
+    channels.push(audioBuffer.getChannelData(c));
+  }
+  const len = channels[0]?.length ?? 0;
+  for (let i = 0; i < len; i++) {
+    for (const data of channels) {
+      if (Math.abs(data[i] ?? 0) > 1e-4) {
+        return i / audioBuffer.sampleRate;
+      }
+    }
+  }
+  return audioBuffer.duration;
+}
+
 class AudioPlaybackQueue {
   private queue: { audio: string; format: string }[] = [];
-  private currentAudio: HTMLAudioElement | null = null;
-  private currentUrl: string | null = null;
+  private audioContext: AudioContext | null = null;
+  private nextScheduledTime = 0;
+  private inFlightSources: AudioBufferSourceNode[] = [];
+  private worker: Promise<void> | null = null;
   private playing = false;
   private stopped = false;
   private onFinished: (() => void) | null = null;
   private streamComplete = false;
+  private resolvers: Array<() => void> = [];
 
   constructor(onFinished: () => void) {
     this.onFinished = onFinished;
@@ -107,14 +164,22 @@ class AudioPlaybackQueue {
   enqueue(audio: string, audioFormat: string) {
     if (this.stopped) return;
     this.queue.push({ audio, format: audioFormat });
+    const r = this.resolvers.shift();
+    if (r) r();
     if (!this.playing) {
-      this.playNext();
+      this.playing = true;
+      this.worker = this.processQueue();
     }
   }
 
   markStreamComplete() {
     this.streamComplete = true;
-    // If nothing is playing and queue is empty, we're done
+    // Wake any worker currently sleeping on a resolver — otherwise the
+    // worker stays asleep waiting for chunks that won't come, onFinished
+    // never fires, and the UI stays stuck on "playing" indefinitely.
+    while (this.resolvers.length > 0) {
+      this.resolvers.shift()!();
+    }
     if (!this.playing && this.queue.length === 0) {
       this.onFinished?.();
     }
@@ -123,79 +188,92 @@ class AudioPlaybackQueue {
   stop() {
     this.stopped = true;
     this.queue = [];
-    if (this.currentAudio) {
-      this.currentAudio.pause();
-      this.currentAudio.currentTime = 0;
-      this.currentAudio = null;
+    for (const src of this.inFlightSources) {
+      try {
+        src.stop(0);
+      } catch {
+        // already stopped
+      }
     }
-    if (this.currentUrl) {
-      URL.revokeObjectURL(this.currentUrl);
-      this.currentUrl = null;
-    }
+    this.inFlightSources = [];
+    while (this.resolvers.length > 0) this.resolvers.shift()!();
     this.playing = false;
+    this.nextScheduledTime = 0;
   }
 
-  private playNext() {
-    if (this.stopped) return;
+  private ensureContext(): AudioContext {
+    if (!this.audioContext) {
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      const Ctor: typeof AudioContext = ((globalThis as any).AudioContext ??
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+        (globalThis as any).webkitAudioContext) as typeof AudioContext;
+      this.audioContext = new Ctor();
+    }
+    return this.audioContext;
+  }
 
-    const item = this.queue.shift();
-    if (!item) {
-      this.playing = false;
-      if (this.streamComplete) {
-        this.onFinished?.();
-      }
-      return;
+  private async processQueue(): Promise<void> {
+    const ctx = this.ensureContext();
+    if (ctx.state !== 'running') {
+      await ctx.resume().catch(() => {});
     }
 
-    this.playing = true;
     try {
-      const format = item.format.startsWith('audio/') ? item.format : `audio/${item.format}`;
-      const byteChars = atob(item.audio);
-      const byteArray = new Uint8Array(byteChars.length);
-      for (let i = 0; i < byteChars.length; i++) {
-        byteArray[i] = byteChars.charCodeAt(i);
+      while (!this.stopped) {
+        const item = this.queue.shift();
+        if (!item) {
+          if (this.streamComplete) break;
+          await new Promise<void>((resolve) => this.resolvers.push(resolve));
+          continue;
+        }
+
+        try {
+          let audioBuffer: AudioBuffer;
+          let leadingSilence = 0;
+          const pcmRate = parsePcmSampleRate(item.format);
+
+          if (pcmRate !== null) {
+            audioBuffer = pcmToAudioBuffer(ctx, item.audio, pcmRate);
+          } else {
+            const byteChars = atob(item.audio);
+            const buffer = new ArrayBuffer(byteChars.length);
+            const view = new Uint8Array(buffer);
+            for (let i = 0; i < byteChars.length; i++) {
+              view[i] = byteChars.charCodeAt(i);
+            }
+            audioBuffer = await ctx.decodeAudioData(buffer);
+            leadingSilence = findLeadingSilence(audioBuffer);
+          }
+
+          if (this.stopped) break;
+
+          const now = ctx.currentTime;
+          if (this.nextScheduledTime === 0) {
+            this.nextScheduledTime = now + FIRST_CHUNK_LOOKAHEAD_SEC;
+          }
+          const startAt = Math.max(now, this.nextScheduledTime);
+
+          const source = ctx.createBufferSource();
+          source.buffer = audioBuffer;
+          source.connect(ctx.destination);
+          this.inFlightSources.push(source);
+          source.onended = () => {
+            const idx = this.inFlightSources.indexOf(source);
+            if (idx >= 0) this.inFlightSources.splice(idx, 1);
+          };
+          source.start(startAt, leadingSilence);
+          this.nextScheduledTime = startAt + (audioBuffer.duration - leadingSilence);
+        } catch {
+          continue;
+        }
       }
-      const blob = new Blob([byteArray], { type: format });
-      const url = URL.createObjectURL(blob);
-      this.currentUrl = url;
-
-      const audio = new Audio();
-      this.currentAudio = audio;
-
-      audio.onended = () => {
-        this.revokeCurrentUrl();
-        this.currentAudio = null;
-        this.playNext();
-      };
-
-      audio.onerror = () => {
-        this.revokeCurrentUrl();
-        this.currentAudio = null;
-        this.playNext();
-      };
-
-      // Wait for audio to buffer before playing — prevents first word cutoff
-      audio.oncanplaythrough = () => {
-        if (this.stopped) return;
-        audio.play().catch(() => {
-          this.revokeCurrentUrl();
-          this.currentAudio = null;
-          this.playNext();
-        });
-      };
-
-      audio.src = url;
-    } catch {
-      this.revokeCurrentUrl();
-      this.currentAudio = null;
-      this.playNext();
-    }
-  }
-
-  private revokeCurrentUrl() {
-    if (this.currentUrl) {
-      URL.revokeObjectURL(this.currentUrl);
-      this.currentUrl = null;
+    } finally {
+      this.playing = false;
+      if (this.audioContext && this.nextScheduledTime > this.audioContext.currentTime) {
+        const wait = (this.nextScheduledTime - this.audioContext.currentTime) * 1000;
+        await new Promise((r) => setTimeout(r, wait));
+      }
+      if (!this.stopped) this.onFinished?.();
     }
   }
 }
@@ -337,6 +415,12 @@ export function useVoice({
             setVoiceStateSynced('idle');
           },
           onAudioChunk: (chunk: VoiceAudioChunk) => {
+            // Skip empty-audio chunks. The server's per-sentence final marker
+            // (isFinalChunk=true) carries no audio bytes — it only exists to
+            // settle metrics on the server side. createBuffer requires ≥1
+            // sample, so enqueuing empty would throw.
+            if (!chunk.audio) return;
+
             if (!receivedFirstAudio) {
               receivedFirstAudio = true;
               setVoiceStateSynced('playing');

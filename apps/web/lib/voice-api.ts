@@ -45,6 +45,10 @@ export interface VoiceEndChunk {
 
 export interface VoiceTranscriptionChunk {
   type: 'transcription';
+  /** External public sessionId — round-trip this on subsequent voice/chat
+   *  requests so the conversation continues in the same session. The
+   *  X-Session-Id header is the INTERNAL DB id and won't resolve server-side. */
+  sessionId: string;
   text: string;
   detectedLanguage: string;
   confidence: number;
@@ -142,7 +146,12 @@ export async function streamVoiceConversation(params: {
     throw new VoiceApiError(response, errorCode);
   }
 
-  const sessionId = response.headers.get('X-Session-Id');
+  // NOTE: the X-Session-Id header carries the INTERNAL DB id, while the server
+  // expects the EXTERNAL `sessionId` field on subsequent requests. The
+  // transcription chunk (NDJSON path) is the source of truth — its sessionId
+  // field is the external value. We initialise from the header as a fallback
+  // for the JSON-only legacy path, then override below.
+  let sessionId = response.headers.get('X-Session-Id');
   const messageId = response.headers.get('X-Message-Id');
   const contentType = response.headers.get('Content-Type') ?? '';
 
@@ -204,6 +213,10 @@ export async function streamVoiceConversation(params: {
 
         switch (chunk.type) {
           case 'transcription':
+            // First chunk of the stream — carries the external sessionId we
+            // round-trip on the next request. Overrides the X-Session-Id
+            // header value (which is the internal DB id).
+            if (chunk.sessionId) sessionId = chunk.sessionId;
             params.callbacks.onTranscription?.(chunk.text);
             break;
           case 'audio':

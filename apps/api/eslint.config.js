@@ -13,6 +13,7 @@ export default [
       "prisma.config.ts",
       "prisma/seed.ts",
       "prisma/seed-analytics.ts",
+      "prisma/seed-demo-agents.ts",
     ],
   },
   ...config,

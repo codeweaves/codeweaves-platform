@@ -10,6 +10,7 @@ import { ChatService } from '../../../src/services/chat.service';
 import { N8nStreamingService } from '../../../src/services/n8n-streaming.service';
 import { AgentsService } from '../../../src/services/agents.service';
 import { PrismaService } from '../../../src/services/prisma.service';
+import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 import { MessageRateLimitService } from '../../../src/services/message-rate-limit.service';
 import {
   UnsupportedLanguageError,
@@ -66,6 +67,14 @@ describe('VoiceController', () => {
   const mockPrismaService = {
     chatMessage: {
       update: jest.fn().mockResolvedValue({}),
+    },
+    // Voice controller now does `prisma.agent.findUniqueOrThrow({ where: { id }})`
+    // to get the full Agent row (with aiConfig) before routing the LLM call —
+    // resolveAgent returns a stripped projection that doesn't have aiConfig.
+    // Mock returns a baseline direct-mode agent that all routing tests can use;
+    // individual tests override aiConfig if they need n8n mode.
+    agent: {
+      findUniqueOrThrow: jest.fn(),
     },
   };
 
@@ -148,6 +157,7 @@ describe('VoiceController', () => {
         { provide: AgentsService, useValue: mockAgentsService },
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: MessageRateLimitService, useValue: mockMessageRateLimitService },
+        { provide: DirectChatService, useValue: { send: jest.fn(), stream: jest.fn() } },
       ],
     }).compile();
 
@@ -166,6 +176,16 @@ describe('VoiceController', () => {
 
     // Default: prisma mocks
     mockPrismaService.chatMessage.update.mockResolvedValue({});
+    // Full Agent row used by the voice controller's `findUniqueOrThrow` call.
+    // Defaults to direct-mode (aiConfig.routingMode = 'direct') because that
+    // is the production path; the few legacy n8n-mode tests override per-test.
+    mockPrismaService.agent.findUniqueOrThrow.mockResolvedValue({
+      id: AGENT_ID,
+      hmacEnabled: false,
+      aiConfig: { routingMode: 'direct' },
+      systemPrompt: '',
+      organizationId: 'org-id',
+    });
 
     // Default: TTS enabled
     mockVoiceService.getVoiceConfig.mockResolvedValue({
@@ -205,6 +225,16 @@ describe('VoiceController', () => {
     });
 
     it('should return 412 if the agent has no webhook URL configured', async () => {
+      // This test exercises the n8n routing path — override the default
+      // direct-mode agent with an n8n one. getEffectiveWebhookUrl is only
+      // consulted in n8n mode.
+      mockPrismaService.agent.findUniqueOrThrow.mockResolvedValueOnce({
+        id: AGENT_ID,
+        hmacEnabled: false,
+        aiConfig: { routingMode: 'n8n' },
+        systemPrompt: '',
+        organizationId: 'org-id',
+      });
       mockAgentsService.getEffectiveWebhookUrl.mockRejectedValueOnce(new Error('No webhook URL'));
       mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
 

@@ -13,6 +13,7 @@ import {
   isRateLimited,
   error,
   streamingMessageId,
+  messages,
   addMessage,
   updateMessage,
   appendMessageContent,
@@ -21,6 +22,11 @@ import {
 import type { Message } from '../types/message';
 import { startStream } from '../services/stream-handler';
 import type { StreamHandle, StreamErrorOptions } from '../services/stream-handler';
+import type { ChatHistoryItem } from '../services/api-client';
+
+/** Cap on history sent to the backend; server enforces agent's maxContextMessages further. */
+const MAX_HISTORY_TO_SEND = 20;
+const GREETING_ID = '__greeting__';
 
 export interface UseChatOptions {
   agentId: string;
@@ -116,6 +122,25 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
       streamAbortedRef.current = false;
       clearError();
 
+      // Snapshot prior history BEFORE adding the new user message — backend
+      // treats `chatInput` as the current turn, `recentHistory` as prior turns.
+      // Drop the greeting bubble (it's a UI-only welcome, not an LLM turn) and
+      // drop empty / streaming bot messages. Capped client-side; server caps
+      // further via `aiConfig.maxContextMessages`.
+      const recentHistory: ChatHistoryItem[] = messages.value
+        .filter(
+          (m) =>
+            m.id !== GREETING_ID &&
+            (m.role === 'user' || m.role === 'assistant') &&
+            typeof m.content === 'string' &&
+            m.content.length > 0,
+        )
+        .slice(-MAX_HISTORY_TO_SEND)
+        .map((m) => ({
+          role: m.role as 'user' | 'assistant',
+          content: m.content,
+        }));
+
       // Optimistic UI — add user message immediately
       const userMsg: Message = {
         id: generateMessageId('user'),
@@ -132,7 +157,10 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
       const botMsgId = generateMessageId('bot');
       streamContentRef.current = '';
 
-      const handle = startStream(agentId, trimmed, {
+      const handle = startStream(
+        agentId,
+        trimmed,
+        {
         onFirstChunk: (content: string) => {
           if (streamAbortedRef.current) return;
           streamContentRef.current = content;
@@ -181,7 +209,9 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
           showError(errorMessage);
           finishStream();
         },
-      });
+        },
+        recentHistory,
+      );
 
       streamHandleRef.current = handle;
     },

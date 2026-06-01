@@ -62,21 +62,22 @@ export class ConversationClassifierModule implements OnModuleInit {
     // jobId) so calling this on every boot is idempotent — the same schedule
     // doesn't get duplicated when N instances start.
     //
-    // Schedule: 02:00 and 14:00 UTC daily. Twice a day captures
-    // conversations within ~6-18h of completion, which matches the analytics
-    // freshness expectation without paying for per-10-minute LLM round-trips.
+    // Schedule: 02:00 UTC daily (once a day). With per-agent session
+    // lifetimes ranging 6-24h, this gives every session a chance to expire
+    // before the next sweep. Worst-case end-to-end lag from session-end to
+    // classification is ~24h, which is fine for an analytics dashboard.
     await this.queue.add(
       CLASSIFIER_JOB,
       {},
       {
-        repeat: { pattern: '0 2,14 * * *' },
+        repeat: { pattern: '0 2 * * *' },
         jobId: 'classifier-repeatable',
         removeOnComplete: 50,
         removeOnFail: 200,
       },
     );
     this.logger.log(
-      `Registered repeatable job "${CLASSIFIER_JOB}" (cron: 0 2,14 * * *)`,
+      `Registered repeatable job "${CLASSIFIER_JOB}" (cron: 0 2 * * *)`,
     );
   }
 }
