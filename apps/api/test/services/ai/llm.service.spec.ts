@@ -327,7 +327,6 @@ describe('LlmService', () => {
 
   describe('streamCompletion()', () => {
     function makeStreamResult(chunks: string[], err?: unknown) {
-      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       return {
         get textStream() {
           return (async function* () {
@@ -401,6 +400,7 @@ describe('LlmService', () => {
       mockedStreamText.mockReturnValue(makeStreamResult(['a', 'b']));
       const handle = await service.streamCompletion(baseRequest);
       // Consume the stream first so the generator's resolveCompletion runs.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const _c of handle.stream) {
         // drain
       }
@@ -413,6 +413,7 @@ describe('LlmService', () => {
       env.set('AI_STREAM_TIMEOUT_MS', '5000');
       mockedStreamText.mockReturnValue(makeStreamResult(['x']));
       const handle = await service.streamCompletion(baseRequest);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
       for await (const _c of handle.stream) {
         // drain
       }

@@ -27,12 +27,13 @@ describe('directChatToN8nStream', () => {
     ttftMs: 230,
     latencyMs: 510,
     model: 'gpt-4o-mini',
-    promptTokens: 12,
-    completionTokens: 8,
-    totalTokens: 20,
-    costUsd: 0.0001,
+    usage: { inputTokens: 12, outputTokens: 8, totalTokens: 20 },
+    cost: 0.0001,
     traceId: 'trace-1',
-  } as DirectChatResult;
+    historyCount: 0,
+    estimatedInputTokens: 50,
+    historyTruncated: false,
+  };
 
   it('emits a synthetic begin chunk on the first text-delta', async () => {
     const chunks = await collect(

@@ -39,6 +39,7 @@ describe('HybridContextStrategy', () => {
     organizationId: 'org-1',
     agentId: 'agent-1',
     systemPrompt: 'You are helpful.',
+    newUserMessage: 'Hello',
     maxContextMessages: 20,
   };
 

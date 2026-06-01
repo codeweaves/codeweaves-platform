@@ -40,7 +40,7 @@ describe('UsageTrackingService', () => {
       outputTokens: 50,
       totalTokens: 150,
       cachedInputTokens: 20,
-      reasoningTokens: null,
+      reasoningTokens: undefined,
     },
     cost: 0.0005,
     feature: 'chat' as const,
@@ -96,7 +96,7 @@ describe('UsageTrackingService', () => {
   it('handles null cachedInputTokens / reasoningTokens', async () => {
     const event = baseEvent();
     event.usage.cachedInputTokens = undefined as unknown as number;
-    event.usage.reasoningTokens = undefined as unknown as null;
+    event.usage.reasoningTokens = undefined;
     service.record(event);
     await service.flushNow();
     const data = mockPrisma.llmUsage.createMany.mock.calls[0]![0].data[0];

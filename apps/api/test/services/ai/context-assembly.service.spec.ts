@@ -135,7 +135,7 @@ describe('ContextAssemblyService', () => {
   describe('token budget enforcement', () => {
     it('drops oldest messages when exceeding the token budget', async () => {
       mockPrisma.chatMessage.findMany.mockResolvedValue(
-        Array.from({ length: 5 }, (_, i) => ({
+        Array.from({ length: 5 }, () => ({
           role: 'USER',
           // Each message ~1000 chars ≈ 250 tokens (cheap estimate cpath).
           content: 'a'.repeat(1000),
