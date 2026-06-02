@@ -12,8 +12,12 @@ import type { Message } from '../types/message';
 
 const MAX_MESSAGES = 50;
 const GREETING_ID = '__greeting__';
-const PERSIST_COUNT = 10;
-const DEBOUNCE_MS = 300;
+
+// Pre-existing sessionStorage entries written by earlier widget builds used
+// keys like `cw_messages_<agentId>_<sessionId|none>`. We no longer persist
+// across reloads — the prefix is kept solely so the init-time cleanup can
+// wipe any stale entries left over from older clients.
+const LEGACY_STORAGE_PREFIX = 'cw_messages_';
 
 // ── Core signals ─────────────────────────────────────────────────────
 
@@ -106,7 +110,6 @@ export function addMessage(message: Message): void {
   }
 
   messages.value = next;
-  schedulePersist();
 }
 
 /** Update fields on an existing message (e.g. streaming content, status change) */
@@ -114,7 +117,6 @@ export function updateMessage(id: string, updates: Partial<Message>): void {
   messages.value = messages.value.map((m) =>
     m.id === id ? { ...m, ...updates } : m,
   );
-  schedulePersist();
 }
 
 /** Atomically append text to a message's content (avoids stale read-then-write race) */
@@ -124,7 +126,6 @@ export function appendMessageContent(id: string, text: string): void {
       ? { ...m, content: m.content ? `${m.content} ${text}` : text }
       : m,
   );
-  schedulePersist();
 }
 
 /** Remove a message by ID (e.g. failed message cleanup). Revokes blob URL if present. */
@@ -132,142 +133,41 @@ export function removeMessage(id: string): void {
   const msg = messages.value.find((m) => m.id === id);
   if (msg) revokeBlobUrl(msg);
   messages.value = messages.value.filter((m) => m.id !== id);
-  schedulePersist();
 }
 
 /** Clear all messages. Revokes any audio object URLs to free memory. */
 export function clearMessages(): void {
-  // Cancel any pending debounced persist
-  if (debounceTimer !== null) {
-    clearTimeout(debounceTimer);
-    debounceTimer = null;
-  }
   for (const msg of messages.value) {
     revokeBlobUrl(msg);
   }
   messages.value = [];
-  clearPersistedMessages();
 }
 
-// ── SessionStorage persistence ───────────────────────────────────────
+// ── Legacy storage cleanup ───────────────────────────────────────────
+//
+// Earlier widget builds persisted the last 10 messages to `sessionStorage`
+// keyed by `cw_messages_<agent>_<sessionId|none>` so the chat survived a
+// reload within the same tab. That contradicts the product rule we settled on
+// ("a reload starts a new session"): an orphaned `_none` bucket would surface
+// stale messages after the user reloaded.
+//
+// Persistence is now removed entirely (matches `session-manager.ts`'s
+// in-memory-only model). This function nukes any leftover entries written by
+// older deployed clients so users on stale state don't see ghost messages.
 
-let persistAgentId = '';
-let debounceTimer: ReturnType<typeof setTimeout> | null = null;
-/** Track last persisted key to clean up orphaned entries when sessionId changes */
-let lastPersistedKey: string | null = null;
-
-/** Initialise persistence scope (called once on widget init) */
-export function initPersistence(agentId: string): void {
-  persistAgentId = agentId;
-}
-
-function storageKey(): string {
-  return `cw_messages_${persistAgentId}_${sessionId.value ?? 'none'}`;
-}
-
-function schedulePersist(): void {
-  if (!persistAgentId) return;
-  if (debounceTimer !== null) clearTimeout(debounceTimer);
-  debounceTimer = setTimeout(persistMessages, DEBOUNCE_MS);
-}
-
-function persistMessages(): void {
-  debounceTimer = null;
-  if (!persistAgentId) return;
-
-  const currentKey = storageKey();
-
-  // Clean up orphaned key if sessionId changed (e.g. "none" → actual session ID)
-  if (lastPersistedKey && lastPersistedKey !== currentKey) {
-    try { sessionStorage.removeItem(lastPersistedKey); } catch { /* ignore */ }
-  }
-
-  const last10 = messages.value.slice(-PERSIST_COUNT);
-
-  // Serialize: convert Date to ISO string, omit audioBlob
-  const serializable = last10.map((m) => ({
-    id: m.id,
-    role: m.role,
-    type: m.type,
-    content: m.content,
-    timestamp: m.timestamp instanceof Date ? m.timestamp.toISOString() : m.timestamp,
-    status: m.status,
-    isStreaming: false, // never persist streaming state
-    audioUrl: m.audioUrl?.startsWith('blob:') ? undefined : m.audioUrl,
-    audioDuration: m.audioDuration,
-    errorMessage: m.errorMessage,
-    // audioBlob intentionally omitted — not serializable
-  }));
-
+/** Wipes every legacy `cw_messages_*` entry for this agent from sessionStorage. */
+export function clearLegacyPersistedMessages(agentId: string): void {
+  const prefix = `${LEGACY_STORAGE_PREFIX}${agentId}_`;
   try {
-    sessionStorage.setItem(currentKey, JSON.stringify(serializable));
-    lastPersistedKey = currentKey;
-  } catch {
-    // Storage may be full, disabled, or unavailable in iframes
-  }
-}
-
-/** Validate a parsed message entry has the minimum required fields */
-function isValidMessageEntry(m: unknown): m is Record<string, unknown> {
-  if (typeof m !== 'object' || m === null) return false;
-  const rec = m as Record<string, unknown>;
-  return (
-    typeof rec.id === 'string' &&
-    (rec.role === 'user' || rec.role === 'assistant') &&
-    typeof rec.content === 'string' &&
-    rec.timestamp != null
-  );
-}
-
-/** Restore messages from sessionStorage on widget init. Returns true if messages were restored. */
-export function restoreMessages(agentId: string, currentSessionId: string | null): boolean {
-  const key = `cw_messages_${agentId}_${currentSessionId ?? 'none'}`;
-
-  try {
-    const raw = sessionStorage.getItem(key);
-    if (!raw) return false;
-
-    const parsed = JSON.parse(raw) as unknown[];
-    if (!Array.isArray(parsed) || parsed.length === 0) return false;
-
-    const restored: Message[] = [];
-    for (const m of parsed) {
-      if (!isValidMessageEntry(m)) continue; // skip corrupt entries
-
-      const ts = new Date(m.timestamp as string);
-      if (isNaN(ts.getTime())) continue; // skip invalid timestamps
-
-      const isAudio = m.type === 'audio';
-      restored.push({
-        id: m.id as string,
-        role: m.role as Message['role'],
-        type: (m.type as Message['type']) ?? 'text',
-        // Audio messages without blob show "Audio unavailable"
-        content: isAudio && !m.audioUrl ? '[Audio unavailable]' : (m.content as string),
-        timestamp: ts,
-        status: (m.status as Message['status']) ?? 'sent',
-        isStreaming: false,
-        audioUrl: m.audioUrl as string | undefined,
-        audioDuration: m.audioDuration as number | undefined,
-        // audioBlob not available after restore
-        errorMessage: m.errorMessage as string | undefined,
-      });
+    const keys: string[] = [];
+    for (let i = 0; i < sessionStorage.length; i++) {
+      const k = sessionStorage.key(i);
+      if (k && k.startsWith(prefix)) keys.push(k);
     }
-
-    if (restored.length === 0) return false;
-    messages.value = restored;
-    return true;
+    for (const k of keys) sessionStorage.removeItem(k);
   } catch {
-    return false;
-  }
-}
-
-function clearPersistedMessages(): void {
-  if (!persistAgentId) return;
-  try {
-    sessionStorage.removeItem(storageKey());
-  } catch {
-    // ignore
+    // sessionStorage may be unavailable (iframe sandbox, private mode) — fine,
+    // there's nothing to clean up in that case.
   }
 }
 
@@ -285,8 +185,6 @@ export function generateMessageId(prefix: string): string {
 
 /** Reset all store state (for widget destroy) */
 export function resetStore(): void {
-  if (debounceTimer !== null) clearTimeout(debounceTimer);
-  debounceTimer = null;
   clearMessages();
   widgetState.value = 'closed';
   isLoading.value = false;
@@ -296,7 +194,5 @@ export function resetStore(): void {
   streamingMessageId.value = null;
   isRateLimited.value = false;
   starterCount.value = 0;
-  persistAgentId = '';
-  lastPersistedKey = null;
   idCounter = 0;
 }
