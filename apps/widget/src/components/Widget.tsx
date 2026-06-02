@@ -9,12 +9,11 @@ import { isDomainAllowed } from '../utils/domain-validator';
 import { debug, warn } from '../utils/debug';
 import { initApiClient, warmupAgent } from '../services/api-client';
 import { initVoiceClient } from '../services/voice-client';
-import { initSession, getSessionId } from '../services/session-manager';
+import { initSession } from '../services/session-manager';
 import {
   widgetState,
   setStarterCount,
-  initPersistence,
-  restoreMessages,
+  clearLegacyPersistedMessages,
   resetStore,
 } from '../state/chat-store';
 import { signal } from '@preact/signals';
@@ -159,9 +158,12 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
           // server's 24h cache retention, this benefits every widget load.
           warmupAgent(agentId);
 
-          // Initialize store persistence and restore messages (Story 5-21)
-          initPersistence(agentId);
-          restoreMessages(agentId, getSessionId());
+          // Reload / tab close = new session (matches `session-manager.ts`'s
+          // in-memory-only behaviour). The chat history is intentionally NOT
+          // persisted across reloads. Wipe any leftover sessionStorage entries
+          // written by earlier widget builds so users on stale state don't see
+          // ghost messages on first load after the fix ships.
+          clearLegacyPersistedMessages(agentId);
 
           // Set starter count for showStarters computed
           const starters = result.agent.starters ?? [];
