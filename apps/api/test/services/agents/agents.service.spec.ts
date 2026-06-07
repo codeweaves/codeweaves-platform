@@ -95,9 +95,8 @@ describe('AgentsService', () => {
   };
 
   const adminUser: CurrentUserData = {
-    auth0Id: 'auth0|admin',
+    clerkId: 'user_admin',
     email: 'admin@test.com',
-    roles: ['ADMIN'],
     id: 'admin-user-id',
     role: Role.ADMIN,
     organizationId: orgId,
@@ -105,9 +104,8 @@ describe('AgentsService', () => {
   };
 
   const superAdminUser: CurrentUserData = {
-    auth0Id: 'auth0|superadmin',
+    clerkId: 'user_superadmin',
     email: 'super@test.com',
-    roles: ['SUPER_ADMIN'],
     id: 'super-user-id',
     role: Role.SUPER_ADMIN,
     organizationId: null,
@@ -115,9 +113,8 @@ describe('AgentsService', () => {
   };
 
   const clientUser: CurrentUserData = {
-    auth0Id: 'auth0|client',
+    clerkId: 'user_client',
     email: 'client@test.com',
-    roles: ['CLIENT'],
     id: 'client-user-id',
     role: Role.CLIENT,
     organizationId: orgId,
@@ -125,9 +122,8 @@ describe('AgentsService', () => {
   };
 
   const clientOtherOrg: CurrentUserData = {
-    auth0Id: 'auth0|client2',
+    clerkId: 'user_client2',
     email: 'client2@test.com',
-    roles: ['CLIENT'],
     id: 'client2-user-id',
     role: Role.CLIENT,
     organizationId: otherOrgId,

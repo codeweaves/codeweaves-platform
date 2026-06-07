@@ -20,9 +20,8 @@ describe('AgentFilesController', () => {
   const fileId = '555e4567-e89b-12d3-a456-426614174000';
 
   const adminUser: CurrentUserData = {
-    auth0Id: 'auth0|admin',
+    clerkId: 'user_admin',
     email: 'admin@test.com',
-    roles: ['ADMIN'],
     id: 'admin-user-id',
     role: Role.ADMIN,
     organizationId: orgId,

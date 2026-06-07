@@ -13,7 +13,7 @@ describe('LoggingInterceptor', () => {
     interceptor = new LoggingInterceptor();
   });
 
-  function createMockContext(user?: { id: string; auth0Id: string }) {
+  function createMockContext(user?: { id: string; clerkId: string }) {
     const request = {
       method: 'GET',
       originalUrl: '/api/klivo/v1/organizations',
@@ -47,7 +47,7 @@ describe('LoggingInterceptor', () => {
   it('should enrich AsyncLocalStorage with userId when user exists', (done) => {
     const { context } = createMockContext({
       id: 'user-uuid',
-      auth0Id: 'auth0|123',
+      clerkId: 'user_123',
     });
     const next = { handle: () => of({ data: 'test' }) };
 
@@ -61,7 +61,7 @@ describe('LoggingInterceptor', () => {
         next: () => {
           const store = requestContextStorage.getStore();
           expect(store!.userId).toBe('user-uuid');
-          expect(store!.auth0Id).toBe('auth0|123');
+          expect(store!.clerkId).toBe('user_123');
         },
         complete: () => done(),
       });
@@ -82,7 +82,7 @@ describe('LoggingInterceptor', () => {
         next: () => {
           const store = requestContextStorage.getStore();
           expect(store!.userId).toBeUndefined();
-          expect(store!.auth0Id).toBeUndefined();
+          expect(store!.clerkId).toBeUndefined();
         },
         complete: () => done(),
       });

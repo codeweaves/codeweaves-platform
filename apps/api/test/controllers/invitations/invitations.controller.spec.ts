@@ -18,9 +18,8 @@ describe('InvitationsController', () => {
   };
 
   const mockUser: CurrentUserData = {
-    auth0Id: 'auth0|admin',
+    clerkId: 'user_admin',
     email: 'admin@example.com',
-    roles: ['SUPER_ADMIN'],
     id: 'user-uuid-1',
     role: Role.SUPER_ADMIN,
     organizationId: 'org-uuid-1',

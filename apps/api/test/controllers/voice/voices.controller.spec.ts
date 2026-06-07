@@ -38,9 +38,8 @@ describe('VoicesController', () => {
   // Minimal CurrentUserData shape — only `id` is read by the rate limiter.
   const mockUser = {
     id: 'user-123',
-    auth0Id: 'auth0|abc',
+    clerkId: 'user_abc',
     email: 'u@example.com',
-    roles: [],
     role: 'CLIENT',
     organizationId: null,
     organization: null,

@@ -27,7 +27,7 @@ export class SentryInterceptor implements NestInterceptor {
     if (user) {
       Sentry.setUser({
         id: user.id,
-        auth0Id: user.auth0Id,
+        clerkId: user.clerkId,
         organizationId: user.organizationId,
         role: user.role,
       });

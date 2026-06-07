@@ -38,9 +38,8 @@ describe('FilesService', () => {
   };
 
   const adminUser: CurrentUserData = {
-    auth0Id: 'auth0|admin',
+    clerkId: 'user_admin',
     email: 'admin@test.com',
-    roles: ['ADMIN'],
     id: 'admin-user-id',
     role: Role.ADMIN,
     organizationId: orgId,
@@ -48,9 +47,8 @@ describe('FilesService', () => {
   };
 
   const clientUser: CurrentUserData = {
-    auth0Id: 'auth0|client',
+    clerkId: 'user_client',
     email: 'client@test.com',
-    roles: ['CLIENT'],
     id: 'client-user-id',
     role: Role.CLIENT,
     organizationId: orgId,

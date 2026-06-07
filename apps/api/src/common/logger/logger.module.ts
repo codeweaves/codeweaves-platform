@@ -2,7 +2,7 @@ import { Module } from '@nestjs/common';
 import { OrganizationLoggerService } from './organization.logger';
 import { InvitationLoggerService } from './invitation.logger';
 import { UserLoggerService } from './user.logger';
-import { Auth0LoggerService } from './auth0.logger';
+import { ClerkLoggerService } from './clerk.logger';
 import { EmailLoggerService } from './email.logger';
 import { AgentLoggerService } from './agent.logger';
 
@@ -11,7 +11,7 @@ import { AgentLoggerService } from './agent.logger';
     OrganizationLoggerService,
     InvitationLoggerService,
     UserLoggerService,
-    Auth0LoggerService,
+    ClerkLoggerService,
     EmailLoggerService,
     AgentLoggerService,
   ],
@@ -19,7 +19,7 @@ import { AgentLoggerService } from './agent.logger';
     OrganizationLoggerService,
     InvitationLoggerService,
     UserLoggerService,
-    Auth0LoggerService,
+    ClerkLoggerService,
     EmailLoggerService,
     AgentLoggerService,
   ],

@@ -17,12 +17,14 @@ import {
 } from '@/components/ui/card';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
+import { useRouter } from 'next/navigation';
 
 export default function SettingsPage() {
   const { profile, isLoading } = useProfile();
   const { setTitle } = usePageHeader();
   const api = useApiClient();
   const queryClient = useQueryClient();
+  const router = useRouter();
 
   const [name, setName] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
@@ -50,17 +52,6 @@ export default function SettingsPage() {
     },
     onError: () => {
       toast.error('Failed to update profile');
-    },
-  });
-
-  const resetPassword = useMutation({
-    mutationFn: () => api.post('auth/users/me/password-reset'),
-    onSuccess: (data: { url: string }) => {
-      window.open(data.url, '_blank');
-      toast.success('Password reset page opened');
-    },
-    onError: () => {
-      toast.error('Failed to generate password reset link');
     },
   });
 
@@ -149,15 +140,13 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium">Password</p>
               <p className="text-sm text-muted-foreground">
-                Change your password via Auth0.
+                We&apos;ll email you a code to set a new password.
               </p>
             </div>
             <Button
               variant="outline"
-              onClick={() => resetPassword.mutate()}
-              disabled={resetPassword.isPending}
+              onClick={() => router.push('/reset-password')}
             >
-              {resetPassword.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
               Reset Password
             </Button>
           </div>

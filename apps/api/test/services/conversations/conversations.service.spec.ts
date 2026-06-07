@@ -23,9 +23,8 @@ describe('ConversationsService', () => {
   const agentId1 = '333e4567-e89b-12d3-a456-426614174000';
 
   const adminUser: CurrentUserData = {
-    auth0Id: 'auth0|admin',
+    clerkId: 'user_admin',
     email: 'admin@test.com',
-    roles: ['ADMIN'],
     id: 'admin-user-id',
     role: Role.ADMIN,
     organizationId: orgId,
@@ -33,9 +32,8 @@ describe('ConversationsService', () => {
   };
 
   const superAdminUser: CurrentUserData = {
-    auth0Id: 'auth0|super',
+    clerkId: 'user_super',
     email: 'super@test.com',
-    roles: ['SUPER_ADMIN'],
     id: 'super-user-id',
     role: Role.SUPER_ADMIN,
     organizationId: null,
@@ -43,9 +41,8 @@ describe('ConversationsService', () => {
   };
 
   const clientUser: CurrentUserData = {
-    auth0Id: 'auth0|client',
+    clerkId: 'user_client',
     email: 'client@test.com',
-    roles: ['CLIENT'],
     id: 'client-user-id',
     role: Role.CLIENT,
     organizationId: orgId,
@@ -53,9 +50,8 @@ describe('ConversationsService', () => {
   };
 
   const clientNoOrg: CurrentUserData = {
-    auth0Id: 'auth0|client-no-org',
+    clerkId: 'user_client-no-org',
     email: 'client-no-org@test.com',
-    roles: ['CLIENT'],
     id: 'client-no-org-id',
     role: Role.CLIENT,
     organizationId: null,

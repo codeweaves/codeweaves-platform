@@ -9,7 +9,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from './prisma.service';
 import { EmailService } from './email.service';
-import { Auth0ManagementService } from './auth0-management.service';
+import { ClerkManagementService } from './clerk-management.service';
 import { InvitationStatus, Prisma } from '@prisma/client';
 import { CreateInvitationDto, InvitationListQuery } from '../models/invitation.dto';
 import { InvitationLoggerService } from '../common/logger/invitation.logger';
@@ -25,7 +25,7 @@ export class InvitationsService {
     private prisma: PrismaService,
     private emailService: EmailService,
     private configService: ConfigService,
-    private auth0Management: Auth0ManagementService,
+    private clerkManagement: ClerkManagementService,
     private readonly invitationLogger: InvitationLoggerService,
   ) {}
 
@@ -66,9 +66,9 @@ export class InvitationsService {
         },
       });
 
-      // Pre-create Auth0 user and generate password setup link
+      // Create a Clerk invitation and generate the password-setup ticket link
       const passwordSetupUrl =
-        await this.getOrCreateAuth0UserAndTicket(invitation);
+        await this.createClerkInvitationTicket(invitation);
 
       await this.sendInvitationEmail(invitation, passwordSetupUrl);
 
@@ -167,7 +167,7 @@ export class InvitationsService {
       });
 
       // Generate new password setup link
-      const passwordSetupUrl = await this.getOrCreateAuth0UserAndTicket(updated);
+      const passwordSetupUrl = await this.createClerkInvitationTicket(updated);
 
       await this.sendInvitationEmail(updated, passwordSetupUrl);
 
@@ -215,7 +215,7 @@ export class InvitationsService {
     });
 
     // Generate new password setup link
-    const passwordSetupUrl = await this.getOrCreateAuth0UserAndTicket(updated);
+    const passwordSetupUrl = await this.createClerkInvitationTicket(updated);
 
     await this.sendInvitationEmail(updated, passwordSetupUrl);
 
@@ -266,17 +266,17 @@ export class InvitationsService {
       throw new BadRequestException('Cannot cancel an accepted invitation');
     }
 
-    // Delete Auth0 user if one was pre-created — must succeed before removing invitation
-    // to avoid orphaned Auth0 accounts (auth0UserId would be lost)
-    if (invitation.auth0UserId) {
+    // Revoke the Clerk invitation if one was issued — must succeed before
+    // removing the invitation row so the ticket link can no longer be used.
+    if (invitation.clerkInvitationId) {
       try {
-        await this.auth0Management.deleteUser(invitation.auth0UserId);
+        await this.clerkManagement.revokeInvitation(invitation.clerkInvitationId);
       } catch (error) {
         this.logger.error(
-          `Failed to delete Auth0 user ${invitation.auth0UserId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          `Failed to revoke Clerk invitation ${invitation.clerkInvitationId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
         );
         throw new ServiceUnavailableException(
-          'Failed to delete Auth0 user; invitation was not cancelled. Please retry.',
+          'Failed to revoke Clerk invitation; invitation was not cancelled. Please retry.',
         );
       }
     }
@@ -295,40 +295,52 @@ export class InvitationsService {
     }
   }
 
-  private async getOrCreateAuth0UserAndTicket(invitation: {
+  /**
+   * Creates a Clerk invitation for the given invitation row and returns the
+   * ticket URL the user clicks to set their password. Any previously-issued
+   * Clerk invitation is revoked first (best-effort) so the email always carries
+   * a fresh, valid ticket. Returns null on failure — the caller falls back to
+   * the plain signup link.
+   */
+  private async createClerkInvitationTicket(invitation: {
     id: string;
     email: string;
-    auth0UserId: string | null;
+    clerkInvitationId: string | null;
   }): Promise<string | null> {
     try {
-      let auth0UserId = invitation.auth0UserId;
+      const dashboardUrl = this.configService.get<string>(
+        'DASHBOARD_URL',
+        'http://localhost:3000',
+      );
 
-      if (!auth0UserId) {
-        const existingAuth0User = await this.auth0Management.getUserByEmail(
-          invitation.email,
-        );
-
-        if (existingAuth0User) {
-          auth0UserId = existingAuth0User.user_id;
-        } else {
-          const newUser = await this.auth0Management.createUser(
-            invitation.email,
+      // Revoke a stale invitation (resend/reissue) before issuing a new one.
+      if (invitation.clerkInvitationId) {
+        try {
+          await this.clerkManagement.revokeInvitation(
+            invitation.clerkInvitationId,
           );
-          auth0UserId = newUser.user_id;
+        } catch (error) {
+          this.logger.warn(
+            `Failed to revoke stale Clerk invitation ${invitation.clerkInvitationId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          );
         }
-
-        // Store Auth0 user ID on the invitation
-        await this.prisma.userInvitation.update({
-          where: { id: invitation.id },
-          data: { auth0UserId },
-        });
       }
 
-      // Generate password change ticket
-      return await this.auth0Management.createPasswordChangeTicket(auth0UserId);
+      const created = await this.clerkManagement.createInvitation({
+        email: invitation.email,
+        redirectUrl: `${dashboardUrl}/sign-up`,
+        expiresInDays: INVITATION_EXPIRY_DAYS,
+      });
+
+      await this.prisma.userInvitation.update({
+        where: { id: invitation.id },
+        data: { clerkInvitationId: created.id },
+      });
+
+      return created.url;
     } catch (error) {
       this.logger.error(
-        `Failed to get/create Auth0 user for invitation ${invitation.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to create Clerk invitation for invitation ${invitation.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
       );
       return null;
     }

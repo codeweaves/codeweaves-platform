@@ -21,7 +21,7 @@ describe('UserSyncGuard', () => {
     email: 'test@example.com',
     name: null,
     role: Role.CLIENT,
-    auth0Id: 'auth0|123456',
+    clerkId: 'user_123456',
     organizationId: mockOrganization.id,
     organization: mockOrganization,
     createdAt: new Date(),
@@ -112,9 +112,8 @@ describe('UserSyncGuard', () => {
   describe('user sync via service', () => {
     it('should delegate to UsersService.syncOrCreateUser', async () => {
       const jwtUser = {
-        auth0Id: 'auth0|123456',
+        clerkId: 'user_123456',
         email: 'test@example.com',
-        roles: ['CLIENT'],
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(mockSyncedUser);
 
@@ -126,9 +125,8 @@ describe('UserSyncGuard', () => {
 
     it('should attach synced user data to request', async () => {
       const jwtUser = {
-        auth0Id: 'auth0|123456',
+        clerkId: 'user_123456',
         email: 'test@example.com',
-        roles: ['CLIENT'],
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(mockSyncedUser);
 
@@ -146,16 +144,15 @@ describe('UserSyncGuard', () => {
 
     it('should attach null organization for SUPER_ADMIN users', async () => {
       const jwtUser = {
-        auth0Id: 'auth0|superadmin',
+        clerkId: 'user_superadmin',
         email: 'admin@codeweaves.com',
-        roles: ['SUPER_ADMIN'],
       };
       const mockSuperAdminUser = {
         id: 'superadmin-uuid-1',
         email: 'admin@codeweaves.com',
         name: 'Super Admin',
         role: Role.SUPER_ADMIN,
-        auth0Id: 'auth0|superadmin',
+        clerkId: 'user_superadmin',
         organizationId: null,
         organization: null,
         createdAt: new Date(),
@@ -177,9 +174,8 @@ describe('UserSyncGuard', () => {
 
     it('should return true after sync', async () => {
       const jwtUser = {
-        auth0Id: 'auth0|123456',
+        clerkId: 'user_123456',
         email: 'test@example.com',
-        roles: [],
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(mockSyncedUser);
 
@@ -193,13 +189,12 @@ describe('UserSyncGuard', () => {
   describe('caching', () => {
     it('should use cached user on second request (no extra DB call)', async () => {
       const jwtUser = {
-        auth0Id: 'auth0|cached',
+        clerkId: 'user_cached',
         email: 'cached@example.com',
-        roles: [],
       };
       const user = {
         ...mockSyncedUser,
-        auth0Id: 'auth0|cached',
+        clerkId: 'user_cached',
         email: 'cached@example.com',
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(user);
@@ -222,13 +217,12 @@ describe('UserSyncGuard', () => {
 
     it('should refetch after cache TTL expires', async () => {
       const jwtUser = {
-        auth0Id: 'auth0|ttl-test',
+        clerkId: 'user_ttl-test',
         email: 'ttl@example.com',
-        roles: [],
       };
       const user = {
         ...mockSyncedUser,
-        auth0Id: 'auth0|ttl-test',
+        clerkId: 'user_ttl-test',
         email: 'ttl@example.com',
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(user);
@@ -254,18 +248,16 @@ describe('UserSyncGuard', () => {
 
     it('should not share cache between different users', async () => {
       const user1 = {
-        auth0Id: 'auth0|user1',
+        clerkId: 'user_user1',
         email: 'user1@example.com',
-        roles: [],
       };
       const user2 = {
-        auth0Id: 'auth0|user2',
+        clerkId: 'user_user2',
         email: 'user2@example.com',
-        roles: [],
       };
 
-      const synced1 = { ...mockSyncedUser, id: 'uid-1', auth0Id: 'auth0|user1' };
-      const synced2 = { ...mockSyncedUser, id: 'uid-2', auth0Id: 'auth0|user2' };
+      const synced1 = { ...mockSyncedUser, id: 'uid-1', clerkId: 'user_user1' };
+      const synced2 = { ...mockSyncedUser, id: 'uid-2', clerkId: 'user_user2' };
 
       mockUsersService.syncOrCreateUser
         .mockResolvedValueOnce(synced1)
@@ -283,13 +275,12 @@ describe('UserSyncGuard', () => {
 
     it('should serve within TTL without service call', async () => {
       const jwtUser = {
-        auth0Id: 'auth0|within-ttl',
+        clerkId: 'user_within-ttl',
         email: 'ttl@example.com',
-        roles: [],
       };
       const user = {
         ...mockSyncedUser,
-        auth0Id: 'auth0|within-ttl',
+        clerkId: 'user_within-ttl',
         email: 'ttl@example.com',
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(user);

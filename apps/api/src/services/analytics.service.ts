@@ -922,7 +922,7 @@ export class AnalyticsService {
     await this.prisma.auditLog.create({
       data: {
         userId: user.id,
-        auth0Id: user.auth0Id,
+        clerkId: user.clerkId,
         contextId: user.organizationId ?? user.id,
         event: 'ANALYTICS_EXPORT',
         data: {

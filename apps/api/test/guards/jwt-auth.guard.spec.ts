@@ -85,9 +85,8 @@ describe('JwtAuthGuard', () => {
   describe('handleRequest', () => {
     it('should return user when authentication succeeds', () => {
       const mockUser = {
-        auth0Id: 'auth0|123',
+        clerkId: 'user_123',
         email: 'test@example.com',
-        roles: ['user'],
       };
 
       const result = guard.handleRequest(null, mockUser);

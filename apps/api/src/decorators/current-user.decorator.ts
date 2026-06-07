@@ -2,10 +2,9 @@ import { createParamDecorator, ExecutionContext } from '@nestjs/common';
 import { Role } from '@prisma/client';
 
 export interface CurrentUserData {
-  // From JWT
-  auth0Id: string;
+  // From JWT (Clerk)
+  clerkId: string;
   email: string;
-  roles: string[];
 
   // From database (populated by UserSyncGuard)
   id: string;

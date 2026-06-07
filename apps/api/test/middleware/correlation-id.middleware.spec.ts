@@ -78,7 +78,7 @@ describe('CorrelationIdMiddleware', () => {
       expect(store!.method).toBe('GET');
       expect(store!.url).toBe('/api/klivo/v1/organizations');
       expect(store!.userId).toBeUndefined();
-      expect(store!.auth0Id).toBeUndefined();
+      expect(store!.clerkId).toBeUndefined();
       done();
     });
   });

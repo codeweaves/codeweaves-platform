@@ -457,24 +457,22 @@ describe('OrganizationsService', () => {
   // ==========================================
 
   const superAdmin: import('../../../src/decorators/current-user.decorator').CurrentUserData = {
-    auth0Id: 'auth0|sa',
+    clerkId: 'user_sa',
     id: 'sa-id',
     role: 'SUPER_ADMIN' as const,
     organizationId: null,
     organization: null,
     email: 'sa@example.com',
-    roles: ['SUPER_ADMIN'],
   };
   // ADMIN/SUPER_ADMIN are platform-level roles — neither has an organizationId.
   // ADMINs are blocked from delete/preview entirely (SUPER_ADMIN-only operations).
   const orgAdmin: import('../../../src/decorators/current-user.decorator').CurrentUserData = {
-    auth0Id: 'auth0|admin',
+    clerkId: 'user_admin',
     id: 'admin-id',
     role: 'ADMIN' as const,
     organizationId: null,
     organization: null,
     email: 'admin@example.com',
-    roles: ['ADMIN'],
   };
 
   describe('getDeletePreview', () => {

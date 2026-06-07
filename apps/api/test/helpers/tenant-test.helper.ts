@@ -34,7 +34,7 @@ export interface MockUser {
   email: string;
   name: string;
   role: Role;
-  auth0Id: string;
+  clerkId: string;
   organizationId: string | null;
   organization: MockOrganization | null;
   deletedAt: Date | null;
@@ -55,7 +55,7 @@ export function createTestUser(
     email: `${roleName}${suffix}@${orgSlug}.test`,
     name: `${role} User${suffix} (${org?.name ?? 'Platform'})`,
     role,
-    auth0Id: `auth0|${orgSlug}-${roleName}${suffix}`,
+    clerkId: `user_${orgSlug}-${roleName}${suffix}`,
     organizationId: org?.id ?? null,
     organization: org,
     deletedAt: null,
@@ -87,7 +87,7 @@ export interface MockInvitation {
   expiresAt: Date;
   createdAt: Date;
   invitedBy: string | null;
-  auth0UserId: string | null;
+  clerkInvitationId: string | null;
 }
 
 export function createTestInvitation(
@@ -107,7 +107,7 @@ export function createTestInvitation(
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     createdAt: new Date(),
     invitedBy: null,
-    auth0UserId: null,
+    clerkInvitationId: null,
     ...overrides,
   };
 }

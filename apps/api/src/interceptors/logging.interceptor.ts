@@ -23,7 +23,7 @@ export class LoggingInterceptor implements NestInterceptor {
     const store = getRequestContext();
     if (store && user) {
       store.userId = user.id;
-      store.auth0Id = user.auth0Id;
+      store.clerkId = user.clerkId;
     }
 
     return next.handle().pipe(

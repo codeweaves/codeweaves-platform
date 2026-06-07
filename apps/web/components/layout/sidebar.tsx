@@ -60,19 +60,15 @@ const navigation: NavItem[] = [
 
 function NavUser() {
   const router = useRouter();
-  const { user: auth0User, logout, isAuthenticated } = useAuth();
+  const { user: clerkUser, logout, isAuthenticated } = useAuth();
   const { profile } = useProfile();
   const { isMobile } = useSidebar();
 
-  if (!isAuthenticated || !auth0User) return null;
+  if (!isAuthenticated || !clerkUser) return null;
 
-  const email = profile?.email || auth0User.email || '';
-  // Auth0 sets name to email when no real name exists — ignore that
-  const auth0Name =
-    auth0User.name && auth0User.name !== auth0User.email
-      ? auth0User.name
-      : null;
-  const name = profile?.name || auth0Name;
+  const email = profile?.email || clerkUser.email || '';
+  // Prefer the backend profile name; fall back to the Clerk user's name.
+  const name = profile?.name || clerkUser.name || null;
 
   const initials =
     name

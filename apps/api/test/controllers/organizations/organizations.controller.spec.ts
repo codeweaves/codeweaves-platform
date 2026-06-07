@@ -24,13 +24,12 @@ describe('OrganizationsController', () => {
   };
 
   const superAdminUser = {
-    auth0Id: 'auth0|sa',
+    clerkId: 'user_sa',
     id: 'sa-id',
     role: 'SUPER_ADMIN' as const,
     organizationId: null,
     organization: null,
     email: 'sa@example.com',
-    roles: ['SUPER_ADMIN'],
   };
 
   const mockOrganization = {

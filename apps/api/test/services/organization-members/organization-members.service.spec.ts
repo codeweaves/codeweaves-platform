@@ -40,7 +40,7 @@ describe('OrganizationMembersService', () => {
     email: 'user@example.com',
     name: 'Test User',
     role: Role.CLIENT,
-    auth0Id: 'auth0|123',
+    clerkId: 'user_123',
     organizationId: null as string | null,
     deletedAt: null,
     createdAt: new Date('2026-01-01'),

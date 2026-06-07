@@ -31,7 +31,7 @@ export function UserMenu() {
       <DropdownMenuTrigger asChild>
         <button className="flex items-center gap-2">
           <Avatar className="h-8 w-8">
-            <AvatarImage src={user.picture} alt={user.name} />
+            <AvatarImage src={user.imageUrl} alt={user.name ?? user.email} />
             <AvatarFallback>{initials}</AvatarFallback>
           </Avatar>
           <span className="hidden md:block">{user.name}</span>

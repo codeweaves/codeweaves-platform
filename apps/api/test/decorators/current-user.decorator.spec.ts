@@ -4,9 +4,8 @@ import { CurrentUser, CurrentUserData } from '../../src/decorators/current-user.
 
 describe('CurrentUser Decorator', () => {
   const mockUser: CurrentUserData = {
-    auth0Id: 'auth0|123456',
+    clerkId: 'user_123456',
     email: 'test@example.com',
-    roles: ['user', 'admin'],
     id: 'user-123',
     role: 'CLIENT' as CurrentUserData['role'],
     organizationId: 'org-123',
@@ -59,10 +58,10 @@ describe('CurrentUser Decorator', () => {
     expect(result).toBe('test@example.com');
   });
 
-  it('should return auth0Id when specified', () => {
+  it('should return clerkId when specified', () => {
     class TestController {
-      testMethod(@CurrentUser('auth0Id') auth0Id: string) {
-        return auth0Id;
+      testMethod(@CurrentUser('clerkId') clerkId: string) {
+        return clerkId;
       }
     }
 
@@ -71,16 +70,15 @@ describe('CurrentUser Decorator', () => {
     const factory = metadata[key]!.factory;
     const context = createMockExecutionContext(mockUser);
 
-    const result = factory('auth0Id', context);
+    const result = factory('clerkId', context);
 
-    expect(result).toBe('auth0|123456');
+    expect(result).toBe('user_123456');
   });
 
   it('should return null organizationId for SUPER_ADMIN', () => {
     const superAdminUser: CurrentUserData = {
-      auth0Id: 'auth0|superadmin',
+      clerkId: 'user_superadmin',
       email: 'admin@codeweaves.com',
-      roles: ['SUPER_ADMIN'],
       id: 'superadmin-123',
       role: 'SUPER_ADMIN' as CurrentUserData['role'],
       organizationId: null,

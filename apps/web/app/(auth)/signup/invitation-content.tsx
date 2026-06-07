@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
-import { useAuth0 } from '@auth0/auth0-react';
+import { useAuth } from '@/hooks/use-auth';
 import { Button } from '@/components/ui/button';
 import {
   Card,
@@ -34,7 +34,7 @@ type PageState =
 export function InvitationContent() {
   const searchParams = useSearchParams();
   const router = useRouter();
-  const { loginWithRedirect, isAuthenticated, isLoading: authLoading } = useAuth0();
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
   const [state, setState] = useState<PageState>({ status: 'loading' });
 
   const token = searchParams.get('token');
@@ -84,16 +84,7 @@ export function InvitationContent() {
   }, [token, isAuthenticated, authLoading, router]);
 
   const handleLogin = () => {
-    if (state.status !== 'valid') return;
-
-    loginWithRedirect({
-      authorizationParams: {
-        login_hint: state.invitation.email,
-      },
-      appState: {
-        returnTo: '/dashboard',
-      },
-    });
+    router.push('/sign-in');
   };
 
   if (authLoading || state.status === 'loading') {
@@ -122,9 +113,9 @@ export function InvitationContent() {
             <Button
               variant="outline"
               className="w-full"
-              onClick={() => router.push('/login')}
+              onClick={() => router.push('/sign-in')}
             >
-              Go to Login
+              Go to Sign In
             </Button>
           </CardFooter>
         </Card>

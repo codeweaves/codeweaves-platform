@@ -3,7 +3,6 @@ import { ForbiddenException, NotFoundException, UnauthorizedException } from '@n
 import { UsersService } from '../../../src/services/users.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { UserLoggerService } from '../../../src/common/logger/user.logger';
-import { Auth0ManagementService } from '../../../src/services/auth0-management.service';
 import { Role, InvitationStatus, Prisma } from '@prisma/client';
 
 describe('UsersService', () => {
@@ -35,7 +34,7 @@ describe('UsersService', () => {
     email: 'test@example.com',
     name: 'Test User',
     role: Role.CLIENT,
-    auth0Id: 'auth0|123456',
+    clerkId: 'user_123456',
     organizationId: mockOrganization.id,
     organization: mockOrganization,
     createdAt: new Date('2026-01-01'),
@@ -47,7 +46,7 @@ describe('UsersService', () => {
     email: 'admin@codeweaves.com',
     name: 'Super Admin',
     role: Role.SUPER_ADMIN,
-    auth0Id: 'auth0|superadmin',
+    clerkId: 'user_superadmin',
     organizationId: null,
     organization: null,
     createdAt: new Date('2026-01-01'),
@@ -83,12 +82,6 @@ describe('UsersService', () => {
             logMemberRemoved: jest.fn(),
           },
         },
-        {
-          provide: Auth0ManagementService,
-          useValue: {
-            createPasswordChangeTicket: jest.fn(),
-          },
-        },
       ],
     }).compile();
 
@@ -101,15 +94,15 @@ describe('UsersService', () => {
     expect(service).toBeDefined();
   });
 
-  describe('findByAuth0Id', () => {
-    it('should find active user by auth0Id and include organization', async () => {
+  describe('findByClerkId', () => {
+    it('should find active user by clerkId and include organization', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(mockUser);
 
-      const result = await service.findByAuth0Id('auth0|123456');
+      const result = await service.findByClerkId('user_123456');
 
       expect(result).toEqual(mockUser);
       expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
-        where: { auth0Id: 'auth0|123456', deletedAt: null },
+        where: { clerkId: 'user_123456', deletedAt: null },
         include: { organization: true },
       });
     });
@@ -117,11 +110,11 @@ describe('UsersService', () => {
     it('should return null when user is not found', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(null);
 
-      const result = await service.findByAuth0Id('auth0|nonexistent');
+      const result = await service.findByClerkId('user_nonexistent');
 
       expect(result).toBeNull();
       expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
-        where: { auth0Id: 'auth0|nonexistent', deletedAt: null },
+        where: { clerkId: 'user_nonexistent', deletedAt: null },
         include: { organization: true },
       });
     });
@@ -129,11 +122,11 @@ describe('UsersService', () => {
     it('should exclude soft-deleted users', async () => {
       mockPrismaService.user.findFirst.mockResolvedValue(null);
 
-      const result = await service.findByAuth0Id('auth0|deleted');
+      const result = await service.findByClerkId('user_deleted');
 
       expect(result).toBeNull();
       expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
-        where: { auth0Id: 'auth0|deleted', deletedAt: null },
+        where: { clerkId: 'user_deleted', deletedAt: null },
         include: { organization: true },
       });
     });
@@ -163,10 +156,10 @@ describe('UsersService', () => {
     });
   });
 
-  describe('createFromAuth0', () => {
+  describe('createFromClerk', () => {
     it('should create user from Auth0 data with all fields', async () => {
       const createData = {
-        auth0Id: 'auth0|123456',
+        clerkId: 'user_123456',
         email: 'test@example.com',
         name: 'Test User',
         role: Role.CLIENT,
@@ -175,12 +168,12 @@ describe('UsersService', () => {
 
       mockPrismaService.user.create.mockResolvedValue(mockUser);
 
-      const result = await service.createFromAuth0(createData);
+      const result = await service.createFromClerk(createData);
 
       expect(result).toEqual(mockUser);
       expect(mockPrismaService.user.create).toHaveBeenCalledWith({
         data: {
-          auth0Id: createData.auth0Id,
+          clerkId: createData.clerkId,
           email: createData.email,
           name: createData.name,
           role: createData.role,
@@ -191,7 +184,7 @@ describe('UsersService', () => {
 
     it('should create user from Auth0 data without optional name', async () => {
       const createData = {
-        auth0Id: 'auth0|123456',
+        clerkId: 'user_123456',
         email: 'test@example.com',
         role: Role.CLIENT,
         organizationId: mockOrganization.id,
@@ -200,12 +193,12 @@ describe('UsersService', () => {
       const userWithoutName = { ...mockUser, name: null };
       mockPrismaService.user.create.mockResolvedValue(userWithoutName);
 
-      const result = await service.createFromAuth0(createData);
+      const result = await service.createFromClerk(createData);
 
       expect(result).toEqual(userWithoutName);
       expect(mockPrismaService.user.create).toHaveBeenCalledWith({
         data: {
-          auth0Id: createData.auth0Id,
+          clerkId: createData.clerkId,
           email: createData.email,
           name: undefined,
           role: createData.role,
@@ -216,7 +209,7 @@ describe('UsersService', () => {
 
     it('should create user with ADMIN role', async () => {
       const createData = {
-        auth0Id: 'auth0|admin123',
+        clerkId: 'user_admin123',
         email: 'admin@example.com',
         name: 'Admin User',
         role: Role.ADMIN,
@@ -226,7 +219,7 @@ describe('UsersService', () => {
       const adminUser = { ...mockUser, role: Role.ADMIN, email: 'admin@example.com' };
       mockPrismaService.user.create.mockResolvedValue(adminUser);
 
-      const result = await service.createFromAuth0(createData);
+      const result = await service.createFromClerk(createData);
 
       expect(result.role).toBe(Role.ADMIN);
       expect(mockPrismaService.user.create).toHaveBeenCalledWith({
@@ -236,7 +229,7 @@ describe('UsersService', () => {
 
     it('should create SUPER_ADMIN without organizationId', async () => {
       const createData = {
-        auth0Id: 'auth0|superadmin',
+        clerkId: 'user_superadmin',
         email: 'admin@codeweaves.com',
         name: 'Super Admin',
         role: Role.SUPER_ADMIN,
@@ -244,13 +237,13 @@ describe('UsersService', () => {
 
       mockPrismaService.user.create.mockResolvedValue(mockSuperAdmin);
 
-      const result = await service.createFromAuth0(createData);
+      const result = await service.createFromClerk(createData);
 
       expect(result).toEqual(mockSuperAdmin);
       expect(result.organizationId).toBeNull();
       expect(mockPrismaService.user.create).toHaveBeenCalledWith({
         data: {
-          auth0Id: createData.auth0Id,
+          clerkId: createData.clerkId,
           email: createData.email,
           name: createData.name,
           role: createData.role,
@@ -261,7 +254,7 @@ describe('UsersService', () => {
 
     it('should enforce unique email constraint', async () => {
       const createData = {
-        auth0Id: 'auth0|456',
+        clerkId: 'user_456',
         email: 'test@example.com',
         role: Role.CLIENT,
         organizationId: mockOrganization.id,
@@ -271,10 +264,10 @@ describe('UsersService', () => {
         new Error('Unique constraint failed on the fields: (`email`)'),
       );
 
-      await expect(service.createFromAuth0(createData)).rejects.toThrow();
+      await expect(service.createFromClerk(createData)).rejects.toThrow();
       expect(mockPrismaService.user.create).toHaveBeenCalledWith({
         data: {
-          auth0Id: createData.auth0Id,
+          clerkId: createData.clerkId,
           email: createData.email,
           name: undefined,
           role: createData.role,
@@ -283,19 +276,19 @@ describe('UsersService', () => {
       });
     });
 
-    it('should enforce unique auth0Id constraint', async () => {
+    it('should enforce unique clerkId constraint', async () => {
       const createData = {
-        auth0Id: 'auth0|123456',
+        clerkId: 'user_123456',
         email: 'different@example.com',
         role: Role.CLIENT,
         organizationId: mockOrganization.id,
       };
 
       mockPrismaService.user.create.mockRejectedValue(
-        new Error('Unique constraint failed on the fields: (`auth0Id`)'),
+        new Error('Unique constraint failed on the fields: (`clerkId`)'),
       );
 
-      await expect(service.createFromAuth0(createData)).rejects.toThrow();
+      await expect(service.createFromClerk(createData)).rejects.toThrow();
     });
   });
 
@@ -356,12 +349,12 @@ describe('UsersService', () => {
       });
     });
 
-    it('should exclude sensitive fields (auth0Id, organizationId) from response', async () => {
+    it('should exclude sensitive fields (clerkId, organizationId) from response', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
 
       const result = await service.getProfile(mockUser.id);
 
-      expect(result).not.toHaveProperty('auth0Id');
+      expect(result).not.toHaveProperty('clerkId');
       expect(result).not.toHaveProperty('organizationId');
     });
   });
@@ -513,7 +506,7 @@ describe('UsersService', () => {
   describe('organization relationship', () => {
     it('should enforce foreign key constraint to organization', async () => {
       const createData = {
-        auth0Id: 'auth0|123456',
+        clerkId: 'user_123456',
         email: 'test@example.com',
         role: Role.CLIENT,
         organizationId: 'nonexistent-org-id',
@@ -523,7 +516,7 @@ describe('UsersService', () => {
         new Error('Foreign key constraint failed on the field: `organizationId`'),
       );
 
-      await expect(service.createFromAuth0(createData)).rejects.toThrow();
+      await expect(service.createFromClerk(createData)).rejects.toThrow();
     });
   });
 
@@ -542,17 +535,17 @@ describe('UsersService', () => {
       invitedBy: null,
     };
 
-    it('should return existing user when found by auth0Id', async () => {
+    it('should return existing user when found by clerkId', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(mockUser);
 
       const result = await service.syncOrCreateUser({
-        auth0Id: 'auth0|123456',
+        clerkId: 'user_123456',
         email: 'test@example.com',
       });
 
       expect(result).toEqual(mockUser);
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
-        where: { auth0Id: 'auth0|123456' },
+        where: { clerkId: 'user_123456' },
         include: { organization: true },
       });
       expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
@@ -562,7 +555,7 @@ describe('UsersService', () => {
       mockPrismaService.user.findUnique.mockResolvedValue(mockSuperAdmin);
 
       const result = await service.syncOrCreateUser({
-        auth0Id: 'auth0|superadmin',
+        clerkId: 'user_superadmin',
         email: 'admin@codeweaves.com',
       });
 
@@ -581,14 +574,14 @@ describe('UsersService', () => {
 
       await expect(
         service.syncOrCreateUser({
-          auth0Id: 'auth0|123456',
+          clerkId: 'user_123456',
           email: 'test@example.com',
         }),
       ).rejects.toThrow(UnauthorizedException);
 
       await expect(
         service.syncOrCreateUser({
-          auth0Id: 'auth0|123456',
+          clerkId: 'user_123456',
           email: 'test@example.com',
         }),
       ).rejects.toThrow('Account has been deactivated');
@@ -600,7 +593,7 @@ describe('UsersService', () => {
       const createdUser = {
         ...mockUser,
         id: 'new-user-uuid',
-        auth0Id: 'auth0|new',
+        clerkId: 'user_new',
         email: 'new@example.com',
       };
 
@@ -622,7 +615,7 @@ describe('UsersService', () => {
       );
 
       const result = await service.syncOrCreateUser({
-        auth0Id: 'auth0|new',
+        clerkId: 'user_new',
         email: 'new@example.com',
       });
 
@@ -636,7 +629,7 @@ describe('UsersService', () => {
 
       await expect(
         service.syncOrCreateUser({
-          auth0Id: 'auth0|mixed',
+          clerkId: 'user_mixed',
           email: 'User@Example.COM',
         }),
       ).rejects.toThrow(UnauthorizedException);
@@ -656,14 +649,14 @@ describe('UsersService', () => {
 
       await expect(
         service.syncOrCreateUser({
-          auth0Id: 'auth0|unknown',
+          clerkId: 'user_unknown',
           email: 'unknown@example.com',
         }),
       ).rejects.toThrow(UnauthorizedException);
 
       await expect(
         service.syncOrCreateUser({
-          auth0Id: 'auth0|unknown',
+          clerkId: 'user_unknown',
           email: 'unknown@example.com',
         }),
       ).rejects.toThrow('No valid invitation found');
@@ -673,7 +666,7 @@ describe('UsersService', () => {
       const createdUser = {
         ...mockUser,
         id: 'new-uuid',
-        auth0Id: 'auth0|inv-test',
+        clerkId: 'user_inv-test',
         email: 'inv@example.com',
       };
 
@@ -700,7 +693,7 @@ describe('UsersService', () => {
       );
 
       await service.syncOrCreateUser({
-        auth0Id: 'auth0|inv-test',
+        clerkId: 'user_inv-test',
         email: 'inv@example.com',
       });
 
@@ -713,7 +706,7 @@ describe('UsersService', () => {
     it('should handle race condition with unique constraint error', async () => {
       const existingUser = {
         ...mockUser,
-        auth0Id: 'auth0|race',
+        clerkId: 'user_race',
         email: 'race@example.com',
       };
 
@@ -734,7 +727,7 @@ describe('UsersService', () => {
       );
 
       const result = await service.syncOrCreateUser({
-        auth0Id: 'auth0|race',
+        clerkId: 'user_race',
         email: 'race@example.com',
       });
 
@@ -754,7 +747,7 @@ describe('UsersService', () => {
 
       await expect(
         service.syncOrCreateUser({
-          auth0Id: 'auth0|error',
+          clerkId: 'user_error',
           email: 'error@example.com',
         }),
       ).rejects.toThrow('Database connection lost');
@@ -769,7 +762,7 @@ describe('UsersService', () => {
       const adminUser = {
         ...mockUser,
         id: 'admin-uuid',
-        auth0Id: 'auth0|admin',
+        clerkId: 'user_admin',
         email: 'admin@example.com',
         role: Role.ADMIN,
       };
@@ -799,7 +792,7 @@ describe('UsersService', () => {
       );
 
       const result = await service.syncOrCreateUser({
-        auth0Id: 'auth0|admin',
+        clerkId: 'user_admin',
         email: 'admin@example.com',
       });
 
