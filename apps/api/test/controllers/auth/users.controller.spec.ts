@@ -19,9 +19,8 @@ describe('UsersController', () => {
   };
 
   const mockUser: CurrentUserData = {
-    auth0Id: 'auth0|123456',
+    clerkId: 'user_123456',
     email: 'test@example.com',
-    roles: ['user'],
     id: 'user-uuid',
     role: Role.CLIENT,
     organizationId: 'org-uuid',
@@ -69,9 +68,8 @@ describe('UsersController', () => {
 
     it('should return profile with null organization for SUPER_ADMIN', async () => {
       const superAdminUser: CurrentUserData = {
-        auth0Id: 'auth0|superadmin',
+        clerkId: 'user_superadmin',
         email: 'admin@codeweaves.com',
-        roles: ['SUPER_ADMIN'],
         id: 'superadmin-uuid',
         role: Role.SUPER_ADMIN,
         organizationId: null,
@@ -137,7 +135,7 @@ describe('UsersController', () => {
       expect(result).toEqual(mockProfileResponse);
     });
 
-    it('should not need to look up user by auth0Id', async () => {
+    it('should not need to look up user by clerkId', async () => {
       mockUsersService.updateProfile.mockResolvedValue(mockProfileResponse);
 
       await controller.updateProfile(mockUser, { name: 'New Name' });

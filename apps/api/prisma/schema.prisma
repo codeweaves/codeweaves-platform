@@ -60,35 +60,35 @@ model Organization {
 }
 
 model User {
-  id             String       @id @default(uuid())
-  email          String       @unique
+  id             String        @id @default(uuid())
+  email          String        @unique
   name           String?
-  role           Role         @default(CLIENT)
-  auth0Id        String       @unique
+  role           Role          @default(CLIENT)
+  clerkId        String?       @unique
   organizationId String?
   organization   Organization? @relation(fields: [organizationId], references: [id])
   deletedAt      DateTime?
-  createdAt      DateTime     @default(now())
-  updatedAt      DateTime     @updatedAt
+  createdAt      DateTime      @default(now())
+  updatedAt      DateTime      @updatedAt
 
   @@index([organizationId])
-  @@index([auth0Id])
+  @@index([clerkId])
   @@map("users")
 }
 
 model UserInvitation {
-  id             String           @id @default(uuid())
-  email          String
-  role           Role             @default(CLIENT)
-  organizationId String?
-  token          String           @unique @default(uuid())
-  reissueToken   String           @unique @default(uuid())
-  reissueCount   Int              @default(0)
-  status         InvitationStatus @default(PENDING)
-  expiresAt      DateTime
-  createdAt      DateTime         @default(now())
-  invitedBy      String?
-  auth0UserId    String?
+  id                String           @id @default(uuid())
+  email             String
+  role              Role             @default(CLIENT)
+  organizationId    String?
+  token             String           @unique @default(uuid())
+  reissueToken      String           @unique @default(uuid())
+  reissueCount      Int              @default(0)
+  status            InvitationStatus @default(PENDING)
+  expiresAt         DateTime
+  createdAt         DateTime         @default(now())
+  invitedBy         String?
+  clerkInvitationId String?
 
   @@unique([email, status, organizationId])
   @@index([email])
@@ -99,43 +99,43 @@ model UserInvitation {
 }
 
 model Agent {
-  id             String        @id @default(uuid())
-  publicId       String        @unique @db.VarChar(8)
-  name           String
-  status         AgentStatus   @default(ACTIVE)
-  organizationId String
-  organization   Organization  @relation(fields: [organizationId], references: [id])
-  allowedDomains String[]
-  hmacEnabled    Boolean       @default(false)
-  voiceEnabled   Boolean       @default(false)
-  voiceConfig    Json?         @db.JsonB
+  id                   String          @id @default(uuid())
+  publicId             String          @unique @db.VarChar(8)
+  name                 String
+  status               AgentStatus     @default(ACTIVE)
+  organizationId       String
+  organization         Organization    @relation(fields: [organizationId], references: [id])
+  allowedDomains       String[]
+  hmacEnabled          Boolean         @default(false)
+  voiceEnabled         Boolean         @default(false)
+  voiceConfig          Json?           @db.JsonB
   // Per-agent AI orchestration config: routing mode (n8n | direct), model,
   // temperature, context strategy, fallback models, RAG settings.
   // Null/absent = defaults to 'n8n' routing for backwards compatibility.
-  aiConfig       Json?         @db.JsonB
+  aiConfig             Json?           @db.JsonB
   // Category names this agent's conversations get classified into by the
   // post-session AI classifier (e.g. ["Pricing", "Support", "Refunds"]).
   // Empty array disables categorisation for the agent.
-  categoryKeywords String[]    @default([])
+  categoryKeywords     String[]        @default([])
   // How long a single chat session can live (from createdAt) before the
   // backend rotates the visitor to a new sessionId. Tighter values produce
   // more "distinct conversations" in analytics; looser values let one visit
   // stay continuous longer. Range 1-168 (1h to 1 week), default 6h.
-  sessionLifetimeHours Int     @default(6)
+  sessionLifetimeHours Int             @default(6)
   // Languages this agent's conversations get classified against by the same
   // post-session classifier. Codes are mostly ISO 639-1 (en, hi, mr, …) plus
   // one non-standard value: `hinglish` (code-mixed Hindi-English, Latin script).
   // Empty array disables language detection for the agent.
-  supportedLanguages String[]  @default([])
-  systemPrompt   String?       @db.Text
-  welcomeMessage String?
-  secret         AgentSecret?
-  theme          AgentTheme?
-  knowledge      AgentKnowledge?
-  chatSessions   ChatSession[]
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
-  deletedAt      DateTime?
+  supportedLanguages   String[]        @default([])
+  systemPrompt         String?         @db.Text
+  welcomeMessage       String?
+  secret               AgentSecret?
+  theme                AgentTheme?
+  knowledge            AgentKnowledge?
+  chatSessions         ChatSession[]
+  createdAt            DateTime        @default(now())
+  updatedAt            DateTime        @updatedAt
+  deletedAt            DateTime?
 
   @@index([publicId])
   @@index([organizationId])
@@ -160,7 +160,7 @@ model AgentTheme {
   id        String   @id @default(uuid())
   agentId   String   @unique
   agent     Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  config    Json     // Stores full WidgetTheme object as JSONB
+  config    Json // Stores full WidgetTheme object as JSONB
   version   Int      @default(1)
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -179,48 +179,48 @@ model AgentTheme {
 /// be large (up to ~500 KB / ~125K tokens) and we don't want every agent-list
 /// query dragging it across the wire.
 model AgentKnowledge {
-  id              String   @id @default(uuid())
-  agentId         String   @unique
-  agent           Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  id      String @id @default(uuid())
+  agentId String @unique
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
 
   /// Extracted / pasted text. Prepended to the agent's system prompt at chat time.
-  content         String   @db.Text
+  content String @db.Text
 
   /// Cached token count (computed via TokenCounterService on write). Lets the
   /// dashboard display "12,400 tokens" without tokenising on every read.
-  contentTokens   Int?
+  contentTokens Int?
 
   /// Filename of the uploaded source, if any. Helpful in the UI: "Knowledge
   /// extracted from refund-policy.pdf · 12,400 tokens". Null when admin pasted
   /// text directly.
-  sourceFileName  String?  @db.VarChar(255)
+  sourceFileName String? @db.VarChar(255)
 
   /// MIME type of the uploaded source, if any. Used only for UI labels.
-  sourceMimeType  String?  @db.VarChar(127)
+  sourceMimeType String? @db.VarChar(127)
 
   /// Size of the original file before text extraction, in bytes. Null when
   /// admin pasted text directly.
   sourceSizeBytes Int?
 
-  createdAt       DateTime @default(now())
-  updatedAt       DateTime @updatedAt
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
 
   @@index([agentId])
   @@map("agent_knowledge")
 }
 
 model ChatSession {
-  id            String        @id @default(uuid())
-  agentId       String
-  agent         Agent         @relation(fields: [agentId], references: [id]) // RESTRICT: sessions are analytics data, must not cascade-delete with agent
-  sessionId     String        @unique
-  source        ChatSource    @default(DEMO)
-  visitorId     String?       // IP address (web/widget) or phone number (WhatsApp)
-  status        SessionStatus @default(ACTIVE)
+  id               String        @id @default(uuid())
+  agentId          String
+  agent            Agent         @relation(fields: [agentId], references: [id]) // RESTRICT: sessions are analytics data, must not cascade-delete with agent
+  sessionId        String        @unique
+  source           ChatSource    @default(DEMO)
+  visitorId        String? // IP address (web/widget) or phone number (WhatsApp)
+  status           SessionStatus @default(ACTIVE)
   // Auto-generated concise title (5-8 words) derived from the first few
   // exchanges. Populated asynchronously after the 2nd assistant reply.
   // Used by conversation list UIs and analytics. Null until generated.
-  title         String?       @db.VarChar(200)
+  title            String?       @db.VarChar(200)
   // Running summary of earlier conversation (populated by HybridContextStrategy
   // when the conversation outgrows the token budget). Complements the
   // in-memory cache — DB persistence survives restarts so Redis/memory cache
@@ -290,7 +290,7 @@ model AuditLog {
   id            String   @id @default(uuid())
   correlationId String?
   userId        String?
-  auth0Id       String?
+  clerkId       String?
   contextId     String
   event         String
   data          Json
@@ -299,7 +299,7 @@ model AuditLog {
   @@index([event])
   @@index([contextId])
   @@index([userId])
-  @@index([auth0Id])
+  @@index([clerkId])
   @@index([correlationId])
   @@index([createdAt])
   @@map("audit_logs")
@@ -311,15 +311,15 @@ model AuditLog {
 // what was sent to the LLM, what came back, how long each step took.
 model ChatTrace {
   id              String    @id @default(uuid())
-  traceId         String    @unique                    // short ID (t_xxxxxxxxxx) for log correlation
-  correlationId   String?                              // matches HTTP request correlation ID
+  traceId         String    @unique // short ID (t_xxxxxxxxxx) for log correlation
+  correlationId   String? // matches HTTP request correlation ID
   agentId         String
   sessionId       String?
-  messageId       String?                              // ChatMessage.id once persisted
+  messageId       String? // ChatMessage.id once persisted
   userMessage     String?   @db.Text
   response        String?   @db.Text
-  model           String?                              // actual model used (may differ from requested if fallback)
-  steps           Json                                 // TraceStep[] — each step's name, timing, and data
+  model           String? // actual model used (may differ from requested if fallback)
+  steps           Json // TraceStep[] — each step's name, timing, and data
   startedAt       DateTime
   completedAt     DateTime?
   totalDurationMs Int?
@@ -338,26 +338,26 @@ model ChatTrace {
 // Powers: per-org cost tracking, model usage analytics, quota enforcement,
 // cache hit rate measurement, retry/fallback monitoring.
 model LlmUsage {
-  id               String   @id @default(uuid())
-  organizationId   String
-  agentId          String
-  sessionId        String?
-  messageId        String?
-  traceId          String?                              // link back to ChatTrace
-  model            String                               // actual model used
-  requestedModel   String                               // model requested (differs when fallback)
-  promptTokens     Int
-  completionTokens Int
-  totalTokens      Int
-  cachedInputTokens Int?                                // tokens served from provider prompt cache (OpenAI/Gemini); null = unknown/not supported
-  reasoningTokens   Int?                                // reasoning tokens consumed (Gemini thinking / OpenAI o1); null = none / N/A
-  cost             Float?                               // USD, from OpenRouter response
-  feature          String                               // 'chat' | 'voice' | 'rag-query' | 'embedding' | 'summarization' | 'rag-contextual' | 'rag-evaluation'
-  latencyMs        Int
-  cached           Boolean  @default(false)
-  retryCount       Int      @default(0)
-  finishReason     String?
-  createdAt        DateTime @default(now())
+  id                String   @id @default(uuid())
+  organizationId    String
+  agentId           String
+  sessionId         String?
+  messageId         String?
+  traceId           String? // link back to ChatTrace
+  model             String // actual model used
+  requestedModel    String // model requested (differs when fallback)
+  promptTokens      Int
+  completionTokens  Int
+  totalTokens       Int
+  cachedInputTokens Int? // tokens served from provider prompt cache (OpenAI/Gemini); null = unknown/not supported
+  reasoningTokens   Int? // reasoning tokens consumed (Gemini thinking / OpenAI o1); null = none / N/A
+  cost              Float? // USD, from OpenRouter response
+  feature           String // 'chat' | 'voice' | 'rag-query' | 'embedding' | 'summarization' | 'rag-contextual' | 'rag-evaluation'
+  latencyMs         Int
+  cached            Boolean  @default(false)
+  retryCount        Int      @default(0)
+  finishReason      String?
+  createdAt         DateTime @default(now())
 
   @@index([organizationId, createdAt])
   @@index([agentId, createdAt])

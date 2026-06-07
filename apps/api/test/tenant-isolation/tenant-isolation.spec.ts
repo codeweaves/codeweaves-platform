@@ -20,7 +20,7 @@ import { OrganizationsService } from '../../src/services/organizations.service';
 import { InvitationsService } from '../../src/services/invitations.service';
 import { PrismaService } from '../../src/services/prisma.service';
 import { EmailService } from '../../src/services/email.service';
-import { Auth0ManagementService } from '../../src/services/auth0-management.service';
+import { ClerkManagementService } from '../../src/services/clerk-management.service';
 import { OrganizationLoggerService } from '../../src/common/logger/organization.logger';
 import { InvitationLoggerService } from '../../src/common/logger/invitation.logger';
 import { UserLoggerService } from '../../src/common/logger/user.logger';
@@ -87,11 +87,9 @@ describe('Tenant Isolation — Evil Twin', () => {
       return config[key] ?? defaultValue;
     },
   };
-  const mockAuth0Management = {
-    getUserByEmail: jest.fn(),
-    createUser: jest.fn(),
-    deleteUser: jest.fn(),
-    createPasswordChangeTicket: jest.fn(),
+  const mockClerkManagement = {
+    createInvitation: jest.fn(),
+    revokeInvitation: jest.fn(),
   };
 
   beforeAll(() => {
@@ -110,7 +108,7 @@ describe('Tenant Isolation — Evil Twin', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EmailService, useValue: mockEmailService },
         { provide: ConfigService, useValue: mockConfigService },
-        { provide: Auth0ManagementService, useValue: mockAuth0Management },
+        { provide: ClerkManagementService, useValue: mockClerkManagement },
         { provide: OrganizationLoggerService, useValue: { logOrganizationCreated: jest.fn(), logOrganizationCreationException: jest.fn(), logOrganizationUpdated: jest.fn(), logOrganizationUpdateException: jest.fn(), logOrganizationCreationFailed: jest.fn() } },
         { provide: InvitationLoggerService, useValue: { logInvitationCreated: jest.fn(), logInvitationCreationException: jest.fn(), logInvitationResent: jest.fn(), logInvitationCancelled: jest.fn(), logInvitationReissued: jest.fn(), logInvitationResentException: jest.fn(), logInvitationCancelledException: jest.fn(), logInvitationReissuedException: jest.fn(), logInvitationCreationFailed: jest.fn() } },
         { provide: UserLoggerService, useValue: { logUserCreatedFromAuth0: jest.fn(), logUserCreatedFromInvitation: jest.fn(), logUserCreationException: jest.fn(), logUserProfileUpdated: jest.fn(), logUserFirstLogin: jest.fn(), logMemberAssigned: jest.fn(), logMemberRemoved: jest.fn(), logUserProfileUpdateException: jest.fn() } },
@@ -125,14 +123,11 @@ describe('Tenant Isolation — Evil Twin', () => {
 
     jest.clearAllMocks();
     mockEmailService.send.mockResolvedValue({ id: 'email-id' });
-    mockAuth0Management.getUserByEmail.mockResolvedValue(null);
-    mockAuth0Management.createUser.mockResolvedValue({
-      user_id: 'auth0|new-user',
-      email: 'new@example.com',
+    mockClerkManagement.createInvitation.mockResolvedValue({
+      id: 'clerk_inv_new',
+      url: 'https://accounts.klivo.app/accept?__clerk_ticket=abc123',
     });
-    mockAuth0Management.createPasswordChangeTicket.mockResolvedValue(
-      'https://auth0.com/lo/reset?ticket=abc123',
-    );
+    mockClerkManagement.revokeInvitation.mockResolvedValue(undefined);
   });
 
   // ────────────────────────────────────────────────────────────────────
@@ -395,7 +390,7 @@ describe('Tenant Isolation — Evil Twin', () => {
       });
       mockPrisma.userInvitation.update.mockResolvedValue({
         ...orgAData.invitations[0],
-        auth0UserId: 'auth0|new-user',
+        auth0UserId: 'user_new-user',
       });
 
       await invitationsService.create(
@@ -428,7 +423,7 @@ describe('Tenant Isolation — Evil Twin', () => {
       });
       mockPrisma.userInvitation.update.mockResolvedValue({
         ...orgBData.invitations[0],
-        auth0UserId: 'auth0|new-user',
+        auth0UserId: 'user_new-user',
       });
 
       await invitationsService.create(

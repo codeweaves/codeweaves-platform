@@ -67,7 +67,7 @@ describe('SentryInterceptor', () => {
     it('should call Sentry.setUser with correct fields when request.user exists', (done) => {
       const user = {
         id: 'user-uuid-1',
-        auth0Id: 'auth0|abc123',
+        clerkId: 'user_abc123',
         organizationId: 'org-uuid-1',
         role: 'admin',
       };
@@ -77,7 +77,7 @@ describe('SentryInterceptor', () => {
         complete: () => {
           expect(Sentry.setUser).toHaveBeenCalledWith({
             id: 'user-uuid-1',
-            auth0Id: 'auth0|abc123',
+            clerkId: 'user_abc123',
             organizationId: 'org-uuid-1',
             role: 'admin',
           });
@@ -193,7 +193,7 @@ describe('SentryInterceptor', () => {
 
     it('should NOT call any Sentry methods', (done) => {
       const ctx = createMockContext({
-        user: { id: 'user-1', auth0Id: 'auth0|x', organizationId: 'org-1' },
+        user: { id: 'user-1', clerkId: 'user_x', organizationId: 'org-1' },
       });
 
       interceptor.intercept(ctx, mockCallHandler).subscribe({

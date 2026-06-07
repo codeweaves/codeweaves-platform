@@ -42,7 +42,7 @@ export class UserSyncGuard implements CanActivate {
     }
 
     // Check cache first
-    const cached = this.userCache.get(jwtUser.auth0Id);
+    const cached = this.userCache.get(jwtUser.clerkId);
     if (cached && cached.expiresAt > Date.now()) {
       request.user = { ...jwtUser, ...cached.data };
       return true;
@@ -58,7 +58,7 @@ export class UserSyncGuard implements CanActivate {
       organization: user.organization,
     };
 
-    this.userCache.set(jwtUser.auth0Id, {
+    this.userCache.set(jwtUser.clerkId, {
       data: userData,
       expiresAt: Date.now() + UserSyncGuard.CACHE_TTL_MS,
     });

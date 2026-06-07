@@ -8,7 +8,7 @@ import {
 import { OrganizationLoggerService } from '../../../src/common/logger/organization.logger';
 import { InvitationLoggerService } from '../../../src/common/logger/invitation.logger';
 import { UserLoggerService } from '../../../src/common/logger/user.logger';
-import { Auth0LoggerService } from '../../../src/common/logger/auth0.logger';
+import { ClerkLoggerService } from '../../../src/common/logger/clerk.logger';
 import { EmailLoggerService } from '../../../src/common/logger/email.logger';
 
 describe('TracerService', () => {
@@ -38,7 +38,7 @@ describe('TracerService', () => {
       const context: RequestContext = {
         correlationId: 'test-corr-id',
         userId: 'user-uuid',
-        auth0Id: 'auth0|123',
+        clerkId: 'user_123',
         method: 'POST',
         url: '/api/test',
       };
@@ -53,7 +53,7 @@ describe('TracerService', () => {
         data: {
           correlationId: 'test-corr-id',
           userId: 'user-uuid',
-          auth0Id: 'auth0|123',
+          clerkId: 'user_123',
           contextId: 'org-uuid',
           event: 'ORGANIZATION_CREATED',
           data: { response: { name: 'Test Org' } },
@@ -67,7 +67,7 @@ describe('TracerService', () => {
       const context: RequestContext = {
         correlationId: 'corr-123',
         userId: 'user-456',
-        auth0Id: 'auth0|789',
+        clerkId: 'user_789',
       };
 
       await requestContextStorage.run(context, async () => {
@@ -77,7 +77,7 @@ describe('TracerService', () => {
       const createCall = mockPrismaService.auditLog.create.mock.calls[0][0];
       expect(createCall.data.correlationId).toBe('corr-123');
       expect(createCall.data.userId).toBe('user-456');
-      expect(createCall.data.auth0Id).toBe('auth0|789');
+      expect(createCall.data.clerkId).toBe('user_789');
     });
 
     it('should handle missing context (no AsyncLocalStorage store)', async () => {
@@ -89,7 +89,7 @@ describe('TracerService', () => {
         data: {
           correlationId: undefined,
           userId: undefined,
-          auth0Id: undefined,
+          clerkId: undefined,
           contextId: 'ctx-1',
           event: 'TEST_EVENT',
           data: { test: true },
@@ -248,24 +248,26 @@ describe('Entity Logger Services', () => {
     });
   });
 
-  describe('Auth0LoggerService', () => {
-    let logger: Auth0LoggerService;
+  describe('ClerkLoggerService', () => {
+    let logger: ClerkLoggerService;
 
     beforeEach(async () => {
       const module = await Test.createTestingModule({
         providers: [
-          Auth0LoggerService,
+          ClerkLoggerService,
           { provide: TracerService, useValue: mockTracerService },
         ],
       }).compile();
-      logger = module.get(Auth0LoggerService);
+      logger = module.get(ClerkLoggerService);
     });
 
-    it('should log AUTH0_USER_CREATED', async () => {
-      await logger.logAuth0UserCreated('auth0|123', { email: 'test@test.com' });
+    it('should log CLERK_INVITATION_CREATED', async () => {
+      await logger.logClerkInvitationCreated('clerk_inv_1', {
+        email: 'test@test.com',
+      });
       expect(mockTracerService.logAuditEvent).toHaveBeenCalledWith(
-        'auth0|123',
-        'AUTH0_USER_CREATED',
+        'clerk_inv_1',
+        'CLERK_INVITATION_CREATED',
         { response: { email: 'test@test.com' } },
       );
     });

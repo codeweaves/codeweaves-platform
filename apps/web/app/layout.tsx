@@ -1,12 +1,14 @@
 import type { Metadata } from "next";
 import localFont from "next/font/local";
 import "./globals.css";
-import { Auth0ProviderWrapper } from "@/providers/auth0-provider";
+import { ClerkProvider } from "@clerk/nextjs";
 import { QueryProvider } from "@/providers/query-provider";
 import { ApiGate } from "@/providers/api-gate";
 import { SentryUserProvider } from "@/providers/sentry-user-provider";
 import { Toaster } from "@/components/ui/sonner";
 import { NavigationProgress } from "@/components/layout/navigation-progress";
+import { LegacyAuthCleanup } from "@/components/features/auth/legacy-auth-cleanup";
+import { AuthCacheReset } from "@/components/features/auth/auth-cache-reset";
 
 const geistSans = localFont({
   src: "./fonts/GeistVF.woff",
@@ -28,7 +30,8 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
+    <ClerkProvider signInUrl="/sign-in" signUpUrl="/sign-up">
+      <html lang="en">
       <head>
         <link rel="preconnect" href="https://fonts.googleapis.com" />
         <link rel="preconnect" href="https://fonts.gstatic.com" crossOrigin="anonymous" />
@@ -46,16 +49,17 @@ export default function RootLayout({
       <body className={`${geistSans.variable} ${geistMono.variable}`}>
         <QueryProvider>
           <ApiGate>
-            <Auth0ProviderWrapper>
-              <SentryUserProvider>
-                <NavigationProgress />
-                {children}
-                <Toaster />
-              </SentryUserProvider>
-            </Auth0ProviderWrapper>
+            <SentryUserProvider>
+              <LegacyAuthCleanup />
+              <AuthCacheReset />
+              <NavigationProgress />
+              {children}
+              <Toaster />
+            </SentryUserProvider>
           </ApiGate>
         </QueryProvider>
       </body>
-    </html>
+      </html>
+    </ClerkProvider>
   );
 }

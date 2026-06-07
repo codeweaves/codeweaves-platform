@@ -20,7 +20,7 @@ export class TracerService {
         data: {
           correlationId: context?.correlationId,
           userId: context?.userId,
-          auth0Id: context?.auth0Id,
+          clerkId: context?.clerkId,
           contextId,
           event,
           data: data as Prisma.InputJsonValue,

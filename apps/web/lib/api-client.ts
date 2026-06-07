@@ -1,22 +1,28 @@
 'use client';
 
-import { useAuth0 } from '@auth0/auth0-react';
+import { useAuth } from '@clerk/nextjs';
 import { useCallback, useMemo } from 'react';
 import { apiUrl } from '@/config/api';
 
+// Must match the Clerk JWT template the NestJS API verifies.
+const CLERK_JWT_TEMPLATE = 'klivo-api';
+
 export function useApiClient() {
-  const { getAccessTokenSilently, isAuthenticated } = useAuth0();
+  const { getToken, isSignedIn } = useAuth();
 
   const fetchWithAuth = useCallback(async (
     endpoint: string,
     options: RequestInit = {},
     skipContentType = false,
   ) => {
-    if (!isAuthenticated) {
+    if (!isSignedIn) {
       throw new Error('Not authenticated');
     }
 
-    const token = await getAccessTokenSilently();
+    const token = await getToken({ template: CLERK_JWT_TEMPLATE });
+    if (!token) {
+      throw new Error('Not authenticated');
+    }
 
     const headers: Record<string, string> = {
       ...(options.headers as Record<string, string>),
@@ -47,7 +53,7 @@ export function useApiClient() {
     }
 
     return null;
-  }, [getAccessTokenSilently, isAuthenticated]);
+  }, [getToken, isSignedIn]);
 
   return useMemo(() => ({
     get: (endpoint: string) => fetchWithAuth(endpoint, { method: 'GET' }),

@@ -2,28 +2,28 @@ import { Injectable } from '@nestjs/common';
 import { TracerService } from '../tracer/tracer.service';
 
 @Injectable()
-export class Auth0LoggerService {
+export class ClerkLoggerService {
   constructor(private readonly tracer: TracerService) {}
 
-  async logAuth0UserCreated(
+  async logClerkInvitationCreated(
     contextId: string,
     data: Record<string, unknown>,
   ) {
     await this.tracer.logAuditEvent(
       contextId,
-      'AUTH0_USER_CREATED',
+      'CLERK_INVITATION_CREATED',
       this.tracer.mergeJsonResponse({ response: data }),
     );
   }
 
-  async logAuth0UserCreationFailed(
+  async logClerkInvitationCreationFailed(
     contextId: string,
     error: unknown,
     data: Record<string, unknown>,
   ) {
     await this.tracer.logAuditEvent(
       contextId,
-      'AUTH0_USER_CREATION_FAILED',
+      'CLERK_INVITATION_CREATION_FAILED',
       this.tracer.mergeJsonResponse(
         { error: { message: String(error) } },
         data,
@@ -31,51 +31,25 @@ export class Auth0LoggerService {
     );
   }
 
-  async logAuth0UserDeleted(
+  async logClerkInvitationRevoked(
     contextId: string,
     data: Record<string, unknown>,
   ) {
     await this.tracer.logAuditEvent(
       contextId,
-      'AUTH0_USER_DELETED',
+      'CLERK_INVITATION_REVOKED',
       this.tracer.mergeJsonResponse({ response: data }),
     );
   }
 
-  async logAuth0UserDeletionFailed(
+  async logClerkInvitationRevocationFailed(
     contextId: string,
     error: unknown,
     data: Record<string, unknown>,
   ) {
     await this.tracer.logAuditEvent(
       contextId,
-      'AUTH0_USER_DELETION_FAILED',
-      this.tracer.mergeJsonResponse(
-        { error: { message: String(error) } },
-        data,
-      ),
-    );
-  }
-
-  async logAuth0PasswordTicketCreated(
-    contextId: string,
-    data: Record<string, unknown>,
-  ) {
-    await this.tracer.logAuditEvent(
-      contextId,
-      'AUTH0_PASSWORD_TICKET_CREATED',
-      this.tracer.mergeJsonResponse({ response: data }),
-    );
-  }
-
-  async logAuth0PasswordTicketFailed(
-    contextId: string,
-    error: unknown,
-    data: Record<string, unknown>,
-  ) {
-    await this.tracer.logAuditEvent(
-      contextId,
-      'AUTH0_PASSWORD_TICKET_FAILED',
+      'CLERK_INVITATION_REVOCATION_FAILED',
       this.tracer.mergeJsonResponse(
         { error: { message: String(error) } },
         data,

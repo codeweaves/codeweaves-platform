@@ -3,7 +3,7 @@ import { AsyncLocalStorage } from 'async_hooks';
 export interface RequestContext {
   correlationId: string;
   userId?: string;
-  auth0Id?: string;
+  clerkId?: string;
   method?: string;
   url?: string;
 }

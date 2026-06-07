@@ -26,10 +26,10 @@ export function generateTestToken(
   options?: jwt.SignOptions,
 ): string {
   const defaultPayload: TestJwtPayload = {
-    sub: 'auth0|test-user-id',
+    sub: 'user_testuserid',
     email: 'test@example.com',
-    iss: 'https://codeweaves.jp.auth0.com/',
-    aud: 'https://api.codeweaves.com',
+    iss: 'https://test.clerk.accounts.dev',
+    aud: 'klivo-api',
     iat: Math.floor(Date.now() / 1000),
     exp: Math.floor(Date.now() / 1000) + 3600,
     ...payload,
@@ -62,23 +62,23 @@ export function generateMalformedToken(): string {
 
 export function generateWrongIssuerToken(): string {
   return generateTestToken({
-    iss: 'https://wrong-issuer.auth0.com/',
+    iss: 'https://wrong-issuer.clerk.accounts.dev',
   });
 }
 
 export function generateWrongAudienceToken(): string {
   return generateTestToken({
-    aud: 'https://wrong-audience.com',
+    aud: 'wrong-audience',
   });
 }
 
 export function generateHmacToken(): string {
   return jwt.sign(
     {
-      sub: 'auth0|test-user-id',
+      sub: 'user_testuserid',
       email: 'test@example.com',
-      iss: 'https://codeweaves.jp.auth0.com/',
-      aud: 'https://api.codeweaves.com',
+      iss: 'https://test.clerk.accounts.dev',
+      aud: 'klivo-api',
       iat: Math.floor(Date.now() / 1000),
       exp: Math.floor(Date.now() / 1000) + 3600,
     },

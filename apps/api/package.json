@@ -26,6 +26,7 @@
     "@ai-sdk/groq": "^3.0.35",
     "@ai-sdk/openai": "^3.0.53",
     "@ai-sdk/openai-compatible": "^2.0.41",
+    "@clerk/backend": "^3.5.0",
     "@nestjs/bullmq": "^11.0.4",
     "@nestjs/common": "^11.0.1",
     "@nestjs/config": "^4.0.3",

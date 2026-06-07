@@ -8,33 +8,38 @@ import { JwtPayload, ValidatedUser } from '../interfaces/jwt-payload.interface';
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
   constructor(private configService: ConfigService) {
-    const domain = configService.get<string>('AUTH0_DOMAIN');
-    const audience = configService.get<string>('AUTH0_AUDIENCE');
+    // Clerk Frontend API URL, e.g. https://clerk.klivo.app (prod custom domain)
+    // or https://<slug>.clerk.accounts.dev (development instance). This is the
+    // `iss` claim Clerk puts on its session tokens / JWT-template tokens.
+    const issuer = configService.get<string>('CLERK_ISSUER');
+    // Optional: the `aud` claim configured on the `klivo-api` JWT template.
+    // If unset we skip audience validation and rely on issuer + signature.
+    const audience = configService.get<string>('CLERK_JWT_AUDIENCE');
 
-    if (!domain || !audience) {
-      throw new Error('AUTH0_DOMAIN and AUTH0_AUDIENCE must be configured');
+    if (!issuer) {
+      throw new Error('CLERK_ISSUER must be configured');
     }
+
+    const normalizedIssuer = issuer.replace(/\/$/, '');
 
     super({
       jwtFromRequest: ExtractJwt.fromAuthHeaderAsBearerToken(),
-      issuer: `https://${domain}/`,
-      audience: audience,
+      issuer: normalizedIssuer,
+      ...(audience ? { audience } : {}),
       algorithms: ['RS256'],
       secretOrKeyProvider: passportJwtSecret({
         cache: true,
         rateLimit: true,
         jwksRequestsPerMinute: 5,
-        jwksUri: `https://${domain}/.well-known/jwks.json`,
+        jwksUri: `${normalizedIssuer}/.well-known/jwks.json`,
       }),
     });
   }
 
   async validate(payload: JwtPayload): Promise<ValidatedUser> {
     return {
-      auth0Id: payload.sub,
-      email: payload.email || payload['https://codeweaves.com/email'] || '',
-      roles: payload['https://codeweaves.com/roles'] || [],
-      organizationId: payload['https://codeweaves.com/organizationId'],
+      clerkId: payload.sub,
+      email: payload.email ?? '',
     };
   }
 }

@@ -14,8 +14,9 @@ describe('JwtStrategy', () => {
           provide: ConfigService,
           useValue: {
             get: jest.fn((key: string) => {
-              if (key === 'AUTH0_DOMAIN') return 'codeweaves.jp.auth0.com';
-              if (key === 'AUTH0_AUDIENCE') return 'https://api.codeweaves.com';
+              if (key === 'CLERK_ISSUER')
+                return 'https://test.clerk.accounts.dev';
+              if (key === 'CLERK_JWT_AUDIENCE') return 'klivo-api';
               return null;
             }),
           },
@@ -31,85 +32,56 @@ describe('JwtStrategy', () => {
   });
 
   describe('validate', () => {
-    it('should validate a valid token payload and return user', async () => {
+    it('should map a Clerk payload to { clerkId, email }', async () => {
       const payload: JwtPayload = {
-        sub: 'auth0|123456',
+        sub: 'user_123456',
         email: 'test@example.com',
-        'https://codeweaves.com/roles': ['user', 'admin'],
-        'https://codeweaves.com/organizationId': 'org_123',
       };
 
       const result = await strategy.validate(payload);
 
       expect(result).toEqual({
-        auth0Id: 'auth0|123456',
+        clerkId: 'user_123456',
         email: 'test@example.com',
-        roles: ['user', 'admin'],
-        organizationId: 'org_123',
       });
     });
 
-    it('should validate payload without optional fields', async () => {
+    it('should default email to empty string when absent', async () => {
       const payload: JwtPayload = {
-        sub: 'auth0|123456',
-        email: 'test@example.com',
+        sub: 'user_123456',
       };
 
       const result = await strategy.validate(payload);
 
       expect(result).toEqual({
-        auth0Id: 'auth0|123456',
-        email: 'test@example.com',
-        roles: [],
-        organizationId: undefined,
-      });
-    });
-
-    it('should handle empty roles array', async () => {
-      const payload: JwtPayload = {
-        sub: 'auth0|123456',
-        email: 'test@example.com',
-        'https://codeweaves.com/roles': [],
-      };
-
-      const result = await strategy.validate(payload);
-
-      expect(result).toEqual({
-        auth0Id: 'auth0|123456',
-        email: 'test@example.com',
-        roles: [],
-        organizationId: undefined,
+        clerkId: 'user_123456',
+        email: '',
       });
     });
   });
 
   describe('configuration', () => {
-    it('should throw error if AUTH0_DOMAIN is not configured', () => {
+    it('should throw error if CLERK_ISSUER is not configured', () => {
       const mockConfigService = {
-        get: jest.fn((key: string) => {
-          if (key === 'AUTH0_DOMAIN') return null;
-          if (key === 'AUTH0_AUDIENCE') return 'https://api.codeweaves.com';
-          return null;
-        }),
+        get: jest.fn(() => null),
       };
 
       expect(() => {
         new JwtStrategy(mockConfigService as unknown as ConfigService);
-      }).toThrow('AUTH0_DOMAIN and AUTH0_AUDIENCE must be configured');
+      }).toThrow('CLERK_ISSUER must be configured');
     });
 
-    it('should throw error if AUTH0_AUDIENCE is not configured', () => {
+    it('should construct without an audience (audience is optional)', () => {
       const mockConfigService = {
         get: jest.fn((key: string) => {
-          if (key === 'AUTH0_DOMAIN') return 'codeweaves.jp.auth0.com';
-          if (key === 'AUTH0_AUDIENCE') return null;
-          return null;
+          if (key === 'CLERK_ISSUER') return 'https://test.clerk.accounts.dev';
+          return null; // CLERK_JWT_AUDIENCE intentionally absent
         }),
       };
 
-      expect(() => {
-        new JwtStrategy(mockConfigService as unknown as ConfigService);
-      }).toThrow('AUTH0_DOMAIN and AUTH0_AUDIENCE must be configured');
+      expect(
+        () => new JwtStrategy(mockConfigService as unknown as ConfigService),
+      ).not.toThrow();
     });
   });
 });
@@ -119,8 +91,8 @@ describe('JwtStrategy', () => {
  * are handled by passport-jwt and jwks-rsa libraries, which validate:
  * 1. Token expiration (exp claim)
  * 2. Token not yet valid (nbf claim)
- * 3. Issuer validation (iss claim)
- * 4. Audience validation (aud claim)
+ * 3. Issuer validation (iss claim) — Clerk Frontend API URL
+ * 4. Audience validation (aud claim) — the klivo-api JWT template, when set
  * 5. Signature verification via JWKS
  * 6. Algorithm validation (RS256 only)
  * 7. Token format validation

@@ -4,7 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InvitationsService } from '../../../src/services/invitations.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { EmailService } from '../../../src/services/email.service';
-import { Auth0ManagementService } from '../../../src/services/auth0-management.service';
+import { ClerkManagementService } from '../../../src/services/clerk-management.service';
 import { InvitationLoggerService } from '../../../src/common/logger/invitation.logger';
 import { InvitationStatus, Prisma, Role } from '@prisma/client';
 
@@ -39,11 +39,9 @@ describe('InvitationsService', () => {
     },
   };
 
-  const mockAuth0Management = {
-    getUserByEmail: jest.fn(),
-    createUser: jest.fn(),
-    deleteUser: jest.fn(),
-    createPasswordChangeTicket: jest.fn(),
+  const mockClerkManagement = {
+    createInvitation: jest.fn(),
+    revokeInvitation: jest.fn(),
   };
 
   const mockInvitation = {
@@ -58,7 +56,7 @@ describe('InvitationsService', () => {
     expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
     createdAt: new Date(),
     invitedBy: 'user-uuid-1',
-    auth0UserId: null as string | null,
+    clerkInvitationId: null as string | null,
   };
 
   beforeEach(async () => {
@@ -68,7 +66,7 @@ describe('InvitationsService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EmailService, useValue: mockEmailService },
         { provide: ConfigService, useValue: mockConfigService },
-        { provide: Auth0ManagementService, useValue: mockAuth0Management },
+        { provide: ClerkManagementService, useValue: mockClerkManagement },
         {
           provide: InvitationLoggerService,
           useValue: {
@@ -92,18 +90,14 @@ describe('InvitationsService', () => {
     jest.clearAllMocks();
     mockEmailService.send.mockResolvedValue({ id: 'email-id' });
 
-    // Default Auth0 mock behavior
-    mockAuth0Management.getUserByEmail.mockResolvedValue(null);
-    mockAuth0Management.createUser.mockResolvedValue({
-      user_id: 'auth0|new-user',
-      email: 'new@example.com',
+    // Default Clerk mock behavior
+    mockClerkManagement.createInvitation.mockResolvedValue({
+      id: 'clerk_inv_new',
+      url: 'https://accounts.klivo.app/accept?__clerk_ticket=abc123',
     });
-    mockAuth0Management.createPasswordChangeTicket.mockResolvedValue(
-      'https://auth0.com/lo/reset?ticket=abc123',
-    );
-    mockAuth0Management.deleteUser.mockResolvedValue(undefined);
+    mockClerkManagement.revokeInvitation.mockResolvedValue(undefined);
 
-    // Default prisma update mock (for auth0UserId updates)
+    // Default prisma update mock (for clerkInvitationId updates)
     mockPrisma.userInvitation.update.mockImplementation(
       async ({ data }: { where: { id: string }; data: Record<string, unknown> }) => ({
         ...mockInvitation,
@@ -217,56 +211,33 @@ describe('InvitationsService', () => {
       });
     });
 
-    it('should pre-create Auth0 user and generate password ticket on create', async () => {
+    it('should create a Clerk invitation and store its id on create', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null);
       mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
       mockPrisma.userInvitation.create.mockResolvedValue(mockInvitation);
 
       await service.create(createDto, 'user-uuid-1');
 
-      expect(mockAuth0Management.getUserByEmail).toHaveBeenCalledWith(
-        'new@example.com',
-      );
-      expect(mockAuth0Management.createUser).toHaveBeenCalledWith(
-        'new@example.com',
-      );
-      expect(mockAuth0Management.createPasswordChangeTicket).toHaveBeenCalledWith(
-        'auth0|new-user',
-      );
-      // Should store auth0UserId on invitation
-      expect(mockPrisma.userInvitation.update).toHaveBeenCalledWith({
-        where: { id: mockInvitation.id },
-        data: { auth0UserId: 'auth0|new-user' },
-      });
-    });
-
-    it('should reuse existing Auth0 user on create', async () => {
-      mockPrisma.user.findUnique.mockResolvedValue(null);
-      mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
-      mockPrisma.userInvitation.create.mockResolvedValue(mockInvitation);
-      mockAuth0Management.getUserByEmail.mockResolvedValue({
-        user_id: 'auth0|existing',
+      expect(mockClerkManagement.createInvitation).toHaveBeenCalledWith({
         email: 'new@example.com',
+        redirectUrl: 'http://localhost:3000/sign-up',
+        expiresInDays: 7,
       });
-
-      await service.create(createDto, 'user-uuid-1');
-
-      expect(mockAuth0Management.createUser).not.toHaveBeenCalled();
-      expect(mockAuth0Management.createPasswordChangeTicket).toHaveBeenCalledWith(
-        'auth0|existing',
-      );
+      // Fresh invitation has no prior Clerk invitation → nothing to revoke
+      expect(mockClerkManagement.revokeInvitation).not.toHaveBeenCalled();
+      // Should store the Clerk invitation id on the invitation row
       expect(mockPrisma.userInvitation.update).toHaveBeenCalledWith({
         where: { id: mockInvitation.id },
-        data: { auth0UserId: 'auth0|existing' },
+        data: { clerkInvitationId: 'clerk_inv_new' },
       });
     });
 
-    it('should handle Auth0 failure gracefully on create', async () => {
+    it('should handle Clerk failure gracefully on create', async () => {
       mockPrisma.user.findUnique.mockResolvedValue(null);
       mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
       mockPrisma.userInvitation.create.mockResolvedValue(mockInvitation);
-      mockAuth0Management.getUserByEmail.mockRejectedValue(
-        new Error('Auth0 API down'),
+      mockClerkManagement.createInvitation.mockRejectedValue(
+        new Error('Clerk API down'),
       );
 
       // Should not throw — invitation is still created
@@ -445,19 +416,21 @@ describe('InvitationsService', () => {
       );
     });
 
-    it('should generate new password setup URL on resend', async () => {
-      const invitationWithAuth0 = {
+    it('should generate a fresh Clerk ticket on resend', async () => {
+      const invitationWithClerk = {
         ...mockInvitation,
-        auth0UserId: 'auth0|existing',
+        clerkInvitationId: 'clerk_inv_old',
       };
-      mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithAuth0);
-      mockPrisma.userInvitation.update.mockResolvedValueOnce(invitationWithAuth0);
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithClerk);
+      mockPrisma.userInvitation.update.mockResolvedValueOnce(invitationWithClerk);
 
       await service.resend('inv-uuid-1');
 
-      expect(mockAuth0Management.createPasswordChangeTicket).toHaveBeenCalledWith(
-        'auth0|existing',
+      // Stale Clerk invitation revoked, fresh one issued
+      expect(mockClerkManagement.revokeInvitation).toHaveBeenCalledWith(
+        'clerk_inv_old',
       );
+      expect(mockClerkManagement.createInvitation).toHaveBeenCalled();
       expect(mockEmailService.send).toHaveBeenCalledWith(
         expect.objectContaining({
           html: expect.stringContaining('Set Your Password'),
@@ -564,13 +537,13 @@ describe('InvitationsService', () => {
       expect(mockEmailService.send).toHaveBeenCalled();
     });
 
-    it('should generate new password setup URL on reissue', async () => {
+    it('should generate a fresh Clerk ticket on reissue', async () => {
       const expiredInvitation = {
         ...mockInvitation,
         status: InvitationStatus.EXPIRED,
         expiresAt: new Date(Date.now() - 1000),
         reissueCount: 0,
-        auth0UserId: 'auth0|existing',
+        clerkInvitationId: 'clerk_inv_old',
       };
       mockPrisma.userInvitation.findUnique.mockResolvedValue(expiredInvitation);
       mockPrisma.userInvitation.update.mockResolvedValueOnce({
@@ -581,9 +554,10 @@ describe('InvitationsService', () => {
 
       await service.reissue('reissue-uuid-1');
 
-      expect(mockAuth0Management.createPasswordChangeTicket).toHaveBeenCalledWith(
-        'auth0|existing',
+      expect(mockClerkManagement.revokeInvitation).toHaveBeenCalledWith(
+        'clerk_inv_old',
       );
+      expect(mockClerkManagement.createInvitation).toHaveBeenCalled();
     });
   });
 
@@ -708,46 +682,46 @@ describe('InvitationsService', () => {
       );
     });
 
-    it('should delete Auth0 user when cancelling invitation with auth0UserId', async () => {
-      const invitationWithAuth0 = {
+    it('should revoke the Clerk invitation when cancelling one with clerkInvitationId', async () => {
+      const invitationWithClerk = {
         ...mockInvitation,
-        auth0UserId: 'auth0|to-delete',
+        clerkInvitationId: 'clerk_inv_x',
       };
-      mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithAuth0);
-      mockPrisma.userInvitation.delete.mockResolvedValue(invitationWithAuth0);
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithClerk);
+      mockPrisma.userInvitation.delete.mockResolvedValue(invitationWithClerk);
 
       await service.cancel('inv-uuid-1');
 
-      expect(mockAuth0Management.deleteUser).toHaveBeenCalledWith(
-        'auth0|to-delete',
+      expect(mockClerkManagement.revokeInvitation).toHaveBeenCalledWith(
+        'clerk_inv_x',
       );
       expect(mockPrisma.userInvitation.delete).toHaveBeenCalledWith({
         where: { id: 'inv-uuid-1' },
       });
     });
 
-    it('should not delete Auth0 user when invitation has no auth0UserId', async () => {
+    it('should not revoke a Clerk invitation when none was issued', async () => {
       mockPrisma.userInvitation.findUnique.mockResolvedValue(mockInvitation);
       mockPrisma.userInvitation.delete.mockResolvedValue(mockInvitation);
 
       await service.cancel('inv-uuid-1');
 
-      expect(mockAuth0Management.deleteUser).not.toHaveBeenCalled();
+      expect(mockClerkManagement.revokeInvitation).not.toHaveBeenCalled();
     });
 
-    it('should throw ServiceUnavailableException when Auth0 delete fails on cancel', async () => {
-      const invitationWithAuth0 = {
+    it('should throw ServiceUnavailableException when Clerk revoke fails on cancel', async () => {
+      const invitationWithClerk = {
         ...mockInvitation,
-        auth0UserId: 'auth0|to-delete',
+        clerkInvitationId: 'clerk_inv_x',
       };
-      mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithAuth0);
-      mockAuth0Management.deleteUser.mockRejectedValue(
-        new Error('Auth0 API down'),
+      mockPrisma.userInvitation.findUnique.mockResolvedValue(invitationWithClerk);
+      mockClerkManagement.revokeInvitation.mockRejectedValue(
+        new Error('Clerk API down'),
       );
 
-      // Should throw — invitation must NOT be deleted to preserve auth0UserId
+      // Should throw — invitation must NOT be deleted to preserve clerkInvitationId
       await expect(service.cancel('inv-uuid-1')).rejects.toThrow(
-        'Failed to delete Auth0 user; invitation was not cancelled. Please retry.',
+        'Failed to revoke Clerk invitation; invitation was not cancelled. Please retry.',
       );
 
       expect(mockPrisma.userInvitation.delete).not.toHaveBeenCalled();

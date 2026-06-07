@@ -21,9 +21,8 @@ describe('OrganizationMembersController', () => {
   const userId = '223e4567-e89b-12d3-a456-426614174001';
 
   const mockSuperAdmin: CurrentUserData = {
-    auth0Id: 'auth0|super',
+    clerkId: 'user_super',
     email: 'super@example.com',
-    roles: ['SUPER_ADMIN'],
     id: '333e4567-e89b-12d3-a456-426614174003',
     role: Role.SUPER_ADMIN,
     organizationId: null,
@@ -31,9 +30,8 @@ describe('OrganizationMembersController', () => {
   };
 
   const mockAdmin: CurrentUserData = {
-    auth0Id: 'auth0|admin',
+    clerkId: 'user_admin',
     email: 'admin@example.com',
-    roles: ['ADMIN'],
     id: '444e4567-e89b-12d3-a456-426614174004',
     role: Role.ADMIN,
     organizationId: orgId,
@@ -41,9 +39,8 @@ describe('OrganizationMembersController', () => {
   };
 
   const mockClient: CurrentUserData = {
-    auth0Id: 'auth0|client',
+    clerkId: 'user_client',
     email: 'client@example.com',
-    roles: ['CLIENT'],
     id: '555e4567-e89b-12d3-a456-426614174005',
     role: Role.CLIENT,
     organizationId: orgId,

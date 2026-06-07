@@ -1,14 +1,10 @@
 export interface JwtPayload {
-  sub: string; // Auth0 user ID
+  sub: string; // Clerk user ID (e.g. "user_2abc...")
   email?: string;
-  'https://codeweaves.com/email'?: string;
-  'https://codeweaves.com/roles'?: string[];
-  'https://codeweaves.com/organizationId'?: string;
+  aud?: string | string[];
 }
 
 export interface ValidatedUser {
-  auth0Id: string;
+  clerkId: string;
   email: string;
-  roles: string[];
-  organizationId?: string;
 }

@@ -4,7 +4,6 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { Auth0ManagementService } from './auth0-management.service';
 import { User, Role, InvitationStatus, Prisma } from '@prisma/client';
 import type { UpdateUserProfileDto, UserProfileResponse } from '../models/user.dto';
 import { buildTenantFilter, TenantFilterUser } from '../utils/tenant-filter';
@@ -27,12 +26,11 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private readonly userLogger: UserLoggerService,
-    private readonly auth0Management: Auth0ManagementService,
   ) {}
 
-  async findByAuth0Id(auth0Id: string): Promise<User | null> {
+  async findByClerkId(clerkId: string): Promise<User | null> {
     return this.prisma.user.findFirst({
-      where: { auth0Id, deletedAt: null },
+      where: { clerkId, deletedAt: null },
       include: { organization: true },
     });
   }
@@ -43,8 +41,8 @@ export class UsersService {
     });
   }
 
-  async createFromAuth0(data: {
-    auth0Id: string;
+  async createFromClerk(data: {
+    clerkId: string;
     email: string;
     name?: string;
     role: Role;
@@ -53,14 +51,14 @@ export class UsersService {
     return this.prisma.user.create({
       data: data.organizationId
         ? {
-            auth0Id: data.auth0Id,
+            clerkId: data.clerkId,
             email: data.email,
             name: data.name,
             role: data.role,
             organizationId: data.organizationId,
           }
         : {
-            auth0Id: data.auth0Id,
+            clerkId: data.clerkId,
             email: data.email,
             name: data.name,
             role: data.role,
@@ -109,10 +107,6 @@ export class UsersService {
     }
   }
 
-  async requestPasswordReset(auth0Id: string): Promise<string> {
-    return this.auth0Management.createPasswordChangeTicket(auth0Id);
-  }
-
   async findByOrganization(organizationId: string): Promise<User[]> {
     return this.prisma.user.findMany({
       where: { organizationId, deletedAt: null },
@@ -128,9 +122,9 @@ export class UsersService {
     });
   }
 
-  async syncOrCreateUser(jwtUser: { auth0Id: string; email: string }) {
+  async syncOrCreateUser(jwtUser: { clerkId: string; email: string }) {
     const existingUser = await this.prisma.user.findUnique({
-      where: { auth0Id: jwtUser.auth0Id },
+      where: { clerkId: jwtUser.clerkId },
       include: { organization: true },
     });
 
@@ -141,6 +135,8 @@ export class UsersService {
       return existingUser;
     }
 
+    // No user linked to this Clerk account yet — create one from a pending
+    // invitation (sign-up is invitation-only).
     return this.createFromInvitation(jwtUser);
   }
 
@@ -169,7 +165,7 @@ export class UsersService {
   }
 
   private async createFromInvitation(jwtUser: {
-    auth0Id: string;
+    clerkId: string;
     email: string;
   }) {
     const email = jwtUser.email.toLowerCase();
@@ -192,7 +188,7 @@ export class UsersService {
       return await this.prisma.$transaction(async (tx) => {
         const newUser = await tx.user.create({
           data: {
-            auth0Id: jwtUser.auth0Id,
+            clerkId: jwtUser.clerkId,
             email,
             role: invitation.role,
             organizationId: invitation.organizationId,
@@ -218,7 +214,7 @@ export class UsersService {
         error.code === 'P2002'
       ) {
         const raceUser = await this.prisma.user.findUnique({
-          where: { auth0Id: jwtUser.auth0Id },
+          where: { clerkId: jwtUser.clerkId },
           include: { organization: true },
         });
         if (raceUser) return raceUser;

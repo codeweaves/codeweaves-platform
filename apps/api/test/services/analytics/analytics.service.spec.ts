@@ -24,9 +24,8 @@ describe('AnalyticsService', () => {
   const agentId2 = '444e4567-e89b-12d3-a456-426614174000';
 
   const adminUser: CurrentUserData = {
-    auth0Id: 'auth0|admin',
+    clerkId: 'user_admin',
     email: 'admin@test.com',
-    roles: ['ADMIN'],
     id: 'admin-user-id',
     role: Role.ADMIN,
     organizationId: orgId,
@@ -34,9 +33,8 @@ describe('AnalyticsService', () => {
   };
 
   const clientUser: CurrentUserData = {
-    auth0Id: 'auth0|client',
+    clerkId: 'user_client',
     email: 'client@test.com',
-    roles: ['CLIENT'],
     id: 'client-user-id',
     role: Role.CLIENT,
     organizationId: orgId,
@@ -44,9 +42,8 @@ describe('AnalyticsService', () => {
   };
 
   const superAdminUser: CurrentUserData = {
-    auth0Id: 'auth0|superadmin',
+    clerkId: 'user_superadmin',
     email: 'superadmin@test.com',
-    roles: ['SUPER_ADMIN'],
     id: 'superadmin-user-id',
     role: Role.SUPER_ADMIN,
     organizationId: null,
@@ -54,9 +51,8 @@ describe('AnalyticsService', () => {
   };
 
   const clientUserNoOrg: CurrentUserData = {
-    auth0Id: 'auth0|client-no-org',
+    clerkId: 'user_client-no-org',
     email: 'client-no-org@test.com',
-    roles: ['CLIENT'],
     id: 'client-no-org-user-id',
     role: Role.CLIENT,
     organizationId: null,
@@ -629,7 +625,7 @@ describe('AnalyticsService', () => {
       expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith({
         data: {
           userId: adminUser.id,
-          auth0Id: adminUser.auth0Id,
+          clerkId: adminUser.clerkId,
           contextId: adminUser.organizationId,
           event: 'ANALYTICS_EXPORT',
           data: {
@@ -650,7 +646,7 @@ describe('AnalyticsService', () => {
       expect(mockPrismaService.auditLog.create).toHaveBeenCalledWith({
         data: {
           userId: clientUser.id,
-          auth0Id: clientUser.auth0Id,
+          clerkId: clientUser.clerkId,
           contextId: clientUser.organizationId,
           event: 'ANALYTICS_EXPORT',
           data: {

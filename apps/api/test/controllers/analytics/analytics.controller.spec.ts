@@ -32,9 +32,8 @@ describe('AnalyticsController', () => {
   const agentId = '333e4567-e89b-12d3-a456-426614174000';
 
   const adminUser: CurrentUserData = {
-    auth0Id: 'auth0|admin',
+    clerkId: 'user_admin',
     email: 'admin@test.com',
-    roles: ['ADMIN'],
     id: 'admin-user-id',
     role: Role.ADMIN,
     organizationId: orgId,
@@ -42,9 +41,8 @@ describe('AnalyticsController', () => {
   };
 
   const superAdminUser: CurrentUserData = {
-    auth0Id: 'auth0|superadmin',
+    clerkId: 'user_superadmin',
     email: 'superadmin@test.com',
-    roles: ['SUPER_ADMIN'],
     id: 'superadmin-user-id',
     role: Role.SUPER_ADMIN,
     organizationId: null,
@@ -300,9 +298,8 @@ describe('AnalyticsController', () => {
 
     it('should work for CLIENT role users', async () => {
       const clientUser: CurrentUserData = {
-        auth0Id: 'auth0|client',
+        clerkId: 'user_client',
         email: 'client@test.com',
-        roles: ['CLIENT'],
         id: 'client-user-id',
         role: Role.CLIENT,
         organizationId: orgId,
