@@ -238,8 +238,14 @@ export class WhatsappInboundService {
     //    the channel.
     await this.chatService.saveAssistantMessage(session.id, replyText, {
       channel: 'whatsapp',
-      inboundType: job.type,
+      // Match the widget's voice tagging so the conversations UI shows the same
+      // "Voice" badge (it reads metadata.inputType === 'voice').
+      inputType: job.type === 'audio' ? 'voice' : 'text',
       replyMode,
+      // Language detected from the voice note's STT (en/hi/…), same key the widget
+      // uses. Null for text inbound — the post-session classifier sets the
+      // session-level language for those, exactly as it does for widget text.
+      detectedLanguage: sttLanguage ?? null,
       waInboundId: messageId,
       waOutboundId: outboundId,
       delivered,

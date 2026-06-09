@@ -207,6 +207,10 @@ describe('WhatsappInboundService', () => {
       expect(send.sendText).not.toHaveBeenCalled();
       const meta = chat.saveAssistantMessage.mock.calls[0][2];
       expect(meta.replyMode).toBe('voice');
+      // Tagged like the widget so the conversations UI shows the "Voice" badge.
+      expect(meta.inputType).toBe('voice');
+      // Detected language from STT is persisted (matches widget voice metadata).
+      expect(meta.detectedLanguage).toBe('en');
     });
 
     it('falls back to text when the voice reply path fails', async () => {
