@@ -156,6 +156,52 @@ export class ChatService {
     });
   }
 
+  /**
+   * Resolve or create a session for a server-keyed channel (e.g. WhatsApp), where
+   * the client can't carry a sessionId between turns — the visitor is identified by
+   * a stable key (their phone number). Applies the SAME per-agent
+   * sessionLifetimeHours rotation as the widget path: an active session past its
+   * lifetime cap is stamped EXPIRED and a fresh one created, so analytics see
+   * distinct conversations exactly like the widget.
+   *
+   * Differs from resolveOrCreateSession (which THROWS on an unknown id — the
+   * widget's client-driven contract) by looking the session up via
+   * (agent, source, visitor) and creating one when absent. The stored `sessionId`
+   * is still a random UUID to satisfy the unique constraint.
+   */
+  async resolveOrCreateVisitorSession(
+    agentId: string,
+    source: 'WHATSAPP',
+    visitorKey: string,
+  ): Promise<ChatSession> {
+    const existing = await this.prisma.chatSession.findFirst({
+      where: { agentId, source, visitorId: visitorKey, status: 'ACTIVE' },
+      orderBy: { createdAt: 'desc' },
+      include: { agent: { select: { sessionLifetimeHours: true } } },
+    });
+
+    if (existing) {
+      const lifetimeMs = existing.agent.sessionLifetimeHours * 60 * 60 * 1000;
+      const isExpired = Date.now() - existing.createdAt.getTime() > lifetimeMs;
+      if (!isExpired) return existing;
+      // Past its lifetime — close it (the dashboard + classifier rely on EXPIRED
+      // to tell finished conversations apart), then fall through to a fresh one.
+      await this.prisma.chatSession.update({
+        where: { id: existing.id },
+        data: { status: 'EXPIRED' },
+      });
+    }
+
+    return this.prisma.chatSession.create({
+      data: {
+        agentId,
+        sessionId: randomUUID(),
+        source,
+        visitorId: visitorKey,
+      },
+    });
+  }
+
   /** Extract client IP from an Express request (req.ip → X-Forwarded-For). */
   static extractVisitorIp(request: { headers: Record<string, string | string[] | undefined>; ip?: string }): string | undefined {
     if (request.ip) return request.ip;

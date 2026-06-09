@@ -8,6 +8,7 @@ import { BehaviorSettings } from './sections/behavior-settings';
 import { PromptSettings } from './sections/prompt-settings';
 import { ClassificationSettings } from './sections/classification-settings';
 import { IntegrationSettings } from './sections/integration-settings';
+import { WhatsappSettings } from './sections/whatsapp-settings';
 import { BrandingSettings } from './sections/branding-settings';
 import { VoiceSettings } from './sections/voice-settings';
 
@@ -33,6 +34,8 @@ export function AgentEditorForm({ selectedCategory }: AgentEditorFormProps) {
       return <ClassificationSettings />;
     case 'integration':
       return <IntegrationSettings />;
+    case 'whatsapp':
+      return <WhatsappSettings />;
     case 'branding':
       return <BrandingSettings />;
     default:

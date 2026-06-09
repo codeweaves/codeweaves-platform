@@ -10,6 +10,7 @@ import {
   Plug,
   BadgeInfo,
   Sparkles,
+  MessageSquareText,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProfile } from '@/hooks/use-profile';
@@ -23,6 +24,7 @@ export type CategoryId =
   | 'prompt'
   | 'classification'
   | 'integration'
+  | 'whatsapp'
   | 'branding';
 
 interface Category {
@@ -82,6 +84,13 @@ const allCategories: Category[] = [
     title: 'Integration',
     icon: <Plug className="h-5 w-5" />,
     description: 'Routing: n8n webhook or native AI orchestrator',
+    adminOnly: true,
+  },
+  {
+    id: 'whatsapp',
+    title: 'WhatsApp',
+    icon: <MessageSquareText className="h-5 w-5" />,
+    description: 'Connect a WhatsApp number to this agent',
     adminOnly: true,
   },
   {

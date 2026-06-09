@@ -138,6 +138,96 @@ describe('ChatService', () => {
     expect(service).toBeDefined();
   });
 
+  describe('resolveOrCreateVisitorSession (WhatsApp / server-keyed channels)', () => {
+    const PHONE = '15551234567';
+
+    it('returns the active session when within the lifetime cap', async () => {
+      const active = {
+        id: 'sess-1',
+        agentId: MOCK_AGENT_ID,
+        sessionId: 'uuid-1',
+        source: 'WHATSAPP',
+        status: 'ACTIVE',
+        visitorId: PHONE,
+        createdAt: new Date(),
+        updatedAt: new Date(),
+        agent: { sessionLifetimeHours: 6 },
+      };
+      mockPrismaService.chatSession.findFirst.mockResolvedValue(active);
+
+      const result = await service.resolveOrCreateVisitorSession(
+        MOCK_AGENT_ID,
+        'WHATSAPP',
+        PHONE,
+      );
+
+      expect(result).toBe(active);
+      expect(mockPrismaService.chatSession.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: {
+            agentId: MOCK_AGENT_ID,
+            source: 'WHATSAPP',
+            visitorId: PHONE,
+            status: 'ACTIVE',
+          },
+        }),
+      );
+      expect(mockPrismaService.chatSession.create).not.toHaveBeenCalled();
+    });
+
+    it('creates a new session (random UUID) when none is active', async () => {
+      mockPrismaService.chatSession.findFirst.mockResolvedValue(null);
+      const created = { id: 'sess-new', sessionId: 'uuid-new' };
+      mockPrismaService.chatSession.create.mockResolvedValue(created);
+
+      const result = await service.resolveOrCreateVisitorSession(
+        MOCK_AGENT_ID,
+        'WHATSAPP',
+        PHONE,
+      );
+
+      expect(mockPrismaService.chatSession.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          agentId: MOCK_AGENT_ID,
+          source: 'WHATSAPP',
+          visitorId: PHONE,
+          sessionId: expect.any(String),
+        }),
+      });
+      expect(result).toBe(created);
+    });
+
+    it('rotates (EXPIRES old + creates fresh) when past the lifetime cap', async () => {
+      const stale = {
+        id: 'sess-old',
+        agentId: MOCK_AGENT_ID,
+        sessionId: 'uuid-old',
+        source: 'WHATSAPP',
+        status: 'ACTIVE',
+        visitorId: PHONE,
+        createdAt: new Date(Date.now() - 7 * 60 * 60 * 1000), // 7h ago, cap is 6h
+        updatedAt: new Date(),
+        agent: { sessionLifetimeHours: 6 },
+      };
+      mockPrismaService.chatSession.findFirst.mockResolvedValue(stale);
+      const fresh = { id: 'sess-fresh', sessionId: 'uuid-fresh' };
+      mockPrismaService.chatSession.create.mockResolvedValue(fresh);
+
+      const result = await service.resolveOrCreateVisitorSession(
+        MOCK_AGENT_ID,
+        'WHATSAPP',
+        PHONE,
+      );
+
+      expect(mockPrismaService.chatSession.update).toHaveBeenCalledWith({
+        where: { id: 'sess-old' },
+        data: { status: 'EXPIRED' },
+      });
+      expect(mockPrismaService.chatSession.create).toHaveBeenCalled();
+      expect(result).toBe(fresh);
+    });
+  });
+
   describe('sendMessage', () => {
     const baseDto = {
       chatInput: 'Hello, AI!',
