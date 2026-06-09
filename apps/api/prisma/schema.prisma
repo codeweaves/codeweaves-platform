@@ -45,6 +45,31 @@ enum InvitationStatus {
   EXPIRED
 }
 
+enum WhatsappChannelStatus {
+  PENDING // created, not yet verified/connected
+  CONNECTED // active — receiving + sending
+  DISCONNECTED // intentionally turned off / token revoked
+  ERROR // token expired or Meta returned errors
+}
+
+// Outbound template categories (Meta). NOTE: SERVICE is not a template category —
+// "service" = free-form replies within the 24h window. Templates are only these three.
+enum WhatsappTemplateCategory {
+  MARKETING
+  UTILITY
+  AUTHENTICATION
+}
+
+// Mirrors Meta's template review lifecycle.
+enum WhatsappTemplateStatus {
+  DRAFT // local only, not yet submitted to Meta
+  PENDING // submitted, awaiting Meta review
+  APPROVED
+  REJECTED
+  PAUSED
+  DISABLED
+}
+
 model Organization {
   id        String    @id @default(uuid())
   name      String
@@ -99,42 +124,44 @@ model UserInvitation {
 }
 
 model Agent {
-  id                   String          @id @default(uuid())
-  publicId             String          @unique @db.VarChar(8)
+  id                   String             @id @default(uuid())
+  publicId             String             @unique @db.VarChar(8)
   name                 String
-  status               AgentStatus     @default(ACTIVE)
+  status               AgentStatus        @default(ACTIVE)
   organizationId       String
-  organization         Organization    @relation(fields: [organizationId], references: [id])
+  organization         Organization       @relation(fields: [organizationId], references: [id])
   allowedDomains       String[]
-  hmacEnabled          Boolean         @default(false)
-  voiceEnabled         Boolean         @default(false)
-  voiceConfig          Json?           @db.JsonB
+  hmacEnabled          Boolean            @default(false)
+  voiceEnabled         Boolean            @default(false)
+  voiceConfig          Json?              @db.JsonB
   // Per-agent AI orchestration config: routing mode (n8n | direct), model,
   // temperature, context strategy, fallback models, RAG settings.
   // Null/absent = defaults to 'n8n' routing for backwards compatibility.
-  aiConfig             Json?           @db.JsonB
+  aiConfig             Json?              @db.JsonB
   // Category names this agent's conversations get classified into by the
   // post-session AI classifier (e.g. ["Pricing", "Support", "Refunds"]).
   // Empty array disables categorisation for the agent.
-  categoryKeywords     String[]        @default([])
+  categoryKeywords     String[]           @default([])
   // How long a single chat session can live (from createdAt) before the
   // backend rotates the visitor to a new sessionId. Tighter values produce
   // more "distinct conversations" in analytics; looser values let one visit
   // stay continuous longer. Range 1-168 (1h to 1 week), default 6h.
-  sessionLifetimeHours Int             @default(6)
+  sessionLifetimeHours Int                @default(6)
   // Languages this agent's conversations get classified against by the same
   // post-session classifier. Codes are mostly ISO 639-1 (en, hi, mr, …) plus
   // one non-standard value: `hinglish` (code-mixed Hindi-English, Latin script).
   // Empty array disables language detection for the agent.
-  supportedLanguages   String[]        @default([])
-  systemPrompt         String?         @db.Text
+  supportedLanguages   String[]           @default([])
+  systemPrompt         String?            @db.Text
   welcomeMessage       String?
   secret               AgentSecret?
   theme                AgentTheme?
   knowledge            AgentKnowledge?
+  whatsappChannel      WhatsappChannel?
+  whatsappTemplates    WhatsappTemplate[]
   chatSessions         ChatSession[]
-  createdAt            DateTime        @default(now())
-  updatedAt            DateTime        @updatedAt
+  createdAt            DateTime           @default(now())
+  updatedAt            DateTime           @updatedAt
   deletedAt            DateTime?
 
   @@index([publicId])
@@ -207,6 +234,88 @@ model AgentKnowledge {
 
   @@index([agentId])
   @@map("agent_knowledge")
+}
+
+/// A WhatsApp number connected to an agent. The webhook routes each inbound message
+/// to the owning agent via `phoneNumberId` (Meta's per-number id, present on every
+/// webhook payload). One number per agent for now.
+///
+/// MVP stores the WABA id + access token on the channel itself (manual config). When
+/// Embedded Signup lands, the WABA + token become org-level (one WABA can own many
+/// numbers) and this model will reference that — see docs/plans/whatsapp-integration-plan.md.
+model WhatsappChannel {
+  id      String @id @default(uuid())
+  agentId String @unique
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// WhatsApp Business Account id that owns this number.
+  wabaId String
+
+  /// Meta's phone-number id — the routing key. Every inbound webhook payload carries
+  /// this under `metadata.phone_number_id`; we resolve the agent by it.
+  phoneNumberId String @unique
+
+  /// Human-readable number for the dashboard, e.g. "+1 555 010 1234".
+  displayPhone String
+
+  /// Business display name Meta shows to end users (verified name). Optional.
+  verifiedName String?
+
+  /// Graph API access token, encrypted at rest via CryptoService (AES-256-GCM) — the
+  /// same mechanism AgentSecret uses for webhook URLs. NEVER store or log plaintext.
+  accessTokenEnc String @db.Text
+
+  /// When the access token expires (Embedded Signup tokens are typically 60-day).
+  /// Null for non-expiring system-user tokens. Drives proactive refresh later.
+  tokenExpiresAt DateTime?
+
+  status WhatsappChannelStatus @default(PENDING)
+
+  /// When true, the agent replies with a voice note (TTS) to inbound voice notes.
+  /// Text inbound always gets a text reply regardless. Default off (text-out).
+  voiceReplyEnabled Boolean @default(false)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // No explicit @@index: both phoneNumberId and agentId are @unique, which already
+  // creates a backing index. The webhook routes on phoneNumberId via that unique index.
+  @@map("whatsapp_channels")
+}
+
+/// Outbound message templates. DORMANT: the schema is in place so enabling outbound
+/// later is additive, but nothing reads or writes this yet (no UI, no Meta submission,
+/// no sending). See docs/plans/whatsapp-integration-plan.md §7.
+model WhatsappTemplate {
+  id      String @id @default(uuid())
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// Template name (Meta requires lowercase snake_case; unique per WABA + language).
+  name String
+
+  /// Meta language code, e.g. "en_US".
+  language String
+
+  category WhatsappTemplateCategory
+  status   WhatsappTemplateStatus   @default(DRAFT)
+
+  /// Meta's template id, once submitted/approved. Null while DRAFT.
+  metaTemplateId String?
+
+  /// Body text (may contain {{1}} placeholders).
+  body String @db.Text
+
+  /// Full component structure (header/body/footer/buttons) as sent to Meta.
+  components Json? @db.JsonB
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  // The composite unique's leftmost column (agentId) already serves "templates by
+  // agent" lookups, so no separate @@index([agentId]) is needed.
+  @@unique([agentId, name, language])
+  @@map("whatsapp_templates")
 }
 
 model ChatSession {

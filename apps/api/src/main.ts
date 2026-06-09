@@ -24,7 +24,10 @@ if (process.env.SENTRY_DSN) {
 }
 
 async function bootstrap() {
-  const app = await NestFactory.create(AppModule);
+  // rawBody: true buffers the unparsed request body onto `req.rawBody`, which the
+  // WhatsApp webhook needs to verify Meta's X-Hub-Signature-256 HMAC against the
+  // exact bytes sent. JSON parsing still happens as normal for every other route.
+  const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // Trust the reverse proxy in front of us (Vercel/Cloudflare/nginx) so
   // req.ip resolves to the real client IP via X-Forwarded-For.
