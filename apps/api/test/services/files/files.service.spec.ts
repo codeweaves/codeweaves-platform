@@ -111,7 +111,7 @@ describe('FilesService', () => {
         purpose: 'header-logo',
       });
       expect(mockStorageService.upload).toHaveBeenCalledWith(
-        'agent-assets',
+        'agent_assets',
         expect.stringContaining(`${orgId}/${agentId}/header-logo/`),
         mockFile.buffer,
         'image/png',
@@ -133,7 +133,7 @@ describe('FilesService', () => {
     it('should replace previous file with same purpose', async () => {
       const existingFile = {
         id: 'old-file-id',
-        bucket: 'agent-assets',
+        bucket: 'agent_assets',
         storageKey: 'old/path/file.png',
       };
 
@@ -155,7 +155,7 @@ describe('FilesService', () => {
       });
 
       // Should delete previous file
-      expect(mockStorageService.remove).toHaveBeenCalledWith('agent-assets', ['old/path/file.png']);
+      expect(mockStorageService.remove).toHaveBeenCalledWith('agent_assets', ['old/path/file.png']);
       expect(mockPrismaService.file.delete).toHaveBeenCalledWith({
         where: { id: 'old-file-id' },
       });
@@ -271,13 +271,13 @@ describe('FilesService', () => {
       mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
       mockPrismaService.file.findUnique.mockResolvedValue({
         id: fileId,
-        bucket: 'agent-assets',
+        bucket: 'agent_assets',
         storageKey: 'path/to/file.png',
       });
 
       await service.deleteFile(fileId, agentId, adminUser);
 
-      expect(mockStorageService.remove).toHaveBeenCalledWith('agent-assets', ['path/to/file.png']);
+      expect(mockStorageService.remove).toHaveBeenCalledWith('agent_assets', ['path/to/file.png']);
       expect(mockPrismaService.file.delete).toHaveBeenCalledWith({
         where: { id: fileId },
       });

@@ -9,7 +9,7 @@ import { PrismaService } from './prisma.service';
 import { SupabaseStorageService } from './supabase-storage.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
-const BUCKET = 'agent-assets';
+const BUCKET = 'agent_assets';
 const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
 const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'];
 const ALLOWED_PURPOSES = ['header-logo', 'bot-avatar', 'user-avatar', 'icon-image', 'brand-logo'];
