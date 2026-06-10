@@ -97,7 +97,7 @@ export function ConversationDetailPane({
 
   if (!sessionId) {
     return (
-      <div className={cn('flex h-full flex-col bg-background', className)}>
+      <div className={cn('flex h-full flex-col bg-card', className)}>
         <EmptyState />
       </div>
     );
@@ -105,7 +105,7 @@ export function ConversationDetailPane({
 
   if (isLoading) {
     return (
-      <div className={cn('flex h-full items-center justify-center bg-background', className)}>
+      <div className={cn('flex h-full items-center justify-center bg-card', className)}>
         <Loader2 className="size-6 animate-spin text-muted-foreground" />
       </div>
     );
@@ -114,7 +114,7 @@ export function ConversationDetailPane({
   if (isError || !conv) {
     const isNotFound = error?.message?.toLowerCase().includes('not found');
     return (
-      <div className={cn('flex h-full flex-col items-center justify-center gap-3 bg-background p-12 text-center', className)}>
+      <div className={cn('flex h-full flex-col items-center justify-center gap-3 bg-card p-12 text-center', className)}>
         <AlertCircle className="size-8 text-muted-foreground/60" />
         <div className="text-base font-medium">
           {isNotFound ? 'Conversation not found' : 'Failed to load conversation'}
@@ -139,7 +139,7 @@ export function ConversationDetailPane({
   const duration = formatDuration(conv.createdAt, conv.lastMessageAt);
 
   return (
-    <div className={cn('flex h-full flex-col bg-background', className)}>
+    <div className={cn('flex h-full flex-col bg-card', className)}>
       {/* Compact header */}
       <div className="shrink-0 border-b bg-card px-4 py-3 md:px-6">
         <div className="flex items-start gap-3">

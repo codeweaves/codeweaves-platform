@@ -81,7 +81,7 @@ export function ColorPicker({
   if (label) {
     return (
       <div className={cn('grid grid-cols-3 gap-4 items-center', className)}>
-        <Label htmlFor={id} className="text-sm font-medium text-gray-700">
+        <Label htmlFor={id} className="text-sm font-medium text-foreground">
           {label}
         </Label>
         <div className="col-span-2 flex items-center gap-3">
@@ -90,7 +90,7 @@ export function ColorPicker({
               <button
                 type="button"
                 className={cn(
-                  'h-12 w-12 shrink-0 cursor-pointer rounded-full border-2 border-gray-200 shadow-sm hover:shadow-md transition-shadow',
+                  'h-12 w-12 shrink-0 cursor-pointer rounded-full border-2 border-border shadow-sm hover:shadow-md transition-shadow',
                   disabled && 'pointer-events-none opacity-50',
                 )}
                 style={{ backgroundColor: value }}
@@ -111,7 +111,7 @@ export function ColorPicker({
               maxLength={7}
               placeholder="#000000"
               disabled={disabled}
-              className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+              className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:ring-2 focus:ring-ring focus:border-transparent"
             />
           </div>
         </div>
@@ -127,7 +127,7 @@ export function ColorPicker({
           <button
             type="button"
             className={cn(
-              'h-12 w-12 shrink-0 cursor-pointer rounded-full border-2 border-gray-200 shadow-sm hover:shadow-md transition-shadow',
+              'h-12 w-12 shrink-0 cursor-pointer rounded-full border-2 border-border shadow-sm hover:shadow-md transition-shadow',
               disabled && 'pointer-events-none opacity-50',
             )}
             style={{ backgroundColor: value }}
@@ -147,7 +147,7 @@ export function ColorPicker({
           maxLength={7}
           placeholder="#000000"
           disabled={disabled}
-          className="w-full px-3 py-2 text-sm border border-gray-200 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+          className="w-full px-3 py-2 text-sm border border-border rounded-lg focus:ring-2 focus:ring-ring focus:border-transparent"
         />
       </div>
     </div>

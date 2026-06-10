@@ -51,10 +51,12 @@ export function ConversationsView({ selectedSessionId }: ConversationsViewProps)
   );
 
   return (
-    // h-full + flex-col lets the dashboard `<main>` (which has p-6 and its
-    // own overflow-auto) determine our height. Hardcoding `100vh - 6rem` over-
-    // allocates and triggers the outer scrollbar.
-    <div className="flex h-full flex-col gap-4">
+    // Fixed height = viewport − header (h-16 = 4rem) − the dashboard shell's
+    // content padding (py-7 = 3.5rem) = 7.5rem total. This pins the two-pane
+    // inbox to the screen so the list and transcript each scroll INTERNALLY,
+    // rather than the whole shell scrolling (which dragged the detail pane out
+    // of view). If the shell's vertical padding changes, update 7.5rem.
+    <div className="flex h-[calc(100svh-7.5rem)] flex-col gap-4">
       <ConversationsFiltersBar filters={filters} onChange={setFilters} />
 
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border bg-background">

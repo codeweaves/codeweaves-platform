@@ -438,8 +438,9 @@ function AgentEditorContent() {
   );
 
   return (
-    // -m-6 offsets the parent <main>'s p-6 padding for full-bleed editor layout
-    <div className="-m-6 flex h-[calc(100vh-4rem)] overflow-hidden bg-gray-50">
+    // Negative margins cancel the dashboard shell's content padding (px-8 py-7)
+    // so the editor goes full-bleed within the centered content column.
+    <div className="-mx-8 -my-7 flex h-[calc(100vh-4rem)] overflow-hidden bg-background">
       {/* Content area: Sidebar + Form + Preview */}
         {/* Config Sidebar */}
         <AgentEditorSidebar
@@ -454,7 +455,7 @@ function AgentEditorContent() {
             // so `@supports (overflow: overlay)` can upgrade to an overlay
             // scrollbar on WebKit/Blink. Don't re-apply `overflow-y-auto` here
             // — Tailwind's utility would win specificity and kill the overlay.
-            className="scrollarea flex-1 bg-white p-6 pb-20"
+            className="scrollarea flex-1 bg-card p-6 pb-20"
             ref={scrollRef}
             onScroll={handleScrollBarVisibility}
           >
@@ -462,7 +463,7 @@ function AgentEditorContent() {
           </div>
 
           {/* Sticky bottom action bar */}
-          <div className="border-t border-gray-200 bg-white px-6 py-4 shadow-lg">
+          <div className="border-t border-border bg-card px-6 py-4 shadow-lg">
             <div className="flex justify-end gap-3">
               {/* Reset button with dropdown for "Reset to Defaults" */}
               <DropdownMenu>
@@ -521,7 +522,7 @@ function AgentEditorContent() {
         </div>
 
         {/* Live Preview panel */}
-        <div className="flex h-full min-h-0 min-w-112.5 max-w-150 flex-2 flex-col border-l border-gray-200 bg-white">
+        <div className="flex h-full min-h-0 min-w-112.5 max-w-150 flex-2 flex-col border-l border-border bg-card">
           <AgentPreview
             formData={previewFormData}
             messages={previewMessages}

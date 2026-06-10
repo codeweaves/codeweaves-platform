@@ -1,51 +1,86 @@
 @import "tailwindcss";
 @import "tw-animate-css";
 
-/* CSS variables (OKLCH format) */
+/* The app is light-only. shadcn primitives ship a handful of `dark:` utilities,
+ * and Tailwind v4's default `dark` variant is media-based (`prefers-color-scheme`).
+ * Re-pointing the variant at a `.dark` class that we never set neutralizes those
+ * utilities, so an OS dark-mode preference can't partially restyle components.
+ * (Re-enabling dark mode later = restore a `.dark { … }` token block + a toggle.) */
+@custom-variant dark (&:is(.dark *));
+
+/* ─────────────────────────────────────────────────────────────────────────
+ * Design tokens — OKLCH. Single source of truth for every surface and color
+ * in the dashboard. Components must reference these (bg-background, bg-card,
+ * text-foreground, border-border, text-muted-foreground, …) rather than raw
+ * Tailwind grays, so the whole app stays on one consistent palette.
+ *
+ * Palette: indigo-violet accent (the modern B2B / AI-SaaS signature hue) on a
+ * soft off-white canvas (never pure #fff — that's the eye-burner), with brighter
+ * cards layered above it for depth.
+ * ───────────────────────────────────────────────────────────────────────── */
 :root {
+  --radius: 0.65rem;
+
+  /* Canvas + text */
+  --background: oklch(0.976 0.003 270);
+  --foreground: oklch(0.21 0.015 271);
+
+  /* Elevated surfaces */
   --card: oklch(1 0 0);
-  --card-foreground: oklch(0.145 0 0);
+  --card-foreground: oklch(0.21 0.015 271);
   --popover: oklch(1 0 0);
-  --popover-foreground: oklch(0.145 0 0);
-  --primary: oklch(0.205 0 0);
-  --primary-foreground: oklch(0.985 0 0);
-  --secondary: oklch(0.97 0 0);
-  --secondary-foreground: oklch(0.205 0 0);
-  --muted: oklch(0.97 0 0);
-  --muted-foreground: oklch(0.556 0 0);
-  --accent: oklch(0.97 0 0);
-  --accent-foreground: oklch(0.205 0 0);
+  --popover-foreground: oklch(0.21 0.015 271);
+
+  /* Accent (indigo-violet) */
+  --primary: oklch(0.585 0.22 277);
+  --primary-foreground: oklch(0.985 0.005 270);
+
+  /* Neutral fills */
+  --secondary: oklch(0.965 0.005 270);
+  --secondary-foreground: oklch(0.3 0.02 271);
+  --muted: oklch(0.965 0.005 270);
+  --muted-foreground: oklch(0.524 0.018 271);
+  --accent: oklch(0.958 0.014 277);
+  --accent-foreground: oklch(0.42 0.14 277);
+
+  /* Status */
   --destructive: oklch(0.577 0.245 27.325);
   --destructive-foreground: oklch(0.985 0 0);
-  --border: oklch(0.922 0 0);
-  --input: oklch(0.922 0 0);
-  --ring: oklch(0.708 0 0);
-  --radius: 0.625rem;
-  --chart-1: oklch(0.646 0.222 41.116);
-  --chart-2: oklch(0.6 0.118 184.704);
-  --chart-3: oklch(0.398 0.07 227.392);
-  --chart-4: oklch(0.828 0.189 84.429);
-  --chart-5: oklch(0.769 0.188 70.08);
-  --success: #ecf5f1;
-  --success-foreground: #147f4d;
-  --error: #fbefef;
-  --error-foreground: #c63738;
-  --warning: #fef6e7;
-  --warning-foreground: #92400e;
-  --background: oklch(1 0 0);
-  --foreground: oklch(0.145 0 0);
-  --sidebar: oklch(1 0 0);
-  --sidebar-foreground: oklch(0.205 0 0);
-  --sidebar-primary: oklch(0.55 0.2 260);
+  --success: oklch(0.96 0.03 162);
+  --success-foreground: oklch(0.52 0.12 159);
+  --error: oklch(0.965 0.025 22);
+  --error-foreground: oklch(0.55 0.2 25);
+  --warning: oklch(0.97 0.04 85);
+  --warning-foreground: oklch(0.55 0.13 65);
+
+  /* Lines + focus */
+  --border: oklch(0.92 0.005 270);
+  --input: oklch(0.92 0.005 270);
+  --ring: oklch(0.585 0.22 277);
+
+  /* Charts — cohesive accent-anchored ramp: violet → blue → cyan → teal → amber */
+  --chart-1: oklch(0.585 0.22 277);
+  --chart-2: oklch(0.62 0.17 248);
+  --chart-3: oklch(0.7 0.13 200);
+  --chart-4: oklch(0.72 0.15 165);
+  --chart-5: oklch(0.78 0.16 75);
+
+  /* Sidebar — brighter than canvas, with a violet-tinted active pill */
+  --sidebar: oklch(0.992 0.002 270);
+  --sidebar-foreground: oklch(0.37 0.015 271);
+  --sidebar-primary: oklch(0.585 0.22 277);
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.97 0 0);
-  --sidebar-accent-foreground: oklch(0.205 0 0);
-  --sidebar-border: oklch(0.922 0 0);
-  --sidebar-ring: oklch(0.708 0 0);
+  --sidebar-accent: oklch(0.95 0.018 277);
+  --sidebar-accent-foreground: oklch(0.45 0.17 277);
+  --sidebar-border: oklch(0.92 0.005 270);
+  --sidebar-ring: oklch(0.585 0.22 277);
 }
 
 /* Map CSS variables to Tailwind theme */
 @theme inline {
+  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-mono: var(--font-geist-mono), ui-monospace, monospace;
+
   --color-background: var(--background);
   --color-foreground: var(--foreground);
   --color-card: var(--card);
@@ -98,7 +133,9 @@
     @apply border-border outline-ring/50;
   }
   body {
-    @apply bg-background text-foreground;
+    @apply bg-background text-foreground font-sans;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
   }
 }
 
@@ -130,7 +167,7 @@
 }
 .scrollarea.scrolling,
 .scrollarea:hover {
-  scrollbar-color: rgba(0, 0, 0, 0.28) transparent; /* Firefox: active state */
+  scrollbar-color: color-mix(in oklch, var(--foreground) 28%, transparent) transparent; /* Firefox: active state */
 }
 
 .scrollarea::-webkit-scrollbar {
@@ -146,11 +183,11 @@
 }
 .scrollarea.scrolling::-webkit-scrollbar-thumb,
 .scrollarea:hover::-webkit-scrollbar-thumb {
-  background-color: rgba(0, 0, 0, 0.28);
+  background-color: color-mix(in oklch, var(--foreground) 28%, transparent);
 }
 .scrollarea.scrolling::-webkit-scrollbar-thumb:hover,
 .scrollarea:hover::-webkit-scrollbar-thumb:hover {
-  background-color: rgba(0, 0, 0, 0.45);
+  background-color: color-mix(in oklch, var(--foreground) 45%, transparent);
 }
 
 /* Chat body — hide scrollbar entirely (content still scrolls via wheel/trackpad/keyboard) */

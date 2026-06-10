@@ -95,8 +95,8 @@ function ConversationRow({
       onClick={() => onSelect(conversation.sessionId)}
       className={cn(
         'group flex w-full cursor-pointer items-start gap-3 border-b border-l-4 border-l-transparent px-4 py-3 text-left transition-colors',
-        'hover:bg-accent/40 focus:bg-accent/40 focus:outline-none',
-        selected && 'border-l-primary bg-accent/60',
+        'hover:bg-accent focus:bg-accent focus:outline-none',
+        selected && 'border-l-primary bg-primary/10',
       )}
       aria-current={selected ? 'true' : undefined}
     >

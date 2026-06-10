@@ -81,9 +81,10 @@ export function TabGroup({
             onKeyDown={(e) => handleKeyDown(e, index)}
             className={cn(
               'flex items-center gap-2 transition-all duration-200 rounded-md',
-              isActive
-                ? 'bg-blue-600 text-white shadow-md hover:bg-blue-700'
-                : 'bg-white text-gray-600 hover:bg-gray-50 border-gray-200',
+              // Colors come from the Button `default`/`outline` variants (primary
+              // violet when active, tokenized outline when not) — keep overrides
+              // to shadow/text only so this stays on the design-system palette.
+              isActive ? 'shadow-md' : 'text-muted-foreground',
             )}
           >
             {tab.icon && <span className="w-4 h-4">{tab.icon}</span>}

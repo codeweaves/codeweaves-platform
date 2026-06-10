@@ -77,28 +77,28 @@ export function ChatSettings() {
     <div className="space-y-6">
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-4 items-center">
-          <Label className="text-sm font-medium text-gray-700">Header Title</Label>
+          <Label className="text-sm font-medium text-foreground">Header Title</Label>
           <Input
             value={themeData.header.title}
             onChange={(e) => updateThemeData('header.title', e.target.value)}
             placeholder="Chat Support"
-            className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
+            className="col-span-2 rounded-md focus:ring-2 focus:ring-ring"
           />
         </div>
 
         <div className="grid grid-cols-3 gap-4 items-center">
-          <Label className="text-sm font-medium text-gray-700">Header Subtitle</Label>
+          <Label className="text-sm font-medium text-foreground">Header Subtitle</Label>
           <Input
             value={themeData.header.subtitle ?? ''}
             onChange={(e) => updateThemeData('header.subtitle', e.target.value || undefined)}
             placeholder="We're here to help"
-            className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
+            className="col-span-2 rounded-md focus:ring-2 focus:ring-ring"
           />
         </div>
       </div>
 
       <div className="grid grid-cols-3 gap-4 items-start">
-        <Label className="text-sm font-medium text-gray-700 pt-2">Company Logo</Label>
+        <Label className="text-sm font-medium text-foreground pt-2">Company Logo</Label>
         <div className="col-span-2">
           <ImageUpload
             value={themeData.header.logoUrl}
@@ -146,9 +146,9 @@ export function ChatSettings() {
 
   const renderAvatarSettings = () => (
     <div className="space-y-6">
-      <FormSection title="Bot Avatar" className="p-6 rounded-lg border border-gray-200">
+      <FormSection title="Bot Avatar" className="p-6 rounded-lg border border-border">
         <div className="flex items-center justify-between">
-          <Label className="text-sm font-medium text-gray-700">Show bot avatar in messages</Label>
+          <Label className="text-sm font-medium text-foreground">Show bot avatar in messages</Label>
           <Switch
             checked={themeData.botAvatar.show ?? false}
             onCheckedChange={(checked) => updateThemeData('botAvatar.show', checked)}
@@ -159,7 +159,7 @@ export function ChatSettings() {
           <>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-sm font-medium text-gray-700">Avatar Type</Label>
+                <Label className="text-sm font-medium text-foreground">Avatar Type</Label>
                 <Select
                   value={themeData.botAvatar.type}
                   onValueChange={(val) => updateThemeData('botAvatar.type', val)}
@@ -181,7 +181,7 @@ export function ChatSettings() {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-medium text-gray-700">Avatar Shape</Label>
+                <Label className="text-sm font-medium text-foreground">Avatar Shape</Label>
                 <Select
                   value={themeData.botAvatar.shape}
                   onValueChange={(val) => updateThemeData('botAvatar.shape', val)}
@@ -202,7 +202,7 @@ export function ChatSettings() {
 
             {themeData.botAvatar.type === 'custom' && (
               <div className="space-y-3">
-                <Label className="text-sm font-medium text-gray-700">Custom Avatar Image</Label>
+                <Label className="text-sm font-medium text-foreground">Custom Avatar Image</Label>
                 <ImageUpload
                   value={themeData.botAvatar.customImageUrl}
                   onUpload={(url) => updateThemeData('botAvatar.customImageUrl', url)}
@@ -232,9 +232,9 @@ export function ChatSettings() {
         )}
       </FormSection>
 
-      <FormSection title="User Avatar" className="p-6 rounded-lg border border-gray-200">
+      <FormSection title="User Avatar" className="p-6 rounded-lg border border-border">
         <div className="flex items-center justify-between">
-          <Label className="text-sm font-medium text-gray-700">Show user avatar in messages</Label>
+          <Label className="text-sm font-medium text-foreground">Show user avatar in messages</Label>
           <Switch
             checked={themeData.userAvatar.show ?? false}
             onCheckedChange={(checked) => updateThemeData('userAvatar.show', checked)}
@@ -245,7 +245,7 @@ export function ChatSettings() {
           <>
             <div className="grid grid-cols-2 gap-4">
               <div className="space-y-2">
-                <Label className="text-sm font-medium text-gray-700">Avatar Type</Label>
+                <Label className="text-sm font-medium text-foreground">Avatar Type</Label>
                 <Select
                   value={themeData.userAvatar.type}
                   onValueChange={(val) => updateThemeData('userAvatar.type', val)}
@@ -267,7 +267,7 @@ export function ChatSettings() {
               </div>
 
               <div className="space-y-2">
-                <Label className="text-sm font-medium text-gray-700">Avatar Shape</Label>
+                <Label className="text-sm font-medium text-foreground">Avatar Shape</Label>
                 <Select
                   value={themeData.userAvatar.shape}
                   onValueChange={(val) => updateThemeData('userAvatar.shape', val)}
@@ -288,7 +288,7 @@ export function ChatSettings() {
 
             {themeData.userAvatar.type === 'custom' && (
               <div className="space-y-3">
-                <Label className="text-sm font-medium text-gray-700">Custom Avatar Image</Label>
+                <Label className="text-sm font-medium text-foreground">Custom Avatar Image</Label>
                 <ImageUpload
                   value={themeData.userAvatar.customImageUrl}
                   onUpload={(url) => updateThemeData('userAvatar.customImageUrl', url)}
@@ -322,7 +322,7 @@ export function ChatSettings() {
 
   const renderMessageSettings = () => (
     <div className="space-y-6">
-      <FormSection title="Chat Background" className="p-6 rounded-lg border border-gray-200">
+      <FormSection title="Chat Background" className="p-6 rounded-lg border border-border">
         <ColorPicker
           label="Chat Area Background Color"
           value={themeData.body.backgroundColor}
@@ -331,7 +331,7 @@ export function ChatSettings() {
         />
       </FormSection>
 
-      <FormSection title="User Messages" className="p-6 rounded-lg border border-gray-200">
+      <FormSection title="User Messages" className="p-6 rounded-lg border border-border">
         <div className="grid grid-cols-2 gap-4">
           <ColorPicker
             label="Background Color"
@@ -357,7 +357,7 @@ export function ChatSettings() {
         />
       </FormSection>
 
-      <FormSection title="System Messages" className="p-6 rounded-lg border border-gray-200">
+      <FormSection title="System Messages" className="p-6 rounded-lg border border-border">
         <div className="grid grid-cols-2 gap-4">
           <ColorPicker
             label="Background Color"
@@ -382,10 +382,10 @@ export function ChatSettings() {
           unit="px"
         />
 
-        <div className="flex items-center justify-between p-4 bg-white rounded-lg border">
+        <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg border">
           <div>
-            <Label className="text-sm font-medium text-gray-700">Show Timestamps</Label>
-            <p className="text-xs text-gray-500 mt-1">Display message timestamps</p>
+            <Label className="text-sm font-medium text-foreground">Show Timestamps</Label>
+            <p className="text-xs text-muted-foreground mt-1">Display message timestamps</p>
           </div>
           <Switch
             checked={themeData.timestamps.show}
@@ -413,12 +413,12 @@ export function ChatSettings() {
           />
 
           <div className="grid grid-cols-3 gap-4 items-center">
-            <Label className="text-sm font-medium text-gray-700">Placeholder Text</Label>
+            <Label className="text-sm font-medium text-foreground">Placeholder Text</Label>
             <Input
               value={themeData.input.placeholderText}
               onChange={(e) => updateThemeData('input.placeholderText', e.target.value)}
               placeholder="Type your message..."
-              className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
+              className="col-span-2 rounded-md focus:ring-2 focus:ring-ring"
             />
           </div>
 
@@ -460,7 +460,7 @@ export function ChatSettings() {
   const renderTypographySettings = () => (
     <div className="space-y-6">
       <div className="space-y-2">
-        <Label className="text-sm font-medium text-gray-700">Font Family</Label>
+        <Label className="text-sm font-medium text-foreground">Font Family</Label>
         <Select
           value={themeData.typography.fontFamily}
           onValueChange={(val) => updateThemeData('typography.fontFamily', val)}

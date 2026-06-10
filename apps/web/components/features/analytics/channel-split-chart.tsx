@@ -23,12 +23,12 @@ const CHANNEL_LABELS: Record<string, string> = {
 // Stable color per channel so the donut and legend never reassign colors when
 // one channel drops to zero and disappears from the response.
 const CHANNEL_COLORS: Record<string, string> = {
-  WIDGET: 'hsl(var(--chart-1))',
-  WHATSAPP: 'hsl(var(--chart-2))',
-  DEMO: 'hsl(var(--chart-3))',
+  WIDGET: 'var(--chart-1)',
+  WHATSAPP: 'var(--chart-2)',
+  DEMO: 'var(--chart-3)',
 };
 
-const FALLBACK_COLOR = 'hsl(var(--muted-foreground))';
+const FALLBACK_COLOR = 'var(--muted-foreground)';
 
 interface TooltipPayloadItem {
   name: string;
@@ -82,8 +82,8 @@ export function ChannelSplitChart({ data, isLoading, isError, className }: Chann
             No channel data for this period
           </div>
         ) : (
-          <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-6">
-            <div className="relative size-50 shrink-0">
+          <div className="flex flex-col items-center gap-4 sm:flex-row sm:gap-4">
+            <div className="relative size-40 shrink-0">
               <ResponsiveContainer width="100%" height="100%">
                 <PieChart>
                   <Pie
@@ -92,8 +92,8 @@ export function ChannelSplitChart({ data, isLoading, isError, className }: Chann
                     nameKey="name"
                     cx="50%"
                     cy="50%"
-                    innerRadius={60}
-                    outerRadius={90}
+                    innerRadius="60%"
+                    outerRadius="92%"
                     paddingAngle={2}
                     stroke="none"
                   >
@@ -112,14 +112,14 @@ export function ChannelSplitChart({ data, isLoading, isError, className }: Chann
             </div>
 
             {/* Legend with values */}
-            <ul className="flex-1 space-y-2 text-sm">
+            <ul className="min-w-0 flex-1 space-y-2 text-sm">
               {chartData.map((entry) => (
                 <li key={entry.source} className="flex items-center gap-2">
                   <span
                     className="size-2.5 shrink-0 rounded-full"
                     style={{ backgroundColor: CHANNEL_COLORS[entry.source] ?? FALLBACK_COLOR }}
                   />
-                  <span className="flex-1 truncate">{entry.name}</span>
+                  <span className="min-w-0 flex-1 truncate">{entry.name}</span>
                   <span className="tabular-nums text-muted-foreground">
                     {formatNumber(entry.value)}
                     <span className="ml-1.5 text-xs">({entry.percentage.toFixed(1)}%)</span>
