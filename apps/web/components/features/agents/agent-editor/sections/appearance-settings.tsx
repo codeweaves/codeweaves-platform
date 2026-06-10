@@ -40,7 +40,7 @@ export function AppearanceSettings() {
       />
 
       <div className="space-y-3">
-        <Label className="text-sm font-medium text-gray-700">Icon Position</Label>
+        <Label className="text-sm font-medium text-foreground">Icon Position</Label>
         <div className="flex gap-3">
           <Button
             variant={themeData.icon.position === 'left' ? 'default' : 'outline'}
@@ -66,12 +66,12 @@ export function AppearanceSettings() {
   const renderBubbleSettings = () => (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-4 items-center">
-        <Label className="text-sm font-medium text-gray-700">Bubble Text</Label>
+        <Label className="text-sm font-medium text-foreground">Bubble Text</Label>
         <Input
           value={themeData.bubble.text}
           onChange={(e) => updateThemeData('bubble.text', e.target.value)}
           placeholder="Need help?"
-          className="col-span-2 rounded-md focus:ring-2 focus:ring-blue-500"
+          className="col-span-2 rounded-md focus:ring-2 focus:ring-ring"
         />
       </div>
 
@@ -98,10 +98,10 @@ export function AppearanceSettings() {
         unit="s"
       />
 
-      <div className="flex items-center justify-between p-4 bg-gray-50 rounded-lg">
+      <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
         <div>
-          <Label className="text-sm font-medium text-gray-700">Enable Bubble</Label>
-          <p className="text-xs text-gray-500 mt-1">Show a prompt bubble near the chat icon</p>
+          <Label className="text-sm font-medium text-foreground">Enable Bubble</Label>
+          <p className="text-xs text-muted-foreground mt-1">Show a prompt bubble near the chat icon</p>
         </div>
         <Switch
           checked={themeData.bubble.enabled}

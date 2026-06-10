@@ -17,13 +17,14 @@ interface MessageVolumeHeatmapProps {
 // API returns day: 0=Sun, 1=Mon, ..., 6=Sat
 const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat'] as const;
 const HOURS = Array.from({ length: 24 }, (_, i) => i);
+// On-brand violet intensity ramp (matches the dashboard accent / chart-1).
 const INTENSITY_COLORS = [
-  'bg-blue-50 dark:bg-blue-950',
-  'bg-blue-100 dark:bg-blue-900',
-  'bg-blue-200 dark:bg-blue-800',
-  'bg-blue-300 dark:bg-blue-700',
-  'bg-blue-500 dark:bg-blue-500',
-  'bg-blue-700 dark:bg-blue-300',
+  'bg-violet-100',
+  'bg-violet-200',
+  'bg-violet-300',
+  'bg-violet-400',
+  'bg-violet-500',
+  'bg-violet-600',
 ] as const;
 
 function getColorIntensity(value: number, max: number): string {

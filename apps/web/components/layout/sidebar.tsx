@@ -7,7 +7,6 @@ import {
   LayoutDashboard,
   Bot,
   Building2,
-
   BarChart3,
   MessageSquare,
   Settings,
@@ -15,6 +14,7 @@ import {
   ChevronsUpDown,
   ChevronRight,
   LogOut,
+  Sparkles,
 } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useProfile } from '@/hooks/use-profile';
@@ -170,10 +170,15 @@ export function AppSidebar() {
 
   return (
     <Sidebar collapsible="icon">
-      <SidebarHeader className="px-4 py-4">
-        <span className="text-xl font-bold truncate group-data-[collapsible=icon]:hidden">
-          Klivo
-        </span>
+      <SidebarHeader className="px-3 py-4">
+        <div className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-primary to-violet-600 text-primary-foreground shadow-sm shadow-primary/30 ring-1 ring-inset ring-white/10">
+            <Sparkles className="size-[1.05rem]" />
+          </div>
+          <span className="truncate text-lg font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
+            Klivo
+          </span>
+        </div>
       </SidebarHeader>
 
       <SidebarContent>
@@ -197,7 +202,7 @@ export function AppSidebar() {
                       <Link href={item.href}>
                         <item.icon />
                         <span className="flex-1">{item.name}</span>
-                        <ChevronRight className="ml-auto size-4 opacity-40" />
+                        <ChevronRight className="ml-auto size-4 -translate-x-1 opacity-0 transition-all duration-200 group-hover/menu-item:translate-x-0 group-hover/menu-item:opacity-60 group-data-[collapsible=icon]:hidden" />
                       </Link>
                     </SidebarMenuButton>
                   </SidebarMenuItem>

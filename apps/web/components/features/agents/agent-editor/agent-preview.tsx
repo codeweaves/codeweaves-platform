@@ -64,14 +64,16 @@ export function AgentPreview({
   return (
     <div className="flex h-full flex-col">
       {/* Header */}
-      <div className="border-b border-gray-100 p-4">
-        <h3 className="text-lg font-semibold text-gray-900">Live Preview</h3>
+      <div className="border-b border-border p-4">
+        <h3 className="text-lg font-semibold text-foreground">Live Preview</h3>
       </div>
 
-      {/* Preview container — scales widget to fit */}
+      {/* Preview container — scales widget to fit. The stage stays a neutral
+          muted wash (a stand-in for the customer's website background) so the
+          floating widget reads clearly against it. */}
       <div
         ref={containerRef}
-        className="relative min-h-0 flex-1 overflow-hidden bg-gradient-to-br from-gray-50 to-gray-100"
+        className="relative min-h-0 flex-1 overflow-hidden bg-linear-to-br from-muted/40 to-muted/80"
       >
         <div
           className="relative h-full w-full"

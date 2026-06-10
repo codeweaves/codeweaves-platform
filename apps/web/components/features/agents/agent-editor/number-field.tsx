@@ -77,7 +77,7 @@ export function NumberField({
 
   return (
     <div className={cn('flex items-center justify-between gap-3', className)}>
-      <Label className="text-sm font-medium text-gray-700">{label}</Label>
+      <Label className="text-sm font-medium text-foreground">{label}</Label>
       <div className="flex items-center gap-1">
         <Button
           type="button"
@@ -122,7 +122,7 @@ export function NumberField({
         >
           <Plus className="h-4 w-4" />
         </Button>
-        {unit && <span className="ml-1 w-5 text-xs text-gray-500">{unit}</span>}
+        {unit && <span className="ml-1 w-5 text-xs text-muted-foreground">{unit}</span>}
       </div>
     </div>
   );

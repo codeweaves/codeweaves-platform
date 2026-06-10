@@ -107,18 +107,18 @@ export function ConversationsChart({ data, isLoading, isError, className }: Conv
                 dataKey="date"
                 tickFormatter={formatDateLabel}
                 className="text-xs"
-                tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                tick={{ fill: 'var(--muted-foreground)' }}
               />
               <YAxis
                 className="text-xs"
-                tick={{ fill: 'hsl(var(--muted-foreground))' }}
+                tick={{ fill: 'var(--muted-foreground)' }}
                 allowDecimals={false}
               />
               <Tooltip content={<CustomTooltip />} />
               <Line
                 type="monotone"
                 dataKey="count"
-                stroke="hsl(var(--primary))"
+                stroke="var(--primary)"
                 strokeWidth={2}
                 dot={false}
                 activeDot={{ r: 4 }}

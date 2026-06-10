@@ -8,11 +8,13 @@ export function Header() {
   const { title, actions } = usePageHeader();
 
   return (
-    <header className="flex h-16 shrink-0 items-center gap-2 border-b bg-white px-4">
-      <SidebarTrigger className="-ml-1" />
-      <Separator orientation="vertical" className="mr-2 h-4" />
-      <div className="min-w-0 flex-1 text-lg font-semibold">{title}</div>
-      {actions && <div className="shrink-0">{actions}</div>}
+    <header className="sticky top-0 z-30 flex h-16 shrink-0 items-center gap-2 border-b border-border bg-background/80 px-4 backdrop-blur-md supports-backdrop-filter:bg-background/65">
+      <SidebarTrigger className="-ml-1 text-muted-foreground hover:text-foreground" />
+      <Separator orientation="vertical" className="mr-1 h-4" />
+      <div className="min-w-0 flex-1 truncate text-base font-semibold tracking-tight">
+        {title}
+      </div>
+      {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
     </header>
   );
 }
