@@ -165,15 +165,15 @@ export function DashboardOverview() {
               const kpi = summaryQuery.data?.kpis?.[k.key];
               const value =
                 k.kind === 'duration'
-                  ? formatDuration(kpi?.value)
-                  : formatCount(kpi?.value);
+                  ? formatDuration(kpi?.value ?? undefined)
+                  : formatCount(kpi?.value ?? undefined);
               return (
                 <StatCard
                   key={k.key}
                   label={k.label}
                   value={value}
                   icon={k.icon}
-                  trend={kpi?.trend}
+                  trend={kpi?.trend ?? undefined}
                   positiveIsGood={k.positiveIsGood}
                   hint="vs previous 30 days"
                 />

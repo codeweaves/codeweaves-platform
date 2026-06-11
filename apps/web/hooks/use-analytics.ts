@@ -48,7 +48,8 @@ export interface AnalyticsSummaryResponse {
     p50ResponseTimeMs: KpiValue;
     p95ResponseTimeMs: KpiValue;
     p99ResponseTimeMs: KpiValue;
-    queriesRaised: KpiValue;
+    // TTFT is only populated for streaming/direct-mode replies; null otherwise.
+    avgTimeToFirstTokenMs: { value: number | null; trend: number | null };
   };
 }
 

@@ -91,6 +91,11 @@ export class WhatsappInboundService {
       messageId,
     );
 
+    // Start the response-time clock here — after ack/typing, before we produce
+    // the reply — so it mirrors the widget's `backendReceivedAt` exactly:
+    // server-side wall-clock covering STT + LLM + TTS + send (received -> sent).
+    const backendReceivedAt = new Date();
+
     // 4b. Resolve the user's text. Voice notes (type 'audio') are downloaded and
     //     transcribed via the existing STT pipeline; the transcript becomes the
     //     message we run + persist, so conversation history stays text-based and
@@ -256,7 +261,10 @@ export class WhatsappInboundService {
       outputTokens: result.usage.outputTokens,
       totalTokens: result.usage.totalTokens,
       finishReason: result.finishReason,
-      responseLatencyMs: result.latencyMs,
+      // Same definition as the widget: backend wall-clock from inbound-received
+      // to reply-sent. The LLM's own generation time is kept separate.
+      responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
+      llmLatencyMs: result.latencyMs,
     });
     await this.chatService.updateSessionTimestamp(session.id);
   }

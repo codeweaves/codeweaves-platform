@@ -107,7 +107,6 @@ describe('AnalyticsController', () => {
         p50ResponseTimeMs: { value: 1200 },
         p95ResponseTimeMs: { value: 3000 },
         p99ResponseTimeMs: { value: 5000 },
-        queriesRaised: { value: 500, trend: 20 },
       },
     };
 

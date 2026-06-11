@@ -65,10 +65,10 @@ describe('AnalyticsService', () => {
     timezone: 'UTC',
   };
 
-  // Helper to mock all $queryRaw calls needed for getSummary (8 calls total):
+  // Helper to mock all $queryRaw calls needed for getSummary (6 calls total):
   // 1. current session metrics, 2. current message metrics, 3. current response time,
-  // 4. prev session metrics, 5. prev message metrics, 6. prev response time,
-  // 7. current retention rate, 8. prev retention rate
+  // 4. prev session metrics, 5. prev message metrics, 6. prev response time.
+  // Retention is derived from session metrics (returning_users / total_users), not a separate query.
   function mockSummaryQueryRaws(overrides?: {
     currentSessions?: { total_conversations: bigint; total_users: bigint; returning_users: bigint };
     currentMessages?: { user_count: bigint; assistant_count: bigint };
@@ -76,8 +76,6 @@ describe('AnalyticsService', () => {
     prevSessions?: { total_conversations: bigint; total_users: bigint; returning_users: bigint };
     prevMessages?: { user_count: bigint; assistant_count: bigint };
     prevResponseTime?: { avg_ms: number | null; p50: number | null; p95: number | null; p99: number | null };
-    retention?: { retained: bigint; total: bigint };
-    prevRetention?: { retained: bigint; total: bigint };
   }) {
     const defaults = {
       currentSessions: { total_conversations: BigInt(0), total_users: BigInt(0), returning_users: BigInt(0) },
@@ -86,8 +84,6 @@ describe('AnalyticsService', () => {
       prevSessions: { total_conversations: BigInt(0), total_users: BigInt(0), returning_users: BigInt(0) },
       prevMessages: { user_count: BigInt(0), assistant_count: BigInt(0) },
       prevResponseTime: { avg_ms: null, p50: null, p95: null, p99: null },
-      retention: { retained: BigInt(0), total: BigInt(0) },
-      prevRetention: { retained: BigInt(0), total: BigInt(0) },
       ...overrides,
     };
 
@@ -97,9 +93,7 @@ describe('AnalyticsService', () => {
       .mockResolvedValueOnce([defaults.currentResponseTime])
       .mockResolvedValueOnce([defaults.prevSessions])
       .mockResolvedValueOnce([defaults.prevMessages])
-      .mockResolvedValueOnce([defaults.prevResponseTime])
-      .mockResolvedValueOnce([defaults.retention])
-      .mockResolvedValueOnce([defaults.prevRetention]);
+      .mockResolvedValueOnce([defaults.prevResponseTime]);
   }
 
   beforeEach(async () => {
@@ -191,8 +185,8 @@ describe('AnalyticsService', () => {
 
       // $queryRaw is called with tagged template literals, verify it was called
       expect(mockPrismaService.$queryRaw).toHaveBeenCalled();
-      // At least 8 calls: sessions, messages, responseTime x2 (current+prev), retention x2
-      expect(mockPrismaService.$queryRaw.mock.calls.length).toBeGreaterThanOrEqual(8);
+      // 6 calls: sessions, messages, responseTime x2 (current+prev). Retention is derived, not queried.
+      expect(mockPrismaService.$queryRaw.mock.calls.length).toBeGreaterThanOrEqual(6);
     });
   });
 
@@ -234,8 +228,6 @@ describe('AnalyticsService', () => {
         prevSessions: { total_conversations: BigInt(1), total_users: BigInt(1), returning_users: BigInt(0) },
         prevMessages: { user_count: BigInt(5), assistant_count: BigInt(4) },
         prevResponseTime: { avg_ms: 1600, p50: 1300, p95: 3100, p99: 5100 },
-        retention: { retained: BigInt(1), total: BigInt(3) },
-        prevRetention: { retained: BigInt(0), total: BigInt(2) },
       });
 
       const result = await service.getSummary(baseQuery, adminUser);
@@ -259,7 +251,6 @@ describe('AnalyticsService', () => {
       expect(result.kpis.p50ResponseTimeMs).toHaveProperty('value');
       expect(result.kpis.p95ResponseTimeMs).toHaveProperty('value');
       expect(result.kpis.p99ResponseTimeMs).toHaveProperty('value');
-      expect(result.kpis.queriesRaised).toHaveProperty('value');
 
       // Verify actual KPI values
       expect(result.kpis.totalUsers.value).toBe(2);
@@ -295,9 +286,11 @@ describe('AnalyticsService', () => {
     });
 
     it('should calculate userRetentionRate trend', async () => {
+      // Retention = returning_users / total_users.
+      // Current: 2/10 = 20%, Prev: 1/10 = 10% → trend = +100%.
       mockSummaryQueryRaws({
-        retention: { retained: BigInt(2), total: BigInt(10) }, // 20%
-        prevRetention: { retained: BigInt(1), total: BigInt(10) }, // 10%
+        currentSessions: { total_conversations: BigInt(10), total_users: BigInt(10), returning_users: BigInt(2) },
+        prevSessions: { total_conversations: BigInt(10), total_users: BigInt(10), returning_users: BigInt(1) },
       });
 
       const result = await service.getSummary(baseQuery, adminUser);

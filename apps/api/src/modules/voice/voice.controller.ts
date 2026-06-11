@@ -18,6 +18,7 @@ import * as Sentry from '@sentry/nestjs';
 import { Public } from '../../decorators/public.decorator';
 import { VoiceService } from './voice.service';
 import { ChatService } from '../../services/chat.service';
+import { MessageMetricsService } from '../../services/message-metrics.service';
 import { N8nStreamingService } from '../../services/n8n-streaming.service';
 import { AgentsService } from '../../services/agents.service';
 import { PrismaService } from '../../services/prisma.service';
@@ -71,6 +72,7 @@ export class VoiceController {
     private readonly prisma: PrismaService,
     private readonly messageRateLimitService: MessageRateLimitService,
     private readonly directChatService: DirectChatService,
+    private readonly messageMetricsService: MessageMetricsService,
   ) {}
 
   @Post('conversation')
@@ -501,6 +503,7 @@ export class VoiceController {
     const wsChunkCounts: number[] = [];
     let wsTotalBytes = 0;
     const ttsProtocols = new Set<'http' | 'websocket'>();
+    const ttsProviders = new Set<string>();
     let fullText = '';
     let totalSentences = 0;
     let timeToFirstChunkMs: number | null = null;
@@ -525,6 +528,7 @@ export class VoiceController {
             timeToFirstChunkMs = Date.now() - startTime;
           }
           if (chunk.ttsProtocol) ttsProtocols.add(chunk.ttsProtocol);
+          if (chunk.ttsProvider) ttsProviders.add(chunk.ttsProvider);
           // First-chunk + final-chunk markers carry the per-sentence WS
           // diagnostics. Aggregate across the turn.
           if (chunk.wsFirstChunkLatencyMs !== undefined) {
@@ -621,12 +625,22 @@ export class VoiceController {
         : ttsProtocols.size === 1
           ? (ttsProtocols.values().next().value as 'http' | 'websocket')
           : 'mixed';
+    // Which provider(s) actually synthesized this turn: a single name, or
+    // 'mixed' when a sentence fell back from one provider to another.
+    const ttsProvider: string | null =
+      ttsProviders.size === 0
+        ? null
+        : ttsProviders.size === 1
+          ? (ttsProviders.values().next().value as string)
+          : 'mixed';
 
     const metadata = {
       inputType: 'voice' as const,
       streaming: true,
       routingMode: mode,
       detectedLanguage: sttResult.detectedLanguage,
+      languageConfidence: sttResult.confidence,
+      sttProvider: sttResult.provider ?? null,
       sttLatencyMs,
       totalSentences,
       averageTtsLatencyMs,
@@ -635,12 +649,20 @@ export class VoiceController {
       // WS-streaming TTS instrumentation. Null/absent on batch-only turns so
       // existing analytics queries that COALESCE these to 0 still work.
       ttsProtocol,
+      ttsProvider,
       wsAvgFirstChunkLatencyMs,
       wsTotalChunks,
       wsTotalBytes: wsTotalBytes > 0 ? wsTotalBytes : null,
       ...llmMetadata,
     };
 
+    const userMetadata = {
+      inputType: 'voice' as const,
+      detectedLanguage: sttResult.detectedLanguage,
+      languageConfidence: sttResult.confidence,
+      sttProvider: sttResult.provider ?? 'unknown',
+      sttLatencyMs,
+    };
     try {
       await Promise.all([
         fullText
@@ -648,16 +670,11 @@ export class VoiceController {
           : this.chatService.saveAssistantMessage(session.id, '[streaming failed]', { ...metadata, error: true }),
         this.prisma.chatMessage.update({
           where: { id: userMessage.id },
-          data: {
-            metadata: {
-              inputType: 'voice',
-              detectedLanguage: sttResult.detectedLanguage,
-              languageConfidence: sttResult.confidence,
-              sttProvider: sttResult.provider ?? 'unknown',
-              sttLatencyMs,
-            },
-          },
+          data: { metadata: userMetadata },
         }),
+        // Mirror the voice USER message's STT metrics into typed columns so
+        // analytics counts it as a voice turn (and tracks the STT provider).
+        this.messageMetricsService.recordFromMetadata(userMessage.id, userMessage.createdAt, userMetadata),
         // Keep ChatSession.lastMessageAt in lockstep with the text flow so
         // voice sessions sort alongside widget chats on the dashboard
         // Conversations list. Without this, voice sessions stay null forever.

@@ -7,6 +7,7 @@ import { HmacService } from '../../../src/common/security/hmac.service';
 import { CryptoService } from '../../../src/common/crypto/crypto.service';
 import { TracerService } from '../../../src/common/tracer/tracer.service';
 import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
+import { MessageMetricsService } from '../../../src/services/message-metrics.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -50,6 +51,11 @@ describe('ChatService', () => {
   const mockDirectChatService = {
     send: jest.fn(),
     stream: jest.fn(),
+  };
+
+  const mockMessageMetricsService = {
+    record: jest.fn(),
+    recordFromMetadata: jest.fn(),
   };
 
   const MOCK_AGENT_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
@@ -110,6 +116,7 @@ describe('ChatService', () => {
         { provide: CryptoService, useValue: mockCryptoService },
         { provide: TracerService, useValue: mockTracerService },
         { provide: DirectChatService, useValue: mockDirectChatService },
+        { provide: MessageMetricsService, useValue: mockMessageMetricsService },
       ],
     }).compile();
 

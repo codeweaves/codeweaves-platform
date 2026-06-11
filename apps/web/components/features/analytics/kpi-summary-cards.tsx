@@ -4,9 +4,9 @@ import {
   Users,
   MessageSquare,
   MessagesSquare,
+  Zap,
   Clock,
   UserCheck,
-  TrendingUp,
 } from 'lucide-react';
 import { KpiCard } from './kpi-card';
 import { formatNumber, formatPercentage, formatDuration } from '@/lib/format-utils';
@@ -40,6 +40,17 @@ export function KpiSummaryCards({ data, isLoading }: KpiSummaryCardsProps) {
       icon: MessagesSquare,
     },
     {
+      title: 'Time to First Token',
+      value: kpis
+        ? kpis.avgTimeToFirstTokenMs.value != null
+          ? formatDuration(kpis.avgTimeToFirstTokenMs.value)
+          : '—'
+        : '-',
+      trend: kpis?.avgTimeToFirstTokenMs.trend ?? undefined,
+      trendInverted: true,
+      icon: Zap,
+    },
+    {
       title: 'Avg Response Time',
       value: kpis ? formatDuration(kpis.avgResponseTimeMs.value) : '-',
       trend: kpis?.avgResponseTimeMs.trend,
@@ -51,12 +62,6 @@ export function KpiSummaryCards({ data, isLoading }: KpiSummaryCardsProps) {
       value: kpis ? formatPercentage(kpis.userRetentionRate.value) : '-',
       trend: kpis?.userRetentionRate.trend,
       icon: UserCheck,
-    },
-    {
-      title: 'User Growth',
-      value: kpis ? formatPercentage(kpis.userGrowthRate.value) : '-',
-      trend: kpis?.userGrowthRate.trend,
-      icon: TrendingUp,
     },
   ];
 

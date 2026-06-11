@@ -28,7 +28,7 @@ export function exportToCsv(data: AnalyticsExportData, filename: string) {
   lines.push('Metric,Value,Trend (%)');
   for (const [key, kpi] of Object.entries(data.summary.kpis)) {
     lines.push(
-      `${escapeCsvField(key)},${escapeCsvField(kpi.value)},${kpi.trend != null ? escapeCsvField(kpi.trend) : ''}`,
+      `${escapeCsvField(key)},${escapeCsvField(kpi.value ?? '')},${kpi.trend != null ? escapeCsvField(kpi.trend) : ''}`,
     );
   }
 

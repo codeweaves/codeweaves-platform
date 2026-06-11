@@ -34,6 +34,9 @@ export interface VoiceAudioChunk {
    *  Lets analytics compare apples-to-apples per sentence. Optional so older
    *  consumers ignore it. */
   ttsProtocol?: 'http' | 'websocket';
+  /** Which TTS provider synthesized this chunk (e.g. 'sarvam', 'elevenlabs').
+   *  The controller aggregates these per turn into the message's ttsProvider. */
+  ttsProvider?: string;
   /** Streaming-only, set on FIRST CHUNK only: time-to-first-chunk from
    *  request start (the perceptual "when audio could have started playing"
    *  number — server-side, before any client-side delivery delay). */
