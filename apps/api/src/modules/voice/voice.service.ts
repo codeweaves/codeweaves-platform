@@ -572,14 +572,18 @@ export class VoiceService {
           fullText += chunk.content;
           const sentences = sentenceBuffer.addToken(chunk.content);
           for (const sentence of sentences) {
-            yield* renderSentence(sentence);
+            for await (const c of renderSentence(sentence)) {
+              yield c.type === 'audio' ? { ...c, ttsProvider: provider.name } : c;
+            }
           }
         }
       }
       // Tail (partial sentence without terminator)
       const remaining = sentenceBuffer.flush();
       if (remaining) {
-        yield* renderSentence(remaining);
+        for await (const c of renderSentence(remaining)) {
+          yield c.type === 'audio' ? { ...c, ttsProvider: provider.name } : c;
+        }
       }
     } finally {
       if (session) {
@@ -761,7 +765,7 @@ export class VoiceService {
         sentenceIndex,
         useStreaming,
       )) {
-        yield chunk;
+        yield chunk.type === 'audio' ? { ...chunk, ttsProvider: primaryProvider.name } : chunk;
         primaryFirstYielded = true;
       }
       return primaryFirstYielded;
@@ -805,7 +809,7 @@ export class VoiceService {
             sentenceIndex,
             false, // batch only for fallback
           )) {
-            yield chunk;
+            yield chunk.type === 'audio' ? { ...chunk, ttsProvider: fallbackProvider.name } : chunk;
             firstYielded = true;
           }
           if (firstYielded) return true;

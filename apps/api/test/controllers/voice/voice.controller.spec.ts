@@ -7,6 +7,7 @@ import * as Sentry from '@sentry/nestjs';
 import { VoiceController } from '../../../src/modules/voice/voice.controller';
 import { VoiceService } from '../../../src/modules/voice/voice.service';
 import { ChatService } from '../../../src/services/chat.service';
+import { MessageMetricsService } from '../../../src/services/message-metrics.service';
 import { N8nStreamingService } from '../../../src/services/n8n-streaming.service';
 import { AgentsService } from '../../../src/services/agents.service';
 import { PrismaService } from '../../../src/services/prisma.service';
@@ -158,6 +159,7 @@ describe('VoiceController', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: MessageRateLimitService, useValue: mockMessageRateLimitService },
         { provide: DirectChatService, useValue: { send: jest.fn(), stream: jest.fn() } },
+        { provide: MessageMetricsService, useValue: { record: jest.fn(), recordFromMetadata: jest.fn() } },
       ],
     }).compile();
 

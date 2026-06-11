@@ -359,18 +359,89 @@ model ChatSession {
 }
 
 model ChatMessage {
-  id            String      @id @default(uuid())
+  id            String              @id @default(uuid())
   chatSessionId String
-  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  chatSession   ChatSession         @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
   role          MessageRole
-  content       String      @db.Text
+  content       String              @db.Text
   metadata      Json?
-  createdAt     DateTime    @default(now())
+  createdAt     DateTime            @default(now())
+  metrics       ChatMessageMetrics?
 
   @@index([chatSessionId])
   @@index([chatSessionId, role])
   @@index([createdAt])
   @@map("chat_messages")
+}
+
+/// Typed analytics metrics, 1:1 with ChatMessage. Replaces the drifting
+/// `chat_messages.metadata` JSONB for everything analytics aggregates. Written
+/// exclusively through MessageMetricsService so column names can't diverge per
+/// pipeline. n8n is retired, so there is no routingMode/n8n-timestamp surface.
+model ChatMessageMetrics {
+  messageId String      @id
+  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  /// Copy of the message's (immutable) createdAt so analytics can time-scope without a second join.
+  createdAt DateTime
+
+  // ---- channel / mode ----
+  inputType String? // 'text' | 'voice'
+  streamed  Boolean? // streamed token-by-token vs buffered/sync
+
+  // ---- backend / LLM timing (ms) ----
+  responseLatencyMs  Int? // backend wall-clock: user msg received -> reply sent
+  llmLatencyMs       Int? // LLM generation time only
+  timeToFirstTokenMs Int? // LLM time-to-first-token
+  timeToLastTokenMs  Int?
+  streamDurationMs   Int?
+  totalChunks        Int?
+  backendReceivedAt  DateTime?
+  backendRespondedAt DateTime?
+
+  // ---- LLM cost / tokens (direct mode) ----
+  model             String?
+  traceId           String?
+  costUsd           Decimal? @db.Decimal(12, 6)
+  inputTokens       Int?
+  outputTokens      Int?
+  totalTokens       Int?
+  cachedInputTokens Int?
+  reasoningTokens   Int?
+  finishReason      String?
+  historyCount      Int?
+  historyTruncated  Boolean?
+
+  // ---- STT (voice input / USER message) ----
+  sttProvider        String?
+  sttLatencyMs       Int?
+  detectedLanguage   String?
+  languageConfidence Decimal? @db.Decimal(4, 3)
+
+  // ---- TTS (voice reply / ASSISTANT message) ----
+  ttsProvider              String?
+  ttsProtocol              String? // 'http' | 'websocket' | 'mixed'
+  ttsLatencyMs             Int?
+  timeToFirstAudioMs       Int?
+  voiceTotalLatencyMs      Int?
+  totalSentences           Int?
+  wsAvgFirstChunkLatencyMs Int?
+  wsTotalChunks            Int?
+  wsTotalBytes             Int?
+
+  // ---- WhatsApp ----
+  waInboundId  String?
+  waOutboundId String?
+  delivered    Boolean?
+  replyMode    String? // 'text' | 'voice'
+
+  // ---- errors ----
+  errored   Boolean?
+  errorCode String?
+
+  @@index([createdAt])
+  @@index([sttProvider])
+  @@index([ttsProvider])
+  @@map("chat_message_metrics")
 }
 
 model File {

@@ -9,6 +9,7 @@ import type { SendMessageDto } from '@repo/validation';
 import { resolveRoutingMode } from '@repo/validation';
 import type { ChatSession, Prisma } from '@prisma/client';
 import type { ChatMessageMetadata } from './chat-metadata.interface';
+import { MessageMetricsService } from './message-metrics.service';
 import { randomUUID } from 'crypto';
 
 const N8N_TIMEOUT_MS = 10_000;
@@ -25,6 +26,7 @@ export class ChatService {
     private readonly cryptoService: CryptoService,
     private readonly tracerService: TracerService,
     private readonly directChatService: DirectChatService,
+    private readonly messageMetricsService: MessageMetricsService,
   ) {}
 
   private buildMetadata(
@@ -246,7 +248,7 @@ export class ChatService {
     metadata: Prisma.InputJsonValue,
     id?: string,
   ) {
-    return this.prisma.chatMessage.create({
+    const message = await this.prisma.chatMessage.create({
       data: {
         ...(id ? { id } : {}),
         chatSessionId,
@@ -255,6 +257,14 @@ export class ChatService {
         metadata,
       },
     });
+    // Mirror analytics metrics into typed columns via the single normalizing
+    // writer. Best-effort (never throws into the chat path) and idempotent.
+    await this.messageMetricsService.recordFromMetadata(
+      message.id,
+      message.createdAt,
+      metadata as unknown as Record<string, unknown>,
+    );
+    return message;
   }
 
   /**
@@ -370,6 +380,12 @@ export class ChatService {
         data: { lastMessageAt: backendRespondedAt },
       }),
     ]);
+
+    await this.messageMetricsService.recordFromMetadata(
+      assistantMessage.id,
+      assistantMessage.createdAt,
+      metadata as unknown as Record<string, unknown>,
+    );
 
     return {
       sessionId: session.sessionId,

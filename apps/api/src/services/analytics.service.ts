@@ -6,6 +6,18 @@ import type { AnalyticsQuery, AgentAnalyticsQuery, ExportLogBody } from '../mode
 import { startOfDayUtc, startOfNextDayUtc, isValidIanaTimezone } from '../utils/date-range';
 
 /**
+ * Outliers are detected DYNAMICALLY per metric using Tukey's interquartile
+ * (IQR) rule, not a fixed millisecond cutoff. A latency counts as an outlier
+ * when it sits above the upper fence `Q3 + IQR_MULTIPLIER * (Q3 - Q1)` of that
+ * metric's own distribution, so the threshold adapts to scale: a lone 35s reply
+ * is excluded when the cluster sits at 15s, but a steadily-slow RAG agent (all
+ * replies 11-18s) keeps all of them. Outliers are removed from AVERAGES only —
+ * percentiles (p50/p95/p99) and the distribution chart still include the full
+ * tail so it stays visible.
+ */
+const IQR_MULTIPLIER = 1.5;
+
+/**
  * Resolved date range used for SQL queries.
  * - `startUtc` (inclusive) and `endUtc` (exclusive) are the UTC interval that
  *   covers the user's local-day range in `timezone`.
@@ -188,13 +200,13 @@ export class AnalyticsService {
         COUNT(*) FILTER (WHERE cm.role = 'USER') as user_count,
         COUNT(*) FILTER (WHERE cm.role = 'ASSISTANT') as assistant_count
       FROM chat_messages cm
-      WHERE cm."chatSessionId" IN (
-        SELECT id FROM chat_sessions
-        WHERE "agentId" = ANY(${agentIds}::text[])
-          AND "createdAt" >= ${startUtc}
-          AND "createdAt" < ${endUtc}
-          ${sourceFilter}
-      )
+      WHERE cm."createdAt" >= ${startUtc}
+        AND cm."createdAt" < ${endUtc}
+        AND cm."chatSessionId" IN (
+          SELECT id FROM chat_sessions
+          WHERE "agentId" = ANY(${agentIds}::text[])
+            ${sourceFilter}
+        )
     `;
 
     const row = result[0];
@@ -202,34 +214,6 @@ export class AnalyticsService {
       totalMessagesSent: Number(row?.user_count ?? 0),
       totalMessagesReceived: Number(row?.assistant_count ?? 0),
     };
-  }
-
-  /**
-   * Calculate user retention rate: visitors who appear in sessions > 60 days apart / total unique visitors.
-   * Scoped to sessions up to endDate so we can compare across periods for trend calculation.
-   */
-  private async getUserRetentionRate(agentIds: string[], endUtc: Date, sourceFilter: Prisma.Sql = Prisma.empty): Promise<number> {
-    if (agentIds.length === 0) return 0;
-
-    const result = await this.prisma.$queryRaw<{ retained: bigint; total: bigint }[]>`
-      SELECT
-        COUNT(DISTINCT CASE WHEN date_range > INTERVAL '60 days' THEN visitor_id END) as retained,
-        COUNT(DISTINCT visitor_id) as total
-      FROM (
-        SELECT "visitorId" as visitor_id, MAX("createdAt") - MIN("createdAt") as date_range
-        FROM chat_sessions
-        WHERE "agentId" = ANY(${agentIds}::text[])
-          AND "visitorId" IS NOT NULL
-          AND "source"::text != 'DEMO'
-          AND "createdAt" < ${endUtc}
-          ${sourceFilter}
-        GROUP BY "visitorId"
-      ) sub
-    `;
-
-    const row = result[0];
-    if (!row || Number(row.total) === 0) return 0;
-    return Math.round((Number(row.retained) / Number(row.total)) * 10000) / 100;
   }
 
   /**
@@ -248,26 +232,37 @@ export class AnalyticsService {
     const result = await this.prisma.$queryRaw<
       { avg_ms: number | null; p50: number | null; p95: number | null; p99: number | null; avg_ttft: number | null }[]
     >`
+      WITH msgs AS (
+        SELECT mm."responseLatencyMs" AS latency, mm."timeToFirstTokenMs" AS ttft
+        FROM chat_message_metrics mm
+        JOIN chat_messages cm ON cm.id = mm."messageId"
+        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+        WHERE cs."agentId" = ANY(${agentIds}::text[])
+          AND mm."createdAt" >= ${startUtc}
+          AND mm."createdAt" < ${endUtc}
+          ${sourceFilter}
+      ),
+      resp_fence AS (
+        SELECT
+          PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY latency) AS q1,
+          PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY latency) AS q3
+        FROM msgs
+      ),
+      ttft_fence AS (
+        SELECT
+          PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY ttft) AS q1,
+          PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY ttft) AS q3
+        FROM msgs WHERE ttft IS NOT NULL
+      )
       SELECT
-        AVG((metadata->>'responseLatencyMs')::numeric) as avg_ms,
-        PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY (metadata->>'responseLatencyMs')::numeric) as p50,
-        PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY (metadata->>'responseLatencyMs')::numeric) as p95,
-        PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY (metadata->>'responseLatencyMs')::numeric) as p99,
-        AVG((metadata->>'timeToFirstToken')::numeric) FILTER (
-          WHERE metadata->>'timeToFirstToken' IS NOT NULL
-            AND metadata->>'timeToFirstToken' ~ '^[0-9]+(\\.[0-9]+)?$'
-        ) as avg_ttft
-      FROM chat_messages
-      WHERE role = 'ASSISTANT'
-        AND metadata->>'responseLatencyMs' IS NOT NULL
-        AND metadata->>'responseLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$'
-        AND "chatSessionId" IN (
-          SELECT id FROM chat_sessions
-          WHERE "agentId" = ANY(${agentIds}::text[])
-            AND "createdAt" >= ${startUtc}
-            AND "createdAt" < ${endUtc}
-            ${sourceFilter}
-        )
+        (SELECT AVG(latency) FROM msgs, resp_fence
+           WHERE latency <= resp_fence.q3 + ${IQR_MULTIPLIER} * (resp_fence.q3 - resp_fence.q1)) as avg_ms,
+        (SELECT PERCENTILE_CONT(0.50) WITHIN GROUP (ORDER BY latency) FROM msgs) as p50,
+        (SELECT PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY latency) FROM msgs) as p95,
+        (SELECT PERCENTILE_CONT(0.99) WITHIN GROUP (ORDER BY latency) FROM msgs) as p99,
+        (SELECT AVG(ttft) FROM msgs, ttft_fence
+           WHERE ttft IS NOT NULL
+             AND ttft <= ttft_fence.q3 + ${IQR_MULTIPLIER} * (ttft_fence.q3 - ttft_fence.q1)) as avg_ttft
     `;
 
     const row = result[0];
@@ -289,16 +284,27 @@ export class AnalyticsService {
     const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
-    const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime, retentionRate, prevRetentionRate] = await Promise.all([
+    const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime] = await Promise.all([
       this.getSessionMetrics(agentIds, startUtc, endUtc, sf),
       this.getMessageMetrics(agentIds, startUtc, endUtc, sf),
       this.getResponseTimeMetrics(agentIds, startUtc, endUtc, sf),
       this.getSessionMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
       this.getMessageMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
       this.getResponseTimeMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
-      this.getUserRetentionRate(agentIds, endUtc, sf),
-      this.getUserRetentionRate(agentIds, prevEndUtc, sf),
     ]);
+
+    // Retention = share of this period's users who had ALSO engaged before the
+    // period started (returningUsers / totalUsers). This is period-scoped and
+    // derived from data we already fetched. The previous implementation flagged
+    // visitors whose first/last session were >60 days apart while ignoring the
+    // selected date range entirely, so it neither matched its label nor the
+    // active filter.
+    const retentionRate = sessions.totalUsers > 0
+      ? Math.round((sessions.returningUsers / sessions.totalUsers) * 10000) / 100
+      : 0;
+    const prevRetentionRate = prevSessions.totalUsers > 0
+      ? Math.round((prevSessions.returningUsers / prevSessions.totalUsers) * 10000) / 100
+      : 0;
 
     const userGrowthRate = prevSessions.newUsers === 0
       ? (sessions.newUsers > 0 ? 100 : 0)
@@ -329,7 +335,6 @@ export class AnalyticsService {
             ? this.calcTrend(responseTime.avgTimeToFirstToken, prevResponseTime.avgTimeToFirstToken)
             : null,
         },
-        queriesRaised: { value: messages.totalMessagesSent, trend: this.calcTrend(messages.totalMessagesSent, prevMessages.totalMessagesSent) },
       },
     };
   }
@@ -398,18 +403,15 @@ export class AnalyticsService {
       p99: number | null;
     }[]>`
       WITH filtered AS (
-        SELECT (metadata->>'responseLatencyMs')::numeric as latency
-        FROM chat_messages
-        WHERE role = 'ASSISTANT'
-          AND metadata->>'responseLatencyMs' IS NOT NULL
-          AND metadata->>'responseLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$'
-          AND "chatSessionId" IN (
-            SELECT id FROM chat_sessions
-            WHERE "agentId" = ANY(${agentIds}::text[])
-              AND "createdAt" >= ${startUtc}
-              AND "createdAt" < ${endUtc}
-              ${sf}
-          )
+        SELECT mm."responseLatencyMs" as latency
+        FROM chat_message_metrics mm
+        JOIN chat_messages cm ON cm.id = mm."messageId"
+        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+        WHERE cs."agentId" = ANY(${agentIds}::text[])
+          AND mm."responseLatencyMs" IS NOT NULL
+          AND mm."createdAt" >= ${startUtc}
+          AND mm."createdAt" < ${endUtc}
+          ${sf}
       ),
       percentiles AS (
         SELECT
@@ -472,7 +474,8 @@ export class AnalyticsService {
 
     // Bucket day-of-week and hour in the user's timezone — a 9 PM IST event
     // should land in the IST 21:00 bucket on Tuesday, not the UTC 15:30
-    // bucket on Tuesday. Raw `cs.createdAt` range still drives index usage.
+    // bucket on Tuesday. The `cm.createdAt` range (indexed) drives selection —
+    // a message lands in the period it was SENT, not when its session began.
     // tzSql is injected as a SQL literal (see getConversationsChart for the
     // reason). IANA validation in resolveRange() makes this injection-safe.
     const tzSql = this.tzLiteral(timezone);
@@ -484,8 +487,8 @@ export class AnalyticsService {
       FROM chat_messages cm
       INNER JOIN chat_sessions cs ON cm."chatSessionId" = cs.id
       WHERE cs."agentId" = ANY(${agentIds}::text[])
-        AND cs."createdAt" >= ${startUtc}
-        AND cs."createdAt" < ${endUtc}
+        AND cm."createdAt" >= ${startUtc}
+        AND cm."createdAt" < ${endUtc}
         ${sf}
       GROUP BY day, hour
       ORDER BY day, hour
@@ -526,33 +529,27 @@ export class AnalyticsService {
 
     const sortColSql = sortBy === 'agentName' ? 'agent_name' : sortBy === 'avgResponseTimeMs' ? 'avg_response_time_ms' : sortBy === 'queriesRaised' ? 'queries_raised' : sortBy;
 
-    // Use separate queries per sort column to avoid dynamic SQL injection
+    // Order by the SELECT output-column alias. Postgres resolves these to the
+    // aggregate expressions below (including the IQR-trimmed average), so we
+    // don't repeat them. `sortColSql` is a fixed whitelist and `dir` is a fixed
+    // literal, so this stays injection-safe.
+    const dir = sortOrder === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
     let orderByClause: ReturnType<typeof Prisma.sql>;
     switch (sortColSql) {
       case 'agent_name':
-        orderByClause = sortOrder === 'asc'
-          ? Prisma.sql`ORDER BY a.name ASC NULLS LAST`
-          : Prisma.sql`ORDER BY a.name DESC NULLS LAST`;
+        orderByClause = Prisma.sql`ORDER BY agent_name ${dir} NULLS LAST`;
         break;
       case 'messages':
-        orderByClause = sortOrder === 'asc'
-          ? Prisma.sql`ORDER BY COUNT(cm.id) ASC NULLS LAST`
-          : Prisma.sql`ORDER BY COUNT(cm.id) DESC NULLS LAST`;
+        orderByClause = Prisma.sql`ORDER BY messages ${dir} NULLS LAST`;
         break;
       case 'avg_response_time_ms':
-        orderByClause = sortOrder === 'asc'
-          ? Prisma.sql`ORDER BY AVG(CASE WHEN cm.role = 'ASSISTANT' AND cm.metadata->>'responseLatencyMs' IS NOT NULL THEN (cm.metadata->>'responseLatencyMs')::numeric END) ASC NULLS LAST`
-          : Prisma.sql`ORDER BY AVG(CASE WHEN cm.role = 'ASSISTANT' AND cm.metadata->>'responseLatencyMs' IS NOT NULL THEN (cm.metadata->>'responseLatencyMs')::numeric END) DESC NULLS LAST`;
+        orderByClause = Prisma.sql`ORDER BY avg_response_time_ms ${dir} NULLS LAST`;
         break;
       case 'queries_raised':
-        orderByClause = sortOrder === 'asc'
-          ? Prisma.sql`ORDER BY COUNT(CASE WHEN cm.role = 'USER' THEN 1 END) ASC NULLS LAST`
-          : Prisma.sql`ORDER BY COUNT(CASE WHEN cm.role = 'USER' THEN 1 END) DESC NULLS LAST`;
+        orderByClause = Prisma.sql`ORDER BY queries_raised ${dir} NULLS LAST`;
         break;
       default: // conversations
-        orderByClause = sortOrder === 'asc'
-          ? Prisma.sql`ORDER BY COUNT(DISTINCT cs.id) ASC NULLS LAST`
-          : Prisma.sql`ORDER BY COUNT(DISTINCT cs.id) DESC NULLS LAST`;
+        orderByClause = Prisma.sql`ORDER BY conversations ${dir} NULLS LAST`;
         break;
     }
 
@@ -566,22 +563,44 @@ export class AnalyticsService {
         queries_raised: bigint;
       }[]
     >`
+      WITH base AS (
+        SELECT
+          a.id AS agent_id,
+          a.name AS agent_name,
+          cs.id AS session_id,
+          cm.id AS msg_id,
+          cm.role AS msg_role,
+          mm."responseLatencyMs" AS latency
+        FROM agents a
+        INNER JOIN chat_sessions cs ON cs."agentId" = a.id
+        LEFT JOIN chat_messages cm ON cm."chatSessionId" = cs.id
+        LEFT JOIN chat_message_metrics mm ON mm."messageId" = cm.id
+        WHERE a.id = ANY(${agentIds}::text[])
+          AND cs."createdAt" >= ${startUtc}
+          AND cs."createdAt" < ${endUtc}
+          ${sf}
+      ),
+      fences AS (
+        SELECT agent_id,
+          PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY latency) AS q1,
+          PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY latency) AS q3
+        FROM base
+        WHERE latency IS NOT NULL
+        GROUP BY agent_id
+      )
       SELECT
-        a.id as agent_id,
-        a.name as agent_name,
-        COUNT(DISTINCT cs.id) as conversations,
-        COUNT(cm.id) as messages,
-        AVG(CASE WHEN cm.role = 'ASSISTANT' AND cm.metadata->>'responseLatencyMs' IS NOT NULL
-            THEN (cm.metadata->>'responseLatencyMs')::numeric END) as avg_response_time_ms,
-        COUNT(CASE WHEN cm.role = 'USER' THEN 1 END) as queries_raised
-      FROM agents a
-      INNER JOIN chat_sessions cs ON cs."agentId" = a.id
-      LEFT JOIN chat_messages cm ON cm."chatSessionId" = cs.id
-      WHERE a.id = ANY(${agentIds}::text[])
-        AND cs."createdAt" >= ${startUtc}
-        AND cs."createdAt" < ${endUtc}
-        ${sf}
-      GROUP BY a.id, a.name
+        b.agent_id,
+        b.agent_name,
+        COUNT(DISTINCT b.session_id) as conversations,
+        COUNT(b.msg_id) as messages,
+        AVG(b.latency) FILTER (
+          WHERE b.latency IS NOT NULL
+            AND b.latency <= f.q3 + ${IQR_MULTIPLIER} * (f.q3 - f.q1)
+        ) as avg_response_time_ms,
+        COUNT(*) FILTER (WHERE b.msg_role = 'USER') as queries_raised
+      FROM base b
+      LEFT JOIN fences f ON f.agent_id = b.agent_id
+      GROUP BY b.agent_id, b.agent_name, f.q1, f.q3
       ${orderByClause}
       LIMIT ${limit}
       OFFSET ${offset}
@@ -775,20 +794,49 @@ export class AnalyticsService {
         error_count: bigint;
       }[]
     >`
-      SELECT
-        COUNT(*) FILTER (WHERE cm.metadata->>'inputType' = 'voice' AND cm.role = 'USER') as voice_count,
-        COUNT(*) FILTER (WHERE (cm.metadata->>'inputType' IS NULL OR cm.metadata->>'inputType' != 'voice') AND cm.role = 'USER') as text_count,
-        AVG((cm.metadata->>'sttLatencyMs')::numeric) FILTER (WHERE cm.metadata->>'sttLatencyMs' IS NOT NULL AND cm.metadata->>'sttLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$') as avg_stt_latency,
-        AVG((cm.metadata->>'ttsLatencyMs')::numeric) FILTER (WHERE cm.metadata->>'ttsLatencyMs' IS NOT NULL AND cm.metadata->>'ttsLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$') as avg_tts_latency,
-        COUNT(*) FILTER (WHERE cm.metadata->>'ttsError' IS NOT NULL AND cm.role = 'ASSISTANT') as error_count
-      FROM chat_messages cm
-      WHERE cm."chatSessionId" IN (
-        SELECT id FROM chat_sessions
-        WHERE "agentId" = ANY(${agentIds}::text[])
-          AND "createdAt" >= ${startUtc}
-          AND "createdAt" < ${endUtc}
+      WITH user_msgs AS (
+        SELECT mm."inputType" AS input_type
+        FROM chat_messages cm
+        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+        LEFT JOIN chat_message_metrics mm ON mm."messageId" = cm.id
+        WHERE cm.role = 'USER'
+          AND cm."createdAt" >= ${startUtc}
+          AND cm."createdAt" < ${endUtc}
+          AND cs."agentId" = ANY(${agentIds}::text[])
           ${sourceFilter}
+      ),
+      metricrows AS (
+        SELECT mm."sttLatencyMs" AS stt, mm."ttsLatencyMs" AS tts, mm.errored AS errored, cm.role AS msg_role
+        FROM chat_message_metrics mm
+        JOIN chat_messages cm ON cm.id = mm."messageId"
+        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+        WHERE mm."createdAt" >= ${startUtc}
+          AND mm."createdAt" < ${endUtc}
+          AND cs."agentId" = ANY(${agentIds}::text[])
+          ${sourceFilter}
+      ),
+      stt_fence AS (
+        SELECT
+          PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY stt) AS q1,
+          PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY stt) AS q3
+        FROM metricrows WHERE stt IS NOT NULL
+      ),
+      tts_fence AS (
+        SELECT
+          PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY tts) AS q1,
+          PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY tts) AS q3
+        FROM metricrows WHERE tts IS NOT NULL
       )
+      SELECT
+        (SELECT COUNT(*) FROM user_msgs WHERE input_type = 'voice') as voice_count,
+        (SELECT COUNT(*) FROM user_msgs WHERE input_type IS NULL OR input_type != 'voice') as text_count,
+        (SELECT AVG(stt) FROM metricrows, stt_fence
+           WHERE stt IS NOT NULL
+             AND stt <= stt_fence.q3 + ${IQR_MULTIPLIER} * (stt_fence.q3 - stt_fence.q1)) as avg_stt_latency,
+        (SELECT AVG(tts) FROM metricrows, tts_fence
+           WHERE tts IS NOT NULL
+             AND tts <= tts_fence.q3 + ${IQR_MULTIPLIER} * (tts_fence.q3 - tts_fence.q1)) as avg_tts_latency,
+        (SELECT COUNT(*) FROM metricrows WHERE errored = true AND msg_role = 'ASSISTANT') as error_count
     `;
 
     const row = result[0];
@@ -814,20 +862,19 @@ export class AnalyticsService {
       { language: string; count: bigint }[]
     >`
       SELECT
-        cm.metadata->>'detectedLanguage' as language,
+        mm."detectedLanguage" as language,
         COUNT(*) as count
-      FROM chat_messages cm
-      WHERE cm.metadata->>'inputType' = 'voice'
-        AND cm.metadata->>'detectedLanguage' IS NOT NULL
+      FROM chat_message_metrics mm
+      JOIN chat_messages cm ON cm.id = mm."messageId"
+      JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+      WHERE mm."inputType" = 'voice'
+        AND mm."detectedLanguage" IS NOT NULL
         AND cm.role = 'USER'
-        AND cm."chatSessionId" IN (
-          SELECT id FROM chat_sessions
-          WHERE "agentId" = ANY(${agentIds}::text[])
-            AND "createdAt" >= ${startUtc}
-            AND "createdAt" < ${endUtc}
-            ${sf}
-        )
-      GROUP BY cm.metadata->>'detectedLanguage'
+        AND mm."createdAt" >= ${startUtc}
+        AND mm."createdAt" < ${endUtc}
+        AND cs."agentId" = ANY(${agentIds}::text[])
+        ${sf}
+      GROUP BY mm."detectedLanguage"
       ORDER BY count DESC
     `;
 
@@ -855,49 +902,43 @@ export class AnalyticsService {
         { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
       >`
         SELECT
-          cm.metadata->>'sttProvider' as provider,
-          AVG((cm.metadata->>'sttLatencyMs')::numeric) as avg,
-          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (cm.metadata->>'sttLatencyMs')::numeric) as p50,
-          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY (cm.metadata->>'sttLatencyMs')::numeric) as p95,
+          mm."sttProvider" as provider,
+          AVG(mm."sttLatencyMs") as avg,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mm."sttLatencyMs") as p50,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY mm."sttLatencyMs") as p95,
           COUNT(*) as count
-        FROM chat_messages cm
-        WHERE cm.metadata->>'inputType' = 'voice'
-          AND cm.metadata->>'sttProvider' IS NOT NULL
-          AND cm.metadata->>'sttLatencyMs' IS NOT NULL
-          AND cm.metadata->>'sttLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$'
+        FROM chat_message_metrics mm
+        JOIN chat_messages cm ON cm.id = mm."messageId"
+        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+        WHERE mm."sttProvider" IS NOT NULL
+          AND mm."sttLatencyMs" IS NOT NULL
           AND cm.role = 'USER'
-          AND cm."chatSessionId" IN (
-            SELECT id FROM chat_sessions
-            WHERE "agentId" = ANY(${agentIds}::text[])
-              AND "createdAt" >= ${startUtc}
-              AND "createdAt" < ${endUtc}
-              ${sf}
-          )
-        GROUP BY cm.metadata->>'sttProvider'
+          AND mm."createdAt" >= ${startUtc}
+          AND mm."createdAt" < ${endUtc}
+          AND cs."agentId" = ANY(${agentIds}::text[])
+          ${sf}
+        GROUP BY mm."sttProvider"
       `,
       this.prisma.$queryRaw<
         { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
       >`
         SELECT
-          cm.metadata->>'ttsProvider' as provider,
-          AVG((cm.metadata->>'ttsLatencyMs')::numeric) as avg,
-          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY (cm.metadata->>'ttsLatencyMs')::numeric) as p50,
-          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY (cm.metadata->>'ttsLatencyMs')::numeric) as p95,
+          mm."ttsProvider" as provider,
+          AVG(mm."ttsLatencyMs") as avg,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mm."ttsLatencyMs") as p50,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY mm."ttsLatencyMs") as p95,
           COUNT(*) as count
-        FROM chat_messages cm
-        WHERE cm.metadata->>'inputType' = 'voice'
-          AND cm.metadata->>'ttsProvider' IS NOT NULL
-          AND cm.metadata->>'ttsLatencyMs' IS NOT NULL
-          AND cm.metadata->>'ttsLatencyMs' ~ '^[0-9]+(\\.[0-9]+)?$'
+        FROM chat_message_metrics mm
+        JOIN chat_messages cm ON cm.id = mm."messageId"
+        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+        WHERE mm."ttsProvider" IS NOT NULL
+          AND mm."ttsLatencyMs" IS NOT NULL
           AND cm.role = 'ASSISTANT'
-          AND cm."chatSessionId" IN (
-            SELECT id FROM chat_sessions
-            WHERE "agentId" = ANY(${agentIds}::text[])
-              AND "createdAt" >= ${startUtc}
-              AND "createdAt" < ${endUtc}
-              ${sf}
-          )
-        GROUP BY cm.metadata->>'ttsProvider'
+          AND mm."createdAt" >= ${startUtc}
+          AND mm."createdAt" < ${endUtc}
+          AND cs."agentId" = ANY(${agentIds}::text[])
+          ${sf}
+        GROUP BY mm."ttsProvider"
       `,
     ]);
 
