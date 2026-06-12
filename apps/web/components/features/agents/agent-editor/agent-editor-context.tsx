@@ -60,6 +60,12 @@ export interface AgentFormData {
    * fresh session on their next message.
    */
   sessionLifetimeHours: number;
+  /**
+   * Phrases the agent replies with when it can't answer. Injected into the
+   * system prompt and fuzzy-matched against replies to flag "couldn't answer"
+   * in analytics. Max 3, each up to 200 chars.
+   */
+  fallbackPhrases: string[];
 }
 
 interface AgentEditorContextType {
@@ -350,6 +356,7 @@ export function agentToFormData(
     categoryKeywords: agent.categoryKeywords ?? [],
     supportedLanguages: agent.supportedLanguages ?? [],
     sessionLifetimeHours: agent.sessionLifetimeHours ?? 6,
+    fallbackPhrases: agent.fallbackPhrases ?? [],
   };
 }
 

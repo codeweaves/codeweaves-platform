@@ -7,6 +7,7 @@ import {
   Zap,
   Clock,
   UserCheck,
+  CircleHelp,
 } from 'lucide-react';
 import { KpiCard } from './kpi-card';
 import { formatNumber, formatPercentage, formatDuration } from '@/lib/format-utils';
@@ -62,6 +63,13 @@ export function KpiSummaryCards({ data, isLoading }: KpiSummaryCardsProps) {
       value: kpis ? formatPercentage(kpis.userRetentionRate.value) : '-',
       trend: kpis?.userRetentionRate.trend,
       icon: UserCheck,
+    },
+    {
+      title: "Couldn't Answer",
+      value: kpis ? formatPercentage(kpis.couldntAnswerRate.value) : '-',
+      trend: kpis?.couldntAnswerRate.trend,
+      trendInverted: true,
+      icon: CircleHelp,
     },
   ];
 

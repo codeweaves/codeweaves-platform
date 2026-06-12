@@ -10,6 +10,7 @@ import { resolveRoutingMode } from '@repo/validation';
 import type { ChatSession, Prisma } from '@prisma/client';
 import type { ChatMessageMetadata } from './chat-metadata.interface';
 import { MessageMetricsService } from './message-metrics.service';
+import { detectFallback } from '../utils/fallback-detection';
 import { randomUUID } from 'crypto';
 
 const N8N_TIMEOUT_MS = 10_000;
@@ -361,6 +362,7 @@ export class ChatService {
       finishReason: result.finishReason,
       historyCount: result.historyCount,
       historyTruncated: result.historyTruncated,
+      ...detectFallback(result.text, fullAgent.fallbackPhrases),
     };
 
     const [userMessage, assistantMessage] = await this.prisma.$transaction([

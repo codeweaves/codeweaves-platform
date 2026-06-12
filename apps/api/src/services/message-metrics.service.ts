@@ -58,6 +58,10 @@ export interface MessageMetricsInput {
   delivered?: boolean | null;
   replyMode?: string | null;
 
+  // fallback ("couldn't answer")
+  couldntAnswer?: boolean | null;
+  couldntAnswerScore?: number | null;
+
   // errors
   errored?: boolean | null;
   errorCode?: string | null;
@@ -145,6 +149,8 @@ export class MessageMetricsService {
       waOutboundId: this.str(m.waOutboundId),
       delivered: this.bool(m.delivered),
       replyMode: this.str(m.replyMode),
+      couldntAnswer: this.bool(m.couldntAnswer),
+      couldntAnswerScore: this.dec(m.couldntAnswerScore),
       errored: this.bool(m.error),
     };
   }

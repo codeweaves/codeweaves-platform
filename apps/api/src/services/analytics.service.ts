@@ -275,6 +275,37 @@ export class AnalyticsService {
     };
   }
 
+  /**
+   * Share of assistant replies flagged "couldn't answer" (fuzzy-matched to the
+   * agent's fallback phrases), as a percentage. Denominator counts only replies
+   * from agents that HAVE phrases configured (couldntAnswer IS NOT NULL), so
+   * untracked agents don't dilute the rate.
+   */
+  private async getCouldntAnswerRate(
+    agentIds: string[],
+    startUtc: Date,
+    endUtc: Date,
+    sourceFilter: Prisma.Sql = Prisma.empty,
+  ): Promise<number> {
+    if (agentIds.length === 0) return 0;
+    const result = await this.prisma.$queryRaw<{ flagged: bigint; tracked: bigint }[]>`
+      SELECT
+        COUNT(*) FILTER (WHERE mm."couldntAnswer" = true) as flagged,
+        COUNT(*) FILTER (WHERE mm."couldntAnswer" IS NOT NULL) as tracked
+      FROM chat_message_metrics mm
+      JOIN chat_messages cm ON cm.id = mm."messageId"
+      JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+      WHERE cs."agentId" = ANY(${agentIds}::text[])
+        AND mm."createdAt" >= ${startUtc}
+        AND mm."createdAt" < ${endUtc}
+        ${sourceFilter}
+    `;
+    const row = result[0];
+    const tracked = Number(row?.tracked ?? 0);
+    const flagged = Number(row?.flagged ?? 0);
+    return tracked > 0 ? Math.round((flagged / tracked) * 10000) / 100 : 0;
+  }
+
   // ==========================================
   // Public API Methods
   // ==========================================
@@ -284,13 +315,15 @@ export class AnalyticsService {
     const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
-    const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime] = await Promise.all([
+    const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime, couldntAnswerRate, prevCouldntAnswerRate] = await Promise.all([
       this.getSessionMetrics(agentIds, startUtc, endUtc, sf),
       this.getMessageMetrics(agentIds, startUtc, endUtc, sf),
       this.getResponseTimeMetrics(agentIds, startUtc, endUtc, sf),
       this.getSessionMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
       this.getMessageMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
       this.getResponseTimeMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
+      this.getCouldntAnswerRate(agentIds, startUtc, endUtc, sf),
+      this.getCouldntAnswerRate(agentIds, prevStartUtc, prevEndUtc, sf),
     ]);
 
     // Retention = share of this period's users who had ALSO engaged before the
@@ -335,6 +368,7 @@ export class AnalyticsService {
             ? this.calcTrend(responseTime.avgTimeToFirstToken, prevResponseTime.avgTimeToFirstToken)
             : null,
         },
+        couldntAnswerRate: { value: couldntAnswerRate, trend: this.calcTrend(couldntAnswerRate, prevCouldntAnswerRate) },
       },
     };
   }

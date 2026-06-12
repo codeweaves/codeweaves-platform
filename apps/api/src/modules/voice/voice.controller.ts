@@ -19,6 +19,7 @@ import { Public } from '../../decorators/public.decorator';
 import { VoiceService } from './voice.service';
 import { ChatService } from '../../services/chat.service';
 import { MessageMetricsService } from '../../services/message-metrics.service';
+import { detectFallback } from '../../utils/fallback-detection';
 import { N8nStreamingService } from '../../services/n8n-streaming.service';
 import { AgentsService } from '../../services/agents.service';
 import { PrismaService } from '../../services/prisma.service';
@@ -654,6 +655,7 @@ export class VoiceController {
       wsTotalChunks,
       wsTotalBytes: wsTotalBytes > 0 ? wsTotalBytes : null,
       ...llmMetadata,
+      ...detectFallback(fullText, fullAgent.fallbackPhrases),
     };
 
     const userMetadata = {

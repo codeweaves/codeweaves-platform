@@ -65,9 +65,10 @@ describe('AnalyticsService', () => {
     timezone: 'UTC',
   };
 
-  // Helper to mock all $queryRaw calls needed for getSummary (6 calls total):
+  // Helper to mock all $queryRaw calls needed for getSummary (8 calls total):
   // 1. current session metrics, 2. current message metrics, 3. current response time,
-  // 4. prev session metrics, 5. prev message metrics, 6. prev response time.
+  // 4. prev session metrics, 5. prev message metrics, 6. prev response time,
+  // 7. current couldn't-answer rate, 8. prev couldn't-answer rate.
   // Retention is derived from session metrics (returning_users / total_users), not a separate query.
   function mockSummaryQueryRaws(overrides?: {
     currentSessions?: { total_conversations: bigint; total_users: bigint; returning_users: bigint };
@@ -76,6 +77,8 @@ describe('AnalyticsService', () => {
     prevSessions?: { total_conversations: bigint; total_users: bigint; returning_users: bigint };
     prevMessages?: { user_count: bigint; assistant_count: bigint };
     prevResponseTime?: { avg_ms: number | null; p50: number | null; p95: number | null; p99: number | null };
+    couldntAnswer?: { flagged: bigint; tracked: bigint };
+    prevCouldntAnswer?: { flagged: bigint; tracked: bigint };
   }) {
     const defaults = {
       currentSessions: { total_conversations: BigInt(0), total_users: BigInt(0), returning_users: BigInt(0) },
@@ -84,6 +87,8 @@ describe('AnalyticsService', () => {
       prevSessions: { total_conversations: BigInt(0), total_users: BigInt(0), returning_users: BigInt(0) },
       prevMessages: { user_count: BigInt(0), assistant_count: BigInt(0) },
       prevResponseTime: { avg_ms: null, p50: null, p95: null, p99: null },
+      couldntAnswer: { flagged: BigInt(0), tracked: BigInt(0) },
+      prevCouldntAnswer: { flagged: BigInt(0), tracked: BigInt(0) },
       ...overrides,
     };
 
@@ -93,7 +98,9 @@ describe('AnalyticsService', () => {
       .mockResolvedValueOnce([defaults.currentResponseTime])
       .mockResolvedValueOnce([defaults.prevSessions])
       .mockResolvedValueOnce([defaults.prevMessages])
-      .mockResolvedValueOnce([defaults.prevResponseTime]);
+      .mockResolvedValueOnce([defaults.prevResponseTime])
+      .mockResolvedValueOnce([defaults.couldntAnswer])
+      .mockResolvedValueOnce([defaults.prevCouldntAnswer]);
   }
 
   beforeEach(async () => {
@@ -297,6 +304,16 @@ describe('AnalyticsService', () => {
 
       expect(result.kpis.userRetentionRate.value).toBe(20);
       expect(result.kpis.userRetentionRate.trend).toBe(100); // 20% vs 10% = 100% increase
+    });
+
+    it('should calculate couldntAnswerRate as flagged / tracked replies', async () => {
+      mockSummaryQueryRaws({
+        couldntAnswer: { flagged: BigInt(3), tracked: BigInt(12) }, // 25%
+      });
+
+      const result = await service.getSummary(baseQuery, adminUser);
+
+      expect(result.kpis.couldntAnswerRate.value).toBe(25);
     });
   });
 

@@ -199,9 +199,10 @@ export class DirectChatService {
           return ctx;
         }),
       ]);
-      const systemPrompt = knowledge
-        ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
-        : systemPromptResolved;
+      const systemPrompt =
+        (knowledge
+          ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
+          : systemPromptResolved) + buildFallbackInstruction(req.agent);
 
       trace.step('llm.call_start', {
         model: modelId,
@@ -362,9 +363,10 @@ export class DirectChatService {
         durationMs: knowledgeMs,
         data: knowledgeData,
       };
-      const systemPrompt = knowledge
-        ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
-        : systemPromptResolved;
+      const systemPrompt =
+        (knowledge
+          ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
+          : systemPromptResolved) + buildFallbackInstruction(req.agent);
 
       const contextData = {
         strategy: config.contextStrategy ?? 'sliding-window',
@@ -578,4 +580,21 @@ function resolveSystemPromptTemplate(
   config: AgentAiConfigDto,
 ): string {
   return config.systemPromptTemplate ?? agent.systemPrompt ?? '';
+}
+
+/**
+ * Instruction appended to the END of the system prompt telling the agent what
+ * to say when it can't answer. Returns '' when the agent configured no phrases,
+ * so nothing is added to the prompt at all.
+ */
+function buildFallbackInstruction(agent: Agent): string {
+  const phrases = (agent.fallbackPhrases ?? []).filter((p) => p.trim().length > 0);
+  if (phrases.length === 0) return '';
+  const list = phrases.map((p) => `- ${p}`).join('\n');
+  return (
+    "\n\n---\n\nWhen you cannot answer the user's question from the information available to you, " +
+    'do not guess or invent an answer. Reply with ONLY one of the following phrases, exactly as ' +
+    'written, and nothing else:\n' +
+    list
+  );
 }

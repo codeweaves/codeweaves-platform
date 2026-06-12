@@ -259,6 +259,7 @@ function AgentEditorContent() {
         categoryKeywords: formData.categoryKeywords,
         supportedLanguages: formData.supportedLanguages,
         sessionLifetimeHours: formData.sessionLifetimeHours,
+        fallbackPhrases: formData.fallbackPhrases,
       };
 
       // Save agent config, webhook, and theme in parallel
@@ -330,6 +331,7 @@ function AgentEditorContent() {
             voiceEnabled: formData.voiceEnabled,
             voiceConfig: formData.voiceConfig,
             aiConfig: formData.aiConfig,
+            fallbackPhrases: formData.fallbackPhrases,
           };
 
           const newKnowledge = formData.knowledgeContent.trim()

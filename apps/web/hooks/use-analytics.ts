@@ -50,6 +50,8 @@ export interface AnalyticsSummaryResponse {
     p99ResponseTimeMs: KpiValue;
     // TTFT is only populated for streaming/direct-mode replies; null otherwise.
     avgTimeToFirstTokenMs: { value: number | null; trend: number | null };
+    // Share of replies the agent flagged as "couldn't answer" (fallback phrases).
+    couldntAnswerRate: KpiValue;
   };
 }
 

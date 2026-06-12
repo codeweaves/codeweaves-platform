@@ -29,6 +29,8 @@ export interface Agent {
   supportedLanguages: string[];
   /** Max chat-session lifetime from createdAt, in hours. 6-24, default 6. */
   sessionLifetimeHours: number;
+  /** Phrases the agent replies with when it can't answer; empty disables tracking. */
+  fallbackPhrases: string[];
   createdAt: string;
   updatedAt: string;
 }
