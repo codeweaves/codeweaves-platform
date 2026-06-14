@@ -10,6 +10,31 @@ import { cn } from '@/lib/utils';
 import { useAgentEditor } from '../agent-editor-context';
 import { FormSection } from '../form-section';
 
+/**
+ * After removing item `removedIndex` from a list, shift its inline field-error
+ * keys so they keep pointing at the right rows: drop `${prefix}.${removedIndex}`
+ * and renumber every higher index down by one. Without this, removing a middle
+ * row leaves an error attached to the wrong (now-shifted) field.
+ */
+function reindexErrorsAfterRemove(
+  errors: Record<string, string>,
+  prefix: string,
+  removedIndex: number,
+): Record<string, string> {
+  const dot = `${prefix}.`;
+  const next: Record<string, string> = {};
+  for (const [key, value] of Object.entries(errors)) {
+    if (!key.startsWith(dot)) {
+      next[key] = value;
+      continue;
+    }
+    const idx = Number(key.slice(dot.length));
+    if (!Number.isInteger(idx) || idx === removedIndex) continue;
+    next[`${prefix}.${idx > removedIndex ? idx - 1 : idx}`] = value;
+  }
+  return next;
+}
+
 export function BehaviorSettings() {
   const {
     formData,
@@ -17,6 +42,7 @@ export function BehaviorSettings() {
     themeData,
     updateThemeData,
     fieldErrors,
+    setFieldErrors,
     clearFieldError,
   } = useAgentEditor();
 
@@ -28,7 +54,7 @@ export function BehaviorSettings() {
   };
 
   const removeStarter = (index: number) => {
-    clearFieldError(`starters.${index}`);
+    setFieldErrors(reindexErrorsAfterRemove(fieldErrors, 'starters', index));
     updateThemeData(
       'starters',
       starters.filter((_, i) => i !== index),
@@ -50,7 +76,7 @@ export function BehaviorSettings() {
   };
 
   const removeFallbackPhrase = (index: number) => {
-    clearFieldError(`fallbackPhrases.${index}`);
+    setFieldErrors(reindexErrorsAfterRemove(fieldErrors, 'fallbackPhrases', index));
     updateFormData(
       'fallbackPhrases',
       fallbackPhrases.filter((_, i) => i !== index),

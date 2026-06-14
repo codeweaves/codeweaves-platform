@@ -396,7 +396,9 @@ export function AnalyticsPageClient() {
 }
 
 // --- Full Page Skeleton (Task 1.8, AC 6) ---
-function AnalyticsPageSkeleton() {
+// Exported so the route's <Suspense> boundary (which useSearchParams requires)
+// shows this instead of a blank screen while the client component suspends.
+export function AnalyticsPageSkeleton() {
   return (
     <div className="space-y-6">
       <div>
