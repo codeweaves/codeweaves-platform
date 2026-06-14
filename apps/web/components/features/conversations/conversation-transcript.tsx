@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Bot, ChevronDown, ChevronRight, User, Wrench } from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight, CircleHelp, User, Wrench } from 'lucide-react';
 import {
   Collapsible,
   CollapsibleContent,
@@ -175,6 +175,15 @@ function MessageBubble({
           )}
         >
           <span>{formatTime(message.createdAt)}</span>
+          {isAssistant && message.couldntAnswer === true && (
+            <Badge
+              variant="outline"
+              className="gap-1 border-amber-500/40 px-1.5 py-0 text-[10px] text-amber-600 dark:text-amber-400"
+            >
+              <CircleHelp className="size-3" />
+              Fallback
+            </Badge>
+          )}
           <MessageMeta message={message} />
         </div>
 

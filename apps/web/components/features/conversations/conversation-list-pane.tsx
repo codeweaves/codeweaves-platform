@@ -124,11 +124,6 @@ function ConversationRow({
           >
             {SOURCE_LABEL[conversation.source]}
           </Badge>
-          {conversation.status === 'EXPIRED' && (
-            <Badge variant="outline" className="text-[10px] px-1.5 py-0 text-muted-foreground">
-              Expired
-            </Badge>
-          )}
           <span className="truncate text-[11px] text-muted-foreground">
             {visitor} · {conversation.messageCount} msg
             {conversation.messageCount === 1 ? '' : 's'}
@@ -159,7 +154,6 @@ export function ConversationListPane({
     filters.agentIds,
     filters.orgIds,
     filters.sources,
-    filters.statuses,
     filters.categories,
     filters.dateFrom,
     filters.dateTo,
@@ -174,7 +168,6 @@ export function ConversationListPane({
       agentIds: filters.agentIds.length > 0 ? filters.agentIds : undefined,
       orgId: filters.orgIds[0], // backend supports single orgId; multi via admin-only relation filter
       sources: filters.sources.length > 0 ? filters.sources : undefined,
-      statuses: filters.statuses.length > 0 ? filters.statuses : undefined,
       categories: filters.categories.length > 0 ? filters.categories : undefined,
       from: filters.dateFrom ? toIsoStartOfDay(filters.dateFrom) : undefined,
       to: filters.dateTo ? toIsoEndOfDay(filters.dateTo) : undefined,

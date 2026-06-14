@@ -1,6 +1,6 @@
 'use client';
 
-import { ResponsiveContainer, PieChart, Pie, Cell, Tooltip } from 'recharts';
+import { ResponsiveContainer, PieChart, Pie, Cell } from 'recharts';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, Radio } from 'lucide-react';
@@ -29,25 +29,6 @@ const CHANNEL_COLORS: Record<string, string> = {
 };
 
 const FALLBACK_COLOR = 'var(--muted-foreground)';
-
-interface TooltipPayloadItem {
-  name: string;
-  value: number;
-  payload: { percentage: number };
-}
-
-function CustomTooltip({ active, payload }: { active?: boolean; payload?: TooltipPayloadItem[] }) {
-  if (!active || !payload?.length) return null;
-  const item = payload[0]!;
-  return (
-    <div className="rounded-md border bg-background px-3 py-2 text-sm shadow-md">
-      <p className="font-medium">{item.name}</p>
-      <p className="text-muted-foreground">
-        {formatNumber(item.value)} ({item.payload.percentage.toFixed(1)}%)
-      </p>
-    </div>
-  );
-}
 
 export function ChannelSplitChart({ data, isLoading, isError, className }: ChannelSplitChartProps) {
   const channels = data?.channels ?? [];
@@ -101,7 +82,6 @@ export function ChannelSplitChart({ data, isLoading, isError, className }: Chann
                       <Cell key={entry.source} fill={CHANNEL_COLORS[entry.source] ?? FALLBACK_COLOR} />
                     ))}
                   </Pie>
-                  <Tooltip content={<CustomTooltip />} />
                 </PieChart>
               </ResponsiveContainer>
               {/* Center total */}

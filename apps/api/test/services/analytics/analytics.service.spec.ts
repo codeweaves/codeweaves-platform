@@ -11,6 +11,7 @@ describe('AnalyticsService', () => {
   const mockPrismaService = {
     agent: {
       findMany: jest.fn(),
+      findFirst: jest.fn(),
     },
     auditLog: {
       create: jest.fn(),
@@ -113,6 +114,9 @@ describe('AnalyticsService', () => {
 
     service = module.get<AnalyticsService>(AnalyticsService);
     jest.clearAllMocks();
+    // Default: no agent has fallback phrases (hasFallbackPhrases → false).
+    // getSummary calls agent.findFirst for the `fallbackConfigured` flag.
+    mockPrismaService.agent.findFirst.mockResolvedValue(null);
   });
 
   it('should be defined', () => {
@@ -315,6 +319,24 @@ describe('AnalyticsService', () => {
 
       expect(result.kpis.couldntAnswerRate.value).toBe(25);
     });
+
+    it('sets fallbackConfigured=true when an in-scope agent has fallback phrases', async () => {
+      mockSummaryQueryRaws();
+      mockPrismaService.agent.findFirst.mockResolvedValue({ id: agentId1 });
+
+      const result = await service.getSummary(baseQuery, adminUser);
+
+      expect(result.fallbackConfigured).toBe(true);
+    });
+
+    it('sets fallbackConfigured=false when no in-scope agent has fallback phrases', async () => {
+      mockSummaryQueryRaws();
+      // beforeEach default: agent.findFirst → null (no phrases)
+
+      const result = await service.getSummary(baseQuery, adminUser);
+
+      expect(result.fallbackConfigured).toBe(false);
+    });
   });
 
   // ==========================================
@@ -344,6 +366,33 @@ describe('AnalyticsService', () => {
       const result = await service.getConversationsChart(baseQuery, adminUser);
 
       expect(result.data).toEqual([]);
+    });
+  });
+
+  describe('getConversationsByWeekday', () => {
+    it('returns all 7 weekdays, filling missing days with 0', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+      mockPrismaService.$queryRaw.mockResolvedValue([
+        { dow: 1, count: BigInt(5) },
+        { dow: 3, count: BigInt(9) },
+      ]);
+
+      const result = await service.getConversationsByWeekday(baseQuery, adminUser);
+
+      expect(result.data).toHaveLength(7);
+      expect(result.data.map((d) => d.day)).toEqual([0, 1, 2, 3, 4, 5, 6]);
+      expect(result.data[1]).toEqual({ day: 1, count: 5 });
+      expect(result.data[3]).toEqual({ day: 3, count: 9 });
+      expect(result.data[0]).toEqual({ day: 0, count: 0 });
+    });
+
+    it('returns all-zero 7 days when no agents found', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([]);
+
+      const result = await service.getConversationsByWeekday(baseQuery, adminUser);
+
+      expect(result.data).toHaveLength(7);
+      expect(result.data.every((d) => d.count === 0)).toBe(true);
     });
   });
 
@@ -836,7 +885,7 @@ describe('AnalyticsService', () => {
     });
 
     it('should return STT and TTS latency by provider with P50/P95', async () => {
-      // STT query result, TTS query result (called in parallel)
+      // Four parallel queries: STT by-provider, TTS by-provider, STT aggregate, TTS aggregate.
       mockPrismaService.$queryRaw
         .mockResolvedValueOnce([
           { provider: 'sarvam', avg: 450, p50: 400, p95: 800, count: BigInt(50) },
@@ -845,7 +894,9 @@ describe('AnalyticsService', () => {
         .mockResolvedValueOnce([
           { provider: 'sarvam', avg: 700, p50: 650, p95: 1200, count: BigInt(40) },
           { provider: 'elevenlabs', avg: 500, p50: 450, p95: 900, count: BigInt(25) },
-        ]);
+        ])
+        .mockResolvedValueOnce([{ avg: 393, p50: 380, p95: 760, count: BigInt(80) }])
+        .mockResolvedValueOnce([{ avg: 623, p50: 600, p95: 1100, count: BigInt(65) }]);
 
       const result = await service.getVoiceLatencyByProvider(baseQuery, adminUser);
 
@@ -856,6 +907,10 @@ describe('AnalyticsService', () => {
       expect(result.tts).toHaveLength(2);
       expect(result.tts[0]).toEqual({ provider: 'sarvam', avg: 700, p50: 650, p95: 1200, count: 40 });
       expect(result.tts[1]).toEqual({ provider: 'elevenlabs', avg: 500, p50: 450, p95: 900, count: 25 });
+
+      // Provider-agnostic aggregates (what the client renders)
+      expect(result.sttAggregate).toEqual({ avg: 393, p50: 380, p95: 760, count: 80 });
+      expect(result.ttsAggregate).toEqual({ avg: 623, p50: 600, p95: 1100, count: 65 });
     });
 
     it('should return empty arrays when no agents found', async () => {
@@ -867,15 +922,21 @@ describe('AnalyticsService', () => {
       expect(result.tts).toEqual([]);
     });
 
-    it('should return empty arrays when no voice latency data exists', async () => {
+    it('should return empty arrays and null aggregates when no voice latency data exists', async () => {
+      // by-provider queries return no rows; the aggregate queries always return
+      // a single row (with count 0) — mapAggregate turns that into null.
       mockPrismaService.$queryRaw
         .mockResolvedValueOnce([])
-        .mockResolvedValueOnce([]);
+        .mockResolvedValueOnce([])
+        .mockResolvedValueOnce([{ avg: null, p50: null, p95: null, count: BigInt(0) }])
+        .mockResolvedValueOnce([{ avg: null, p50: null, p95: null, count: BigInt(0) }]);
 
       const result = await service.getVoiceLatencyByProvider(baseQuery, adminUser);
 
       expect(result.stt).toEqual([]);
       expect(result.tts).toEqual([]);
+      expect(result.sttAggregate).toBeNull();
+      expect(result.ttsAggregate).toBeNull();
     });
   });
 

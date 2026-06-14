@@ -10,6 +10,9 @@ import { useOrganizations, type Organization } from '@/hooks/use-organizations';
 import {
   useAnalyticsSummary,
   useAgentAnalytics,
+  useVoiceSummary,
+  useVoiceLatency,
+  useLanguageDistribution,
   type AnalyticsParams,
 } from '@/hooks/use-analytics';
 import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
@@ -184,6 +187,12 @@ export function AnalyticsPageClient() {
     { ...analyticsParams, limit: 100, sortBy: 'conversations', sortOrder: 'desc' },
     { enabled: exportRequested },
   );
+  // Voice data for the export — also lazy-loaded on first export-menu open so a
+  // text-only org never pays for these queries. Shares query keys with the
+  // Voice tab, so React Query dedupes if that tab was already visited.
+  const exportVoiceSummaryQuery = useVoiceSummary(analyticsParams, { enabled: exportRequested });
+  const exportVoiceLatencyQuery = useVoiceLatency(analyticsParams, { enabled: exportRequested });
+  const exportVoiceLanguagesQuery = useLanguageDistribution(analyticsParams, { enabled: exportRequested });
   const handleExportOpenChange = useCallback((open: boolean) => {
     if (open) setExportRequested(true);
   }, []);
@@ -309,6 +318,9 @@ export function AnalyticsPageClient() {
             <AnalyticsExportButton
               summaryData={summaryQuery.data}
               agentData={exportAgentsQuery.data?.data ?? []}
+              voiceSummary={exportVoiceSummaryQuery.data}
+              voiceLatency={exportVoiceLatencyQuery.data}
+              voiceLanguages={exportVoiceLanguagesQuery.data}
               startDate={analyticsParams.startDate}
               endDate={analyticsParams.endDate}
               orgName={profile?.organization?.name ?? 'all'}

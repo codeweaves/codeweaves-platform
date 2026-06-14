@@ -90,6 +90,20 @@ export class AnalyticsController {
     return this.analyticsService.getMessageVolumeHeatmap(query, user);
   }
 
+  @Get('charts/conversations-by-weekday')
+  @ApiOperation({ summary: 'Get conversation counts grouped by day of week' })
+  @ApiQuery({ name: 'startDate', required: true, type: String, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'endDate', required: true, type: String, description: 'End date (ISO 8601)' })
+  @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
+  @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
+  @ApiResponse({ status: 200, description: 'Conversations grouped by weekday (0=Sun..6=Sat)' })
+  async getConversationsByWeekday(
+    @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.analyticsService.getConversationsByWeekday(query, user);
+  }
+
   @Get('agents')
   @ApiOperation({ summary: 'Get per-agent analytics metrics' })
   @ApiQuery({ name: 'startDate', required: true, type: String, description: 'Start date (ISO 8601)' })

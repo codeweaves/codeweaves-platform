@@ -264,6 +264,16 @@ function DirectModeConfig({
 }) {
   const selectedCurated = CURATED_MODELS.find((m) => m.value === modelSelectValue);
 
+  // The advanced numeric fields live in a collapsed accordion. If either is
+  // out of range, default the accordion open so its inline error is visible —
+  // e.g. when a save attempt jumps the user to this tab. `defaultValue` is
+  // evaluated on mount, and switching tabs remounts this section.
+  const advancedInvalid =
+    (aiConfig.maxContextMessages ?? 0) < 1 ||
+    (aiConfig.maxContextMessages ?? 0) > 100 ||
+    (aiConfig.maxInputTokens ?? 0) < 500 ||
+    (aiConfig.maxInputTokens ?? 0) > 1_000_000;
+
   return (
     <div className="space-y-5 rounded-lg border bg-muted/20 p-4">
       {/* Model ---------------------------------------------------------- */}
@@ -315,8 +325,8 @@ function DirectModeConfig({
         <Input
           type="number"
           // No `min`/`max` HTML attrs — let users type freely (including
-          // clearing the field and retyping). Save-time Zod check enforces
-          // the 1-32000 range with a clear error toast instead of silently
+          // clearing the field and retyping). The 1-32000 range is enforced by
+          // the inline error below + the save-time guard, instead of silently
           // rejecting keystrokes.
           value={aiConfig.maxTokens ?? ''}
           onChange={(e) => {
@@ -337,7 +347,11 @@ function DirectModeConfig({
       </div>
 
       {/* Advanced accordion -------------------------------------------- */}
-      <Accordion type="single" collapsible>
+      <Accordion
+        type="single"
+        collapsible
+        defaultValue={advancedInvalid ? 'advanced' : undefined}
+      >
         <AccordionItem value="advanced" className="border-b-0">
           <AccordionTrigger className="cursor-pointer py-2 text-sm font-medium">
             Advanced

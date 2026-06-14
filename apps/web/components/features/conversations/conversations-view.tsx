@@ -21,7 +21,6 @@ function isFiltersActive(f: ConversationFilters): boolean {
     f.agentIds.length ||
     f.orgIds.length ||
     f.sources.length ||
-    f.statuses.length ||
     f.dateFrom ||
     f.dateTo
   );

@@ -63,6 +63,12 @@ export interface ConversationMessage {
   content: string;
   metadata: unknown;
   createdAt: string;
+  /**
+   * Fallback detection result for assistant replies: true = matched one of the
+   * agent's fallback phrases (a "couldn't answer"), false = checked but didn't,
+   * null = not checked (agent had no fallback phrases at the time).
+   */
+  couldntAnswer: boolean | null;
 }
 
 export interface ConversationTrace {

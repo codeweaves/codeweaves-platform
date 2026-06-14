@@ -10,10 +10,17 @@ import {
   TableHeader,
   TableRow,
 } from '@/components/ui/table';
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from '@/components/ui/tooltip';
 import { KpiCard } from './kpi-card';
 import { BreakdownBars } from './breakdown-bars';
 import { languageLabel } from './language-labels';
-import { Mic, Timer, Languages, Activity } from 'lucide-react';
+import { Mic, Timer, Languages, Activity, Info } from 'lucide-react';
+import type { ReactNode } from 'react';
 import type {
   AnalyticsParams,
   AnalyticsQueryOptions,
@@ -52,7 +59,7 @@ export function VoiceAnalyticsSection({ params, pollingOptions }: VoiceAnalytics
           <Mic className="mb-4 size-12 text-muted-foreground/40" />
           <h3 className="text-lg font-medium">No voice conversations yet</h3>
           <p className="mt-1 max-w-sm text-sm text-muted-foreground">
-            Enable voice on an agent to see voice volume, languages and provider latency here.
+            Enable voice on an agent to see voice volume and languages here.
           </p>
         </CardContent>
       </Card>
@@ -64,7 +71,7 @@ export function VoiceAnalyticsSection({ params, pollingOptions }: VoiceAnalytics
       <VoiceSummaryCards data={summary} isLoading={summaryQuery.isLoading} />
       <div className="grid gap-6 lg:grid-cols-2">
         <VoiceLanguageCard data={languagesQuery.data} isLoading={languagesQuery.isLoading} />
-        <ProviderLatencyTable data={latencyQuery.data} isLoading={latencyQuery.isLoading} />
+        <VoiceLatencyCard data={latencyQuery.data} isLoading={latencyQuery.isLoading} />
       </div>
     </div>
   );
@@ -133,63 +140,103 @@ function VoiceLanguageCard({ data, isLoading }: { data?: LanguageDistributionRes
   );
 }
 
-// --- Provider Latency Table ---
-function ProviderLatencyTable({ data, isLoading }: { data?: VoiceLatencyResponse; isLoading: boolean }) {
+// Right-aligned table header with a plain-language info tooltip — P50/P95 are
+// percentiles most users (technical or not) can't read at a glance.
+function HeaderWithInfo({ label, info }: { label: string; info: ReactNode }) {
+  return (
+    <span className="inline-flex items-center justify-end gap-1">
+      {label}
+      <TooltipProvider delayDuration={150}>
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <button
+              type="button"
+              aria-label={`What is ${label}?`}
+              className="text-muted-foreground/50 transition-colors hover:text-muted-foreground"
+            >
+              <Info className="size-3.5" />
+            </button>
+          </TooltipTrigger>
+          <TooltipContent className="max-w-65">
+            <span className="block leading-relaxed [&_strong]:font-semibold [&_strong]:text-background">
+              {info}
+            </span>
+          </TooltipContent>
+        </Tooltip>
+      </TooltipProvider>
+    </span>
+  );
+}
+
+// --- Voice Latency (provider-agnostic: average + percentiles for STT & TTS) ---
+function VoiceLatencyCard({ data, isLoading }: { data?: VoiceLatencyResponse; isLoading: boolean }) {
   if (isLoading) {
     return (
       <Card>
-        <CardHeader><Skeleton className="h-5 w-40" /></CardHeader>
-        <CardContent><Skeleton className="h-50 w-full" /></CardContent>
+        <CardHeader>
+          <Skeleton className="h-5 w-40" />
+        </CardHeader>
+        <CardContent>
+          <Skeleton className="h-32 w-full" />
+        </CardContent>
       </Card>
     );
   }
 
-  const sttRows = data?.stt ?? [];
-  const ttsRows = data?.tts ?? [];
-  const hasData = sttRows.length > 0 || ttsRows.length > 0;
+  const rows: { type: string; avg: number; p50: number; p95: number }[] = [];
+  if (data?.sttAggregate) rows.push({ type: 'Speech-to-text', ...data.sttAggregate });
+  if (data?.ttsAggregate) rows.push({ type: 'Text-to-speech', ...data.ttsAggregate });
 
   return (
     <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base font-medium">
           <Activity className="size-4 text-muted-foreground" />
-          Provider Latency
+          Voice Latency
         </CardTitle>
       </CardHeader>
       <CardContent>
-        {!hasData ? (
+        {rows.length === 0 ? (
           <p className="py-8 text-center text-sm text-muted-foreground">No latency data available</p>
         ) : (
           <Table>
             <TableHeader>
               <TableRow>
                 <TableHead>Type</TableHead>
-                <TableHead>Provider</TableHead>
                 <TableHead className="text-right">Avg (ms)</TableHead>
-                <TableHead className="text-right">P50 (ms)</TableHead>
-                <TableHead className="text-right">P95 (ms)</TableHead>
-                <TableHead className="text-right">Count</TableHead>
+                <TableHead className="text-right">
+                  <HeaderWithInfo
+                    label="P50 (ms)"
+                    info={
+                      <>
+                        The <strong>middle</strong> reply time — half of replies
+                        were faster than this, half slower. A good read on the{' '}
+                        <strong>typical</strong> speed.
+                      </>
+                    }
+                  />
+                </TableHead>
+                <TableHead className="text-right">
+                  <HeaderWithInfo
+                    label="P95 (ms)"
+                    info={
+                      <>
+                        <strong>95% of replies were faster</strong> than this —
+                        only the <strong>slowest 5%</strong> took longer. Good for
+                        spotting worst-case lag.
+                      </>
+                    }
+                  />
+                </TableHead>
               </TableRow>
             </TableHeader>
             <TableBody>
-              {sttRows.map((r) => (
-                <TableRow key={`stt-${r.provider}`}>
-                  <TableCell className="font-medium">STT</TableCell>
-                  <TableCell>{r.provider}</TableCell>
-                  <TableCell className="text-right">{r.avg}</TableCell>
-                  <TableCell className="text-right">{r.p50}</TableCell>
-                  <TableCell className="text-right">{r.p95}</TableCell>
-                  <TableCell className="text-right">{r.count.toLocaleString()}</TableCell>
-                </TableRow>
-              ))}
-              {ttsRows.map((r) => (
-                <TableRow key={`tts-${r.provider}`}>
-                  <TableCell className="font-medium">TTS</TableCell>
-                  <TableCell>{r.provider}</TableCell>
-                  <TableCell className="text-right">{r.avg}</TableCell>
-                  <TableCell className="text-right">{r.p50}</TableCell>
-                  <TableCell className="text-right">{r.p95}</TableCell>
-                  <TableCell className="text-right">{r.count.toLocaleString()}</TableCell>
+              {rows.map((r) => (
+                <TableRow key={r.type}>
+                  <TableCell className="font-medium">{r.type}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.avg}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.p50}</TableCell>
+                  <TableCell className="text-right tabular-nums">{r.p95}</TableCell>
                 </TableRow>
               ))}
             </TableBody>
@@ -199,3 +246,4 @@ function ProviderLatencyTable({ data, isLoading }: { data?: VoiceLatencyResponse
     </Card>
   );
 }
+

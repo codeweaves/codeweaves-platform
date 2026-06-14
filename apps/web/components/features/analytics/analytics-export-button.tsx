@@ -18,11 +18,17 @@ import {
 import type {
   AnalyticsSummaryResponse,
   AgentAnalyticsRow,
+  VoiceSummaryResponse,
+  VoiceLatencyResponse,
+  LanguageDistributionResponse,
 } from '@/hooks/use-analytics';
 
 interface AnalyticsExportButtonProps {
   summaryData: AnalyticsSummaryResponse | undefined;
   agentData: AgentAnalyticsRow[];
+  voiceSummary?: VoiceSummaryResponse;
+  voiceLatency?: VoiceLatencyResponse;
+  voiceLanguages?: LanguageDistributionResponse;
   startDate: string;
   endDate: string;
   orgName: string;
@@ -34,6 +40,9 @@ interface AnalyticsExportButtonProps {
 export function AnalyticsExportButton({
   summaryData,
   agentData,
+  voiceSummary,
+  voiceLatency,
+  voiceLanguages,
   startDate,
   endDate,
   orgName,
@@ -52,6 +61,9 @@ export function AnalyticsExportButton({
       const data: AnalyticsExportData = {
         summary: summaryData,
         agents: agentData,
+        voiceSummary,
+        voiceLatency,
+        voiceLanguages,
       };
 
       if (format === 'csv') {
@@ -69,7 +81,7 @@ export function AnalyticsExportButton({
         })
         .catch(() => {});
     },
-    [summaryData, agentData, startDate, endDate, orgName, api],
+    [summaryData, agentData, voiceSummary, voiceLatency, voiceLanguages, startDate, endDate, orgName, api],
   );
 
   const isDisabled = disabled || !summaryData;

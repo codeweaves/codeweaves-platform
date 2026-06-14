@@ -46,6 +46,13 @@ describe('MessageMetricsService', () => {
       expect(service.fromMetadata({ latencyMs: 1200 }).llmLatencyMs).toBe(1200);
     });
 
+    it('falls back to timeToLastToken for llmLatencyMs (widget streaming has no explicit field)', () => {
+      expect(service.fromMetadata({ timeToLastToken: 1319 }).llmLatencyMs).toBe(1319);
+      // Precedence: explicit llmLatencyMs/latencyMs win over timeToLastToken.
+      expect(service.fromMetadata({ llmLatencyMs: 650, timeToLastToken: 1319 }).llmLatencyMs).toBe(650);
+      expect(service.fromMetadata({ latencyMs: 700, timeToLastToken: 1319 }).llmLatencyMs).toBe(700);
+    });
+
     it('renames timeToFirstChunkMs -> timeToFirstAudioMs and totalLatencyMs -> voiceTotalLatencyMs', () => {
       const m = service.fromMetadata({ timeToFirstChunkMs: 400, totalLatencyMs: 3000 });
       expect(m.timeToFirstAudioMs).toBe(400);
