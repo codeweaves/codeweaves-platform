@@ -9,17 +9,13 @@ import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
 import { useAgents } from '@/hooks/use-agents';
 import { useOrganizations } from '@/hooks/use-organizations';
 import { useProfile } from '@/hooks/use-profile';
-import type {
-  ConversationSource,
-  ConversationStatus,
-} from '@/hooks/use-conversations';
+import type { ConversationSource } from '@/hooks/use-conversations';
 
 export interface ConversationFilters {
   search: string;
   agentIds: string[];
   orgIds: string[];
   sources: ConversationSource[];
-  statuses: ConversationStatus[];
   /** Category names (free-text, configured per agent). */
   categories: string[];
   /** YYYY-MM-DD; empty string when unset. */
@@ -33,7 +29,6 @@ export const EMPTY_FILTERS: ConversationFilters = {
   agentIds: [],
   orgIds: [],
   sources: [],
-  statuses: [],
   categories: [],
   dateFrom: '',
   dateTo: '',
@@ -174,20 +169,6 @@ export function ConversationsFiltersBar({
           { value: 'WIDGET', label: 'Widget' },
           { value: 'WHATSAPP', label: 'WhatsApp' },
           { value: 'DEMO', label: 'Demo' },
-        ]}
-      />
-
-      <MultiSelect
-        triggerClassName="w-[250px]"
-        placeholder="Any status"
-        values={filters.statuses}
-        onValuesChange={(v) =>
-          onChange({ ...filters, statuses: v as ConversationStatus[] })
-        }
-        selectedLabel={(n) => `${n} statuses`}
-        options={[
-          { value: 'ACTIVE', label: 'Active' },
-          { value: 'EXPIRED', label: 'Expired' },
         ]}
       />
 

@@ -264,6 +264,9 @@ export class AgentsService {
           ...(dto.sessionLifetimeHours !== undefined && {
             sessionLifetimeHours: dto.sessionLifetimeHours,
           }),
+          ...(dto.fallbackPhrases !== undefined && {
+            fallbackPhrases: dto.fallbackPhrases,
+          }),
         },
         include: { organization: { select: { id: true, name: true } } },
       });

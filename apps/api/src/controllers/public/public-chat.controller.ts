@@ -13,6 +13,7 @@ import { DirectChatService } from '../../modules/ai/direct-chat.service';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { sendMessageSchema, type SendMessageDto, resolveRoutingMode } from '@repo/validation';
 import type { ChatMessageMetadata } from '../../services/chat-metadata.interface';
+import { detectFallback } from '../../utils/fallback-detection';
 
 const STREAM_TIMEOUT_MS = 30_000;
 
@@ -330,6 +331,7 @@ export class PublicChatController {
           finishReason: finishPayload?.finishReason ?? null,
           historyCount: finishPayload?.historyCount ?? null,
           historyTruncated: finishPayload?.historyTruncated ?? null,
+          ...detectFallback(fullResponse, fullAgent.fallbackPhrases),
         };
       } else {
         // n8n streaming path — unchanged behaviour, unified metadata shape.

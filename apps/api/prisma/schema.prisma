@@ -152,6 +152,10 @@ model Agent {
   // one non-standard value: `hinglish` (code-mixed Hindi-English, Latin script).
   // Empty array disables language detection for the agent.
   supportedLanguages   String[]           @default([])
+  // Up to 3 phrases the agent replies with when it can't answer from its
+  // knowledge. Injected into the system prompt; replies are fuzzy-matched
+  // against these to flag "couldn't answer" in analytics. Empty = feature off.
+  fallbackPhrases      String[]           @default([])
   systemPrompt         String?            @db.Text
   welcomeMessage       String?
   secret               AgentSecret?
@@ -433,6 +437,10 @@ model ChatMessageMetrics {
   waOutboundId String?
   delivered    Boolean?
   replyMode    String? // 'text' | 'voice'
+
+  // ---- fallback ("couldn't answer") ----
+  couldntAnswer      Boolean?
+  couldntAnswerScore Decimal? @db.Decimal(4, 3) // best fuzzy-match score vs the agent's phrases
 
   // ---- errors ----
   errored   Boolean?

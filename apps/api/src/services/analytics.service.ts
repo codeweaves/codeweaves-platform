@@ -275,6 +275,52 @@ export class AnalyticsService {
     };
   }
 
+  /**
+   * Share of assistant replies flagged "couldn't answer" (fuzzy-matched to the
+   * agent's fallback phrases), as a percentage. Denominator counts only replies
+   * from agents that HAVE phrases configured (couldntAnswer IS NOT NULL), so
+   * untracked agents don't dilute the rate.
+   */
+  private async getCouldntAnswerRate(
+    agentIds: string[],
+    startUtc: Date,
+    endUtc: Date,
+    sourceFilter: Prisma.Sql = Prisma.empty,
+  ): Promise<number> {
+    if (agentIds.length === 0) return 0;
+    const result = await this.prisma.$queryRaw<{ flagged: bigint; tracked: bigint }[]>`
+      SELECT
+        COUNT(*) FILTER (WHERE mm."couldntAnswer" = true) as flagged,
+        COUNT(*) FILTER (WHERE mm."couldntAnswer" IS NOT NULL) as tracked
+      FROM chat_message_metrics mm
+      JOIN chat_messages cm ON cm.id = mm."messageId"
+      JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+      WHERE cs."agentId" = ANY(${agentIds}::text[])
+        AND mm."createdAt" >= ${startUtc}
+        AND mm."createdAt" < ${endUtc}
+        ${sourceFilter}
+    `;
+    const row = result[0];
+    const tracked = Number(row?.tracked ?? 0);
+    const flagged = Number(row?.flagged ?? 0);
+    return tracked > 0 ? Math.round((flagged / tracked) * 10000) / 100 : 0;
+  }
+
+  /**
+   * True when at least one of the in-scope agents currently has fallback
+   * phrases configured. Drives whether the dashboard shows the "Fallback Rate"
+   * card — config-based, so removing all phrases hides the card immediately
+   * regardless of historical data still sitting in the date range.
+   */
+  private async hasFallbackPhrases(agentIds: string[]): Promise<boolean> {
+    if (agentIds.length === 0) return false;
+    const agent = await this.prisma.agent.findFirst({
+      where: { id: { in: agentIds }, fallbackPhrases: { isEmpty: false } },
+      select: { id: true },
+    });
+    return agent !== null;
+  }
+
   // ==========================================
   // Public API Methods
   // ==========================================
@@ -284,13 +330,16 @@ export class AnalyticsService {
     const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
-    const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime] = await Promise.all([
+    const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime, couldntAnswerRate, prevCouldntAnswerRate, fallbackConfigured] = await Promise.all([
       this.getSessionMetrics(agentIds, startUtc, endUtc, sf),
       this.getMessageMetrics(agentIds, startUtc, endUtc, sf),
       this.getResponseTimeMetrics(agentIds, startUtc, endUtc, sf),
       this.getSessionMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
       this.getMessageMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
       this.getResponseTimeMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
+      this.getCouldntAnswerRate(agentIds, startUtc, endUtc, sf),
+      this.getCouldntAnswerRate(agentIds, prevStartUtc, prevEndUtc, sf),
+      this.hasFallbackPhrases(agentIds),
     ]);
 
     // Retention = share of this period's users who had ALSO engaged before the
@@ -315,6 +364,7 @@ export class AnalyticsService {
 
     return {
       period: { start: startUtc.toISOString(), end: endUtc.toISOString() },
+      fallbackConfigured,
       kpis: {
         totalUsers: { value: sessions.totalUsers, trend: this.calcTrend(sessions.totalUsers, prevSessions.totalUsers) },
         newUsers: { value: sessions.newUsers, trend: this.calcTrend(sessions.newUsers, prevSessions.newUsers) },
@@ -335,6 +385,7 @@ export class AnalyticsService {
             ? this.calcTrend(responseTime.avgTimeToFirstToken, prevResponseTime.avgTimeToFirstToken)
             : null,
         },
+        couldntAnswerRate: { value: couldntAnswerRate, trend: this.calcTrend(couldntAnswerRate, prevCouldntAnswerRate) },
       },
     };
   }
@@ -374,6 +425,41 @@ export class AnalyticsService {
         date: r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date),
         count: Number(r.count),
       })),
+    };
+  }
+
+  /**
+   * Conversations grouped by day of the week (0=Sun … 6=Sat) in the user's
+   * timezone, summed across the whole selected period. Answers "which weekday
+   * is busiest?" — complements the hour heatmap. Always returns all 7 days so
+   * the chart has a stable shape; missing days come back as 0.
+   */
+  async getConversationsByWeekday(query: AnalyticsQuery, user: CurrentUserData) {
+    const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc, timezone } = this.resolveRange(query);
+    const sf = this.getSourceFilter(query.source, query.sources);
+
+    const allDays = Array.from({ length: 7 }, (_, day) => ({ day, count: 0 }));
+    if (agentIds.length === 0) return { data: allDays };
+
+    // Same double AT TIME ZONE trick as getConversationsChart: naive UTC →
+    // tz-aware → naive local, so DOW is bucketed against the local-day boundary.
+    const tzSql = this.tzLiteral(timezone);
+    const result = await this.prisma.$queryRaw<{ dow: number; count: bigint }[]>`
+      SELECT EXTRACT(DOW FROM "createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${tzSql})::int as dow,
+             COUNT(*) as count
+      FROM chat_sessions
+      WHERE "agentId" = ANY(${agentIds}::text[])
+        AND "createdAt" >= ${startUtc}
+        AND "createdAt" < ${endUtc}
+        ${sf}
+      GROUP BY dow
+      ORDER BY dow ASC
+    `;
+
+    const counts = new Map(result.map((r) => [Number(r.dow), Number(r.count)]));
+    return {
+      data: allDays.map(({ day }) => ({ day, count: counts.get(day) ?? 0 })),
     };
   }
 
@@ -894,10 +980,10 @@ export class AnalyticsService {
     const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
-      return { stt: [], tts: [] };
+      return { stt: [], tts: [], sttAggregate: null, ttsAggregate: null };
     }
 
-    const [sttResult, ttsResult] = await Promise.all([
+    const [sttResult, ttsResult, sttAggResult, ttsAggResult] = await Promise.all([
       this.prisma.$queryRaw<
         { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
       >`
@@ -940,6 +1026,45 @@ export class AnalyticsService {
           ${sf}
         GROUP BY mm."ttsProvider"
       `,
+      // Provider-agnostic aggregates — what the client sees (no provider names).
+      // Percentiles must be computed across the whole set in SQL; they can't be
+      // correctly averaged from the per-provider rows above.
+      this.prisma.$queryRaw<
+        { avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
+      >`
+        SELECT
+          AVG(mm."sttLatencyMs") as avg,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mm."sttLatencyMs") as p50,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY mm."sttLatencyMs") as p95,
+          COUNT(*) as count
+        FROM chat_message_metrics mm
+        JOIN chat_messages cm ON cm.id = mm."messageId"
+        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+        WHERE mm."sttLatencyMs" IS NOT NULL
+          AND cm.role = 'USER'
+          AND mm."createdAt" >= ${startUtc}
+          AND mm."createdAt" < ${endUtc}
+          AND cs."agentId" = ANY(${agentIds}::text[])
+          ${sf}
+      `,
+      this.prisma.$queryRaw<
+        { avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
+      >`
+        SELECT
+          AVG(mm."ttsLatencyMs") as avg,
+          PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mm."ttsLatencyMs") as p50,
+          PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY mm."ttsLatencyMs") as p95,
+          COUNT(*) as count
+        FROM chat_message_metrics mm
+        JOIN chat_messages cm ON cm.id = mm."messageId"
+        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
+        WHERE mm."ttsLatencyMs" IS NOT NULL
+          AND cm.role = 'ASSISTANT'
+          AND mm."createdAt" >= ${startUtc}
+          AND mm."createdAt" < ${endUtc}
+          AND cs."agentId" = ANY(${agentIds}::text[])
+          ${sf}
+      `,
     ]);
 
     const mapRow = (r: { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }) => ({
@@ -950,9 +1075,24 @@ export class AnalyticsService {
       count: Number(r.count),
     });
 
+    const mapAggregate = (
+      r: { avg: number | null; p50: number | null; p95: number | null; count: bigint } | undefined,
+    ) => {
+      const count = Number(r?.count ?? 0);
+      if (count === 0) return null;
+      return {
+        avg: Math.round(Number(r?.avg ?? 0)),
+        p50: Math.round(Number(r?.p50 ?? 0)),
+        p95: Math.round(Number(r?.p95 ?? 0)),
+        count,
+      };
+    };
+
     return {
       stt: sttResult.map(mapRow),
       tts: ttsResult.map(mapRow),
+      sttAggregate: mapAggregate(sttAggResult[0]),
+      ttsAggregate: mapAggregate(ttsAggResult[0]),
     };
   }
 

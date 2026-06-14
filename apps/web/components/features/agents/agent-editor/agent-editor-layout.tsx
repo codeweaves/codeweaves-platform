@@ -63,6 +63,7 @@ function AgentEditorContent() {
     hasUnsavedChanges,
     resetToSaved,
     markSaved,
+    setFieldErrors,
   } = useAgentEditor();
   const api = useApiClient();
   const queryClient = useQueryClient();
@@ -219,28 +220,52 @@ function AgentEditorContent() {
   const handleSave = useCallback(async () => {
     setSaving(true);
     try {
-      // Validate voice config client-side before sending
+      // Client-side validation jumps to the offending section and aborts the
+      // save — it never toasts (toasts are reserved for API errors). Each
+      // section renders its own inline field errors; we just surface the tab.
+
+      // Voice config: every control is a constrained Select/Switch, so this
+      // can't realistically fail from the UI — kept as a defensive guard so a
+      // bad config never reaches the server as a 400.
       if (formData.voiceEnabled && formData.voiceConfig) {
         const result = voiceConfigSchema.safeParse(formData.voiceConfig);
         if (!result.success) {
-          const firstError = result.error.errors[0];
-          toast.error(`Voice config invalid: ${firstError?.message ?? 'Unknown error'}`);
+          setSelectedCategory('voice');
           setSaving(false);
           return;
         }
       }
 
-      // Validate AI config (Integration section) client-side so out-of-range
-      // numbers get a specific toast instead of a generic 400 from the server.
-      // The input fields deliberately accept any typing (including transient
-      // zero/empty states); this is where we actually enforce the bounds.
+      // AI / Integration config: the numeric fields render their own inline
+      // range errors (see DirectModeConfig). Jump there so the user sees them;
+      // the Advanced accordion auto-expands when an advanced field is invalid.
       const aiResult = agentAiConfigUpdateSchema.safeParse(formData.aiConfig);
       if (!aiResult.success) {
-        const firstError = aiResult.error.errors[0];
-        const path = firstError?.path.join('.') || 'integration';
-        toast.error(
-          `Integration config invalid — ${path}: ${firstError?.message ?? 'Unknown error'}`,
-        );
+        setSelectedCategory('integration');
+        setSaving(false);
+        return;
+      }
+
+      // Inline field validation (Behavior section). Empty conversation
+      // starters / fallback phrases are rejected by the server schemas
+      // (`min(1)`), so we catch them here and surface the error AT the field
+      // instead of letting the save 400. Toasts are reserved for API errors.
+      const errors: Record<string, string> = {};
+      themeData.starters.forEach((starter, index) => {
+        if (starter.message.trim().length === 0) {
+          errors[`starters.${index}`] =
+            "Conversation starter can't be empty — add text or remove it.";
+        }
+      });
+      formData.fallbackPhrases.forEach((phrase, index) => {
+        if (phrase.trim().length === 0) {
+          errors[`fallbackPhrases.${index}`] =
+            "Fallback phrase can't be empty — add text or remove it.";
+        }
+      });
+      if (Object.keys(errors).length > 0) {
+        setFieldErrors(errors);
+        setSelectedCategory('behavior');
         setSaving(false);
         return;
       }
@@ -259,6 +284,7 @@ function AgentEditorContent() {
         categoryKeywords: formData.categoryKeywords,
         supportedLanguages: formData.supportedLanguages,
         sessionLifetimeHours: formData.sessionLifetimeHours,
+        fallbackPhrases: formData.fallbackPhrases,
       };
 
       // Save agent config, webhook, and theme in parallel
@@ -330,6 +356,7 @@ function AgentEditorContent() {
             voiceEnabled: formData.voiceEnabled,
             voiceConfig: formData.voiceConfig,
             aiConfig: formData.aiConfig,
+            fallbackPhrases: formData.fallbackPhrases,
           };
 
           const newKnowledge = formData.knowledgeContent.trim()
@@ -372,7 +399,7 @@ function AgentEditorContent() {
     } finally {
       setSaving(false);
     }
-  }, [agent, formData, savedFormData, hasThemeChanges, themeData, api, updateAgent, updateTheme, markSaved, queryClient]);
+  }, [agent, formData, savedFormData, hasThemeChanges, themeData, api, updateAgent, updateTheme, markSaved, queryClient, setFieldErrors]);
 
   handleSaveRef.current = handleSave;
 

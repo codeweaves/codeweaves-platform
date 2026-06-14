@@ -134,8 +134,6 @@ export function ConversationDetailPane({
     );
   }
 
-  const userCount = conv.messages.filter((m) => m.role === 'USER').length;
-  const assistantCount = conv.messages.filter((m) => m.role === 'ASSISTANT').length;
   const duration = formatDuration(conv.createdAt, conv.lastMessageAt);
 
   return (
@@ -173,12 +171,6 @@ export function ConversationDetailPane({
               >
                 {conv.source.charAt(0) + conv.source.slice(1).toLowerCase()}
               </Badge>
-              <Badge
-                variant={conv.status === 'ACTIVE' ? 'success' : 'outline'}
-                className="text-[10px]"
-              >
-                {conv.status === 'ACTIVE' ? 'Active' : 'Expired'}
-              </Badge>
               {conv.detectedLanguage && (
                 <Badge variant="outline" className="text-[10px] uppercase">
                   {conv.detectedLanguage}
@@ -200,9 +192,6 @@ export function ConversationDetailPane({
                 ) : (
                   'Anonymous'
                 )}
-              </HeaderStat>
-              <HeaderStat icon={MessageSquare}>
-                {conv.messages.length} ({userCount}u · {assistantCount}a)
               </HeaderStat>
               <HeaderStat icon={Clock}>{duration}</HeaderStat>
               <HeaderStat icon={Clock}>Started {formatFull(conv.createdAt)}</HeaderStat>

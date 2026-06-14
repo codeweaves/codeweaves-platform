@@ -58,6 +58,10 @@ export interface MessageMetricsInput {
   delivered?: boolean | null;
   replyMode?: string | null;
 
+  // fallback ("couldn't answer")
+  couldntAnswer?: boolean | null;
+  couldntAnswerScore?: number | null;
+
   // errors
   errored?: boolean | null;
   errorCode?: string | null;
@@ -100,7 +104,9 @@ export class MessageMetricsService {
    * reconciling the historical key aliases in ONE place:
    *   - timeToFirstTokenMs <- timeToFirstToken | llmTtftMs | ttftMs
    *   - ttsLatencyMs        <- averageTtsLatencyMs | ttsLatencyMs
-   *   - llmLatencyMs        <- llmLatencyMs | latencyMs | (WhatsApp) responseLatencyMs
+   *   - llmLatencyMs        <- llmLatencyMs | latencyMs | timeToLastToken (widget
+   *                            streaming has no explicit field; request->last-token
+   *                            IS the model's own time)
    *   - responseLatencyMs   <- responseLatencyMs (non-WhatsApp only)
    * Lets callers keep passing the object they already build while analytics
    * reads only the canonical columns.
@@ -112,7 +118,7 @@ export class MessageMetricsService {
       // Every channel now writes these two distinctly: responseLatencyMs =
       // backend received->reply-sent; llmLatencyMs = the model's own time.
       responseLatencyMs: this.int(m.responseLatencyMs),
-      llmLatencyMs: this.int(m.llmLatencyMs) ?? this.int(m.latencyMs),
+      llmLatencyMs: this.int(m.llmLatencyMs) ?? this.int(m.latencyMs) ?? this.int(m.timeToLastToken),
       timeToFirstTokenMs: this.int(m.timeToFirstToken) ?? this.int(m.llmTtftMs) ?? this.int(m.ttftMs),
       timeToLastTokenMs: this.int(m.timeToLastToken),
       streamDurationMs: this.int(m.streamDurationMs),
@@ -145,6 +151,8 @@ export class MessageMetricsService {
       waOutboundId: this.str(m.waOutboundId),
       delivered: this.bool(m.delivered),
       replyMode: this.str(m.replyMode),
+      couldntAnswer: this.bool(m.couldntAnswer),
+      couldntAnswerScore: this.dec(m.couldntAnswerScore),
       errored: this.bool(m.error),
     };
   }

@@ -206,6 +206,20 @@ export const categoryKeywordsSchema = z
   .max(24, 'At most 24 categories per agent')
   .default([]);
 
+// Phrases the agent replies with when it can't answer from its knowledge.
+// Injected into the system prompt and fuzzy-matched against replies to flag
+// "couldn't answer" in analytics. One short polite sentence each, capped at 3.
+export const fallbackPhraseSchema = z
+  .string()
+  .trim()
+  .min(1, 'Phrase cannot be empty')
+  .max(200, 'Phrase must be at most 200 characters');
+
+export const fallbackPhrasesSchema = z
+  .array(fallbackPhraseSchema)
+  .max(3, 'At most 3 fallback phrases per agent')
+  .default([]);
+
 // Languages the agent owner wants conversations classified against. Mostly
 // ISO 639-1 codes; `hinglish` is a non-standard sentinel for code-mixed
 // Hindi-English (no ISO code exists for it). Kept as an enum so the agent
@@ -256,6 +270,7 @@ export const updateAgentSchema = z
     categoryKeywords: categoryKeywordsSchema.optional(),
     supportedLanguages: supportedLanguagesSchema.optional(),
     sessionLifetimeHours: sessionLifetimeHoursSchema.optional(),
+    fallbackPhrases: fallbackPhrasesSchema.optional(),
   })
   .refine(
     (data) =>
@@ -269,7 +284,8 @@ export const updateAgentSchema = z
       data.aiConfig !== undefined ||
       data.categoryKeywords !== undefined ||
       data.supportedLanguages !== undefined ||
-      data.sessionLifetimeHours !== undefined,
+      data.sessionLifetimeHours !== undefined ||
+      data.fallbackPhrases !== undefined,
     { message: 'At least one field must be provided' },
   );
 

@@ -5,12 +5,14 @@ import {
   useConversationsChart,
   useResponseTimesChart,
   useMessageVolumeChart,
+  useConversationsByWeekday,
   type AnalyticsParams,
   type AnalyticsQueryOptions,
 } from '@/hooks/use-analytics';
 import { KpiSummaryCards } from './kpi-summary-cards';
 import { ConversationsChart } from './conversations-chart';
 import { ResponseTimesChart } from './response-times-chart';
+import { ConversationsByWeekdayChart } from './conversations-by-weekday-chart';
 import { MessageVolumeHeatmap } from './message-volume-heatmap';
 
 interface AnalyticsOverviewTabProps {
@@ -28,6 +30,7 @@ export function AnalyticsOverviewTab({ params, pollingOptions }: AnalyticsOvervi
   const summaryQuery = useAnalyticsSummary(params, pollingOptions);
   const conversationsQuery = useConversationsChart(params, pollingOptions);
   const responseTimesQuery = useResponseTimesChart(params, pollingOptions);
+  const weekdayQuery = useConversationsByWeekday(params, pollingOptions);
   const messageVolumeQuery = useMessageVolumeChart(params, pollingOptions);
 
   return (
@@ -46,6 +49,12 @@ export function AnalyticsOverviewTab({ params, pollingOptions }: AnalyticsOvervi
           isError={responseTimesQuery.isError}
         />
       </div>
+
+      <ConversationsByWeekdayChart
+        data={weekdayQuery.data}
+        isLoading={weekdayQuery.isLoading}
+        isError={weekdayQuery.isError}
+      />
 
       <MessageVolumeHeatmap
         data={messageVolumeQuery.data}

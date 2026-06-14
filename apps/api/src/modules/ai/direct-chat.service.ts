@@ -199,9 +199,10 @@ export class DirectChatService {
           return ctx;
         }),
       ]);
-      const systemPrompt = knowledge
-        ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
-        : systemPromptResolved;
+      const systemPrompt =
+        (knowledge
+          ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
+          : systemPromptResolved) + buildFallbackInstruction(req.agent);
 
       trace.step('llm.call_start', {
         model: modelId,
@@ -362,9 +363,10 @@ export class DirectChatService {
         durationMs: knowledgeMs,
         data: knowledgeData,
       };
-      const systemPrompt = knowledge
-        ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
-        : systemPromptResolved;
+      const systemPrompt =
+        (knowledge
+          ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
+          : systemPromptResolved) + buildFallbackInstruction(req.agent);
 
       const contextData = {
         strategy: config.contextStrategy ?? 'sliding-window',
@@ -578,4 +580,29 @@ function resolveSystemPromptTemplate(
   config: AgentAiConfigDto,
 ): string {
   return config.systemPromptTemplate ?? agent.systemPrompt ?? '';
+}
+
+/**
+ * Instruction appended to the END of the system prompt telling the agent what
+ * to say when it has nothing useful to offer. Returns '' when the agent
+ * configured no phrases, so nothing is added to the prompt at all.
+ *
+ * Deliberately framed as a LAST RESORT: the model should still give helpful
+ * partial/general answers (e.g. "it varies — contact us for specifics") for
+ * anything it can speak to. The canned phrase is only for genuine dead-ends
+ * (question entirely outside its knowledge). An earlier, more aggressive
+ * wording turned good soft answers into robotic give-ups.
+ */
+function buildFallbackInstruction(agent: Agent): string {
+  const phrases = (agent.fallbackPhrases ?? []).filter((p) => p.trim().length > 0);
+  if (phrases.length === 0) return '';
+  const list = phrases.map((p) => `- ${p}`).join('\n');
+  return (
+    '\n\n---\n\nAlways try to help first. If you have any relevant information — even ' +
+    'partial or general — give a useful answer, and point the user to the team for ' +
+    'specifics you do not have. Only when the question is entirely outside what you ' +
+    'know and you have nothing useful to offer at all, reply with exactly one of the ' +
+    'following phrases, word for word and nothing else:\n' +
+    list
+  );
 }

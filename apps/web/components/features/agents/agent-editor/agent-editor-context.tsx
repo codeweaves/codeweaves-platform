@@ -60,6 +60,12 @@ export interface AgentFormData {
    * fresh session on their next message.
    */
   sessionLifetimeHours: number;
+  /**
+   * Phrases the agent replies with when it can't answer. Injected into the
+   * system prompt and fuzzy-matched against replies to flag "couldn't answer"
+   * in analytics. Max 3, each up to 200 chars.
+   */
+  fallbackPhrases: string[];
 }
 
 interface AgentEditorContextType {
@@ -77,6 +83,16 @@ interface AgentEditorContextType {
   hasUnsavedChanges: boolean;
   resetToSaved: () => void;
   markSaved: (data: AgentFormData, theme?: WidgetTheme) => void;
+  /**
+   * Inline client-side validation errors, keyed by field path (e.g.
+   * `starters.0`, `fallbackPhrases.1`). Populated on a save attempt and
+   * rendered by the owning section beside the offending input. Cleared when
+   * the field is edited, on discard, and on a successful save. Toasts are
+   * reserved for API errors — never client-side validation.
+   */
+  fieldErrors: Record<string, string>;
+  setFieldErrors: (errors: Record<string, string>) => void;
+  clearFieldError: (key: string) => void;
 }
 
 const AgentEditorContext = createContext<AgentEditorContextType | undefined>(
@@ -350,6 +366,7 @@ export function agentToFormData(
     categoryKeywords: agent.categoryKeywords ?? [],
     supportedLanguages: agent.supportedLanguages ?? [],
     sessionLifetimeHours: agent.sessionLifetimeHours ?? 6,
+    fallbackPhrases: agent.fallbackPhrases ?? [],
   };
 }
 
@@ -373,6 +390,17 @@ export function AgentEditorProvider({
   const [savedThemeData, setSavedThemeData] =
     useState<WidgetTheme>(initialThemeData);
   const [themeData, setThemeData] = useState<WidgetTheme>(initialThemeData);
+
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
+
+  const clearFieldError = useCallback((key: string) => {
+    setFieldErrors((prev) => {
+      if (!(key in prev)) return prev;
+      const next = { ...prev };
+      delete next[key];
+      return next;
+    });
+  }, []);
 
   const updateFormData = useCallback(
     <K extends keyof AgentFormData>(field: K, value: AgentFormData[K]) => {
@@ -403,6 +431,7 @@ export function AgentEditorProvider({
   const resetToSaved = useCallback(() => {
     setFormData(savedFormData);
     setThemeData(savedThemeData);
+    setFieldErrors({});
   }, [savedFormData, savedThemeData]);
 
   const markSaved = useCallback((data: AgentFormData, theme?: WidgetTheme) => {
@@ -412,6 +441,7 @@ export function AgentEditorProvider({
       setSavedThemeData(theme);
       setThemeData(theme);
     }
+    setFieldErrors({});
   }, []);
 
   const contextValue = useMemo(
@@ -427,11 +457,15 @@ export function AgentEditorProvider({
       hasUnsavedChanges,
       resetToSaved,
       markSaved,
+      fieldErrors,
+      setFieldErrors,
+      clearFieldError,
     }),
     [
       agent, formData, savedFormData, updateFormData,
       themeData, savedThemeData, updateThemeData,
       hasThemeChanges, hasUnsavedChanges, resetToSaved, markSaved,
+      fieldErrors, clearFieldError,
     ],
   );
 

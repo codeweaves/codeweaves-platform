@@ -11,6 +11,7 @@ import { VoiceService } from '../voice/voice.service';
 import { WhatsappInboundJob } from './interfaces/whatsapp.interfaces';
 import { markdownToPlainText, markdownToWhatsapp } from './whatsapp-format';
 import { WhatsappSendService } from './whatsapp-send.service';
+import { detectFallback } from '../../utils/fallback-detection';
 
 /** Sent when orchestration fails, so the user isn't left on silent read. */
 const FALLBACK_REPLY =
@@ -265,6 +266,7 @@ export class WhatsappInboundService {
       // to reply-sent. The LLM's own generation time is kept separate.
       responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
       llmLatencyMs: result.latencyMs,
+      ...detectFallback(replyText, agent.fallbackPhrases),
     });
     await this.chatService.updateSessionTimestamp(session.id);
   }

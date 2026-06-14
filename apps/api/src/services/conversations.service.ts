@@ -192,6 +192,9 @@ export class ConversationsService {
             content: true,
             metadata: true,
             createdAt: true,
+            // Fallback flag lives on the typed metrics row (1:1). null when the
+            // reply was never checked (agent had no fallback phrases at the time).
+            metrics: { select: { couldntAnswer: true } },
           },
         },
       },
@@ -245,6 +248,7 @@ export class ConversationsService {
         content: m.content,
         metadata: m.metadata,
         createdAt: m.createdAt.toISOString(),
+        couldntAnswer: m.metrics?.couldntAnswer ?? null,
       })),
       traces: traces.map((t) => ({
         id: t.id,

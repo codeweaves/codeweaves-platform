@@ -34,6 +34,12 @@ export interface KpiValue {
 
 export interface AnalyticsSummaryResponse {
   period: { start: string; end: string };
+  /**
+   * True when at least one agent in view currently has fallback phrases set up.
+   * Drives whether the "Fallback Rate" KPI card is shown at all — no phrases
+   * means nothing to measure, so the card is hidden.
+   */
+  fallbackConfigured: boolean;
   kpis: {
     totalUsers: KpiValue;
     newUsers: KpiValue;
@@ -50,6 +56,8 @@ export interface AnalyticsSummaryResponse {
     p99ResponseTimeMs: KpiValue;
     // TTFT is only populated for streaming/direct-mode replies; null otherwise.
     avgTimeToFirstTokenMs: { value: number | null; trend: number | null };
+    // Share of replies the agent flagged as "couldn't answer" (fallback phrases).
+    couldntAnswerRate: KpiValue;
   };
 }
 
@@ -86,6 +94,16 @@ export interface MessageVolumePoint {
 
 export interface MessageVolumeResponse {
   data: MessageVolumePoint[];
+}
+
+// Matches API: analytics.service.ts → getConversationsByWeekday()
+export interface WeekdayConversationsPoint {
+  day: number; // 0=Sun .. 6=Sat
+  count: number;
+}
+
+export interface WeekdayConversationsResponse {
+  data: WeekdayConversationsPoint[];
 }
 
 // Matches API: analytics.service.ts → getAgentMetrics()
@@ -190,6 +208,20 @@ export function useMessageVolumeChart(params: AnalyticsParams, options?: Analyti
   return useQuery<MessageVolumeResponse>({
     queryKey: ['analytics', 'message-volume', params],
     queryFn: () => api.get(`/analytics/charts/message-volume?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+  });
+}
+
+export function useConversationsByWeekday(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<WeekdayConversationsResponse>({
+    queryKey: ['analytics', 'conversations-by-weekday', params],
+    queryFn: () => api.get(`/analytics/charts/conversations-by-weekday?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -302,6 +334,14 @@ export interface LanguageDistributionResponse {
   languages: LanguageDistributionEntry[];
 }
 
+/** Provider-agnostic latency aggregate (what the client sees — no provider). */
+export interface LatencyAggregate {
+  avg: number;
+  p50: number;
+  p95: number;
+  count: number;
+}
+
 export interface ProviderLatencyEntry {
   provider: string;
   avg: number;
@@ -311,8 +351,12 @@ export interface ProviderLatencyEntry {
 }
 
 export interface VoiceLatencyResponse {
+  /** Per-provider breakdown — reserved for an internal/admin view, not shown to clients. */
   stt: ProviderLatencyEntry[];
   tts: ProviderLatencyEntry[];
+  /** Provider-agnostic STT/TTS latency shown on the client Voice tab. */
+  sttAggregate: LatencyAggregate | null;
+  ttsAggregate: LatencyAggregate | null;
 }
 
 export function useVoiceSummary(params: AnalyticsParams, options?: AnalyticsQueryOptions) {

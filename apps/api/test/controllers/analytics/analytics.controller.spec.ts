@@ -21,6 +21,7 @@ describe('AnalyticsController', () => {
     getConversationsChart: jest.fn(),
     getResponseTimeDistribution: jest.fn(),
     getMessageVolumeHeatmap: jest.fn(),
+    getConversationsByWeekday: jest.fn(),
     getAgentMetrics: jest.fn(),
     getConversationCategories: jest.fn(),
     getConversationLanguages: jest.fn(),
@@ -181,6 +182,30 @@ describe('AnalyticsController', () => {
       const result = await controller.getMessageVolumeHeatmap(query, adminUser);
 
       expect(result).toEqual(mockHeatmap);
+    });
+  });
+
+  describe('getConversationsByWeekday', () => {
+    const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
+    const mockWeekday = {
+      data: [
+        { day: 0, count: 3 },
+        { day: 1, count: 12 },
+        { day: 2, count: 0 },
+        { day: 3, count: 8 },
+        { day: 4, count: 5 },
+        { day: 5, count: 9 },
+        { day: 6, count: 2 },
+      ],
+    };
+
+    it('should return conversations grouped by weekday', async () => {
+      mockAnalyticsService.getConversationsByWeekday.mockResolvedValue(mockWeekday);
+
+      const result = await controller.getConversationsByWeekday(query, adminUser);
+
+      expect(result).toEqual(mockWeekday);
+      expect(mockAnalyticsService.getConversationsByWeekday).toHaveBeenCalledWith(query, adminUser);
     });
   });
 

@@ -3,7 +3,6 @@
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
 import { AlertCircle, Tags } from 'lucide-react';
-import { formatNumber } from '@/lib/format-utils';
 import { BreakdownBars } from './breakdown-bars';
 import type { ConversationCategoriesResponse } from '@/hooks/use-analytics';
 
@@ -16,7 +15,6 @@ interface CategoryBreakdownChartProps {
 
 export function CategoryBreakdownChart({ data, isLoading, isError, className }: CategoryBreakdownChartProps) {
   const categories = data?.categories ?? [];
-  const uncategorized = data?.uncategorized ?? 0;
   const hasData = categories.length > 0;
 
   return (
@@ -47,14 +45,7 @@ export function CategoryBreakdownChart({ data, isLoading, isError, className }: 
             </p>
           </div>
         ) : (
-          <>
-            <BreakdownBars items={categories.map((c) => ({ label: c.category, count: c.count, percentage: c.percentage }))} />
-            {uncategorized > 0 && (
-              <p className="mt-4 text-xs text-muted-foreground">
-                {formatNumber(uncategorized)} conversation{uncategorized === 1 ? '' : 's'} not yet classified
-              </p>
-            )}
-          </>
+          <BreakdownBars items={categories.map((c) => ({ label: c.category, count: c.count, percentage: c.percentage }))} />
         )}
       </CardContent>
     </Card>
