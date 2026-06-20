@@ -1,4 +1,3 @@
-import { InjectQueue } from '@nestjs/bullmq';
 import {
   Controller,
   Get,
@@ -10,44 +9,51 @@ import {
   type RawBodyRequest,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
-import { Queue } from 'bullmq';
 import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 
 import { Public } from '../../decorators/public.decorator';
-import { SkipRateLimit } from '../../decorators/rate-limit.decorator';
 
 import type {
   WhatsappInboundJob,
   WhatsappWebhookPayload,
 } from './interfaces/whatsapp.interfaces';
 import { WhatsappConfigService } from './whatsapp-config.service';
-import {
-  WHATSAPP_INBOUND_JOB,
-  WHATSAPP_INBOUND_QUEUE,
-} from './whatsapp.constants';
+import { WhatsappInboundService } from './whatsapp-inbound.service';
 
 /**
  * Single public webhook for ALL orgs. Meta routes every inbound message here; the
  * payload's `phone_number_id` tells us which agent owns the number.
  *
- * @Public()        — no JWT (Meta is not a logged-in user)
- * @SkipRateLimit()  — Meta sends from a pool of IPs and can fire frequently; the
- *                     HMAC signature is the real auth gate, not IP rate limiting.
+ * @Public()  — no JWT (Meta is not a logged-in user). Rate limiting is opt-in,
+ *              and we deliberately do NOT add @RateLimit() here: Meta sends from
+ *              a pool of IPs and the HMAC signature is the real auth gate.
  *
- * Flow: verify X-Hub-Signature-256 on the RAW body → enqueue jobs → ACK 200.
- * We enqueue BEFORE acking so a crash can't drop a message (Redis add is ~1ms).
+ * Flow: verify X-Hub-Signature-256 on the RAW body → ACK 200 immediately →
+ * process inline in the background. We ACK first (before processing) so Meta
+ * gets its fast 200 and never retries — which is what keeps duplicate
+ * deliveries away now that there's no BullMQ jobId to dedupe on. A short
+ * in-memory ring of seen message ids guards against the rare genuine duplicate
+ * within this instance. No Redis, no queue.
  */
 @ApiTags('WhatsApp Webhook')
 @Public()
-@SkipRateLimit()
 @Controller('public/whatsapp')
 export class WhatsappWebhookController {
   private readonly logger = new Logger(WhatsappWebhookController.name);
 
+  /**
+   * Recently-processed inbound message ids (wamid), for best-effort dedup of
+   * the rare duplicate webhook delivery. Per-instance only — acceptable because
+   * fast ACK already prevents Meta retries; if true cross-instance dedup is ever
+   * needed, add a unique index on the inbound message id at persistence time.
+   */
+  private readonly seenMessageIds = new Set<string>();
+  private static readonly SEEN_CAP = 1000;
+
   constructor(
     private readonly config: WhatsappConfigService,
-    @InjectQueue(WHATSAPP_INBOUND_QUEUE) private readonly queue: Queue,
+    private readonly inbound: WhatsappInboundService,
   ) {}
 
   /** GET verification handshake — Meta calls this once when you register the webhook. */
@@ -99,29 +105,46 @@ export class WhatsappWebhookController {
     }
 
     const jobs = this.extractJobs(payload);
-    await Promise.all(
-      jobs.map((job) =>
-        this.queue
-          .add(WHATSAPP_INBOUND_JOB, job, {
-            // jobId = wamid → BullMQ ignores duplicate adds, deduping Meta's
-            // retried webhook deliveries.
-            jobId: job.messageId,
-            // No auto-retry: a retry after a partial success could double-send.
-            attempts: 1,
-            // Keep completed jobs ~1h so the jobId stays reserved (idempotency
-            // window) without unbounded growth.
-            removeOnComplete: { age: 3600, count: 1000 },
-            removeOnFail: { age: 86400 },
-          })
-          .catch((err: unknown) =>
-            this.logger.error(
-              `Failed to enqueue WhatsApp job ${job.messageId}: ${err instanceof Error ? err.message : String(err)}`,
-            ),
-          ),
-      ),
-    );
 
-    return res.status(200).send();
+    // ACK Meta immediately, BEFORE processing. A fast 200 stops Meta retrying,
+    // which is what prevents duplicate deliveries now that there's no queue.
+    res.status(200).send();
+
+    // Process each message inline in the background — the response is already
+    // sent, so nothing here adds webhook latency. Errors are swallowed-and-logged
+    // (WhatsappInboundService already best-effort replies to the user on failure).
+    for (const job of jobs) {
+      if (!this.markSeen(job.messageId)) {
+        this.logger.debug(`Duplicate WhatsApp delivery ${job.messageId} — skipping.`);
+        continue;
+      }
+      void this.inbound.handleInbound(job).catch((err: unknown) =>
+        this.logger.error(
+          `WhatsApp inbound processing failed for ${job.messageId}: ${err instanceof Error ? err.message : String(err)}`,
+        ),
+      );
+    }
+
+    return res;
+  }
+
+  /**
+   * Best-effort dedup: returns `true` the first time a message id is seen (i.e.
+   * "process it"), `false` for a repeat. Bounded so the Set can't grow without
+   * limit — when full, we drop the oldest half (insertion-ordered).
+   */
+  private markSeen(messageId: string): boolean {
+    if (this.seenMessageIds.has(messageId)) return false;
+    this.seenMessageIds.add(messageId);
+    if (this.seenMessageIds.size > WhatsappWebhookController.SEEN_CAP) {
+      const iterator = this.seenMessageIds.values();
+      const toDrop = Math.floor(WhatsappWebhookController.SEEN_CAP / 2);
+      for (let i = 0; i < toDrop; i++) {
+        const oldest = iterator.next().value;
+        if (oldest !== undefined) this.seenMessageIds.delete(oldest);
+      }
+    }
+    return true;
   }
 
   /** Verify X-Hub-Signature-256: HMAC-SHA256(rawBody, appSecret), constant-time. */
