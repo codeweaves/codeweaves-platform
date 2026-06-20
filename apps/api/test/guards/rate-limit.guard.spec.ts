@@ -3,10 +3,18 @@ import { ExecutionContext, HttpException, HttpStatus } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { RateLimitGuard } from '../../src/guards/rate-limit.guard';
 import { RateLimiterService } from '../../src/common/redis/rate-limiter.service';
-import { SKIP_RATE_LIMIT_KEY, RATE_LIMIT_KEY } from '../../src/decorators/rate-limit.decorator';
+import {
+  SKIP_RATE_LIMIT_KEY,
+  RATE_LIMIT_KEY,
+} from '../../src/decorators/rate-limit.decorator';
 import { IS_PUBLIC_KEY } from '../../src/decorators/public.decorator';
+import type { RateLimitConfig } from '../../src/common/redis/rate-limiter.types';
 
-describe('RateLimitGuard', () => {
+/** Configs a route would declare via @RateLimit(...). */
+const AUTH_CFG: RateLimitConfig = { limit: 100, windowMs: 60000 };
+const PUBLIC_CFG: RateLimitConfig = { limit: 30, windowMs: 60000 };
+
+describe('RateLimitGuard (opt-in)', () => {
   let guard: RateLimitGuard;
 
   const mockRateLimiterService = {
@@ -18,6 +26,21 @@ describe('RateLimitGuard', () => {
   };
 
   const mockSetHeader = jest.fn();
+
+  /** Wire the reflector for a given (skip / @RateLimit config / @Public) combo. */
+  function setMeta(opts: {
+    skip?: boolean;
+    config?: RateLimitConfig;
+    isPublic?: boolean;
+  }) {
+    const { skip = false, config = undefined, isPublic = false } = opts;
+    mockReflector.getAllAndOverride.mockImplementation((key: string) => {
+      if (key === SKIP_RATE_LIMIT_KEY) return skip;
+      if (key === RATE_LIMIT_KEY) return config;
+      if (key === IS_PUBLIC_KEY) return isPublic;
+      return undefined;
+    });
+  }
 
   function createMockContext(
     options: {
@@ -85,14 +108,21 @@ describe('RateLimitGuard', () => {
     expect(guard).toBeDefined();
   });
 
+  describe('opt-in behaviour', () => {
+    it('returns true WITHOUT touching Redis when no @RateLimit() is declared', async () => {
+      setMeta({ config: undefined });
+
+      const context = createMockContext();
+      const result = await guard.canActivate(context);
+
+      expect(result).toBe(true);
+      expect(mockRateLimiterService.checkRateLimit).not.toHaveBeenCalled();
+    });
+  });
+
   describe('authenticated request keying', () => {
-    it('should use rate_limit:user:{userId}:{endpoint} key for authenticated requests', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return false;
-        if (key === RATE_LIMIT_KEY) return undefined;
-        if (key === IS_PUBLIC_KEY) return false;
-        return undefined;
-      });
+    it('uses rate_limit:user:{userId}:{endpoint} when @RateLimit() is set', async () => {
+      setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
         remaining: 99,
@@ -112,13 +142,8 @@ describe('RateLimitGuard', () => {
   });
 
   describe('public/unauthenticated request keying', () => {
-    it('should use rate_limit:ip:{ip}:{endpoint} key for public requests', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return false;
-        if (key === RATE_LIMIT_KEY) return undefined;
-        if (key === IS_PUBLIC_KEY) return true;
-        return undefined;
-      });
+    it('uses rate_limit:ip:{ip}:{endpoint} for @Public() routes', async () => {
+      setMeta({ config: PUBLIC_CFG, isPublic: true });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
         remaining: 29,
@@ -138,13 +163,8 @@ describe('RateLimitGuard', () => {
   });
 
   describe('request within limit', () => {
-    it('should return true and set response headers when allowed', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return false;
-        if (key === RATE_LIMIT_KEY) return undefined;
-        if (key === IS_PUBLIC_KEY) return false;
-        return undefined;
-      });
+    it('returns true and sets response headers when allowed', async () => {
+      setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
         remaining: 95,
@@ -163,13 +183,8 @@ describe('RateLimitGuard', () => {
   });
 
   describe('request exceeds limit', () => {
-    it('should throw HttpException with 429 status and set Retry-After header', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return false;
-        if (key === RATE_LIMIT_KEY) return undefined;
-        if (key === IS_PUBLIC_KEY) return false;
-        return undefined;
-      });
+    it('throws 429 and sets Retry-After when over the limit', async () => {
+      setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: false,
         remaining: 0,
@@ -198,11 +213,8 @@ describe('RateLimitGuard', () => {
   });
 
   describe('@SkipRateLimit() bypass', () => {
-    it('should return true without calling RateLimiterService', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return true;
-        return undefined;
-      });
+    it('returns true without calling RateLimiterService even when @RateLimit() is set', async () => {
+      setMeta({ skip: true, config: AUTH_CFG });
 
       const context = createMockContext();
       const result = await guard.canActivate(context);
@@ -212,14 +224,9 @@ describe('RateLimitGuard', () => {
     });
   });
 
-  describe('@RateLimit() custom override', () => {
-    it('should use custom config instead of defaults', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return false;
-        if (key === RATE_LIMIT_KEY) return { limit: 5, windowMs: 10000 };
-        if (key === IS_PUBLIC_KEY) return false;
-        return undefined;
-      });
+  describe('@RateLimit() custom config', () => {
+    it('uses the declared limit/window', async () => {
+      setMeta({ config: { limit: 5, windowMs: 10000 }, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
         remaining: 4,
@@ -239,13 +246,8 @@ describe('RateLimitGuard', () => {
   });
 
   describe('endpoint identifier', () => {
-    it('should use route.path pattern instead of actual URL to avoid per-ID key explosion', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return false;
-        if (key === RATE_LIMIT_KEY) return undefined;
-        if (key === IS_PUBLIC_KEY) return false;
-        return undefined;
-      });
+    it('uses route.path pattern instead of the actual URL to avoid per-ID key explosion', async () => {
+      setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
         remaining: 99,
@@ -266,13 +268,8 @@ describe('RateLimitGuard', () => {
       );
     });
 
-    it('should fall back to request.path when route is undefined', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return false;
-        if (key === RATE_LIMIT_KEY) return undefined;
-        if (key === IS_PUBLIC_KEY) return false;
-        return undefined;
-      });
+    it('falls back to request.path when route is undefined', async () => {
+      setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
         remaining: 99,
@@ -295,13 +292,8 @@ describe('RateLimitGuard', () => {
   });
 
   describe('IP extraction', () => {
-    it('should use x-forwarded-for header when request.ip is not available', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return false;
-        if (key === RATE_LIMIT_KEY) return undefined;
-        if (key === IS_PUBLIC_KEY) return true;
-        return undefined;
-      });
+    it('uses x-forwarded-for when request.ip is not available', async () => {
+      setMeta({ config: PUBLIC_CFG, isPublic: true });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
         remaining: 29,
@@ -322,13 +314,8 @@ describe('RateLimitGuard', () => {
       );
     });
 
-    it('should use first IP from x-forwarded-for when it contains multiple IPs', async () => {
-      mockReflector.getAllAndOverride.mockImplementation((key: string) => {
-        if (key === SKIP_RATE_LIMIT_KEY) return false;
-        if (key === RATE_LIMIT_KEY) return undefined;
-        if (key === IS_PUBLIC_KEY) return true;
-        return undefined;
-      });
+    it('uses the first IP from x-forwarded-for when it contains multiple IPs', async () => {
+      setMeta({ config: PUBLIC_CFG, isPublic: true });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
         remaining: 29,
@@ -337,7 +324,9 @@ describe('RateLimitGuard', () => {
       });
 
       const context = createMockContext({
-        headers: { 'x-forwarded-for': '203.0.113.50, 70.41.3.18, 150.172.238.178' },
+        headers: {
+          'x-forwarded-for': '203.0.113.50, 70.41.3.18, 150.172.238.178',
+        },
       });
       await guard.canActivate(context);
 

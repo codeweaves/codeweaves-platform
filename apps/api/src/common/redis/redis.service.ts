@@ -17,15 +17,25 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async onModuleInit() {
     const redisUrl = this.configService.get<string>('REDIS_URL');
     if (!redisUrl) {
-      throw new Error('REDIS_URL environment variable is required');
+      // Never crash the backend over Redis. It powers only optional, fail-open
+      // features (agent cache, opt-in rate limiting) — the app runs fine without it.
+      this.logger.warn(
+        'REDIS_URL not set — cache + rate limiting disabled. Backend continues.',
+      );
+      return;
     }
 
     this.client = new Redis(redisUrl, {
       maxRetriesPerRequest: 3,
+      // Fail commands FAST instead of queueing them forever when Redis is
+      // unreachable or has hit its plan/daily limit. Every consumer is fail-open,
+      // so a fast rejection just falls through to Postgres / allows the request —
+      // the backend never hangs or boots-fails because of Redis.
+      enableOfflineQueue: false,
       retryStrategy: (times: number) => {
         if (times > 3) {
           this.logger.warn(
-            'Redis unavailable after 3 retries — rate limiting disabled. Start Redis to enable it.',
+            'Redis unavailable after 3 retries — cache/rate-limiting disabled until it recovers.',
           );
           return null; // stop retrying
         }
@@ -39,15 +49,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.client.on('error', () => {
-      // Silenced — retryStrategy handles logging
+      // Silenced — retryStrategy handles logging; consumers fail open.
     });
 
     try {
       await this.client.connect();
       this.logger.log('RedisService initialized');
     } catch (err) {
+      // Non-fatal: boot MUST NOT depend on Redis being reachable. Commands will
+      // fail-fast and consumers fall back to Postgres / allow.
       this.logger.warn(
-        `Redis not available — rate limiting disabled. ${err instanceof Error ? err.message : String(err)}`,
+        `Redis not available at startup — backend continues, features degraded. ${err instanceof Error ? err.message : String(err)}`,
       );
     }
   }

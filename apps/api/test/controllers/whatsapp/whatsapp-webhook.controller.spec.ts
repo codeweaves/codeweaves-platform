@@ -1,8 +1,8 @@
 import { createHmac } from 'node:crypto';
-import type { Queue } from 'bullmq';
 import type { Request, Response } from 'express';
 
 import type { WhatsappConfigService } from '../../../src/modules/whatsapp/whatsapp-config.service';
+import type { WhatsappInboundService } from '../../../src/modules/whatsapp/whatsapp-inbound.service';
 import { WhatsappWebhookController } from '../../../src/modules/whatsapp/whatsapp-webhook.controller';
 
 const APP_SECRET = 'app-secret';
@@ -24,12 +24,11 @@ function signedReq(payload: unknown, secret = APP_SECRET): Request {
   } as unknown as Request;
 }
 
-describe('WhatsappWebhookController', () => {
-  let config: { isConfigured: boolean; appSecret: string; verifyToken: string };
-  let queue: { add: jest.Mock };
-  let controller: WhatsappWebhookController;
+/** Flush microtasks so fire-and-forget handleInbound() calls settle. */
+const flush = () => new Promise((r) => setImmediate(r));
 
-  const payload = {
+function buildPayload(messageId = 'wamid.in') {
+  return {
     object: 'whatsapp_business_account',
     entry: [
       {
@@ -44,7 +43,7 @@ describe('WhatsappWebhookController', () => {
               messages: [
                 {
                   from: '15551234567',
-                  id: 'wamid.in',
+                  id: messageId,
                   timestamp: '1',
                   type: 'text',
                   text: { body: 'hello' },
@@ -56,6 +55,12 @@ describe('WhatsappWebhookController', () => {
       },
     ],
   };
+}
+
+describe('WhatsappWebhookController', () => {
+  let config: { isConfigured: boolean; appSecret: string; verifyToken: string };
+  let inbound: { handleInbound: jest.Mock };
+  let controller: WhatsappWebhookController;
 
   beforeEach(() => {
     config = {
@@ -63,10 +68,10 @@ describe('WhatsappWebhookController', () => {
       appSecret: APP_SECRET,
       verifyToken: VERIFY_TOKEN,
     };
-    queue = { add: jest.fn().mockResolvedValue(undefined) };
+    inbound = { handleInbound: jest.fn().mockResolvedValue(undefined) };
     controller = new WhatsappWebhookController(
       config as unknown as WhatsappConfigService,
-      queue as unknown as Queue,
+      inbound as unknown as WhatsappInboundService,
     );
   });
 
@@ -100,44 +105,47 @@ describe('WhatsappWebhookController', () => {
   });
 
   describe('receive (POST events)', () => {
-    it('enqueues text messages and acks 200 on a valid signature', async () => {
+    it('acks 200 then processes text messages inline on a valid signature', async () => {
       const { res, status } = makeRes();
-      await controller.receive(signedReq(payload), res);
+      await controller.receive(signedReq(buildPayload()), res);
+      await flush();
 
-      expect(queue.add).toHaveBeenCalledTimes(1);
-      const [, jobData, opts] = queue.add.mock.calls[0];
-      expect(jobData).toMatchObject({
-        phoneNumberId: 'PNID',
-        from: '15551234567',
-        messageId: 'wamid.in',
-        type: 'text',
-        text: 'hello',
-        contactName: 'Jane',
-      });
-      expect(opts.jobId).toBe('wamid.in');
-      expect(opts.attempts).toBe(1);
+      // ACK happens before/independent of processing.
       expect(status).toHaveBeenCalledWith(200);
+      expect(inbound.handleInbound).toHaveBeenCalledTimes(1);
+      expect(inbound.handleInbound).toHaveBeenCalledWith(
+        expect.objectContaining({
+          phoneNumberId: 'PNID',
+          from: '15551234567',
+          messageId: 'wamid.in',
+          type: 'text',
+          text: 'hello',
+          contactName: 'Jane',
+        }),
+      );
     });
 
-    it('returns 401 and enqueues nothing on a bad signature', async () => {
+    it('returns 401 and processes nothing on a bad signature', async () => {
       const { res, status } = makeRes();
-      await controller.receive(signedReq(payload, 'wrong-secret'), res);
+      await controller.receive(signedReq(buildPayload(), 'wrong-secret'), res);
+      await flush();
 
       expect(status).toHaveBeenCalledWith(401);
-      expect(queue.add).not.toHaveBeenCalled();
+      expect(inbound.handleInbound).not.toHaveBeenCalled();
     });
 
     it('returns 503 when WhatsApp is not configured', async () => {
       config.isConfigured = false;
       const { res, status } = makeRes();
-      await controller.receive(signedReq(payload), res);
+      await controller.receive(signedReq(buildPayload()), res);
+      await flush();
 
       expect(status).toHaveBeenCalledWith(503);
-      expect(queue.add).not.toHaveBeenCalled();
+      expect(inbound.handleInbound).not.toHaveBeenCalled();
     });
 
-    it('enqueues voice notes (audio) as an audio job', async () => {
-      const audio = JSON.parse(JSON.stringify(payload));
+    it('processes voice notes (audio) as an audio job', async () => {
+      const audio = JSON.parse(JSON.stringify(buildPayload()));
       audio.entry[0].changes[0].value.messages[0] = {
         from: '15551234567',
         id: 'wamid.audio',
@@ -147,19 +155,21 @@ describe('WhatsappWebhookController', () => {
       };
       const { res, status } = makeRes();
       await controller.receive(signedReq(audio), res);
+      await flush();
 
-      expect(queue.add).toHaveBeenCalledTimes(1);
-      const [, jobData] = queue.add.mock.calls[0];
-      expect(jobData).toMatchObject({
-        type: 'audio',
-        mediaId: 'media-id',
-        messageId: 'wamid.audio',
-      });
+      expect(inbound.handleInbound).toHaveBeenCalledTimes(1);
+      expect(inbound.handleInbound).toHaveBeenCalledWith(
+        expect.objectContaining({
+          type: 'audio',
+          mediaId: 'media-id',
+          messageId: 'wamid.audio',
+        }),
+      );
       expect(status).toHaveBeenCalledWith(200);
     });
 
     it('ignores unsupported types (e.g. image) but still acks 200', async () => {
-      const image = JSON.parse(JSON.stringify(payload));
+      const image = JSON.parse(JSON.stringify(buildPayload()));
       image.entry[0].changes[0].value.messages[0] = {
         from: '15551234567',
         id: 'wamid.img',
@@ -169,8 +179,9 @@ describe('WhatsappWebhookController', () => {
       };
       const { res, status } = makeRes();
       await controller.receive(signedReq(image), res);
+      await flush();
 
-      expect(queue.add).not.toHaveBeenCalled();
+      expect(inbound.handleInbound).not.toHaveBeenCalled();
       expect(status).toHaveBeenCalledWith(200);
     });
 
@@ -185,9 +196,20 @@ describe('WhatsappWebhookController', () => {
 
       const { res, status } = makeRes();
       await controller.receive(req, res);
+      await flush();
 
       expect(status).toHaveBeenCalledWith(200);
-      expect(queue.add).not.toHaveBeenCalled();
+      expect(inbound.handleInbound).not.toHaveBeenCalled();
+    });
+
+    it('dedupes a duplicate delivery of the same message id', async () => {
+      await controller.receive(signedReq(buildPayload('wamid.dup')), makeRes().res);
+      await flush();
+      await controller.receive(signedReq(buildPayload('wamid.dup')), makeRes().res);
+      await flush();
+
+      // Same wamid twice → handled once (in-memory dedup).
+      expect(inbound.handleInbound).toHaveBeenCalledTimes(1);
     });
   });
 });
