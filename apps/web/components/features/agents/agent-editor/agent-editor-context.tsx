@@ -14,7 +14,21 @@ import {
   defaultWidgetTheme,
   type VoiceConfigDto,
   type AgentAiConfigDto,
+  type DataFieldType,
 } from '@repo/validation';
+
+/**
+ * Editable shape of one data-capture field in the form (no id/order/timestamps
+ * — order is implied by array position, the rest are server-managed). Mirrors
+ * the `DataFieldDto` PUT payload. See the Data Capture section.
+ */
+export interface EditorDataField {
+  key: string;
+  label: string;
+  type: DataFieldType;
+  required: boolean;
+  description: string | null;
+}
 
 export interface AgentFormData {
   name: string;
@@ -66,6 +80,13 @@ export interface AgentFormData {
    * in analytics. Max 3, each up to 200 chars.
    */
   fallbackPhrases: string[];
+  /**
+   * Data-capture field definitions — what the bot should collect from a
+   * conversation (e.g. name/email/phone). Order is array position. Empty
+   * disables capture. Saved via PUT /agents/:id/data-fields; the background
+   * extractor reads these to pull values out of finished conversations.
+   */
+  dataFields: EditorDataField[];
 }
 
 interface AgentEditorContextType {
@@ -344,6 +365,7 @@ export function agentToFormData(
   agent: Agent,
   webhookUrl = '',
   initialKnowledge: InitialAgentKnowledge | null = null,
+  initialDataFields: EditorDataField[] = [],
 ): AgentFormData {
   return {
     name: agent.name,
@@ -367,6 +389,7 @@ export function agentToFormData(
     supportedLanguages: agent.supportedLanguages ?? [],
     sessionLifetimeHours: agent.sessionLifetimeHours ?? 6,
     fallbackPhrases: agent.fallbackPhrases ?? [],
+    dataFields: initialDataFields,
   };
 }
 

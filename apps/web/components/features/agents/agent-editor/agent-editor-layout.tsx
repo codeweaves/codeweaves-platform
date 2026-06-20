@@ -50,6 +50,7 @@ import {
   toPreviewFormData,
   type AgentFormData,
   type InitialAgentKnowledge,
+  type EditorDataField,
 } from './agent-editor-context';
 
 // Inner component that uses context
@@ -270,6 +271,32 @@ function AgentEditorContent() {
         return;
       }
 
+      // Data-capture fields: server rejects empty labels, malformed keys, and
+      // duplicate keys (updateDataFieldsSchema). Catch them here so the error
+      // shows AT the field instead of 400-ing.
+      const dataFieldErrors: Record<string, string> = {};
+      const seenKeys = new Set<string>();
+      formData.dataFields.forEach((field, index) => {
+        if (field.label.trim().length === 0) {
+          dataFieldErrors[`dataFields.${index}.label`] =
+            "Field label can't be empty — add a label or remove the field.";
+        }
+        if (!/^[a-z][a-z0-9_]*$/.test(field.key)) {
+          dataFieldErrors[`dataFields.${index}.key`] =
+            'Key must start with a lowercase letter and use only lowercase letters, digits, and underscores.';
+        } else if (seenKeys.has(field.key)) {
+          dataFieldErrors[`dataFields.${index}.key`] =
+            `Duplicate key "${field.key}" — each field needs a unique key.`;
+        }
+        seenKeys.add(field.key);
+      });
+      if (Object.keys(dataFieldErrors).length > 0) {
+        setFieldErrors(dataFieldErrors);
+        setSelectedCategory('dataCapture');
+        setSaving(false);
+        return;
+      }
+
       const payload: Record<string, unknown> = {
         name: formData.name,
         systemPrompt: formData.systemPrompt || null,
@@ -331,6 +358,20 @@ function AgentEditorContent() {
         }
       }
 
+      // Data-capture fields: replace-all PUT (the editor sends the whole list).
+      // Only fire when changed — compared by serialised value (small list,
+      // order-sensitive).
+      const dataFieldsChanged =
+        JSON.stringify(formData.dataFields) !==
+        JSON.stringify(savedFormData.dataFields);
+      if (dataFieldsChanged) {
+        promises.push(
+          api.put(`/agents/${agent.id}/data-fields`, {
+            fields: formData.dataFields,
+          }),
+        );
+      }
+
       await Promise.all(promises);
 
       // Optimistic-on-success cache update: write the known-new state into
@@ -383,6 +424,15 @@ function AgentEditorContent() {
               ? { config: themeData, version: (old?.theme?.version ?? 0) + 1 }
               : (old?.theme ?? { config: themeData, version: 0 }),
             knowledge: newKnowledge,
+            // Synthesise rows from form state (id/timestamps are placeholders
+            // until the next hard reload hits the real GET).
+            dataFields: formData.dataFields.map((f, index) => ({
+              ...f,
+              id: '',
+              order: index,
+              createdAt: new Date().toISOString(),
+              updatedAt: new Date().toISOString(),
+            })),
           };
         },
       );
@@ -589,6 +639,11 @@ interface AgentEditorLayoutProps {
    * no record yet — the knowledge section shows an empty textarea.
    */
   initialKnowledge?: InitialAgentKnowledge | null;
+  /**
+   * Stored data-capture field definitions (ordered). Empty when the agent
+   * collects nothing.
+   */
+  initialDataFields?: EditorDataField[];
 }
 
 export function AgentEditorLayout({
@@ -596,11 +651,13 @@ export function AgentEditorLayout({
   webhookUrl,
   initialThemeData,
   initialKnowledge,
+  initialDataFields,
 }: AgentEditorLayoutProps) {
   const initialFormData: AgentFormData = agentToFormData(
     agent,
     webhookUrl,
     initialKnowledge ?? null,
+    initialDataFields ?? [],
   );
 
   return (

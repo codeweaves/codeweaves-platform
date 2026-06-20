@@ -30,6 +30,9 @@ export * from './agent-ai-config.js';
 // Re-export agent knowledge schemas and types
 export * from './agent-knowledge.js';
 
+// Re-export agent data-capture (field definitions) schemas and types
+export * from './agent-data-fields.js';
+
 // ============================================
 // Common Schemas
 // ============================================

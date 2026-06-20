@@ -1,6 +1,7 @@
 import { Module } from '@nestjs/common';
 
 import { PrismaModule } from '../prisma.module';
+import { DataExtractionModule } from '../data-extraction.module';
 
 import { AiSdkModule } from './ai-sdk.module';
 import { ContextAssemblyService } from './context-assembly.service';
@@ -19,7 +20,7 @@ import { UsageTrackingService } from './usage-tracking.service';
  * services are injected automatically — no need to import here.
  */
 @Module({
-  imports: [PrismaModule, AiSdkModule],
+  imports: [PrismaModule, AiSdkModule, DataExtractionModule],
   providers: [
     ContextAssemblyService,
     DirectChatService,

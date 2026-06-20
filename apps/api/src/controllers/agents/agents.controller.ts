@@ -17,6 +17,7 @@ import { Role } from '@prisma/client';
 import { AgentsService } from '../../services/agents.service';
 import { AgentThemesService } from '../../services/agent-themes.service';
 import { AgentKnowledgeService } from '../../services/agent-knowledge.service';
+import { AgentDataFieldsService } from '../../services/agent-data-fields.service';
 import { Roles } from '../../decorators/roles.decorator';
 import { RequirePermission } from '../../decorators/require-permission.decorator';
 import { RolesGuard } from '../../guards/roles.guard';
@@ -45,6 +46,7 @@ export class AgentsController {
     private readonly agentsService: AgentsService,
     private readonly themesService: AgentThemesService,
     private readonly knowledgeService: AgentKnowledgeService,
+    private readonly dataFieldsService: AgentDataFieldsService,
   ) {}
 
   @Post()
@@ -134,11 +136,13 @@ export class AgentsController {
     // agent itself 404s, and `findById` carries the auth-scoped error.
     const agent = await this.agentsService.findById(id, user);
 
-    const [webhookResult, themeResult, knowledgeResult] = await Promise.allSettled([
-      this.agentsService.getWebhookUrl(id, user),
-      this.themesService.getTheme(id, user),
-      this.knowledgeService.get(id),
-    ]);
+    const [webhookResult, themeResult, knowledgeResult, dataFieldsResult] =
+      await Promise.allSettled([
+        this.agentsService.getWebhookUrl(id, user),
+        this.themesService.getTheme(id, user),
+        this.knowledgeService.get(id),
+        this.dataFieldsService.list(id, user),
+      ]);
 
     return {
       agent,
@@ -149,6 +153,9 @@ export class AgentsController {
       theme: themeResult.status === 'fulfilled' ? themeResult.value : null,
       // Knowledge: null when no record. Editor treats null + empty-string the same.
       knowledge: knowledgeResult.status === 'fulfilled' ? knowledgeResult.value : null,
+      // Data-capture field definitions; empty array when none configured.
+      dataFields:
+        dataFieldsResult.status === 'fulfilled' ? dataFieldsResult.value : [],
     };
   }
 

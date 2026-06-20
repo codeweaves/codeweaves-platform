@@ -5,6 +5,7 @@ import { AgentsController } from '../../../src/controllers/agents/agents.control
 import { AgentsService } from '../../../src/services/agents.service';
 import { AgentThemesService } from '../../../src/services/agent-themes.service';
 import { AgentKnowledgeService } from '../../../src/services/agent-knowledge.service';
+import { AgentDataFieldsService } from '../../../src/services/agent-data-fields.service';
 import { RolesGuard } from '../../../src/guards/roles.guard';
 import { ZodValidationPipe } from '../../../src/pipes/zod-validation.pipe';
 import {
@@ -71,6 +72,7 @@ describe('AgentsController', () => {
         // them, so trivial empty mocks suffice.
         { provide: AgentThemesService, useValue: {} },
         { provide: AgentKnowledgeService, useValue: {} },
+        { provide: AgentDataFieldsService, useValue: {} },
         Reflector,
       ],
     })

@@ -4,7 +4,10 @@ import { useQuery } from '@tanstack/react-query';
 import { useApiClient } from '@/lib/api-client';
 import type { WidgetTheme } from '@repo/validation';
 import type { Agent } from './use-agents';
-import type { InitialAgentKnowledge } from '@/components/features/agents/agent-editor/agent-editor-context';
+import type {
+  InitialAgentKnowledge,
+  EditorDataField,
+} from '@/components/features/agents/agent-editor/agent-editor-context';
 
 /**
  * Shape returned by the bundled `GET /agents/:id/editor-config` endpoint.
@@ -28,6 +31,17 @@ export interface AgentEditorConfigResponse {
     createdAt: string;
     updatedAt: string;
   }) | null;
+  /**
+   * Data-capture field definitions, ordered. Empty array when the agent
+   * collects nothing. The editor strips server-managed fields (id, order,
+   * timestamps) down to the editable `EditorDataField` shape.
+   */
+  dataFields: (EditorDataField & {
+    id: string;
+    order: number;
+    createdAt: string;
+    updatedAt: string;
+  })[];
 }
 
 /**
