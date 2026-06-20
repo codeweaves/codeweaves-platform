@@ -9,11 +9,7 @@ import {
 import { Reflector } from '@nestjs/core';
 import { Request, Response } from 'express';
 import { RateLimiterService } from '../common/redis/rate-limiter.service';
-import {
-  RateLimitConfig,
-  DEFAULT_API_RATE_LIMIT,
-  DEFAULT_PUBLIC_RATE_LIMIT,
-} from '../common/redis/rate-limiter.types';
+import { RateLimitConfig } from '../common/redis/rate-limiter.types';
 import { SKIP_RATE_LIMIT_KEY, RATE_LIMIT_KEY } from '../decorators/rate-limit.decorator';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
@@ -27,7 +23,22 @@ export class RateLimitGuard implements CanActivate {
   ) {}
 
   async canActivate(context: ExecutionContext): Promise<boolean> {
-    // 1. Check @SkipRateLimit()
+    // Rate limiting is OPT-IN. A route is limited ONLY if it declares
+    // @RateLimit({ limit, windowMs }). With no decorator we return immediately
+    // and never touch Redis — so authenticated dashboard browsing (analytics,
+    // conversations, agents, org, teams, …) costs ZERO Redis commands. Add
+    // @RateLimit() to the specific public/abuse-prone routes you want guarded
+    // (e.g. login, demo voice). See docs/plans/redis-usage-reduction.md.
+    const config = this.reflector.getAllAndOverride<RateLimitConfig>(
+      RATE_LIMIT_KEY,
+      [context.getHandler(), context.getClass()],
+    );
+    if (!config) {
+      return true;
+    }
+
+    // Explicit opt-out still wins (lets a @Public() sub-route escape a
+    // controller-level @RateLimit()).
     const skipRateLimit = this.reflector.getAllAndOverride<boolean>(
       SKIP_RATE_LIMIT_KEY,
       [context.getHandler(), context.getClass()],
@@ -36,13 +47,7 @@ export class RateLimitGuard implements CanActivate {
       return true;
     }
 
-    // 2. Check @RateLimit() for custom config
-    const customConfig = this.reflector.getAllAndOverride<RateLimitConfig>(
-      RATE_LIMIT_KEY,
-      [context.getHandler(), context.getClass()],
-    );
-
-    // 3. Check @Public() to determine keying strategy
+    // @Public() decides the keying strategy (IP vs authenticated user).
     const isPublic = this.reflector.getAllAndOverride<boolean>(IS_PUBLIC_KEY, [
       context.getHandler(),
       context.getClass(),
@@ -51,15 +56,8 @@ export class RateLimitGuard implements CanActivate {
     const request = context.switchToHttp().getRequest<Request>();
     const response = context.switchToHttp().getResponse<Response>();
 
-    // 4. Determine config
     const user = (request as Request & { user?: { id?: string } }).user;
     const isAuthenticated = !isPublic && user?.id;
-
-    const config: RateLimitConfig = customConfig
-      ? customConfig
-      : isAuthenticated
-        ? DEFAULT_API_RATE_LIMIT
-        : DEFAULT_PUBLIC_RATE_LIMIT;
 
     // 5. Build rate limit key
     const endpoint = `${request.method}:${request.route?.path ?? request.path}`;

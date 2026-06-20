@@ -67,12 +67,12 @@ describe('RedisService', () => {
   });
 
   describe('onModuleInit', () => {
-    it('should throw if REDIS_URL is not configured', async () => {
+    it('does NOT throw when REDIS_URL is not configured — degrades gracefully', async () => {
       mockConfigService.get.mockReturnValue(undefined);
 
-      await expect(service.onModuleInit()).rejects.toThrow(
-        'REDIS_URL environment variable is required',
-      );
+      // Redis only powers optional, fail-open features. A missing URL must never
+      // crash the backend at boot.
+      await expect(service.onModuleInit()).resolves.toBeUndefined();
     });
 
     it('should register event listeners and await connection', async () => {
