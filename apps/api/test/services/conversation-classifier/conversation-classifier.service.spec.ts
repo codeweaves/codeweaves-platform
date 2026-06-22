@@ -81,6 +81,25 @@ describe('ConversationClassifierService', () => {
     });
   });
 
+  describe('triggerBatch — background + overlap guard', () => {
+    it('starts a background pass and is a no-op while one is running', async () => {
+      let release!: () => void;
+      mockPrisma.chatSession.findMany.mockReturnValue(
+        new Promise((resolve) => {
+          release = () => resolve([]);
+        }),
+      );
+
+      expect(service.triggerBatch()).toBe(true); // first starts
+      expect(service.triggerBatch()).toBe(false); // second blocked while running
+
+      release();
+      await new Promise((r) => setImmediate(r)); // let it settle + clear the guard
+
+      expect(service.triggerBatch()).toBe(true); // free again
+    });
+  });
+
   describe('runBatch — selection query', () => {
     beforeEach(() => {
       // selection-query tests assume the AI gate has passed

@@ -154,7 +154,6 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (due.length === 0) {
-      this.logger.debug('Extraction poll: nothing due.');
       return 0;
     }
     this.logger.log(`Extraction poll: ${due.length} session(s) due.`);

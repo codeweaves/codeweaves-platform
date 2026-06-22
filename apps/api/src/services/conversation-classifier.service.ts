@@ -1,4 +1,4 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { AiClassifierService } from '../common/ai/ai-classifier.service';
 
@@ -38,10 +38,39 @@ export class ConversationClassifierService {
   private static readonly TRANSCRIPT_LAST_N_MESSAGES = 12;
   private static readonly TRANSCRIPT_CHAR_CAP = 8000;
 
+  private readonly logger = new Logger(ConversationClassifierService.name);
+  private running = false;
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly ai: AiClassifierService,
   ) {}
+
+  /**
+   * Kick off runBatch() in the BACKGROUND and return immediately, so the cron
+   * caller (Supabase pg_cron, whose HTTP timeout is capped at 5s) gets an
+   * instant ack instead of waiting out the LLM batch. Overlap-guarded: a no-op
+   * if a pass is already running. Returns whether a new pass was started.
+   */
+  triggerBatch(): boolean {
+    if (this.running) return false;
+    this.running = true;
+    void this.runBatch()
+      .then((processed) => {
+        this.logger.log(
+          `Classifier run complete: processed ${processed} session(s).`,
+        );
+      })
+      .catch((err) => {
+        this.logger.warn(
+          `Classifier run failed: ${err instanceof Error ? err.message : 'unknown'}`,
+        );
+      })
+      .finally(() => {
+        this.running = false;
+      });
+    return true;
+  }
 
   /**
    * Single batch pass — invoked by the internal /internal/classifier/run
