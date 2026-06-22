@@ -3,7 +3,7 @@ import {
   Logger,
   NotFoundException,
 } from '@nestjs/common';
-import { Role, type AgentDataField, type CollectedData } from '@prisma/client';
+import { Role, type AgentDataField } from '@prisma/client';
 import { type UpdateDataFieldsDto } from '@repo/validation';
 
 import { AgentCacheService } from '../common/cache/agent-cache.service';
@@ -34,8 +34,8 @@ import { PrismaService } from './prisma.service';
 export class AgentDataFieldsService {
   private readonly logger = new Logger(AgentDataFieldsService.name);
 
-  private static readonly COLLECTED_DATA_DEFAULT_LIMIT = 100;
-  private static readonly COLLECTED_DATA_MAX_LIMIT = 500;
+  private static readonly COLLECTED_DATA_DEFAULT_LIMIT = 20;
+  private static readonly COLLECTED_DATA_MAX_LIMIT = 100;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -102,28 +102,84 @@ export class AgentDataFieldsService {
   }
 
   /**
-   * List captured data for an agent's conversations, most-recent first. Backs
-   * the dashboard "collected data" view. Bounded; cursor pagination can be
-   * layered on later (see analytics for the pattern).
+   * Paginated "collected data" view for the dashboard. Returns the dynamic
+   * column set (current field defs first — labelled + ordered, shown even with
+   * no data yet — then any orphaned keys still present in stored rows, e.g. from
+   * a renamed field), one page of rows (one per conversation), and the total.
+   *
+   * Org-scoped via assertAgentAccess: CLIENT users only reach their own agents,
+   * ADMIN/SUPER_ADMIN any. This is the one read clients are allowed (defining
+   * fields stays admin-only).
    */
-  async listCollectedData(
+  async getCollectedDataView(
     agentId: string,
     user: CurrentUserData,
-    limit?: number,
-  ): Promise<CollectedData[]> {
+    page = 1,
+    limit = AgentDataFieldsService.COLLECTED_DATA_DEFAULT_LIMIT,
+    sortOrder: 'asc' | 'desc' = 'desc',
+  ): Promise<{
+    columns: Array<{ key: string; label: string }>;
+    rows: Array<{ chatSessionId: string; data: unknown; extractedAt: Date }>;
+    total: number;
+    page: number;
+    limit: number;
+  }> {
     await this.assertAgentAccess(agentId, user);
-    const take = Math.min(
-      Math.max(
-        limit ?? AgentDataFieldsService.COLLECTED_DATA_DEFAULT_LIMIT,
-        1,
-      ),
+
+    const safeLimit = Math.min(
+      Math.max(limit, 1),
       AgentDataFieldsService.COLLECTED_DATA_MAX_LIMIT,
     );
-    return this.prisma.collectedData.findMany({
+    const safePage = Math.max(page, 1);
+    const skip = (safePage - 1) * safeLimit;
+
+    // Distinct keys across ALL captured rows → stable columns across pages.
+    // (agentId column is Postgres `text`, so a plain text param compares fine.)
+    const keyRows = await this.prisma.$queryRaw<Array<{ key: string }>>`
+      SELECT DISTINCT jsonb_object_keys(data) AS key
+      FROM collected_data
+      WHERE "agentId" = ${agentId}
+    `;
+    const presentKeys = new Set(keyRows.map((r) => r.key));
+
+    const fields = await this.prisma.agentDataField.findMany({
       where: { agentId },
-      orderBy: { extractedAt: 'desc' },
-      take,
+      orderBy: { order: 'asc' },
+      select: { key: true, label: true },
     });
+
+    const columns: Array<{ key: string; label: string }> = [];
+    const seen = new Set<string>();
+    // Current fields — friendly labels, shown even if no data has been captured
+    // for them yet (stable table structure).
+    for (const field of fields) {
+      columns.push({ key: field.key, label: field.label });
+      seen.add(field.key);
+    }
+    // Orphaned keys: present in stored data but no current field def (e.g. a
+    // renamed field). Surfaced with the raw key so nothing is silently hidden.
+    for (const key of presentKeys) {
+      if (!seen.has(key)) columns.push({ key, label: key });
+    }
+    // Order columns alphabetically by header label (case-insensitive) so the
+    // table reads predictably regardless of field-definition order. (The
+    // "Captured at" column is appended client-side and always stays last.)
+    columns.sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+    );
+
+    const [rows, total] = await Promise.all([
+      this.prisma.collectedData.findMany({
+        where: { agentId },
+        orderBy: { extractedAt: sortOrder },
+        skip,
+        take: safeLimit,
+        select: { chatSessionId: true, data: true, extractedAt: true },
+      }),
+      this.prisma.collectedData.count({ where: { agentId } }),
+    ]);
+
+    return { columns, rows, total, page: safePage, limit: safeLimit };
   }
 
   /**

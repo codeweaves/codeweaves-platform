@@ -217,6 +217,9 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
       }),
     );
 
+    // Nothing from the user → nothing of theirs to capture; skip the LLM call.
+    if (!session.messages.some((m) => m.role === 'USER')) return 'empty';
+
     const transcript = this.buildTranscript(session.messages);
     const values = await this.ai.extractFields(transcript, extractable);
 
@@ -256,10 +259,14 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
   private buildTranscript(
     messages: Array<{ role: string; content: string }>,
   ): string {
-    // Whole conversation — a detail may have been given in the first message.
-    // Only an extreme outlier exceeds the cap; if it does, keep the most recent.
+    // Full conversation, labelled by speaker. Assistant turns are kept as
+    // CONTEXT so the model can interpret short user replies — but the extraction
+    // prompt forbids capturing values from them, and to read intent (only the
+    // user's OWN data, e.g. "my email is…", never the business's "your email
+    // is…?"). A detail may appear in the first message, so keep the whole thing;
+    // only an extreme outlier exceeds the cap (then keep the most recent).
     const joined = messages
-      .map((m) => `${m.role === 'USER' ? 'User' : 'Assistant'}: ${m.content}`)
+      .map((m) => `[${m.role === 'USER' ? 'USER' : 'ASSISTANT'}]: ${m.content}`)
       .join('\n');
     if (joined.length <= DataExtractionService.TRANSCRIPT_CHAR_CAP) {
       return joined;

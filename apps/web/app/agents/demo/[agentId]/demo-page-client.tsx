@@ -465,8 +465,9 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   }
 
   const starters = agent.theme?.starters ?? [];
-  const welcomeMessage =
-    agent.welcomeMessage ?? `Hi! I'm ${agent.name}. How can I help you today?`;
+  // No fallback greeting — show a welcome bubble only when one is configured,
+  // matching the live widget (which renders no greeting when empty).
+  const welcomeMessage = agent.welcomeMessage?.trim() ?? '';
 
   return (
     <div className="flex h-screen flex-col bg-gray-50">
@@ -494,15 +495,17 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
       <div className="flex flex-1 flex-col overflow-hidden">
         <div className="mx-auto flex w-full max-w-4xl flex-1 flex-col overflow-hidden">
           <div className="flex-1 overflow-y-auto px-4 py-6">
-            {/* Welcome Message */}
-            <div className="mb-6 flex gap-3">
-              <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
-                {agent.name.charAt(0).toUpperCase()}
+            {/* Welcome message — only when one is configured */}
+            {welcomeMessage && (
+              <div className="mb-6 flex gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+                  {agent.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-white px-4 py-3 text-sm text-gray-800 shadow-sm">
+                  {welcomeMessage}
+                </div>
               </div>
-              <div className="max-w-[80%] rounded-2xl rounded-tl-sm bg-white px-4 py-3 text-sm text-gray-800 shadow-sm">
-                {welcomeMessage}
-              </div>
-            </div>
+            )}
 
             {/* Conversation Starters */}
             {startersVisible && starters.length > 0 && (

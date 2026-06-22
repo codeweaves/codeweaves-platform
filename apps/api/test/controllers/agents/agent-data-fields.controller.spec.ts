@@ -13,7 +13,7 @@ describe('AgentDataFieldsController', () => {
   const mockService = {
     list: jest.fn(),
     replaceAll: jest.fn(),
-    listCollectedData: jest.fn(),
+    getCollectedDataView: jest.fn(),
   };
 
   const user = {
@@ -60,9 +60,66 @@ describe('AgentDataFieldsController', () => {
     expect(mockService.replaceAll).toHaveBeenCalledWith(agentId, dto, user);
   });
 
-  it('collected() delegates to the service with the current user', async () => {
-    mockService.listCollectedData.mockResolvedValue([]);
-    await controller.collected(agentId, user);
-    expect(mockService.listCollectedData).toHaveBeenCalledWith(agentId, user);
+  it('collected() delegates to the paginated view with page + limit', async () => {
+    mockService.getCollectedDataView.mockResolvedValue({
+      columns: [],
+      rows: [],
+      total: 0,
+      page: 2,
+      limit: 50,
+    });
+    await controller.collected(agentId, user, '2', '50');
+    expect(mockService.getCollectedDataView).toHaveBeenCalledWith(
+      agentId,
+      user,
+      2,
+      50,
+      'desc',
+    );
+  });
+
+  it('collected() defaults page to 1, limit to undefined, sort to desc', async () => {
+    mockService.getCollectedDataView.mockResolvedValue({
+      columns: [],
+      rows: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+    });
+    await controller.collected(agentId, user, undefined, undefined);
+    expect(mockService.getCollectedDataView).toHaveBeenCalledWith(
+      agentId,
+      user,
+      1,
+      undefined,
+      'desc',
+    );
+  });
+
+  it('collected() forwards sortOrder=asc and ignores anything else', async () => {
+    mockService.getCollectedDataView.mockResolvedValue({
+      columns: [],
+      rows: [],
+      total: 0,
+      page: 1,
+      limit: 20,
+    });
+    await controller.collected(agentId, user, undefined, undefined, 'asc');
+    expect(mockService.getCollectedDataView).toHaveBeenLastCalledWith(
+      agentId,
+      user,
+      1,
+      undefined,
+      'asc',
+    );
+
+    await controller.collected(agentId, user, undefined, undefined, 'garbage');
+    expect(mockService.getCollectedDataView).toHaveBeenLastCalledWith(
+      agentId,
+      user,
+      1,
+      undefined,
+      'desc',
+    );
   });
 });

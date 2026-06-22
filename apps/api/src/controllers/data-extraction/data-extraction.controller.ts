@@ -1,77 +1,54 @@
-import {
-  Body,
-  Controller,
-  Headers,
-  HttpCode,
-  HttpStatus,
-  Post,
-  UnauthorizedException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Body, Controller, Logger, Post, UseGuards } from '@nestjs/common';
+import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
 
 import { Public } from '../../decorators/public.decorator';
+import { InternalSecretGuard } from '../../guards/internal-secret.guard';
 import { DataExtractionService } from '../../services/data-extraction.service';
 
 /**
- * Internal trigger for background data capture. There is NO in-process timer or
- * queue — extraction runs only when this endpoint is called:
+ * Internal trigger for background data capture. An external scheduler (Render
+ * Cron, cron-job.org, Cloud Scheduler, QStash…) POSTs here on a schedule with
+ * the shared secret header:
  *
- *   - PRODUCTION: an external scheduler (e.g. GCP Cloud Scheduler) POSTs here
- *     every ~1-2 min to process whatever conversations are due.
- *   - LOCAL/TESTING: hit it yourself. Pass `{ "sessionId": "<id>" }` to extract
- *     one conversation immediately (skips the debounce timer) so you don't wait.
+ *   curl -X POST https://<api-host>/internal/data-extraction/run \
+ *        -H "x-internal-secret: $INTERNAL_API_SECRET"
  *
- * `@Public()` bypasses the JWT guard (no user context on a cron call). It's
- * protected by a shared secret header when `INTERNAL_API_SECRET` is set; with
- * no secret configured it's allowed in non-production only (local convenience)
- * and denied in production (fail closed).
+ * Pass `{ "sessionId": "<id>" }` to extract one conversation immediately
+ * (skips the debounce timer) — handy for manual testing/debugging.
+ *
+ * @Public()                       — no JWT (the caller is a cron, not a user)
+ * @UseGuards(InternalSecretGuard) — the real auth gate (shared secret),
+ *                                   same guard the classifier endpoint uses.
+ *
+ * Note: local feature testing usually goes through the in-process poll timer in
+ * DataExtractionService, which calls runDuePass() directly and needs no secret.
+ * This endpoint is for the prod cron trigger + on-demand extraction.
  */
 @ApiTags('Internal')
+@Public()
+@UseGuards(InternalSecretGuard)
 @Controller('internal/data-extraction')
 export class DataExtractionController {
-  constructor(
-    private readonly extraction: DataExtractionService,
-    private readonly config: ConfigService,
-  ) {}
+  private readonly logger = new Logger(DataExtractionController.name);
+
+  constructor(private readonly extraction: DataExtractionService) {}
 
   @Post('run')
-  @Public()
-  @HttpCode(HttpStatus.OK)
-  @ApiOperation({
-    summary:
-      'Run due data-capture extractions (cron). Optional { sessionId } extracts one conversation now.',
-  })
-  @ApiResponse({ status: 200, description: 'Extraction pass completed.' })
-  @ApiResponse({ status: 401, description: 'Missing/invalid internal secret.' })
+  @ApiExcludeEndpoint()
   async run(
-    @Headers('x-internal-secret') secret: string | undefined,
     @Body() body: { sessionId?: string } | undefined,
-  ) {
-    this.assertAuthorized(secret);
-
-    // Local-testing shortcut: extract one conversation right now, ignoring the
-    // debounce timer.
+  ): Promise<
+    | { mode: 'single'; sessionId: string; outcome: string }
+    | { mode: 'due-pass'; captured: number }
+  > {
+    // On-demand single extraction (bypasses the debounce) — for manual testing.
     if (body?.sessionId) {
       const outcome = await this.extraction.extractForSession(body.sessionId);
       return { mode: 'single', sessionId: body.sessionId, outcome };
     }
 
     const captured = await this.extraction.runDuePass();
+    this.logger.log(`Data-extraction run complete: captured ${captured}.`);
     return { mode: 'due-pass', captured };
-  }
-
-  private assertAuthorized(secret: string | undefined): void {
-    const expected = this.config.get<string>('INTERNAL_API_SECRET');
-    if (expected) {
-      if (secret !== expected) {
-        throw new UnauthorizedException('Invalid internal secret');
-      }
-      return;
-    }
-    // No secret configured → allow locally (dev convenience), deny in prod.
-    if (this.config.get<string>('NODE_ENV') === 'production') {
-      throw new UnauthorizedException('INTERNAL_API_SECRET is not configured');
-    }
   }
 }

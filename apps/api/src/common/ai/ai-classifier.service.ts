@@ -287,10 +287,11 @@ export class AiClassifierService {
     } as const;
 
     const system = [
-      'You extract structured information from a chat conversation between an end-user and an AI assistant.',
-      'For each field in the schema, return the value the USER explicitly provided.',
-      'If the user did not provide a value for a field, return null for that field.',
-      'NEVER guess, infer, or fabricate. Only return what the user actually stated.',
+      'You extract structured details that an END-USER gave about THEMSELVES in a chat.',
+      'The transcript is labelled by speaker: [USER] is the person whose data we want; [ASSISTANT] is the business\'s bot. Use [ASSISTANT] turns only as CONTEXT to understand the conversation — NEVER extract a value from them.',
+      'Read the MEANING of each sentence. Only extract a value when the user is giving it as their OWN — usually phrased like "my email is…", "I\'m…", "my number is…", "my customer id is…".',
+      'Do NOT extract a value the user is referring to as the business\'s or someone else\'s — e.g. "your email is…?", "is this your number?", "I saw it on your website". Those are not the user\'s data.',
+      'If the user did not provide a field about themselves, return null for it — the JSON value null, never the text "null". NEVER guess, infer, or fabricate.',
       'Reply with JSON matching the provided schema exactly.',
     ].join('\n');
 
@@ -325,7 +326,7 @@ export class AiClassifierService {
       if (
         f.jsonType === 'string' &&
         typeof value === 'string' &&
-        value.trim() !== ''
+        !isNoValue(value)
       ) {
         result[f.key] = value.trim();
       } else if (f.jsonType === 'number' && typeof value === 'number') {
@@ -440,4 +441,30 @@ function truncate(s: string, max: number): string {
   // relevant context tends to be at the END of a conversation, where the
   // user has clarified what they actually want.
   return s.slice(s.length - max);
+}
+
+/**
+ * Strings models sometimes emit for "not provided" INSTEAD of a real JSON null.
+ * The schema marks fields nullable, but the literal text "null" is still a valid
+ * string, so strict mode lets it through — we must reject these ourselves so we
+ * never persist a field whose value is the word "null".
+ */
+const NO_VALUE_SENTINELS = new Set([
+  'null',
+  'none',
+  'n/a',
+  'na',
+  'nil',
+  'undefined',
+  'unknown',
+  'not provided',
+  'not given',
+  '-',
+  '—',
+]);
+
+/** True when a string value should be treated as "no value" (skip it). */
+function isNoValue(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return v === '' || NO_VALUE_SENTINELS.has(v);
 }

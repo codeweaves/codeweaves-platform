@@ -19,8 +19,9 @@ describe('AgentDataFieldsService', () => {
   const mockPrisma = {
     agent: { findFirst: jest.fn() },
     agentDataField: { findMany: jest.fn() },
-    collectedData: { findMany: jest.fn() },
+    collectedData: { findMany: jest.fn(), count: jest.fn() },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn(),
   };
   const mockCache = { invalidate: jest.fn() };
 
@@ -163,30 +164,63 @@ describe('AgentDataFieldsService', () => {
     });
   });
 
-  describe('listCollectedData()', () => {
+  describe('getCollectedDataView()', () => {
     beforeEach(() => {
       mockPrisma.agent.findFirst.mockResolvedValue({ id: agentId });
-      mockPrisma.collectedData.findMany.mockResolvedValue([
-        { data: { email: 'a@b.com' } },
+      // distinct keys present in stored data: two current fields (defined in
+      // NON-alphabetical order) + one orphaned key — so the assertion proves
+      // the alphabetical-by-label sort, not just insertion order.
+      mockPrisma.$queryRaw.mockResolvedValue([
+        { key: 'zname' },
+        { key: 'aname' },
+        { key: 'mid_field' },
       ]);
+      mockPrisma.agentDataField.findMany.mockResolvedValue([
+        { key: 'zname', label: 'Zebra' },
+        { key: 'aname', label: 'Apple' },
+      ]);
+      mockPrisma.collectedData.findMany.mockResolvedValue([
+        { chatSessionId: 's1', data: { aname: 'a@b.com' }, extractedAt: new Date() },
+      ]);
+      mockPrisma.collectedData.count.mockResolvedValue(1);
     });
 
-    it('returns recent rows with a bounded default take', async () => {
-      const result = await service.listCollectedData(agentId, adminUser);
+    it('orders columns alphabetically by label (case-insensitive); orphaned keys use the raw key as label', async () => {
+      const result = await service.getCollectedDataView(agentId, adminUser, 1, 20);
 
-      expect(result).toEqual([{ data: { email: 'a@b.com' } }]);
-      expect(mockPrisma.collectedData.findMany).toHaveBeenCalledWith({
-        where: { agentId },
-        orderBy: { extractedAt: 'desc' },
-        take: 100,
-      });
+      expect(result.columns).toEqual([
+        { key: 'aname', label: 'Apple' }, // current field → friendly label
+        { key: 'mid_field', label: 'mid_field' }, // orphaned → raw key
+        { key: 'zname', label: 'Zebra' }, // current field, sorted after the rest
+      ]);
+      expect(result.total).toBe(1);
+      expect(result.rows).toHaveLength(1);
     });
 
-    it('clamps an excessive limit to the max', async () => {
-      await service.listCollectedData(agentId, adminUser, 99999);
+    it('clamps page size to the max and paginates (skip = (page-1)*limit)', async () => {
+      await service.getCollectedDataView(agentId, adminUser, 2, 99999);
       expect(mockPrisma.collectedData.findMany).toHaveBeenCalledWith(
-        expect.objectContaining({ take: 500 }),
+        expect.objectContaining({ skip: 100, take: 100 }),
       );
+    });
+
+    it('defaults to newest-first and honors an explicit sort order', async () => {
+      await service.getCollectedDataView(agentId, adminUser, 1, 20);
+      expect(mockPrisma.collectedData.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: { extractedAt: 'desc' } }),
+      );
+
+      await service.getCollectedDataView(agentId, adminUser, 1, 20, 'asc');
+      expect(mockPrisma.collectedData.findMany).toHaveBeenLastCalledWith(
+        expect.objectContaining({ orderBy: { extractedAt: 'asc' } }),
+      );
+    });
+
+    it('throws NotFound when the agent is not accessible', async () => {
+      mockPrisma.agent.findFirst.mockResolvedValue(null);
+      await expect(
+        service.getCollectedDataView(agentId, adminUser),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 });

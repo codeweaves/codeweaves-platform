@@ -83,14 +83,11 @@ function AgentEditorContent() {
   const [saving, setSaving] = useState(false);
   const [resetDefaultsOpen, setResetDefaultsOpen] = useState(false);
 
-  // Preview messages state
-  const [previewMessages, setPreviewMessages] = useState<PreviewMessage[]>([
-    {
-      type: 'system',
-      text: formData.welcomeMessage || 'Hello! How can I help you today?',
-      timestamp: new Date(),
-    },
-  ]);
+  // Preview conversation state — holds ONLY the simulated exchange (user
+  // messages + mock AI replies). The greeting is NOT stored here; it's derived
+  // from `welcomeMessage` and prepended for display, so an empty welcome shows
+  // no greeting bubble — matching the live widget.
+  const [previewMessages, setPreviewMessages] = useState<PreviewMessage[]>([]);
 
   // Scrollbar visibility for form area
   const scrollRef = useRef<HTMLDivElement | null>(null);
@@ -191,18 +188,6 @@ function AgentEditorContent() {
     );
     return cleanup;
   }, [status, statusPending, pendingDirection, agent.publicId, agent.id, setActions]);
-
-  // Update greeting in preview when welcomeMessage changes
-  useEffect(() => {
-    setPreviewMessages((prev) => [
-      {
-        type: 'system',
-        text: formData.welcomeMessage || 'Hello! How can I help you today?',
-        timestamp: new Date(),
-      },
-      ...prev.slice(1),
-    ]);
-  }, [formData.welcomeMessage]);
 
   // Warn about unsaved changes on tab close/refresh and client-side navigation
   useUnsavedChangesWarning(hasUnsavedChanges);
@@ -499,13 +484,7 @@ function AgentEditorContent() {
 
   const handleReset = () => {
     resetToSaved();
-    setPreviewMessages([
-      {
-        type: 'system',
-        text: savedFormData.welcomeMessage || 'Hello! How can I help you today?',
-        timestamp: new Date(),
-      },
-    ]);
+    setPreviewMessages([]);
   };
 
   // Build preview form data from agent form + theme data
@@ -513,6 +492,21 @@ function AgentEditorContent() {
     () => toPreviewFormData(formData, themeData),
     [formData, themeData],
   );
+
+  // Stable timestamp for the derived greeting bubble (cosmetic; kept constant
+  // so it doesn't jump every time the conversation changes).
+  const greetingTimestamp = useMemo(() => new Date(), []);
+
+  // Prepend the greeting only when a welcome message is configured, mirroring
+  // the live widget (no greeting bubble when `welcomeMessage` is empty).
+  const displayPreviewMessages = useMemo<PreviewMessage[]>(() => {
+    const greeting = formData.welcomeMessage?.trim();
+    if (!greeting) return previewMessages;
+    return [
+      { type: 'system', text: greeting, timestamp: greetingTimestamp },
+      ...previewMessages,
+    ];
+  }, [formData.welcomeMessage, previewMessages, greetingTimestamp]);
 
   return (
     // Negative margins cancel the dashboard shell's content padding (px-8 py-7)
@@ -602,7 +596,7 @@ function AgentEditorContent() {
         <div className="flex h-full min-h-0 min-w-112.5 max-w-150 flex-2 flex-col border-l border-border bg-card">
           <AgentPreview
             formData={previewFormData}
-            messages={previewMessages}
+            messages={displayPreviewMessages}
             onSendMessage={handleSendPreviewMessage}
           />
         </div>

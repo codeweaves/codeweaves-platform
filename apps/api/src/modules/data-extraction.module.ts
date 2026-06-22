@@ -2,6 +2,7 @@ import { Module } from '@nestjs/common';
 
 import { AiModule } from '../common/ai/ai.module';
 import { DataExtractionController } from '../controllers/data-extraction/data-extraction.controller';
+import { InternalSecretGuard } from '../guards/internal-secret.guard';
 import { DataExtractionService } from '../services/data-extraction.service';
 
 import { PrismaModule } from './prisma.module';
@@ -17,7 +18,7 @@ import { PrismaModule } from './prisma.module';
 @Module({
   imports: [PrismaModule, AiModule],
   controllers: [DataExtractionController],
-  providers: [DataExtractionService],
+  providers: [DataExtractionService, InternalSecretGuard],
   exports: [DataExtractionService],
 })
 export class DataExtractionModule {}
