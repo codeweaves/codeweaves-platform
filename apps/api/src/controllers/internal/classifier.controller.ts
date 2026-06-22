@@ -35,9 +35,15 @@ export class ClassifierController {
 
   @Post('run')
   @ApiExcludeEndpoint()
-  async run(): Promise<{ processed: number }> {
-    const processed = await this.classifier.runBatch();
-    this.logger.log(`Classifier run complete: processed ${processed} session(s).`);
-    return { processed };
+  run(): { started: boolean } {
+    // Start the batch in the background and ACK immediately. A daily pass over
+    // up to 200 sessions runs far longer than the scheduler's HTTP timeout
+    // (Supabase caps it at 5s); the work continues server-side. runBatch() is
+    // idempotent and overlap-guarded, so a duplicate trigger is a safe no-op.
+    const started = this.classifier.triggerBatch();
+    this.logger.log(
+      `Classifier trigger: pass ${started ? 'started' : 'already running'}.`,
+    );
+    return { started };
   }
 }

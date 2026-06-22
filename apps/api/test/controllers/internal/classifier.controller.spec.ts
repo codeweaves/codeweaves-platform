@@ -2,28 +2,28 @@ import { ClassifierController } from '../../../src/controllers/internal/classifi
 import type { ConversationClassifierService } from '../../../src/services/conversation-classifier.service';
 
 describe('ClassifierController', () => {
-  let classifier: { runBatch: jest.Mock };
+  let classifier: { triggerBatch: jest.Mock };
   let controller: ClassifierController;
 
   beforeEach(() => {
-    classifier = { runBatch: jest.fn() };
+    classifier = { triggerBatch: jest.fn() };
     controller = new ClassifierController(
       classifier as unknown as ConversationClassifierService,
     );
   });
 
-  it('runs the batch and returns the processed count', async () => {
-    classifier.runBatch.mockResolvedValue(7);
+  it('triggers a background batch and acks immediately', () => {
+    classifier.triggerBatch.mockReturnValue(true);
 
-    const result = await controller.run();
+    const result = controller.run();
 
-    expect(classifier.runBatch).toHaveBeenCalledTimes(1);
-    expect(result).toEqual({ processed: 7 });
+    expect(classifier.triggerBatch).toHaveBeenCalledTimes(1);
+    expect(result).toEqual({ started: true });
   });
 
-  it('propagates errors from the batch (cron sees a non-200)', async () => {
-    classifier.runBatch.mockRejectedValue(new Error('boom'));
+  it('reports started=false when a pass is already running', () => {
+    classifier.triggerBatch.mockReturnValue(false);
 
-    await expect(controller.run()).rejects.toThrow('boom');
+    expect(controller.run()).toEqual({ started: false });
   });
 });

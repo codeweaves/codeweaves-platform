@@ -7,7 +7,7 @@ describe('DataExtractionController', () => {
   let controller: DataExtractionController;
 
   const mockService = {
-    runDuePass: jest.fn(),
+    triggerDuePass: jest.fn(),
     extractForSession: jest.fn(),
   };
 
@@ -23,12 +23,18 @@ describe('DataExtractionController', () => {
     controller = moduleRef.get(DataExtractionController);
   });
 
-  it('runs a due pass when no sessionId is given', async () => {
-    mockService.runDuePass.mockResolvedValue(3);
+  it('triggers a background due pass and acks immediately when no sessionId is given', async () => {
+    mockService.triggerDuePass.mockReturnValue(true);
     const res = await controller.run(undefined);
-    expect(res).toEqual({ mode: 'due-pass', captured: 3 });
-    expect(mockService.runDuePass).toHaveBeenCalledTimes(1);
+    expect(res).toEqual({ mode: 'due-pass', started: true });
+    expect(mockService.triggerDuePass).toHaveBeenCalledTimes(1);
     expect(mockService.extractForSession).not.toHaveBeenCalled();
+  });
+
+  it('reports started=false when a pass is already running', async () => {
+    mockService.triggerDuePass.mockReturnValue(false);
+    const res = await controller.run({});
+    expect(res).toEqual({ mode: 'due-pass', started: false });
   });
 
   it('extracts a single session when sessionId is given (skips the due pass)', async () => {
@@ -40,6 +46,6 @@ describe('DataExtractionController', () => {
       outcome: 'captured',
     });
     expect(mockService.extractForSession).toHaveBeenCalledWith('sess-1');
-    expect(mockService.runDuePass).not.toHaveBeenCalled();
+    expect(mockService.triggerDuePass).not.toHaveBeenCalled();
   });
 });
