@@ -10,6 +10,7 @@ import { AiTraceService } from '../../../src/modules/ai/trace/ai-trace.service';
 import { UsageTrackingService } from '../../../src/modules/ai/usage-tracking.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
+import { DataExtractionService } from '../../../src/services/data-extraction.service';
 import type { LlmStreamChunk } from '../../../src/modules/ai/interfaces/llm.interfaces';
 
 describe('DirectChatService', () => {
@@ -31,6 +32,7 @@ describe('DirectChatService', () => {
   const mockCache = {
     getAgentWithKnowledge: jest.fn(),
   };
+  const mockDataExtractionService = { scheduleExtraction: jest.fn() };
 
   const traceContext = {
     traceId: 'trace-1',
@@ -84,6 +86,10 @@ describe('DirectChatService', () => {
         { provide: UsageTrackingService, useValue: mockUsage },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AgentCacheService, useValue: mockCache },
+        {
+          provide: DataExtractionService,
+          useValue: mockDataExtractionService,
+        },
       ],
     }).compile();
     service = moduleRef.get(DirectChatService);

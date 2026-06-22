@@ -23,6 +23,15 @@ enum AgentStatus {
   INACTIVE
 }
 
+enum DataFieldType {
+  STRING
+  NUMBER
+  BOOLEAN
+  DATE
+  EMAIL
+  PHONE
+}
+
 enum SessionStatus {
   ACTIVE
   EXPIRED
@@ -163,6 +172,8 @@ model Agent {
   knowledge            AgentKnowledge?
   whatsappChannel      WhatsappChannel?
   whatsappTemplates    WhatsappTemplate[]
+  dataFields           AgentDataField[]
+  collectedData        CollectedData[]
   chatSessions         ChatSession[]
   createdAt            DateTime           @default(now())
   updatedAt            DateTime           @updatedAt
@@ -238,6 +249,73 @@ model AgentKnowledge {
 
   @@index([agentId])
   @@map("agent_knowledge")
+}
+
+/// Customer-defined fields this agent should capture from conversations (e.g.
+/// name/email/phone for a sales bot, employeeId for an HR bot). These are
+/// DEFINITIONS only — captured values land in CollectedData. The list is
+/// injected into the system prompt ("collect these…", in-band, no extra LLM
+/// call) and drives the background extractor that pulls values out of
+/// finished conversations. See docs/plans/agent-data-and-integrations-plan.md.
+model AgentDataField {
+  id      String @id @default(uuid())
+  agentId String
+  agent   Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// Machine name used as the JSON key in CollectedData.data (e.g. "email").
+  /// Immutable once created — renaming would orphan historical values. Unique
+  /// per agent.
+  key String @db.VarChar(64)
+
+  /// Human label shown in the dashboard, e.g. "Email address".
+  label String @db.VarChar(100)
+
+  /// Value type. Drives extraction hinting now; (later) validation + reporting.
+  type DataFieldType @default(STRING)
+
+  /// Whether the agent should proactively ask for this when the visitor hasn't
+  /// volunteered it. Optional fields are captured only if mentioned.
+  required Boolean @default(false)
+
+  /// Optional natural-language hint for the extractor, e.g. "the 6-digit order
+  /// number". Helps the LLM pull the right value.
+  description String? @db.Text
+
+  /// Display + extraction ordering.
+  order Int @default(0)
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([agentId, key])
+  @@index([agentId])
+  @@map("agent_data_fields")
+}
+
+/// Values captured from a single conversation, keyed by the agent's
+/// AgentDataField definitions. One row per chat session, upserted by the
+/// background extractor (NOT on the reply hot path). `data` is a flat JSONB
+/// object { "<field.key>": <value> } so adding a new field never touches the
+/// schema. Restricted on agent delete (preserves captured leads, mirroring
+/// ChatSession), cascades on session delete (mirroring ChatMessage).
+model CollectedData {
+  id            String      @id @default(uuid())
+  agentId       String
+  agent         Agent       @relation(fields: [agentId], references: [id])
+  chatSessionId String      @unique
+  chatSession   ChatSession @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+
+  /// Captured values keyed by AgentDataField.key, e.g. { "email": "a@b.com" }.
+  data Json @db.JsonB
+
+  /// When the extractor last wrote this row.
+  extractedAt DateTime @default(now())
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([agentId])
+  @@map("collected_data")
 }
 
 /// A WhatsApp number connected to an agent. The webhook routes each inbound message
@@ -349,7 +427,14 @@ model ChatSession {
   // Timestamp of the most recent classifier run. Used to skip already-
   // classified sessions and (later) to expire stale labels when keywords change.
   categorizedAt    DateTime?
+  // When the background data-capture extraction should next run for this
+  // session. Set to `now + debounce` on each user-facing turn (each new message
+  // pushes it forward = debounce), then cleared once extraction has run. A
+  // Postgres-poll runner (`runDuePass`) picks up rows where this is <= now — no
+  // Redis/queue involved. Null = nothing pending.
+  extractionDueAt  DateTime?
   messages         ChatMessage[]
+  collectedData    CollectedData?
   createdAt        DateTime      @default(now())
   updatedAt        DateTime      @updatedAt
   lastMessageAt    DateTime?
@@ -359,6 +444,9 @@ model ChatSession {
   @@index([visitorId])
   @@index([category])
   @@index([detectedLanguage])
+  // Lets the extraction poll find due sessions cheaply without scanning the
+  // table; the `<= now` range query uses this index and skips nulls.
+  @@index([extractionDueAt])
   @@map("chat_sessions")
 }
 

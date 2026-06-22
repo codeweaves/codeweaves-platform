@@ -17,6 +17,7 @@ import { AgentCacheModule } from '../common/cache/agent-cache.module';
 import { WidgetCorsCacheModule } from '../common/cache/widget-cors-cache.module';
 import { ConversationsModule } from './conversations.module';
 import { ConversationClassifierModule } from './conversation-classifier.module';
+import { DataExtractionModule } from './data-extraction.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
@@ -56,6 +57,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     WidgetCorsCacheModule,
     ConversationsModule,
     ConversationClassifierModule,
+    DataExtractionModule,
     WhatsappModule,
     TracerModule,
     CryptoModule,

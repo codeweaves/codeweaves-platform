@@ -7,6 +7,7 @@ import { ChatSettings } from './sections/chat-settings';
 import { BehaviorSettings } from './sections/behavior-settings';
 import { PromptSettings } from './sections/prompt-settings';
 import { ClassificationSettings } from './sections/classification-settings';
+import { DataCaptureSettings } from './sections/data-capture-settings';
 import { IntegrationSettings } from './sections/integration-settings';
 import { WhatsappSettings } from './sections/whatsapp-settings';
 import { BrandingSettings } from './sections/branding-settings';
@@ -32,6 +33,8 @@ export function AgentEditorForm({ selectedCategory }: AgentEditorFormProps) {
       return <PromptSettings />;
     case 'classification':
       return <ClassificationSettings />;
+    case 'dataCapture':
+      return <DataCaptureSettings />;
     case 'integration':
       return <IntegrationSettings />;
     case 'whatsapp':

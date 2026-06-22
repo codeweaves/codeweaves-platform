@@ -1,11 +1,12 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Agent } from '@prisma/client';
+import type { Agent, AgentDataField } from '@prisma/client';
 import {
   agentAiConfigSchema,
   type AgentAiConfigDto,
 } from '@repo/validation';
 
 import { AgentCacheService } from '../../common/cache/agent-cache.service';
+import { DataExtractionService } from '../../services/data-extraction.service';
 import { PrismaService } from '../../services/prisma.service';
 
 import { AiSdkService } from './ai-sdk.service';
@@ -24,6 +25,22 @@ import { UsageTrackingService } from './usage-tracking.service';
 
 /** Divider prepended before injected knowledge content in the system prompt. */
 const KNOWLEDGE_DIVIDER = '\n\n---\n\n[REFERENCE KNOWLEDGE]\n';
+
+/** Divider prepended before the data-collection instruction. */
+const DATA_COLLECTION_DIVIDER = '\n\n---\n\n[DATA TO COLLECT]\n';
+
+/**
+ * Features that represent a real end-user conversation turn — the only ones
+ * eligible to trigger background data capture. Internal `send()` calls
+ * (summarisation, title-generation, rag-*, embedding, warmup) must NEVER
+ * enqueue extraction. `send()` is used by WhatsApp inbound (`feature: 'chat'`),
+ * so we cover it here too — not just the streaming widget path.
+ */
+const CAPTURE_ELIGIBLE_FEATURES = new Set<string>([
+  'chat',
+  'chat-stream',
+  'voice',
+]);
 
 /**
  * DirectChatService: the orchestrator for direct-mode AI calls. This is what
@@ -80,22 +97,32 @@ export class DirectChatService {
     private readonly usageTracker: UsageTrackingService,
     private readonly prisma: PrismaService,
     private readonly agentCache: AgentCacheService,
+    private readonly dataExtractionService: DataExtractionService,
   ) {}
 
   /**
-   * Load an agent's static knowledge content (if any), from Redis cache when
-   * available. Result is appended to the system prompt by the caller.
+   * Load an agent's static knowledge content AND its data-capture field
+   * definitions in a single cached read. Both ride the same Redis entry
+   * (AgentCacheService), so this is one round-trip, not two. Results are
+   * appended to the system prompt by the caller.
    *
-   * Returns `null` when no knowledge record exists. Cache failures fall
-   * through transparently to Postgres (see AgentCacheService for details).
+   * `knowledge` is `null` when no knowledge record exists; `dataFields` is an
+   * empty array when the agent collects nothing. Cache failures fall through
+   * transparently to Postgres (see AgentCacheService for details).
    */
-  private async loadKnowledge(
-    agentId: string,
-  ): Promise<{ content: string; tokens: number | null } | null> {
+  private async loadAgentExtras(agentId: string): Promise<{
+    knowledge: { content: string; tokens: number | null } | null;
+    dataFields: AgentDataField[];
+  }> {
     const cached = await this.agentCache.getAgentWithKnowledge(agentId);
-    const knowledge = cached?.knowledge;
-    if (!knowledge || !knowledge.content.trim()) return null;
-    return { content: knowledge.content, tokens: knowledge.contentTokens };
+    const knowledge =
+      cached?.knowledge && cached.knowledge.content.trim()
+        ? {
+            content: cached.knowledge.content,
+            tokens: cached.knowledge.contentTokens,
+          }
+        : null;
+    return { knowledge, dataFields: cached?.dataFields ?? [] };
   }
 
   /**
@@ -165,15 +192,19 @@ export class DirectChatService {
       // below for the reconciliation.
       const knowledgeStart = performance.now();
       const contextStart = performance.now();
-      const [knowledge, context] = await Promise.all([
-        this.loadKnowledge(req.agent.id).then((k) => {
+      const [extras, context] = await Promise.all([
+        this.loadAgentExtras(req.agent.id).then((e) => {
           const knowledgeMs = Math.round(performance.now() - knowledgeStart);
           trace.step(
             'knowledge.load',
-            { hasKnowledge: k !== null, knowledgeTokens: k?.tokens ?? 0 },
+            {
+              hasKnowledge: e.knowledge !== null,
+              knowledgeTokens: e.knowledge?.tokens ?? 0,
+              dataFieldCount: e.dataFields.length,
+            },
             knowledgeMs,
           );
-          return k;
+          return e;
         }),
         this.loadContext(
           req,
@@ -199,10 +230,13 @@ export class DirectChatService {
           return ctx;
         }),
       ]);
+      const { knowledge, dataFields } = extras;
       const systemPrompt =
         (knowledge
           ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
-          : systemPromptResolved) + buildFallbackInstruction(req.agent);
+          : systemPromptResolved) +
+        buildCollectionInstruction(dataFields) +
+        buildFallbackInstruction(req.agent);
 
       trace.step('llm.call_start', {
         model: modelId,
@@ -277,6 +311,17 @@ export class DirectChatService {
         model: result.model,
       });
 
+      // Off-hot-path data capture for BUFFERED turns (e.g. WhatsApp inbound,
+      // which uses send()). Same debounced, gated behaviour as stream(): only
+      // when the agent collects something AND this is a real user-facing turn
+      // (never internal send() calls like summarisation/title-gen).
+      if (
+        dataFields.length > 0 &&
+        CAPTURE_ELIGIBLE_FEATURES.has(req.feature ?? 'chat')
+      ) {
+        void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
+      }
+
       return finalResult;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -334,10 +379,10 @@ export class DirectChatService {
       let knowledgeMs = 0;
       let contextMs = 0;
 
-      const [knowledge, context] = await Promise.all([
-        this.loadKnowledge(req.agent.id).then((k) => {
+      const [extras, context] = await Promise.all([
+        this.loadAgentExtras(req.agent.id).then((e) => {
           knowledgeMs = Math.round(performance.now() - knowledgeStart);
-          return k;
+          return e;
         }),
         this.loadContext(
           req,
@@ -351,10 +396,12 @@ export class DirectChatService {
           return ctx;
         }),
       ]);
+      const { knowledge, dataFields } = extras;
 
       const knowledgeData = {
         hasKnowledge: knowledge !== null,
         knowledgeTokens: knowledge?.tokens ?? 0,
+        dataFieldCount: dataFields.length,
       };
       trace.step('knowledge.load', knowledgeData, knowledgeMs);
       yield {
@@ -366,7 +413,9 @@ export class DirectChatService {
       const systemPrompt =
         (knowledge
           ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
-          : systemPromptResolved) + buildFallbackInstruction(req.agent);
+          : systemPromptResolved) +
+        buildCollectionInstruction(dataFields) +
+        buildFallbackInstruction(req.agent);
 
       const contextData = {
         strategy: config.contextStrategy ?? 'sliding-window',
@@ -510,6 +559,18 @@ export class DirectChatService {
         response: finalTextBuffer,
         model: finalModel ?? modelId,
       });
+
+      // Debounced, off-hot-path data capture. Only when the agent actually
+      // collects something (agents without fields never enqueue) AND this is a
+      // real user-facing turn. Runs ~60s after the conversation settles (once
+      // per conversation), so it adds ZERO latency to the reply just delivered.
+      // See docs/plans/agent-data-and-integrations-plan.md.
+      if (
+        dataFields.length > 0 &&
+        CAPTURE_ELIGIBLE_FEATURES.has(req.feature ?? 'chat-stream')
+      ) {
+        void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
+      }
     } catch (err) {
       const isAbort = err instanceof Error && err.name === 'AbortError';
       const errorMsg = err instanceof Error ? err.message : String(err);
@@ -593,6 +654,43 @@ function resolveSystemPromptTemplate(
  * (question entirely outside its knowledge). An earlier, more aggressive
  * wording turned good soft answers into robotic give-ups.
  */
+/**
+ * Build the in-band data-collection instruction appended to the system prompt.
+ * Returns '' when the agent collects nothing, so zero tokens are added.
+ *
+ * This is the "asking" half of data capture and costs NOTHING extra — it's just
+ * text the model already reads in the single inference it's doing anyway. The
+ * "storing" half (pulling values out) happens out of band in the background
+ * extractor, never on the reply path. See
+ * docs/plans/agent-data-and-integrations-plan.md.
+ *
+ * Framing matters: the model must NEVER block answering the user's question to
+ * collect data, and must not interrogate. It captures what's volunteered and
+ * politely asks for REQUIRED items only when it fits the flow.
+ */
+function buildCollectionInstruction(fields: AgentDataField[]): string {
+  if (!fields || fields.length === 0) return '';
+  const lines = fields.map((f) => {
+    const parts = [`- ${f.label} (key: ${f.key})`];
+    if (f.required) parts.push('[required]');
+    if (f.description) parts.push(`— ${f.description}`);
+    return parts.join(' ');
+  });
+  const hasRequired = fields.some((f) => f.required);
+  const requiredNote = hasRequired
+    ? ' For items marked [required], if the user has not provided them and it is a natural moment, politely ask — at most one missing item at a time, and only when it fits the conversation.'
+    : '';
+  return (
+    DATA_COLLECTION_DIVIDER +
+    'While helping the user, naturally note the following details if they come up. ' +
+    'Do not announce that you are collecting information, and NEVER delay or withhold ' +
+    'an answer in order to ask for it — answering the user always comes first.' +
+    requiredNote +
+    '\n' +
+    lines.join('\n')
+  );
+}
+
 function buildFallbackInstruction(agent: Agent): string {
   const phrases = (agent.fallbackPhrases ?? []).filter((p) => p.trim().length > 0);
   if (phrases.length === 0) return '';

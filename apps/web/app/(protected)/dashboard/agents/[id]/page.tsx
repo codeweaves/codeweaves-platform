@@ -68,6 +68,13 @@ export default function AgentDetailPage({ params }: AgentDetailPageProps) {
             }
           : null
       }
+      initialDataFields={(data.dataFields ?? []).map((f) => ({
+        key: f.key,
+        label: f.label,
+        type: f.type,
+        required: f.required,
+        description: f.description,
+      }))}
     />
   );
 }

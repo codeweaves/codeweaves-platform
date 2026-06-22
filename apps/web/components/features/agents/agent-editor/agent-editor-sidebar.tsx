@@ -11,6 +11,7 @@ import {
   BadgeInfo,
   Sparkles,
   MessageSquareText,
+  ClipboardList,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProfile } from '@/hooks/use-profile';
@@ -23,6 +24,7 @@ export type CategoryId =
   | 'voice'
   | 'prompt'
   | 'classification'
+  | 'dataCapture'
   | 'integration'
   | 'whatsapp'
   | 'branding';
@@ -78,6 +80,13 @@ const allCategories: Category[] = [
     title: 'Classification',
     icon: <Sparkles className="h-5 w-5" />,
     description: 'AI tagging: conversation topics & language detection',
+  },
+  {
+    id: 'dataCapture',
+    title: 'Data Capture',
+    icon: <ClipboardList className="h-5 w-5" />,
+    description: 'Collect fields (name, email, …) from conversations',
+    adminOnly: true,
   },
   {
     id: 'integration',

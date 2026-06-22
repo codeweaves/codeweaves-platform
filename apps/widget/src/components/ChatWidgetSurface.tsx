@@ -173,9 +173,11 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
 
   const iconOnRight = position === 'right';
 
-  // Starters from theme
+  // Starters come from the agent config (the backend returns them in
+  // `agent.starters`, NOT in the theme). Reading `theme.starters` always
+  // yielded [] — that's why they never showed.
   const starters = useMemo(() => {
-    const raw = theme?.starters;
+    const raw = agentConfig.starters;
     if (!Array.isArray(raw)) return [];
     return raw
       .map((s: unknown) => {
@@ -185,7 +187,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
       })
       .filter((s: string) => s.trim().length > 0)
       .slice(0, 4);
-  }, [theme]);
+  }, [agentConfig]);
 
   // Voice config from agentConfig
   const voiceEnabled = agentConfig.voiceEnabled === true;
@@ -469,8 +471,9 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
               });
             })()}
 
-            {/* Conversation starters — inside scroll area, after greeting */}
-            {displayMessages.length === 1 && starters.length > 0 && (
+            {/* Conversation starters — show in the initial state (before any
+                exchange), whether or not a greeting is configured. */}
+            {msgs.length === 0 && starters.length > 0 && (
               <div class="cw-starters mt-4 flex flex-wrap gap-2">
                 {starters.map((s, i) => (
                   <button

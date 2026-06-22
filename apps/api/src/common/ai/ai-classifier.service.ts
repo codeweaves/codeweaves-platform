@@ -2,6 +2,19 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 
 /**
+ * A field the extractor should pull from a conversation. Decoupled from the
+ * Prisma/validation enums on purpose — the caller maps its own field type to a
+ * JSON primitive and does any free deterministic (regex) extraction first, so
+ * only fields that genuinely need an LLM reach `extractFields`.
+ */
+export interface ExtractableField {
+  key: string;
+  label: string;
+  jsonType: 'string' | 'number' | 'boolean';
+  description?: string | null;
+}
+
+/**
  * Tiny AI classifier used by the background categorisation job.
  *
  * Scope is deliberately narrow: two pure-text classification primitives
@@ -238,6 +251,94 @@ export class AiClassifierService {
   }
 
   /**
+   * Extract structured field values from a conversation transcript. Used by the
+   * background data-capture extractor — NEVER on the reply hot path.
+   *
+   * Only fields that genuinely need reasoning should reach here; deterministic
+   * ones (email, phone) are pulled by regex upstream, for free. Returns a map
+   * of field key → value for every field the USER actually provided (absent
+   * fields are omitted). Returns null when unconfigured or the call fails.
+   *
+   * Strict structured outputs: every field is a NULLABLE property, so the
+   * decoder returns null for anything it can't find rather than fabricating.
+   */
+  async extractFields(
+    transcript: string,
+    fields: ExtractableField[],
+  ): Promise<Record<string, string | number | boolean> | null> {
+    if (!this.apiKey || fields.length === 0 || !transcript.trim()) {
+      return null;
+    }
+
+    const properties: Record<string, unknown> = {};
+    for (const f of fields) {
+      properties[f.key] = {
+        // Nullable: lets the model say "not provided" under strict mode, which
+        // requires every property to be present in `required`.
+        type: [f.jsonType, 'null'],
+        description: f.description ? `${f.label}. ${f.description}` : f.label,
+      };
+    }
+    const schema = {
+      type: 'object',
+      properties,
+      required: fields.map((f) => f.key),
+      additionalProperties: false,
+    } as const;
+
+    const system = [
+      'You extract structured details that an END-USER gave about THEMSELVES in a chat.',
+      'The transcript is labelled by speaker: [USER] is the person whose data we want; [ASSISTANT] is the business\'s bot. Use [ASSISTANT] turns only as CONTEXT to understand the conversation — NEVER extract a value from them.',
+      'Read the MEANING of each sentence. Only extract a value when the user is giving it as their OWN — usually phrased like "my email is…", "I\'m…", "my number is…", "my customer id is…".',
+      'Do NOT extract a value the user is referring to as the business\'s or someone else\'s — e.g. "your email is…?", "is this your number?", "I saw it on your website". Those are not the user\'s data.',
+      'If the user did not provide a field about themselves, return null for it — the JSON value null, never the text "null". NEVER guess, infer, or fabricate.',
+      'Reply with JSON matching the provided schema exactly.',
+    ].join('\n');
+
+    const user = [
+      'Fields to extract:',
+      fields
+        .map(
+          (f) =>
+            `- ${f.key}: ${f.description ? `${f.label} (${f.description})` : f.label}`,
+        )
+        .join('\n'),
+      '',
+      'Transcript:',
+      truncate(transcript, 8000),
+    ].join('\n');
+
+    const parsed = await this.chatJson<Record<string, unknown>>(
+      system,
+      user,
+      schema,
+      'field_extraction',
+      512,
+    );
+    if (!parsed) return null;
+
+    // Keep only non-null values of the expected primitive type. Strict mode
+    // should guarantee this, but we validate defensively before persisting.
+    const result: Record<string, string | number | boolean> = {};
+    for (const f of fields) {
+      const value = parsed[f.key];
+      if (value === null || value === undefined) continue;
+      if (
+        f.jsonType === 'string' &&
+        typeof value === 'string' &&
+        !isNoValue(value)
+      ) {
+        result[f.key] = value.trim();
+      } else if (f.jsonType === 'number' && typeof value === 'number') {
+        result[f.key] = value;
+      } else if (f.jsonType === 'boolean' && typeof value === 'boolean') {
+        result[f.key] = value;
+      }
+    }
+    return result;
+  }
+
+  /**
    * Single-shot Chat Completions call with strict structured outputs.
    * Centralised so retry/timeout/error/parsing behaviour stays consistent
    * across `categorize` and `detectLanguage`.
@@ -253,6 +354,7 @@ export class AiClassifierService {
     user: string,
     schema: Record<string, unknown>,
     schemaName: string,
+    maxTokens = 64,
   ): Promise<T | null> {
     try {
       const res = await fetch(this.endpoint, {
@@ -266,9 +368,10 @@ export class AiClassifierService {
           // Low temperature keeps the classifier deterministic. We don't need
           // creative writing — we need consistent labels for analytics buckets.
           temperature: 0,
-          // Structured outputs can be slightly longer than free-text — 64
-          // covers any reasonable JSON object we'd produce here.
-          max_tokens: 64,
+          // Structured outputs can be slightly longer than free-text. 64 is
+          // plenty for a single classification label; callers extracting
+          // several fields pass a larger cap.
+          max_tokens: maxTokens,
           messages: [
             { role: 'system', content: system },
             { role: 'user', content: user },
@@ -338,4 +441,30 @@ function truncate(s: string, max: number): string {
   // relevant context tends to be at the END of a conversation, where the
   // user has clarified what they actually want.
   return s.slice(s.length - max);
+}
+
+/**
+ * Strings models sometimes emit for "not provided" INSTEAD of a real JSON null.
+ * The schema marks fields nullable, but the literal text "null" is still a valid
+ * string, so strict mode lets it through — we must reject these ourselves so we
+ * never persist a field whose value is the word "null".
+ */
+const NO_VALUE_SENTINELS = new Set([
+  'null',
+  'none',
+  'n/a',
+  'na',
+  'nil',
+  'undefined',
+  'unknown',
+  'not provided',
+  'not given',
+  '-',
+  '—',
+]);
+
+/** True when a string value should be treated as "no value" (skip it). */
+function isNoValue(value: string): boolean {
+  const v = value.trim().toLowerCase();
+  return v === '' || NO_VALUE_SENTINELS.has(v);
 }

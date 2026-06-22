@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Agent, AgentKnowledge } from '@prisma/client';
+import type { Agent, AgentDataField, AgentKnowledge } from '@prisma/client';
 
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../../services/prisma.service';
@@ -10,9 +10,14 @@ import { PrismaService } from '../../services/prisma.service';
  * kept untyped here — it's a `Prisma.JsonValue`, and callers re-parse it via
  * the `agentAiConfigSchema` (which is the single source of truth for that
  * field's shape and applies defaults).
+ *
+ * `dataFields` are included so the chat hot path can build the data-collection
+ * prompt without an extra query. They're written rarely (editor save) and read
+ * on every message — exactly what this cache is for.
  */
 export interface CachedAgent extends Agent {
   knowledge: AgentKnowledge | null;
+  dataFields: AgentDataField[];
 }
 
 /** Default TTL (seconds). Overridable via AGENT_CACHE_TTL_SECONDS env. */
@@ -86,7 +91,10 @@ export class AgentCacheService {
     // 2. Cache miss or Redis down — hit Postgres
     const agent = await this.prisma.agent.findFirst({
       where: { id: agentId, deletedAt: null },
-      include: { knowledge: true },
+      include: {
+        knowledge: true,
+        dataFields: { orderBy: { order: 'asc' } },
+      },
     });
     if (!agent) return null;
 
