@@ -78,7 +78,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
       );
       return;
     }
-    this.pollTimer = setInterval(() => void this.pollTick(), this.pollMs);
+    this.pollTimer = setInterval(() => this.triggerDuePass(), this.pollMs);
     // Never keep the process alive just for this timer.
     this.pollTimer.unref?.();
     this.logger.log(
@@ -93,19 +93,29 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     }
   }
 
-  /** One timer tick. Skips if a previous pass is still running (no overlap). */
-  private async pollTick(): Promise<void> {
-    if (this.polling) return;
+  /**
+   * Kick off a due pass in the BACKGROUND and return immediately. Used by both
+   * the in-process timer and the external cron endpoint so the HTTP caller
+   * (e.g. Supabase pg_cron, whose timeout is capped at 5s) gets an instant ack
+   * instead of waiting out the whole LLM batch.
+   *
+   * Overlap-guarded: if a pass is already running, this is a no-op — so an
+   * every-minute cron can never start a second concurrent pass (which would
+   * double-spend on the LLM). Returns whether a new pass was started.
+   */
+  triggerDuePass(): boolean {
+    if (this.polling) return false;
     this.polling = true;
-    try {
-      await this.runDuePass();
-    } catch (err) {
-      this.logger.warn(
-        `Extraction poll failed: ${err instanceof Error ? err.message : 'unknown'}`,
-      );
-    } finally {
-      this.polling = false;
-    }
+    void this.runDuePass()
+      .catch((err) => {
+        this.logger.warn(
+          `Extraction pass failed: ${err instanceof Error ? err.message : 'unknown'}`,
+        );
+      })
+      .finally(() => {
+        this.polling = false;
+      });
+    return true;
   }
 
   /**

@@ -206,4 +206,24 @@ describe('DataExtractionService', () => {
       expect(arg.where.extractionDueAt.lte).toBeInstanceOf(Date);
     });
   });
+
+  describe('triggerDuePass()', () => {
+    it('starts a background pass and is overlap-guarded (no concurrent pass)', async () => {
+      // Make the pass hang so it stays "in flight" across the second call.
+      let release!: () => void;
+      mockPrisma.chatSession.findMany.mockReturnValue(
+        new Promise((resolve) => {
+          release = () => resolve([]);
+        }),
+      );
+
+      expect(service.triggerDuePass()).toBe(true); // first starts
+      expect(service.triggerDuePass()).toBe(false); // second is a no-op while running
+
+      release();
+      await new Promise((r) => setImmediate(r)); // let the pass settle + clear the guard
+
+      expect(service.triggerDuePass()).toBe(true); // free again
+    });
+  });
 });

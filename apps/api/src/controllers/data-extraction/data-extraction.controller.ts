@@ -39,16 +39,21 @@ export class DataExtractionController {
     @Body() body: { sessionId?: string } | undefined,
   ): Promise<
     | { mode: 'single'; sessionId: string; outcome: string }
-    | { mode: 'due-pass'; captured: number }
+    | { mode: 'due-pass'; started: boolean }
   > {
     // On-demand single extraction (bypasses the debounce) — for manual testing.
+    // One session, fast enough to await within the cron's 5s timeout.
     if (body?.sessionId) {
       const outcome = await this.extraction.extractForSession(body.sessionId);
       return { mode: 'single', sessionId: body.sessionId, outcome };
     }
 
-    const captured = await this.extraction.runDuePass();
-    this.logger.log(`Data-extraction run complete: captured ${captured}.`);
-    return { mode: 'due-pass', captured };
+    // Cron trigger: start the pass in the background and ACK immediately. The
+    // batch can take longer than the scheduler's HTTP timeout (Supabase caps it
+    // at 5s); the work continues server-side. Overlap-guarded, so a tick that
+    // lands while a pass is still running is a harmless no-op.
+    const started = this.extraction.triggerDuePass();
+    this.logger.log(`Data-extraction trigger: pass ${started ? 'started' : 'already running'}.`);
+    return { mode: 'due-pass', started };
   }
 }
