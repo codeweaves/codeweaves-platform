@@ -8,9 +8,8 @@ import { VoiceModule } from '../voice/voice.module';
 
 import { WhatsappChannelController } from './whatsapp-channel.controller';
 import { WhatsappChannelService } from './whatsapp-channel.service';
-import { WhatsappConfigService } from './whatsapp-config.service';
 import { WhatsappInboundService } from './whatsapp-inbound.service';
-import { WhatsappSendService } from './whatsapp-send.service';
+import { WhatsappSendModule } from './whatsapp-send.module';
 import { WhatsappWebhookController } from './whatsapp-webhook.controller';
 
 /**
@@ -28,13 +27,8 @@ import { WhatsappWebhookController } from './whatsapp-webhook.controller';
  * CryptoService (token encryption) and RbacService (RolesGuard) are global.
  */
 @Module({
-  imports: [PrismaModule, ChatModule, AgentsModule, AiModule, VoiceModule],
+  imports: [PrismaModule, ChatModule, AgentsModule, AiModule, VoiceModule, WhatsappSendModule],
   controllers: [WhatsappWebhookController, WhatsappChannelController],
-  providers: [
-    WhatsappConfigService,
-    WhatsappSendService,
-    WhatsappChannelService,
-    WhatsappInboundService,
-  ],
+  providers: [WhatsappChannelService, WhatsappInboundService],
 })
 export class WhatsappModule {}

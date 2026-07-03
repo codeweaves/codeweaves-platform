@@ -17,6 +17,7 @@ import {
   Volume2,
   Trash2,
   Loader2,
+  Headset,
 } from 'lucide-react';
 import type { PreviewFormData } from './agent-editor-context';
 
@@ -488,8 +489,10 @@ export function ChatWidgetSurface({
                 });
               })()}
 
-              {/* Conversation starters */}
-              {messages.length === 1 &&
+              {/* Conversation starters — shown in the opening state (before the
+                  visitor sends anything), whether or not a greeting is set, to
+                  match the real widget (ChatWidgetSurface: msgs.length === 0). */}
+              {!messages.some((m) => m.role === 'user') &&
                 formData.conversationalStarters.length > 0 && (
                   <div className="cw-starters mt-4 flex flex-wrap gap-2">
                     {formData.conversationalStarters
@@ -541,6 +544,57 @@ export function ChatWidgetSurface({
                     />
                   </div>
                 </div>
+              )}
+
+              {/* Human-handover "connected to a human" divider — sits at the END
+                  of the thread (after starters), marking where a human joins;
+                  their replies appear BELOW it. Previewed so the owner can style
+                  the text + colour. (In the live widget it renders right above
+                  the first human-agent message.) */}
+              {formData.handoverEnabled && (
+                <>
+                  {/* "Connecting…" status line (shown while waiting for a teammate). */}
+                  <div
+                    className="mt-4 px-4 text-center"
+                    style={{ fontSize: '0.82em', color: formData.handoverRequestedLineColor }}
+                  >
+                    {formData.handoverRequestedLabel}
+                  </div>
+                  {/* "Connected" divider (a teammate joins; their replies appear below). */}
+                  <div className="cw-handover-divider mt-3 flex items-center gap-2" aria-hidden="true">
+                    <span
+                      className="h-px flex-1"
+                      style={{ backgroundColor: formData.handoverConnectedLineColor }}
+                    />
+                    <span
+                      className="shrink-0 px-1 font-medium"
+                      style={{ color: formData.handoverConnectedLineColor, fontSize: '0.78em' }}
+                    >
+                      {formData.handoverConnectedLabel}
+                    </span>
+                    <span
+                      className="h-px flex-1"
+                      style={{ backgroundColor: formData.handoverConnectedLineColor }}
+                    />
+                  </div>
+                  {/* "Handed back" divider (teammate resolves; the AI resumes). */}
+                  <div className="cw-handover-divider mt-3 flex items-center gap-2" aria-hidden="true">
+                    <span
+                      className="h-px flex-1"
+                      style={{ backgroundColor: formData.handoverEndedLineColor }}
+                    />
+                    <span
+                      className="shrink-0 px-1 font-medium"
+                      style={{ color: formData.handoverEndedLineColor, fontSize: '0.78em' }}
+                    >
+                      {formData.handoverEndedLabel}
+                    </span>
+                    <span
+                      className="h-px flex-1"
+                      style={{ backgroundColor: formData.handoverEndedLineColor }}
+                    />
+                  </div>
+                </>
               )}
 
               {/* Scroll sentinel */}
@@ -650,19 +704,37 @@ export function ChatWidgetSurface({
                     </button>
                   )}
                 </div>
-                <button
-                  onClick={handleSend}
-                  disabled={!inputValue.trim()}
-                  aria-label="Send message"
-                  className="cw-send-btn flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
-                  style={{
-                    backgroundColor: formData.sendButtonBg,
-                    color: formData.sendButtonIconColor || '#FFFFFF',
-                    opacity: !inputValue.trim() ? 0.4 : 1,
-                  }}
-                >
-                  <ArrowUp className="h-4 w-4" />
-                </button>
+                <div className="flex items-center gap-2">
+                  {formData.showHandoverButton && (
+                    <button
+                      type="button"
+                      aria-label={formData.handoverButtonLabel}
+                      title={formData.handoverButtonLabel}
+                      className="cw-handover-btn flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-opacity hover:opacity-80"
+                      style={{
+                        border: `1.5px solid ${formData.handoverButtonTextColor}`,
+                        backgroundColor: formData.handoverButtonBg,
+                        color: formData.handoverButtonTextColor,
+                      }}
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <Headset className="h-4 w-4" />
+                    </button>
+                  )}
+                  <button
+                    onClick={handleSend}
+                    disabled={!inputValue.trim()}
+                    aria-label="Send message"
+                    className="cw-send-btn flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
+                    style={{
+                      backgroundColor: formData.sendButtonBg,
+                      color: formData.sendButtonIconColor || '#FFFFFF',
+                      opacity: !inputValue.trim() ? 0.4 : 1,
+                    }}
+                  >
+                    <ArrowUp className="h-4 w-4" />
+                  </button>
+                </div>
               </div>
               </>
               )}

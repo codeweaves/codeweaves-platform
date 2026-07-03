@@ -17,6 +17,13 @@ describe('WhatsappInboundService', () => {
     saveUserMessage: jest.Mock;
     saveAssistantMessage: jest.Mock;
     updateSessionTimestamp: jest.Mock;
+    isPausedForHuman: jest.Mock;
+    recordPausedInbound: jest.Mock;
+    maybeEscalateToHuman: jest.Mock;
+    publishHandoverBotTurn: jest.Mock;
+    handoverStallInstruction: jest.Mock;
+    buildHumanConnectTool: jest.Mock;
+    humanOfferInstruction: jest.Mock;
   };
   let direct: { send: jest.Mock };
   let send: {
@@ -67,6 +74,13 @@ describe('WhatsappInboundService', () => {
       saveUserMessage: jest.fn().mockResolvedValue(undefined),
       saveAssistantMessage: jest.fn().mockResolvedValue(undefined),
       updateSessionTimestamp: jest.fn().mockResolvedValue(undefined),
+      isPausedForHuman: jest.fn().mockReturnValue(false),
+      recordPausedInbound: jest.fn().mockResolvedValue(undefined),
+      maybeEscalateToHuman: jest.fn().mockResolvedValue(false),
+      publishHandoverBotTurn: jest.fn().mockResolvedValue(undefined),
+      handoverStallInstruction: jest.fn().mockReturnValue('A teammate is joining.'),
+      buildHumanConnectTool: jest.fn().mockReturnValue({}),
+      humanOfferInstruction: jest.fn().mockReturnValue('Offer a human if needed.'),
     };
     direct = { send: jest.fn() };
     send = {
@@ -112,6 +126,39 @@ describe('WhatsappInboundService', () => {
     expect(send.sendText).toHaveBeenCalledWith('p1', 'token', '15551234567', 'Hi there!');
     expect(chat.saveAssistantMessage).toHaveBeenCalledTimes(1);
     expect(chat.updateSessionTimestamp).toHaveBeenCalledWith('sess-db');
+  });
+
+  it('human handover: suppresses the AI reply when a teammate is handling', async () => {
+    prisma.whatsappChannel.findUnique.mockResolvedValue(channel);
+    prisma.agent.findFirst.mockResolvedValue(agent);
+    chat.isPausedForHuman.mockReturnValue(true);
+
+    await service.handleInbound(job);
+
+    // Inbound captured + pushed to the dashboard, but the AI never runs and no
+    // WhatsApp reply goes out (no double-reply with the human).
+    expect(chat.recordPausedInbound).toHaveBeenCalledTimes(1);
+    expect(direct.send).not.toHaveBeenCalled();
+    expect(send.sendText).not.toHaveBeenCalled();
+    expect(chat.saveUserMessage).not.toHaveBeenCalled();
+  });
+
+  it('escalation: when the visitor asks for a human, stalls the bot + pings the dashboard', async () => {
+    prisma.whatsappChannel.findUnique.mockResolvedValue(channel);
+    prisma.agent.findFirst.mockResolvedValue(agent);
+    direct.send.mockResolvedValue(okResult);
+    // Keyword matched → session raised NONE → REQUESTED this turn.
+    chat.maybeEscalateToHuman.mockResolvedValue(true);
+
+    await service.handleInbound({ ...job, text: 'I want to talk to a human' });
+
+    // Bot still answers, but with the "a teammate is joining" stall instruction,
+    // and the dashboard is pinged so the WhatsApp turn shows in the live thread.
+    expect(chat.maybeEscalateToHuman).toHaveBeenCalledTimes(1);
+    expect(direct.send).toHaveBeenCalledWith(
+      expect.objectContaining({ extraSystemInstruction: 'A teammate is joining.' }),
+    );
+    expect(chat.publishHandoverBotTurn).toHaveBeenCalledTimes(1);
   });
 
   describe('voice notes (audio)', () => {

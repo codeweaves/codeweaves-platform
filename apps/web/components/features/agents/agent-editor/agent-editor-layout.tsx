@@ -297,6 +297,9 @@ function AgentEditorContent() {
         supportedLanguages: formData.supportedLanguages,
         sessionLifetimeHours: formData.sessionLifetimeHours,
         fallbackPhrases: formData.fallbackPhrases,
+        humanTakeoverEnabled: formData.humanTakeoverEnabled,
+        showTalkToHumanButton: formData.showTalkToHumanButton,
+        humanConnectedLabel: formData.humanConnectedLabel.trim() || null,
       };
 
       // Save agent config, webhook, and theme in parallel
@@ -383,6 +386,9 @@ function AgentEditorContent() {
             voiceConfig: formData.voiceConfig,
             aiConfig: formData.aiConfig,
             fallbackPhrases: formData.fallbackPhrases,
+            humanTakeoverEnabled: formData.humanTakeoverEnabled,
+            showTalkToHumanButton: formData.showTalkToHumanButton,
+            humanConnectedLabel: formData.humanConnectedLabel.trim() || null,
           };
 
           const newKnowledge = formData.knowledgeContent.trim()

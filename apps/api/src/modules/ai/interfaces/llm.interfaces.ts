@@ -1,4 +1,4 @@
-import type { ModelMessage, Tool } from 'ai';
+import type { ModelMessage, ToolSet } from 'ai';
 
 /**
  * Token usage as returned by OpenRouter (and normalised by the Vercel AI SDK).
@@ -63,8 +63,8 @@ export interface LlmCompletionRequest {
   frequencyPenalty?: number;
   presencePenalty?: number;
 
-  /** Tool definitions (Phase 4). Ignored in Phase 1. */
-  tools?: Record<string, Tool>;
+  /** Tool definitions the model may call this turn. */
+  tools?: ToolSet;
   /** Max agent loop iterations when tools are used. */
   maxSteps?: number;
 

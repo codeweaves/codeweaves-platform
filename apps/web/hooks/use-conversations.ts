@@ -6,7 +6,7 @@ import { useAuth } from '@/hooks/use-auth';
 
 export type ConversationSource = 'WIDGET' | 'WHATSAPP' | 'DEMO';
 export type ConversationStatus = 'ACTIVE' | 'EXPIRED';
-export type MessageRole = 'USER' | 'ASSISTANT';
+export type MessageRole = 'USER' | 'ASSISTANT' | 'HUMAN_AGENT' | 'SYSTEM';
 
 export interface ConversationListItem {
   id: string;

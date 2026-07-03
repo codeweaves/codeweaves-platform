@@ -126,6 +126,27 @@ export const brandingConfigSchema = z.object({
 });
 export type BrandingConfig = z.infer<typeof brandingConfigSchema>;
 
+export const handoverConfigSchema = z.object({
+  // "Talk to a human" button shown in the widget header (when enabled per-agent).
+  buttonLabel: z.string().min(1).max(40),
+  buttonBackgroundColor: colorString,
+  buttonTextColor: colorString,
+  // Colour of the centred "you're now connected to a human" divider line.
+  connectedLineColor: colorString,
+  // Visitor-facing status lines as the AI hands off / resumes. Text + colour are
+  // both editable in the agent editor. Defaulted at the FIELD level so themes
+  // stored before these keys existed still validate (they just get the default).
+  requestedLabel: z
+    .string()
+    .min(1)
+    .max(160)
+    .default('Connecting you with our team. Someone will be with you shortly.'),
+  requestedLineColor: colorString.default('#9ca3af'),
+  endedLabel: z.string().min(1).max(160).default("You're back with our assistant"),
+  endedLineColor: colorString.default('#3b82f6'),
+});
+export type HandoverConfig = z.infer<typeof handoverConfigSchema>;
+
 // ============================================
 // Root Widget Theme Schema
 // ============================================
@@ -146,6 +167,18 @@ export const widgetThemeSchema = z.object({
   timestamps: timestampsConfigSchema,
   starters: startersConfigSchema,
   branding: brandingConfigSchema,
+  // Defaulted so existing stored themes (which predate this key) validate and
+  // get sensible handover styling without a migration.
+  handover: handoverConfigSchema.default({
+    buttonLabel: 'Talk to a human',
+    buttonBackgroundColor: '#ffffff',
+    buttonTextColor: '#3b82f6',
+    connectedLineColor: '#10b981',
+    requestedLabel: 'Connecting you with our team. Someone will be with you shortly.',
+    requestedLineColor: '#9ca3af',
+    endedLabel: "You're back with our assistant",
+    endedLineColor: '#3b82f6',
+  }),
 });
 
 export type WidgetTheme = z.infer<typeof widgetThemeSchema>;
@@ -246,5 +279,15 @@ export const defaultWidgetTheme: WidgetTheme = {
     linkUrl: 'https://codeweaves.com',
     textColor: '#9ca3af',
     linkColor: '#3b82f6',
+  },
+  handover: {
+    buttonLabel: 'Talk to a human',
+    buttonBackgroundColor: '#ffffff',
+    buttonTextColor: '#3b82f6',
+    connectedLineColor: '#10b981',
+    requestedLabel: 'Connecting you with our team. Someone will be with you shortly.',
+    requestedLineColor: '#9ca3af',
+    endedLabel: "You're back with our assistant",
+    endedLineColor: '#3b82f6',
   },
 };

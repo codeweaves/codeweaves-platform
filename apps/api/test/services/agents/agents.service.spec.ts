@@ -1189,7 +1189,17 @@ describe('AgentsService', () => {
       expect(result.version).toBe(5);
       expect(mockPrismaService.agent.findFirst).toHaveBeenCalledWith({
         where: { publicId, deletedAt: null, status: 'ACTIVE' },
-        select: { id: true, name: true, welcomeMessage: true, allowedDomains: true, voiceEnabled: true, voiceConfig: true },
+        select: {
+          id: true,
+          name: true,
+          welcomeMessage: true,
+          allowedDomains: true,
+          voiceEnabled: true,
+          voiceConfig: true,
+          humanTakeoverEnabled: true,
+          showTalkToHumanButton: true,
+          humanConnectedLabel: true,
+        },
       });
     });
 

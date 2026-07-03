@@ -205,7 +205,7 @@ export function ConversationListPane({
   return (
     <div className={cn('flex h-full flex-col bg-card', className)}>
       {/* List */}
-      <div className="min-h-0 flex-1 overflow-y-auto">
+      <div className="thin-scroll min-h-0 flex-1 overflow-y-auto">
         {isError ? (
           <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
             <AlertCircle className="size-6 text-destructive" />

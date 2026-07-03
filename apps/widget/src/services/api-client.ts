@@ -26,6 +26,15 @@ export function initApiClient(apiBaseUrl: string): void {
   baseUrl = apiBaseUrl.replace(/\/+$/, '');
 }
 
+/**
+ * The backend origin (no trailing slash, no `/api/klivo/v1` prefix). The
+ * Socket.io handover gateway lives at the server root (`/socket.io`), so the
+ * realtime client connects here, not under the API prefix.
+ */
+export function getApiBaseUrl(): string {
+  return baseUrl;
+}
+
 // ── Helpers ─────────────────────────────────────────────────────────
 
 function buildHeaders(deviceId?: string, sessionId?: string): Record<string, string> {
@@ -143,6 +152,97 @@ export async function sendMessage(
 export interface ChatHistoryItem {
   role: 'user' | 'assistant';
   content: string;
+}
+
+// ── pollSession (human-handover receive loop) ──────────────────────
+
+/** One message returned by the poll endpoint. */
+export interface PolledMessage {
+  id: string;
+  role: 'USER' | 'ASSISTANT' | 'HUMAN_AGENT' | 'SYSTEM';
+  content: string;
+  createdAt: string;
+  author?: string | null;
+}
+
+export interface PollResponse {
+  handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN';
+  messages: PolledMessage[];
+}
+
+/**
+ * Poll a session for new messages + current handover state. Called by the
+ * widget ONLY while a conversation is escalated, to receive a human agent's
+ * replies and learn when the handover ends.
+ *
+ * GET {baseUrl}/api/klivo/v1/public/chat/{sessionId}/poll?after={iso}
+ */
+export async function pollSession(
+  agentId: string,
+  sessionId: string,
+  afterIso?: string,
+): Promise<PollResponse> {
+  ensureInit();
+  // agentId rides along as a query param so the widget-CORS middleware can
+  // resolve this GET's allowedDomains — the URL itself carries only sessionId.
+  const params = new URLSearchParams({ agentId });
+  if (afterIso) params.set('after', afterIso);
+  const url = `${baseUrl}/api/klivo/v1/public/chat/${encodeURIComponent(sessionId)}/poll?${params.toString()}`;
+  const response = await fetchWithRetry(url, { method: 'GET', headers: buildHeaders(undefined, sessionId) });
+
+  if (response.status === 404 || response.status === 410) {
+    handleSessionError(agentId, response.status);
+    throw await mapResponseError(response);
+  }
+  if (response.ok) {
+    return (await response.json()) as PollResponse;
+  }
+  throw await mapResponseError(response);
+}
+
+// ── requestHuman (explicit "talk to a human" button) ───────────────
+
+export interface RequestHumanResponse {
+  sessionId: string;
+  handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN';
+}
+
+/**
+ * Explicitly request a human teammate (the widget's headset button). Escalates
+ * deterministically server-side — NO LLM call. Returns the (possibly newly
+ * created) sessionId + the new handover state so the caller can start polling.
+ *
+ * POST {baseUrl}/api/klivo/v1/public/chat/request-human
+ */
+export async function requestHuman(
+  agentId: string,
+  sessionId?: string,
+): Promise<RequestHumanResponse> {
+  ensureInit();
+  const url = `${baseUrl}/api/klivo/v1/public/chat/request-human`;
+  const response = await fetchWithRetry(url, {
+    method: 'POST',
+    headers: buildHeaders(undefined, sessionId),
+    body: JSON.stringify({ agentId, sessionId, source: 'WIDGET' }),
+  });
+
+  if (response.status === 404 || response.status === 410) {
+    handleSessionError(agentId, response.status);
+    throw await mapResponseError(response);
+  }
+  if (response.ok) {
+    const body = await response.json();
+    if (body.error === true) {
+      throw new WidgetApiError({
+        status: 429,
+        userMessage: body.message ?? 'Too many requests. Please wait a moment.',
+        retryable: true,
+        retryAfterSeconds: body.retryAfterSeconds,
+      });
+    }
+    return body as RequestHumanResponse;
+  }
+  throw await mapResponseError(response);
 }
 
 export async function streamMessage(

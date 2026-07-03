@@ -274,6 +274,10 @@ export const updateAgentSchema = z
     supportedLanguages: supportedLanguagesSchema.optional(),
     sessionLifetimeHours: sessionLifetimeHoursSchema.optional(),
     fallbackPhrases: fallbackPhrasesSchema.optional(),
+    // --- Human handover (live agent takeover) ---
+    humanTakeoverEnabled: z.boolean().optional(),
+    showTalkToHumanButton: z.boolean().optional(),
+    humanConnectedLabel: z.string().max(160).nullable().optional(),
   })
   .refine(
     (data) =>
@@ -288,7 +292,10 @@ export const updateAgentSchema = z
       data.categoryKeywords !== undefined ||
       data.supportedLanguages !== undefined ||
       data.sessionLifetimeHours !== undefined ||
-      data.fallbackPhrases !== undefined,
+      data.fallbackPhrases !== undefined ||
+      data.humanTakeoverEnabled !== undefined ||
+      data.showTalkToHumanButton !== undefined ||
+      data.humanConnectedLabel !== undefined,
     { message: 'At least one field must be provided' },
   );
 

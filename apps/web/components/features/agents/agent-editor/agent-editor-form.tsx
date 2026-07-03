@@ -12,6 +12,7 @@ import { IntegrationSettings } from './sections/integration-settings';
 import { WhatsappSettings } from './sections/whatsapp-settings';
 import { BrandingSettings } from './sections/branding-settings';
 import { VoiceSettings } from './sections/voice-settings';
+import { HumanHandoverSettings } from './sections/human-handover-settings';
 
 interface AgentEditorFormProps {
   selectedCategory: CategoryId;
@@ -41,6 +42,8 @@ export function AgentEditorForm({ selectedCategory }: AgentEditorFormProps) {
       return <WhatsappSettings />;
     case 'branding':
       return <BrandingSettings />;
+    case 'humanHandover':
+      return <HumanHandoverSettings />;
     default:
       return null;
   }

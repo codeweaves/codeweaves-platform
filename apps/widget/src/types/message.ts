@@ -1,8 +1,12 @@
 /** Message type — text, audio, or system */
 export type MessageType = 'text' | 'audio' | 'system';
 
-/** Message sender role */
-export type MessageRole = 'user' | 'assistant';
+/**
+ * Message sender role. `human` = a teammate replying after taking over.
+ * `system` = a handover status line (took over / resolved / …) — stored ONLY so
+ * it can be sent to the model as context; never rendered as a chat bubble.
+ */
+export type MessageRole = 'user' | 'assistant' | 'human' | 'system';
 
 /** Message delivery status */
 export type MessageStatus = 'sending' | 'sent' | 'error';

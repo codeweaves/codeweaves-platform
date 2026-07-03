@@ -40,6 +40,31 @@ enum SessionStatus {
 enum MessageRole {
   USER
   ASSISTANT
+  // A human teammate replying after taking the conversation over.
+  HUMAN_AGENT
+  // System/event lines in the transcript (e.g. "Visitor asked for a human",
+  // "You took over", "Resolved by <name>"). Never sent to the LLM as context.
+  SYSTEM
+}
+
+/// Orthogonal to SessionStatus (ACTIVE|EXPIRED, which is the 6h-rotation
+/// lifecycle). Drives the human-handover Inbox. NONE = bot handling normally;
+/// REQUESTED = flag raised, bot keeps stalling, AI NOT paused; ACTIVE_HUMAN = a
+/// teammate took over, AI paused. "Resolve" flips back to NONE + stamps
+/// handoverResolvedAt (no separate RESOLVED state — a resolved chat just routes
+/// back to the bot, and a new visitor message reopens it normally).
+enum HandoverState {
+  NONE
+  REQUESTED
+  ACTIVE_HUMAN
+}
+
+/// Why a handover was raised — for the Inbox label + analytics.
+enum HandoverReason {
+  USER_REQUESTED // explicit keyword/button: "talk to a human"
+  BOT_FALLBACK // couldntAnswer streak — the bot kept failing
+  FRUSTRATION // async sentiment check flagged it
+  MANUAL // a teammate flagged it from the dashboard
 }
 
 enum ChatSource {
@@ -94,16 +119,18 @@ model Organization {
 }
 
 model User {
-  id             String        @id @default(uuid())
-  email          String        @unique
-  name           String?
-  role           Role          @default(CLIENT)
-  clerkId        String?       @unique
-  organizationId String?
-  organization   Organization? @relation(fields: [organizationId], references: [id])
-  deletedAt      DateTime?
-  createdAt      DateTime      @default(now())
-  updatedAt      DateTime      @updatedAt
+  id                String        @id @default(uuid())
+  email             String        @unique
+  name              String?
+  role              Role          @default(CLIENT)
+  clerkId           String?       @unique
+  organizationId    String?
+  organization      Organization? @relation(fields: [organizationId], references: [id])
+  // Chat sessions this user has taken over in the live-handover Inbox.
+  takenOverSessions ChatSession[] @relation("SessionTakenOverBy")
+  deletedAt         DateTime?
+  createdAt         DateTime      @default(now())
+  updatedAt         DateTime      @updatedAt
 
   @@index([organizationId])
   @@index([clerkId])
@@ -133,51 +160,61 @@ model UserInvitation {
 }
 
 model Agent {
-  id                   String             @id @default(uuid())
-  publicId             String             @unique @db.VarChar(8)
-  name                 String
-  status               AgentStatus        @default(ACTIVE)
-  organizationId       String
-  organization         Organization       @relation(fields: [organizationId], references: [id])
-  allowedDomains       String[]
-  hmacEnabled          Boolean            @default(false)
-  voiceEnabled         Boolean            @default(false)
-  voiceConfig          Json?              @db.JsonB
+  id                    String             @id @default(uuid())
+  publicId              String             @unique @db.VarChar(8)
+  name                  String
+  status                AgentStatus        @default(ACTIVE)
+  organizationId        String
+  organization          Organization       @relation(fields: [organizationId], references: [id])
+  allowedDomains        String[]
+  hmacEnabled           Boolean            @default(false)
+  voiceEnabled          Boolean            @default(false)
+  voiceConfig           Json?              @db.JsonB
   // Per-agent AI orchestration config: routing mode (n8n | direct), model,
   // temperature, context strategy, fallback models, RAG settings.
   // Null/absent = defaults to 'n8n' routing for backwards compatibility.
-  aiConfig             Json?              @db.JsonB
+  aiConfig              Json?              @db.JsonB
   // Category names this agent's conversations get classified into by the
   // post-session AI classifier (e.g. ["Pricing", "Support", "Refunds"]).
   // Empty array disables categorisation for the agent.
-  categoryKeywords     String[]           @default([])
+  categoryKeywords      String[]           @default([])
   // How long a single chat session can live (from createdAt) before the
   // backend rotates the visitor to a new sessionId. Tighter values produce
   // more "distinct conversations" in analytics; looser values let one visit
   // stay continuous longer. Range 1-168 (1h to 1 week), default 6h.
-  sessionLifetimeHours Int                @default(6)
+  sessionLifetimeHours  Int                @default(6)
   // Languages this agent's conversations get classified against by the same
   // post-session classifier. Codes are mostly ISO 639-1 (en, hi, mr, …) plus
   // one non-standard value: `hinglish` (code-mixed Hindi-English, Latin script).
   // Empty array disables language detection for the agent.
-  supportedLanguages   String[]           @default([])
+  supportedLanguages    String[]           @default([])
   // Up to 3 phrases the agent replies with when it can't answer from its
   // knowledge. Injected into the system prompt; replies are fuzzy-matched
   // against these to flag "couldn't answer" in analytics. Empty = feature off.
-  fallbackPhrases      String[]           @default([])
-  systemPrompt         String?            @db.Text
-  welcomeMessage       String?
-  secret               AgentSecret?
-  theme                AgentTheme?
-  knowledge            AgentKnowledge?
-  whatsappChannel      WhatsappChannel?
-  whatsappTemplates    WhatsappTemplate[]
-  dataFields           AgentDataField[]
-  collectedData        CollectedData[]
-  chatSessions         ChatSession[]
-  createdAt            DateTime           @default(now())
-  updatedAt            DateTime           @updatedAt
-  deletedAt            DateTime?
+  fallbackPhrases       String[]           @default([])
+  // --- Human handover (live agent takeover) ---
+  // Master switch: when false the whole takeover feature is off for this bot
+  // (no triggers, no flag, no Inbox entries).
+  humanTakeoverEnabled  Boolean            @default(false)
+  // Optional: render a "Talk to a human" button in the widget. Only meaningful
+  // when humanTakeoverEnabled is true.
+  showTalkToHumanButton Boolean            @default(false)
+  // What the visitor sees in the widget when a teammate connects, e.g.
+  // "You're now chatting with our team". Null = a sensible built-in default.
+  humanConnectedLabel   String?            @db.VarChar(160)
+  systemPrompt          String?            @db.Text
+  welcomeMessage        String?
+  secret                AgentSecret?
+  theme                 AgentTheme?
+  knowledge             AgentKnowledge?
+  whatsappChannel       WhatsappChannel?
+  whatsappTemplates     WhatsappTemplate[]
+  dataFields            AgentDataField[]
+  collectedData         CollectedData[]
+  chatSessions          ChatSession[]
+  createdAt             DateTime           @default(now())
+  updatedAt             DateTime           @updatedAt
+  deletedAt             DateTime?
 
   @@index([publicId])
   @@index([organizationId])
@@ -401,43 +438,57 @@ model WhatsappTemplate {
 }
 
 model ChatSession {
-  id               String        @id @default(uuid())
-  agentId          String
-  agent            Agent         @relation(fields: [agentId], references: [id]) // RESTRICT: sessions are analytics data, must not cascade-delete with agent
-  sessionId        String        @unique
-  source           ChatSource    @default(DEMO)
-  visitorId        String? // IP address (web/widget) or phone number (WhatsApp)
-  status           SessionStatus @default(ACTIVE)
+  id                  String          @id @default(uuid())
+  agentId             String
+  agent               Agent           @relation(fields: [agentId], references: [id]) // RESTRICT: sessions are analytics data, must not cascade-delete with agent
+  sessionId           String          @unique
+  source              ChatSource      @default(DEMO)
+  visitorId           String? // IP address (web/widget) or phone number (WhatsApp)
+  status              SessionStatus   @default(ACTIVE)
   // Auto-generated concise title (5-8 words) derived from the first few
   // exchanges. Populated asynchronously after the 2nd assistant reply.
   // Used by conversation list UIs and analytics. Null until generated.
-  title            String?       @db.VarChar(200)
+  title               String?         @db.VarChar(200)
   // Running summary of earlier conversation (populated by HybridContextStrategy
   // when the conversation outgrows the token budget). Complements the
   // in-memory cache — DB persistence survives restarts so Redis/memory cache
   // loss doesn't force re-summarisation on every turn.
-  summary          String?       @db.Text
+  summary             String?         @db.Text
   // Conversation category picked by the post-session LLM classifier from the
   // agent's `categoryKeywords` list. Null until classification runs (after a
   // period of inactivity) or when the agent has no keywords configured.
-  category         String?       @db.VarChar(100)
+  category            String?         @db.VarChar(100)
   // Primary language of the conversation, detected by the same classifier
   // pass. ISO 639-1 code (e.g. "en", "hi", "mr"). Null when undetermined.
-  detectedLanguage String?       @db.VarChar(8)
+  detectedLanguage    String?         @db.VarChar(8)
   // Timestamp of the most recent classifier run. Used to skip already-
   // classified sessions and (later) to expire stale labels when keywords change.
-  categorizedAt    DateTime?
+  categorizedAt       DateTime?
   // When the background data-capture extraction should next run for this
   // session. Set to `now + debounce` on each user-facing turn (each new message
   // pushes it forward = debounce), then cleared once extraction has run. A
   // Postgres-poll runner (`runDuePass`) picks up rows where this is <= now — no
   // Redis/queue involved. Null = nothing pending.
-  extractionDueAt  DateTime?
-  messages         ChatMessage[]
-  collectedData    CollectedData?
-  createdAt        DateTime      @default(now())
-  updatedAt        DateTime      @updatedAt
-  lastMessageAt    DateTime?
+  extractionDueAt     DateTime?
+  // --- Human handover (live agent takeover) ---
+  // Orthogonal to `status`. Drives the Inbox. See HandoverState enum.
+  handoverState       HandoverState   @default(NONE)
+  handoverReason      HandoverReason?
+  // When the flag was first raised (bot still replying while REQUESTED).
+  handoverRequestedAt DateTime?
+  // The teammate currently handling the chat (set on Take over). RESTRICT —
+  // a User who has handled chats must not silently vanish from the audit trail.
+  takenOverById       String?
+  takenOverBy         User?           @relation("SessionTakenOverBy", fields: [takenOverById], references: [id], onDelete: SetNull)
+  handoverStartedAt   DateTime?
+  // Set when the teammate clicks Resolve (handoverState flips back to NONE).
+  // Non-null = "a human resolved this" → the human-resolved analytics count.
+  handoverResolvedAt  DateTime?
+  messages            ChatMessage[]
+  collectedData       CollectedData?
+  createdAt           DateTime        @default(now())
+  updatedAt           DateTime        @updatedAt
+  lastMessageAt       DateTime?
 
   @@index([agentId])
   @@index([source])
@@ -447,6 +498,8 @@ model ChatSession {
   // Lets the extraction poll find due sessions cheaply without scanning the
   // table; the `<= now` range query uses this index and skips nulls.
   @@index([extractionDueAt])
+  // The Inbox lists sessions where handoverState != NONE, scoped per agent.
+  @@index([agentId, handoverState])
   @@map("chat_sessions")
 }
 

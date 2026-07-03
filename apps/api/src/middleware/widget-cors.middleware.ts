@@ -124,6 +124,15 @@ export class WidgetCorsMiddleware implements NestMiddleware {
       return '__preflight__';
     }
 
+    // Body-less GET widget endpoints (e.g. the handover poll loop at
+    // /public/chat/:sessionId/poll) carry only a sessionId in the URL, so the
+    // agentId is sent as a query param for CORS resolution. The browser's
+    // preflight uses the same URL+query, so this also covers OPTIONS below.
+    const queryAgentId = req.query?.agentId;
+    if (typeof queryAgentId === 'string' && queryAgentId.trim()) {
+      return queryAgentId.trim();
+    }
+
     // Preflight OPTIONS requests carry no body — try Referer or fall back
     // For OPTIONS, we need the agentId from somewhere. The actual POST will
     // be validated, so we allow OPTIONS through if we can't determine the agent.

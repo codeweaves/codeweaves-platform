@@ -73,13 +73,37 @@ export interface VoiceErrorChunk {
   sentenceIndex?: number;
 }
 
-export type VoiceStreamChunk = VoiceTranscriptionChunk | VoiceAudioChunk | VoiceEndChunk | VoiceErrorChunk;
+/** A handover was raised on this voice turn (e.g. the caller asked for a human).
+ *  The widget shows the "connecting" line + polls for the teammate's replies. */
+export interface VoiceHandoverChunk {
+  type: 'handover';
+  sessionId: string;
+  handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN';
+}
+
+/** A voice turn arrived while a human already had the chat (ACTIVE_HUMAN): the
+ *  bot stays silent and the caller's words are queued for the teammate. Treated
+ *  like a handover ping so the widget shows the live-agent state + polls. */
+export interface VoicePausedChunk {
+  type: 'paused';
+  sessionId: string;
+  handoverState: 'ACTIVE_HUMAN';
+}
+
+export type VoiceStreamChunk =
+  | VoiceTranscriptionChunk
+  | VoiceAudioChunk
+  | VoiceEndChunk
+  | VoiceErrorChunk
+  | VoiceHandoverChunk
+  | VoicePausedChunk;
 
 export interface StreamVoiceCallbacks {
   onTranscription?: (text: string) => void;
   onAudioChunk?: (chunk: VoiceAudioChunk) => void;
   onComplete?: (fullText: string, totalSentences: number) => void;
   onError?: (errorCode: string, message: string) => void;
+  onHandover?: (handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN') => void;
 }
 
 export class VoiceApiError extends Error {
@@ -273,6 +297,10 @@ export async function streamVoiceConversation(params: {
           case 'error':
             params.callbacks.onError?.(chunk.errorCode, chunk.message);
             break;
+          case 'handover':
+          case 'paused':
+            params.callbacks.onHandover?.(chunk.handoverState);
+            break;
         }
       }
     }
@@ -285,6 +313,7 @@ export async function streamVoiceConversation(params: {
         else if (chunk.type === 'audio') params.callbacks.onAudioChunk?.(chunk);
         else if (chunk.type === 'end') params.callbacks.onComplete?.(chunk.fullText, chunk.totalSentences);
         else if (chunk.type === 'error') params.callbacks.onError?.(chunk.errorCode, chunk.message);
+        else if (chunk.type === 'handover' || chunk.type === 'paused') params.callbacks.onHandover?.(chunk.handoverState);
       } catch {
         // ignore malformed trailing chunk
       }

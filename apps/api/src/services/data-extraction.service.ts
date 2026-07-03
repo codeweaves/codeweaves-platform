@@ -275,6 +275,12 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     // is…?"). A detail may appear in the first message, so keep the whole thing;
     // only an extreme outlier exceeds the cap (then keep the most recent).
     const joined = messages
+      // SYSTEM rows are event markers ("Visitor asked for a human", "X took
+      // over") — never real conversation, so keep them out of the LLM context.
+      .filter((m) => m.role !== 'SYSTEM')
+      // Only the visitor (USER) is the data subject. The bot AND any human
+      // teammate who took the chat over (HUMAN_AGENT) are the business's side,
+      // so both collapse to [ASSISTANT] — used as context, never as a source.
       .map((m) => `[${m.role === 'USER' ? 'USER' : 'ASSISTANT'}]: ${m.content}`)
       .join('\n');
     if (joined.length <= DataExtractionService.TRANSCRIPT_CHAR_CAP) {

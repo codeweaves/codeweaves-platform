@@ -236,7 +236,8 @@ export class DirectChatService {
           ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
           : systemPromptResolved) +
         buildCollectionInstruction(dataFields) +
-        buildFallbackInstruction(req.agent);
+        buildFallbackInstruction(req.agent) +
+        buildExtraInstruction(req.extraSystemInstruction);
 
       trace.step('llm.call_start', {
         model: modelId,
@@ -263,6 +264,10 @@ export class DirectChatService {
             sessionId: req.externalSessionId,
             traceId: trace.traceId,
             feature: req.feature ?? 'chat',
+            // Forward tools so buffered turns (WhatsApp) can escalate via the
+            // connect_to_human tool too — parity with the streaming path.
+            tools: req.tools,
+            maxSteps: req.maxSteps,
           }),
         (r) => ({
           model: r.model,
@@ -415,7 +420,8 @@ export class DirectChatService {
           ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
           : systemPromptResolved) +
         buildCollectionInstruction(dataFields) +
-        buildFallbackInstruction(req.agent);
+        buildFallbackInstruction(req.agent) +
+        buildExtraInstruction(req.extraSystemInstruction);
 
       const contextData = {
         strategy: config.contextStrategy ?? 'sliding-window',
@@ -463,6 +469,10 @@ export class DirectChatService {
         sessionId: req.externalSessionId,
         traceId: trace.traceId,
         feature: req.feature ?? 'chat-stream',
+        // Tools (e.g. human-handover's connect_to_human). The AI SDK runs the
+        // tool loop; text deltas still stream through unchanged.
+        tools: req.tools,
+        maxSteps: req.maxSteps,
       });
 
       let finishChunk:
@@ -703,4 +713,13 @@ function buildFallbackInstruction(agent: Agent): string {
     'following phrases, word for word and nothing else:\n' +
     list
   );
+}
+
+/**
+ * Per-turn extra instruction (e.g. the human-handover "stall" hint). Appended
+ * last so it takes precedence over the base prompt for this turn only.
+ */
+function buildExtraInstruction(instruction?: string): string {
+  if (!instruction || !instruction.trim()) return '';
+  return '\n\n---\n\n[ACTIVE INSTRUCTION]\n' + instruction.trim();
 }

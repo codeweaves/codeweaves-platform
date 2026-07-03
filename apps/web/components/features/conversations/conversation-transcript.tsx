@@ -1,7 +1,7 @@
 'use client';
 
 import { useMemo, useState } from 'react';
-import { Bot, ChevronDown, ChevronRight, CircleHelp, User, Wrench } from 'lucide-react';
+import { Bot, ChevronDown, ChevronRight, CircleHelp, Headset, User, Wrench } from 'lucide-react';
 import {
   Collapsible,
   CollapsibleContent,
@@ -135,6 +135,18 @@ function TraceDetails({ trace }: { trace: ConversationTrace }) {
   );
 }
 
+/** Pull a human teammate's display name out of a HUMAN_AGENT message's metadata. */
+function humanAgentName(metadata: unknown): string | null {
+  if (metadata && typeof metadata === 'object' && 'humanAgent' in metadata) {
+    const ha = (metadata as Record<string, unknown>).humanAgent;
+    if (ha && typeof ha === 'object' && 'name' in ha) {
+      const name = (ha as Record<string, unknown>).name;
+      if (typeof name === 'string' && name.trim()) return name;
+    }
+  }
+  return null;
+}
+
 function MessageBubble({
   message,
   trace,
@@ -142,28 +154,54 @@ function MessageBubble({
   message: ConversationMessage;
   trace: ConversationTrace | undefined;
 }) {
-  const isAssistant = message.role === 'ASSISTANT';
   const [open, setOpen] = useState(false);
 
+  // System lines (escalation / takeover / resolve) — a centered marker, not a
+  // left/right bubble.
+  if (message.role === 'SYSTEM') {
+    return (
+      <div className="flex justify-center">
+        <span className="rounded-full border bg-muted/60 px-3 py-0.5 text-center text-[11px] text-muted-foreground">
+          {message.content}
+        </span>
+      </div>
+    );
+  }
+
+  const isVisitor = message.role === 'USER';
+  const isHuman = message.role === 'HUMAN_AGENT';
+  const isAssistant = message.role === 'ASSISTANT';
+  // Bot AND human teammate sit on the left (the "our side" of the chat); only
+  // the visitor sits on the right.
+  const onLeft = !isVisitor;
+  const agentName = isHuman ? humanAgentName(message.metadata) : null;
+
   return (
-    <div
-      className={cn(
-        'flex w-full gap-3',
-        isAssistant ? 'justify-start' : 'justify-end',
-      )}
-    >
-      {isAssistant && (
-        <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-muted text-muted-foreground">
-          <Bot className="size-4" />
+    <div className={cn('flex w-full gap-3', onLeft ? 'justify-start' : 'justify-end')}>
+      {onLeft && (
+        <div
+          className={cn(
+            'mt-1 flex size-7 shrink-0 items-center justify-center rounded-full',
+            isHuman ? 'bg-primary/15 text-primary' : 'bg-muted text-muted-foreground',
+          )}
+        >
+          {isHuman ? <Headset className="size-4" /> : <Bot className="size-4" />}
         </div>
       )}
-      <div className={cn('min-w-0 max-w-[80%]', isAssistant ? 'order-1' : 'order-1')}>
+      <div className="order-1 min-w-0 max-w-[80%]">
+        {isHuman && (
+          <div className="mb-0.5 pl-1 text-[11px] font-medium text-primary">
+            {agentName ?? 'Team'}
+          </div>
+        )}
         <div
           className={cn(
             'rounded-2xl px-4 py-2 text-sm whitespace-pre-wrap break-words',
-            isAssistant
-              ? 'rounded-tl-sm bg-muted text-foreground'
-              : 'rounded-tr-sm bg-primary text-primary-foreground',
+            isVisitor
+              ? 'rounded-tr-sm bg-primary text-primary-foreground'
+              : isHuman
+                ? 'rounded-tl-sm bg-primary/10 text-foreground'
+                : 'rounded-tl-sm bg-muted text-foreground',
           )}
         >
           {message.content}
@@ -171,7 +209,7 @@ function MessageBubble({
         <div
           className={cn(
             'mt-1 flex items-center gap-2 text-[11px] text-muted-foreground',
-            isAssistant ? 'justify-start' : 'justify-end',
+            onLeft ? 'justify-start' : 'justify-end',
           )}
         >
           <span>{formatTime(message.createdAt)}</span>
@@ -213,8 +251,8 @@ function MessageBubble({
           </Collapsible>
         )}
       </div>
-      {!isAssistant && (
-        <div className="mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary order-2">
+      {isVisitor && (
+        <div className="order-2 mt-1 flex size-7 shrink-0 items-center justify-center rounded-full bg-primary/10 text-primary">
           <User className="size-4" />
         </div>
       )}
@@ -259,7 +297,7 @@ export function ConversationTranscript({ conversation }: ConversationTranscriptP
     <div className="space-y-6">
       {groups.map((g) => (
         <div key={g.dateKey} className="space-y-4">
-          <div className="sticky top-0 z-10 -mx-1 flex items-center justify-center bg-gradient-to-b from-background via-background/95 to-background/0 py-1">
+          <div className="sticky top-0 z-10 flex items-center justify-center py-1">
             <span className="rounded-full border bg-background px-3 py-0.5 text-[11px] font-medium text-muted-foreground">
               {g.label}
             </span>

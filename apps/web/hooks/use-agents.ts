@@ -31,6 +31,10 @@ export interface Agent {
   sessionLifetimeHours: number;
   /** Phrases the agent replies with when it can't answer; empty disables tracking. */
   fallbackPhrases: string[];
+  /** Human handover (live agent takeover). */
+  humanTakeoverEnabled: boolean;
+  showTalkToHumanButton: boolean;
+  humanConnectedLabel: string | null;
   createdAt: string;
   updatedAt: string;
 }
@@ -111,6 +115,8 @@ export function useUpdateAgent() {
     onSuccess: (_data, variables) => {
       queryClient.invalidateQueries({ queryKey: ['agents'] });
       queryClient.invalidateQueries({ queryKey: ['agents', variables.id] });
+      // Toggling human takeover changes whether the Inbox has anything to show.
+      queryClient.invalidateQueries({ queryKey: ['handover', 'enabled'] });
     },
   });
 }
