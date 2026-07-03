@@ -83,8 +83,8 @@ describe('AiSdkService', () => {
       expect(service.getDefaultModel()).toBe('openai:gpt-4o-mini');
     });
 
-    it('falls back to anthropic/claude-sonnet-4 when env unset', () => {
-      expect(service.getDefaultModel()).toBe('anthropic/claude-sonnet-4');
+    it('falls back to openai/gpt-4.1-mini when env unset', () => {
+      expect(service.getDefaultModel()).toBe('openai/gpt-4.1-mini');
     });
   });
 

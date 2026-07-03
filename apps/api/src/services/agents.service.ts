@@ -267,6 +267,15 @@ export class AgentsService {
           ...(dto.fallbackPhrases !== undefined && {
             fallbackPhrases: dto.fallbackPhrases,
           }),
+          ...(dto.humanTakeoverEnabled !== undefined && {
+            humanTakeoverEnabled: dto.humanTakeoverEnabled,
+          }),
+          ...(dto.showTalkToHumanButton !== undefined && {
+            showTalkToHumanButton: dto.showTalkToHumanButton,
+          }),
+          ...(dto.humanConnectedLabel !== undefined && {
+            humanConnectedLabel: dto.humanConnectedLabel,
+          }),
         },
         include: { organization: { select: { id: true, name: true } } },
       });
@@ -417,6 +426,9 @@ export class AgentsService {
         allowedDomains: true,
         voiceEnabled: true,
         voiceConfig: true,
+        humanTakeoverEnabled: true,
+        showTalkToHumanButton: true,
+        humanConnectedLabel: true,
       },
     });
 
@@ -446,6 +458,12 @@ export class AgentsService {
           voiceConfig: agent.voiceEnabled && agent.voiceConfig
             ? this.sanitizeVoiceConfigForWidget(agent.voiceConfig as Record<string, unknown>)
             : null,
+          // Human handover (live agent takeover). The widget renders the
+          // "Talk to a human" button only when both are true; humanConnectedLabel
+          // is the text shown when a teammate joins.
+          humanTakeoverEnabled: agent.humanTakeoverEnabled,
+          showTalkToHumanButton: agent.humanTakeoverEnabled && agent.showTalkToHumanButton,
+          humanConnectedLabel: agent.humanConnectedLabel,
         },
         allowedDomains: agent.allowedDomains,
       },

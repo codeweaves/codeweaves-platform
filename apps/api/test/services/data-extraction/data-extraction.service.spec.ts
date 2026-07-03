@@ -151,6 +151,36 @@ describe('DataExtractionService', () => {
       expect(await service.extractForSession(sessionId)).toBe('retry');
       expect(mockPrisma.collectedData.upsert).not.toHaveBeenCalled();
     });
+
+    it('drops SYSTEM rows and labels HUMAN_AGENT as [ASSISTANT] in the transcript', async () => {
+      mockPrisma.chatSession.findUnique.mockResolvedValue(
+        baseSession({
+          messages: [
+            { role: 'USER', content: 'hi my email is me@self.com' },
+            { role: 'ASSISTANT', content: 'reach us at support@biz.com' },
+            { role: 'SYSTEM', content: 'Dhruv took over — AI paused' },
+            {
+              role: 'HUMAN_AGENT',
+              content: 'this is Dhruv, ping me at dhruv@biz.com',
+            },
+          ],
+        }),
+      );
+      mockAi.extractFields.mockResolvedValue({ email: 'me@self.com' });
+      mockPrisma.collectedData.upsert.mockResolvedValue({});
+
+      await service.extractForSession(sessionId);
+
+      const transcript = mockAi.extractFields.mock.calls[0][0] as string;
+      expect(transcript).toContain('[USER]: hi my email is me@self.com');
+      // A human teammate is the business's side — never tagged [USER].
+      expect(transcript).toContain(
+        '[ASSISTANT]: this is Dhruv, ping me at dhruv@biz.com',
+      );
+      // SYSTEM event lines never reach the LLM.
+      expect(transcript).not.toContain('took over');
+      expect(transcript).not.toContain('[SYSTEM]');
+    });
   });
 
   describe('runDuePass()', () => {

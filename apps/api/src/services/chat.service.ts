@@ -5,9 +5,10 @@ import { HmacService } from '../common/security/hmac.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { TracerService } from '../common/tracer/tracer.service';
 import { DirectChatService } from '../modules/ai/direct-chat.service';
+import { HandoverService } from './handover.service';
 import type { SendMessageDto } from '@repo/validation';
 import { resolveRoutingMode } from '@repo/validation';
-import type { ChatSession, Prisma } from '@prisma/client';
+import type { ChatSession, Prisma, HandoverReason } from '@prisma/client';
 import type { ChatMessageMetadata } from './chat-metadata.interface';
 import { MessageMetricsService } from './message-metrics.service';
 import { detectFallback } from '../utils/fallback-detection';
@@ -28,7 +29,108 @@ export class ChatService {
     private readonly tracerService: TracerService,
     private readonly directChatService: DirectChatService,
     private readonly messageMetricsService: MessageMetricsService,
+    private readonly handoverService: HandoverService,
   ) {}
+
+  /**
+   * True when a human teammate has taken over this session — the AI must NOT
+   * reply on ANY route (widget / WhatsApp / voice). Shared by every channel so
+   * the pause is enforced in exactly one place.
+   */
+  isPausedForHuman(session: { handoverState: string }): boolean {
+    return session.handoverState === 'ACTIVE_HUMAN';
+  }
+
+  /**
+   * Record an inbound visitor message that arrived while a human is handling:
+   * persists it and pushes it to the dashboard, with NO AI reply. Used by the
+   * non-stream send, WhatsApp, and voice paths (the widget stream calls
+   * HandoverService directly).
+   */
+  async recordPausedInbound(
+    session: { id: string; sessionId: string },
+    organizationId: string,
+    content: string,
+  ): Promise<void> {
+    await this.handoverService.onVisitorMessageWhilePaused(
+      { sessionDbId: session.id, publicSessionId: session.sessionId, organizationId },
+      content,
+    );
+  }
+
+  /**
+   * Cheap escalation: if the visitor explicitly asks for a human (keyword match,
+   * no LLM) and the agent has human takeover enabled, raise the session
+   * NONE → REQUESTED so it surfaces in the dashboard Inbox. Channel-agnostic —
+   * used by the WhatsApp + voice routes (the widget stream wires this PLUS the
+   * LLM `connect_to_human` tool directly). Returns true if it escalated this
+   * turn. Best-effort: `raiseRequested` swallows its own errors.
+   */
+  async maybeEscalateToHuman(
+    session: { id: string; sessionId: string; handoverState: string; source?: string },
+    agent: { humanTakeoverEnabled?: boolean | null; organizationId: string },
+    text: string,
+  ): Promise<boolean> {
+    if (!agent.humanTakeoverEnabled) return false;
+    if (session.source === 'DEMO') return false; // demo/preview never raises a real handover
+    if (session.handoverState !== 'NONE') return false;
+    if (!this.handoverService.detectKeyword(text)) return false;
+    await this.handoverService.raiseRequested(
+      {
+        sessionDbId: session.id,
+        publicSessionId: session.sessionId,
+        organizationId: agent.organizationId,
+      },
+      'USER_REQUESTED',
+    );
+    return true;
+  }
+
+  /**
+   * Ping the dashboard that a bot turn landed while a handover is pending
+   * (REQUESTED), so the Inbox thread shows the bot's live messages. Callers gate
+   * on being in a handover. Best-effort.
+   */
+  async publishHandoverBotTurn(
+    session: { id: string; sessionId: string },
+    organizationId: string,
+  ): Promise<void> {
+    await this.handoverService.publishBotTurn({
+      sessionDbId: session.id,
+      publicSessionId: session.sessionId,
+      organizationId,
+    });
+  }
+
+  /**
+   * Per-turn system hint that makes the bot stall politely while a teammate is
+   * being connected (handoverState = REQUESTED). Passed as `extraSystemInstruction`
+   * by every route (widget text, voice, WhatsApp) when the chat is mid-handover.
+   */
+  handoverStallInstruction(agent: { humanConnectedLabel?: string | null }): string {
+    return this.handoverService.stallInstruction(agent.humanConnectedLabel);
+  }
+
+  /**
+   * The `connect_to_human` tool + its system instruction, for channels that run
+   * a tool-capable LLM turn (widget text, voice) so the model can escalate on
+   * frustration / explicit consent — same behaviour on every route. `onEscalate`
+   * fires when the model calls it, so the caller can signal the client to poll.
+   */
+  buildHumanConnectTool(
+    session: { id: string; sessionId: string },
+    organizationId: string,
+    onEscalate: (reason: HandoverReason) => void,
+  ) {
+    return this.handoverService.buildConnectTool(
+      { sessionDbId: session.id, publicSessionId: session.sessionId, organizationId },
+      onEscalate,
+    );
+  }
+
+  humanOfferInstruction(): string {
+    return this.handoverService.offerInstruction();
+  }
 
   private buildMetadata(
     backendReceivedAt: Date,
@@ -104,7 +206,11 @@ export class ChatService {
       // to tell live conversations apart from closed ones); the next call
       // gets a brand-new sessionId in the response and rotates client-side.
       const lifetimeMs = existing.agent.sessionLifetimeHours * 60 * 60 * 1000;
+      // Never rotate/expire a session that's mid-handover: a long human chat
+      // crossing its lifetime cap must NOT split into two sessions. The instant
+      // it's resolved (handoverState back to NONE), normal rotation resumes.
       const isExpired =
+        existing.handoverState === 'NONE' &&
         Date.now() - existing.createdAt.getTime() > lifetimeMs;
       if (isExpired) {
         await this.prisma.chatSession.update({
@@ -185,7 +291,10 @@ export class ChatService {
 
     if (existing) {
       const lifetimeMs = existing.agent.sessionLifetimeHours * 60 * 60 * 1000;
-      const isExpired = Date.now() - existing.createdAt.getTime() > lifetimeMs;
+      // Mid-handover sessions never rotate (see resolveOrCreateSession).
+      const isExpired =
+        existing.handoverState === 'NONE' &&
+        Date.now() - existing.createdAt.getTime() > lifetimeMs;
       if (!isExpired) return existing;
       // Past its lifetime — close it (the dashboard + classifier rely on EXPIRED
       // to tell finished conversations apart), then fall through to a fresh one.
@@ -286,6 +395,53 @@ export class ChatService {
   }
 
   /**
+   * Public poll for a session's recent messages + current handover state. The
+   * widget calls this (only while escalated) to receive a human agent's replies
+   * and to learn when the handover ends (handoverState back to NONE → stop
+   * polling, resume the bot). Scoped by the unguessable public sessionId.
+   */
+  async pollPublicSession(publicSessionId: string, after?: Date) {
+    const session = await this.prisma.chatSession.findUnique({
+      where: { sessionId: publicSessionId },
+      select: { id: true, handoverState: true },
+    });
+    if (!session) {
+      throw new NotFoundException('Session not found');
+    }
+    const messages = await this.prisma.chatMessage.findMany({
+      where: {
+        chatSessionId: session.id,
+        ...(after ? { createdAt: { gt: after } } : {}),
+      },
+      orderBy: { createdAt: 'asc' },
+      take: 100,
+      select: { id: true, role: true, content: true, createdAt: true, metadata: true },
+    });
+    return {
+      handoverState: session.handoverState,
+      messages: messages.map((m) => ({
+        id: m.id,
+        role: m.role,
+        content: m.content,
+        createdAt: m.createdAt,
+        author: ChatService.extractHumanAuthor(m.metadata),
+      })),
+    };
+  }
+
+  /** Pull the human agent's display name out of a HUMAN_AGENT message's metadata. */
+  private static extractHumanAuthor(metadata: Prisma.JsonValue | null): string | null {
+    if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+      const ha = (metadata as Record<string, unknown>).humanAgent;
+      if (ha && typeof ha === 'object' && 'name' in ha) {
+        const name = (ha as Record<string, unknown>).name;
+        if (typeof name === 'string') return name;
+      }
+    }
+    return null;
+  }
+
+  /**
    * Fetch the agent's decrypted HMAC secret from AgentSecret.
    * Returns null if no secret exists.
    */
@@ -327,6 +483,30 @@ export class ChatService {
     // the orchestrator — `resolveAgent` only returns a stripped projection.
     const fullAgent = await this.prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
     const session = await this.resolveOrCreateSession(agentId, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
+
+    // Human handover: a teammate is handling this chat → no AI reply. Persist
+    // the visitor's message + push it to the dashboard, then return paused.
+    if (this.isPausedForHuman(session)) {
+      await this.recordPausedInbound(session, fullAgent.organizationId, dto.chatInput);
+      const pausedMetadata: ChatMessageMetadata = {
+        streamingMode: 'direct',
+        backendReceivedAt: backendReceivedAt.toISOString(),
+        backendRespondedAt: new Date().toISOString(),
+        responseLatencyMs: 0,
+        timeToFirstToken: null,
+        timeToLastToken: null,
+        totalChunks: null,
+        streamDurationMs: null,
+      };
+      return {
+        sessionId: session.sessionId,
+        messageId: '',
+        reply: '',
+        assistantMessageId: '',
+        metadata: pausedMetadata,
+        paused: true as const,
+      };
+    }
 
     const result = await this.directChatService.send({
       agent: fullAgent,

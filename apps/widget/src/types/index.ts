@@ -34,6 +34,11 @@ export interface AgentConfig {
     supportedLanguages?: string[];
     autoDetectLanguage?: boolean;
   } | null;
+  /** Human handover (live agent takeover). Button shows only when both are true. */
+  humanTakeoverEnabled?: boolean;
+  showTalkToHumanButton?: boolean;
+  /** Shown to the visitor when a teammate connects (also the button's tooltip fallback). */
+  humanConnectedLabel?: string | null;
 }
 
 /** Full widget configuration loaded from the API */

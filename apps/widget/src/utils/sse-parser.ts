@@ -25,6 +25,8 @@ export interface SSEDoneEvent {
   sessionId: string;
   messageId: string;
   metadata: Record<string, unknown>;
+  /** Current handover state, so the widget knows whether to poll for a human. */
+  handoverState?: string;
 }
 
 export interface SSEErrorEvent {
@@ -32,7 +34,19 @@ export interface SSEErrorEvent {
   message: string;
 }
 
-export type SSEEvent = SSESessionEvent | SSEChunkEvent | SSEDoneEvent | SSEErrorEvent;
+/** Sent when a human has taken over — the AI produced no reply this turn. */
+export interface SSEPausedEvent {
+  type: 'paused';
+  handoverState: string;
+  message?: string;
+}
+
+export type SSEEvent =
+  | SSESessionEvent
+  | SSEChunkEvent
+  | SSEDoneEvent
+  | SSEErrorEvent
+  | SSEPausedEvent;
 
 /**
  * Async generator that reads from a ReadableStream, buffers partial lines,
@@ -116,6 +130,15 @@ function parseSSEMessage(message: string): SSEEvent | null {
         sessionId: data.sessionId as string,
         messageId: data.messageId as string,
         metadata: (data.metadata as Record<string, unknown>) ?? {},
+        handoverState: typeof data.handoverState === 'string' ? data.handoverState : undefined,
+      };
+    }
+
+    if (type === 'paused') {
+      return {
+        type: 'paused',
+        handoverState: typeof data.handoverState === 'string' ? data.handoverState : 'ACTIVE_HUMAN',
+        message: typeof data.message === 'string' ? data.message : undefined,
       };
     }
 

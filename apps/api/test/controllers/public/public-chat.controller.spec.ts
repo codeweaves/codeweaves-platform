@@ -7,6 +7,7 @@ import { AgentsService } from '../../../src/services/agents.service';
 import { N8nStreamingService } from '../../../src/services/n8n-streaming.service';
 import { MessageRateLimitService } from '../../../src/services/message-rate-limit.service';
 import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
+import { HandoverService } from '../../../src/services/handover.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 
 describe('PublicChatController', () => {
@@ -35,6 +36,22 @@ describe('PublicChatController', () => {
     getDeviceIdentifier: jest.fn(),
   };
 
+  const mockDirectChatService = { send: jest.fn(), stream: jest.fn() };
+
+  const mockHandoverService = {
+    detectKeyword: jest.fn().mockReturnValue(false),
+    stallInstruction: jest.fn().mockReturnValue(''),
+    offerInstruction: jest.fn().mockReturnValue(''),
+    buildConnectTool: jest.fn().mockReturnValue({}),
+    raiseRequested: jest.fn().mockResolvedValue(undefined),
+    publishBotTurn: jest.fn().mockResolvedValue(undefined),
+    onVisitorMessageWhilePaused: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockPrisma = {
+    agent: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn() },
+  };
+
   function createMockRequest(): Request {
     return {
       headers: { 'x-device-id': 'test-device' },
@@ -50,8 +67,9 @@ describe('PublicChatController', () => {
         { provide: AgentsService, useValue: mockAgentsService },
         { provide: N8nStreamingService, useValue: mockN8nStreamingService },
         { provide: MessageRateLimitService, useValue: mockMessageRateLimitService },
-        { provide: DirectChatService, useValue: { send: jest.fn(), stream: jest.fn() } },
-        { provide: PrismaService, useValue: {} },
+        { provide: DirectChatService, useValue: mockDirectChatService },
+        { provide: HandoverService, useValue: mockHandoverService },
+        { provide: PrismaService, useValue: mockPrisma },
       ],
     }).compile();
 
@@ -63,6 +81,61 @@ describe('PublicChatController', () => {
 
   it('should be defined', () => {
     expect(controller).toBeDefined();
+  });
+
+  describe('requestHuman (button)', () => {
+    it('escalates to REQUESTED deterministically — no LLM/stream call', async () => {
+      mockChatService.resolveAgent.mockResolvedValue({ id: 'agent-1', aiConfig: {} });
+      mockChatService.resolveOrCreateSession.mockResolvedValue({
+        id: 'sess-db',
+        sessionId: 'sess-pub',
+        handoverState: 'NONE',
+      });
+      mockPrisma.agent.findUniqueOrThrow.mockResolvedValue({
+        id: 'agent-1',
+        humanTakeoverEnabled: true,
+        organizationId: 'org-1',
+      });
+
+      const result = await controller.requestHuman(
+        { agentId: 'agent-1', sessionId: 'sess-pub', source: 'WIDGET' },
+        createMockRequest(),
+      );
+
+      expect(mockHandoverService.raiseRequested).toHaveBeenCalledWith(
+        expect.objectContaining({
+          sessionDbId: 'sess-db',
+          publicSessionId: 'sess-pub',
+          organizationId: 'org-1',
+        }),
+        'USER_REQUESTED',
+      );
+      // A button press must never cost a model turn.
+      expect(mockDirectChatService.stream).not.toHaveBeenCalled();
+      expect(result).toEqual({ sessionId: 'sess-pub', handoverState: 'REQUESTED' });
+    });
+
+    it('does not escalate when takeover is disabled on the agent', async () => {
+      mockChatService.resolveAgent.mockResolvedValue({ id: 'agent-1', aiConfig: {} });
+      mockChatService.resolveOrCreateSession.mockResolvedValue({
+        id: 'sess-db',
+        sessionId: 'sess-pub',
+        handoverState: 'NONE',
+      });
+      mockPrisma.agent.findUniqueOrThrow.mockResolvedValue({
+        id: 'agent-1',
+        humanTakeoverEnabled: false,
+        organizationId: 'org-1',
+      });
+
+      const result = await controller.requestHuman(
+        { agentId: 'agent-1' },
+        createMockRequest(),
+      );
+
+      expect(mockHandoverService.raiseRequested).not.toHaveBeenCalled();
+      expect(result.handoverState).toBe('NONE');
+    });
   });
 
   describe('sendMessage', () => {

@@ -1,4 +1,4 @@
-import { Controller, Post, Body, Res, Req, HttpException, Logger, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Res, Req, HttpException, Logger, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
@@ -10,6 +10,7 @@ import { AgentsService } from '../../services/agents.service';
 import { N8nStreamingService } from '../../services/n8n-streaming.service';
 import { MessageRateLimitService } from '../../services/message-rate-limit.service';
 import { DirectChatService } from '../../modules/ai/direct-chat.service';
+import { HandoverService } from '../../services/handover.service';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { sendMessageSchema, type SendMessageDto, resolveRoutingMode } from '@repo/validation';
 import type { ChatMessageMetadata } from '../../services/chat-metadata.interface';
@@ -21,6 +22,13 @@ const warmupSchema = z.object({
   agentId: z.string().min(1).max(128),
 });
 type WarmupDto = z.infer<typeof warmupSchema>;
+
+const requestHumanSchema = z.object({
+  agentId: z.string().min(1).max(128),
+  sessionId: z.string().min(1).max(128).optional(),
+  source: z.enum(['WIDGET', 'WHATSAPP', 'DEMO']).optional(),
+});
+type RequestHumanDto = z.infer<typeof requestHumanSchema>;
 
 @ApiTags('Public Chat')
 @Public()
@@ -34,6 +42,7 @@ export class PublicChatController {
     private readonly n8nStreamingService: N8nStreamingService,
     private readonly messageRateLimitService: MessageRateLimitService,
     private readonly directChatService: DirectChatService,
+    private readonly handoverService: HandoverService,
     private readonly prisma: PrismaService,
   ) {}
 
@@ -141,6 +150,79 @@ export class PublicChatController {
     return this.chatService.sendMessage(dto, visitorIp);
   }
 
+  @Get(':sessionId/poll')
+  @ApiOperation({ summary: 'Poll a session for new messages + handover state' })
+  @ApiResponse({ status: 200, description: 'Messages after `after` + current handoverState' })
+  @ApiResponse({ status: 404, description: 'Session not found' })
+  async poll(
+    @Param('sessionId') sessionId: string,
+    @Query('after') after?: string,
+  ) {
+    // The widget polls this only while escalated, to receive the human's
+    // replies + know when the handover ends (handoverState back to NONE).
+    // Public: the unguessable sessionId is the bearer (same model as the chat).
+    const afterDate = after && !Number.isNaN(Date.parse(after)) ? new Date(after) : undefined;
+    return this.chatService.pollPublicSession(sessionId, afterDate);
+  }
+
+  /**
+   * Explicit "talk to a human" request — the widget button calls this directly.
+   *
+   * Unlike a typed message, the button's intent is unambiguous, so we escalate
+   * DETERMINISTICALLY: no keyword regex, and crucially NO LLM call. We just flip
+   * the session to REQUESTED (idempotent) and return the state. The widget shows
+   * its own instant acknowledgment — paying for a model turn to "reply" to a
+   * button press would be wasteful. Creates a session if the visitor clicks
+   * before sending anything. Rate-limited (shares the message limiter) so a
+   * no-session spam can't churn out sessions.
+   */
+  @Post('request-human')
+  @ApiOperation({ summary: 'Request a human teammate (deterministic, no LLM)' })
+  @ApiResponse({ status: 200, description: 'Handover requested (or current state)' })
+  async requestHuman(
+    @Body(new ZodValidationPipe(requestHumanSchema)) dto: RequestHumanDto,
+    @Req() req: Request,
+  ) {
+    const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
+      deviceId,
+      dto.agentId,
+    );
+    if (!rateLimitResult.allowed) {
+      return { error: true, message: rateLimitResult.message, retryAfterSeconds: rateLimitResult.retryAfterSeconds };
+    }
+
+    const agent = await this.chatService.resolveAgent(dto.agentId);
+    const fullAgent = await this.prisma.agent.findUniqueOrThrow({ where: { id: agent.id } });
+    const visitorIp = ChatService.extractVisitorIp(req);
+    const session = await this.chatService.resolveOrCreateSession(
+      agent.id,
+      dto.sessionId,
+      dto.source ?? 'WIDGET',
+      visitorIp,
+    );
+
+    let handoverState: string = session.handoverState;
+    // Demo/preview chats never raise a real handover.
+    if (
+      fullAgent.humanTakeoverEnabled &&
+      session.source !== 'DEMO' &&
+      session.handoverState === 'NONE'
+    ) {
+      await this.handoverService.raiseRequested(
+        {
+          sessionDbId: session.id,
+          publicSessionId: session.sessionId,
+          organizationId: fullAgent.organizationId,
+        },
+        'USER_REQUESTED',
+      );
+      handoverState = 'REQUESTED';
+    }
+
+    return { sessionId: session.sessionId, handoverState };
+  }
+
   @Post('stream')
   @ApiOperation({ summary: 'Stream a chat response via Server-Sent Events' })
   @ApiResponse({ status: 200, description: 'SSE stream of AI response chunks (errors sent as SSE events, not HTTP status codes)' })
@@ -230,6 +312,38 @@ export class PublicChatController {
         res.write(`data: ${JSON.stringify({ type: 'session', sessionId: session.sessionId })}\n\n`);
       }
 
+      // ----- Human handover: AI paused -------------------------------------
+      // A teammate is actively handling this chat → do NOT call the LLM.
+      // Persist the visitor's message + push it to the dashboard; the widget
+      // receives the human's replies over its realtime subscription, not here.
+      // (fullAgentResult is only fetched in direct mode, the chat path; n8n —
+      // legacy, not used for chat — falls through to its normal reply.)
+      if (session.handoverState === 'ACTIVE_HUMAN' && fullAgentResult) {
+        void this.handoverService.onVisitorMessageWhilePaused(
+          {
+            sessionDbId: session.id,
+            publicSessionId: session.sessionId,
+            organizationId: fullAgentResult.organizationId,
+          },
+          dto.chatInput,
+        );
+        if (!closed) {
+          res.write(`data: ${JSON.stringify({
+            type: 'paused',
+            reason: 'human',
+            handoverState: 'ACTIVE_HUMAN',
+            message: fullAgentResult.humanConnectedLabel ?? 'A member of our team is with you.',
+          })}\n\n`);
+          res.write(`data: ${JSON.stringify({ type: 'done', sessionId: session.sessionId, messageId: null, handoverState: 'ACTIVE_HUMAN' })}\n\n`);
+        }
+        return; // finally{} clears the timeout + ends the response
+      }
+
+      // Handover state to report to the widget on `done` so it knows whether to
+      // start polling for a human (REQUESTED/ACTIVE_HUMAN) or stop (NONE). The
+      // direct branch refines this once it knows if THIS turn raised the flag.
+      let clientHandoverState: string = session.handoverState;
+
       // Fire-and-forget: persisting the user message must not block the LLM
       // call. We pre-generate the UUID so the row is identifiable if needed,
       // matching the dev test endpoint's pattern. Saves the awaited Supabase
@@ -254,6 +368,47 @@ export class PublicChatController {
       if (routingMode === 'direct') {
         const fullAgent = fullAgentResult!;
 
+        // ----- Human handover: trigger + stall ----------------------------
+        // Synchronous, zero-LLM keyword check so the bot can stall on THIS
+        // turn (no added latency — see handover plan §3a). The DB flip +
+        // realtime publish are fire-and-forget; the prompt hint is applied now.
+        const handoverCtx = {
+          sessionDbId: session.id,
+          publicSessionId: session.sessionId,
+          organizationId: fullAgent.organizationId,
+        };
+        // Demo/preview chats never trigger handover.
+        const handoverAllowed =
+          fullAgent.humanTakeoverEnabled && session.source !== 'DEMO';
+        const justRequested =
+          handoverAllowed &&
+          session.handoverState === 'NONE' &&
+          this.handoverService.detectKeyword(dto.chatInput);
+        const inRequested = session.handoverState === 'REQUESTED' || justRequested;
+        if (justRequested) {
+          void this.handoverService.raiseRequested(handoverCtx, 'USER_REQUESTED');
+        }
+        clientHandoverState = inRequested ? 'REQUESTED' : 'NONE';
+
+        // On bot-handled turns (takeover on, not already escalated) hand the
+        // model the connect_to_human tool + an instruction to offer/escalate.
+        // The model judges frustration and plain-language consent ("yes please")
+        // that the inline keyword check can't; calling the tool flips the
+        // session server-side. `toolEscalated` flips when that happens so we can
+        // tell the widget to start polling on this same turn.
+        let toolEscalated = false;
+        const offerHumanTools =
+          handoverAllowed && !inRequested
+            ? {
+                connect_to_human: this.handoverService.buildConnectTool(
+                  handoverCtx,
+                  () => {
+                    toolEscalated = true;
+                  },
+                ),
+              }
+            : undefined;
+
         let firstTokenTime: number | null = null;
         let lastTokenTime: number | null = null;
         let chunkCount = 0;
@@ -276,6 +431,16 @@ export class PublicChatController {
           recentHistory: dto.recentHistory,
           abortSignal: abortController.signal,
           feature: 'chat-stream',
+          // While a human is being connected (REQUESTED) the bot keeps replying
+          // but is told to stall politely. On bot-handled turns it instead gets
+          // the offer/escalate instruction that pairs with connect_to_human.
+          extraSystemInstruction: inRequested
+            ? this.handoverService.stallInstruction(fullAgent.humanConnectedLabel)
+            : offerHumanTools
+              ? this.handoverService.offerInstruction()
+              : undefined,
+          tools: offerHumanTools,
+          maxSteps: offerHumanTools ? 3 : undefined,
         });
 
         for await (const chunk of directStream) {
@@ -309,6 +474,12 @@ export class PublicChatController {
           // 'trace' chunks are orchestration metadata — not forwarded to widgets.
         }
 
+        // The model called connect_to_human mid-stream → session is now
+        // REQUESTED. Reflect it so the `done`/`paused` event tells the widget to
+        // start polling for the human's replies.
+        if (toolEscalated) clientHandoverState = 'REQUESTED';
+
+        const fallback = detectFallback(fullResponse, fullAgent.fallbackPhrases);
         metadata = {
           streamingMode: 'direct',
           backendReceivedAt: backendReceivedAt.toISOString(),
@@ -331,8 +502,18 @@ export class PublicChatController {
           finishReason: finishPayload?.finishReason ?? null,
           historyCount: finishPayload?.historyCount ?? null,
           historyTruncated: finishPayload?.historyTruncated ?? null,
-          ...detectFallback(fullResponse, fullAgent.fallbackPhrases),
+          ...fallback,
         };
+
+        // ----- Human handover: post-turn hooks ----------------------------
+        // Ping the dashboard so a watching teammate sees the live exchange (it
+        // re-fetches the thread) while a human is being connected — whether the
+        // chat was already REQUESTED or the model just escalated via the tool.
+        // (No automatic couldn't-answer escalation: a human is summoned only
+        // when the VISITOR wants one — explicit ask, button, or tool consent.)
+        if (inRequested || toolEscalated) {
+          void this.handoverService.publishBotTurn(handoverCtx);
+        }
       } else {
         // n8n streaming path — unchanged behaviour, unified metadata shape.
         const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
@@ -394,6 +575,7 @@ export class PublicChatController {
           sessionId: session.sessionId,
           messageId: assistantMessageId,
           metadata,
+          handoverState: clientHandoverState,
         })}\n\n`);
 
         // Persist in the background. Errors log but don't leak to the user

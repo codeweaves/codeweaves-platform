@@ -8,6 +8,7 @@ import { CryptoService } from '../../../src/common/crypto/crypto.service';
 import { TracerService } from '../../../src/common/tracer/tracer.service';
 import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 import { MessageMetricsService } from '../../../src/services/message-metrics.service';
+import { HandoverService } from '../../../src/services/handover.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -58,6 +59,14 @@ describe('ChatService', () => {
     recordFromMetadata: jest.fn(),
   };
 
+  const mockHandoverService = {
+    onVisitorMessageWhilePaused: jest.fn().mockResolvedValue(undefined),
+    detectKeyword: jest.fn().mockReturnValue(false),
+    raiseRequested: jest.fn().mockResolvedValue(undefined),
+    publishBotTurn: jest.fn().mockResolvedValue(undefined),
+    stallInstruction: jest.fn().mockReturnValue('A teammate is joining shortly.'),
+  };
+
   const MOCK_AGENT_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
   const MOCK_SESSION_ID = 'session-uuid-1234';
   const MOCK_SESSION_DB_ID = 'db-session-uuid-1234';
@@ -71,6 +80,8 @@ describe('ChatService', () => {
     sessionId: MOCK_SESSION_ID,
     source: 'DEMO',
     status: 'ACTIVE',
+    // NONE = not mid-handover, so the lifetime-cap rotation is allowed to run.
+    handoverState: 'NONE',
     createdAt: new Date(),
     updatedAt: new Date(),
     lastMessageAt: null,
@@ -117,6 +128,7 @@ describe('ChatService', () => {
         { provide: TracerService, useValue: mockTracerService },
         { provide: DirectChatService, useValue: mockDirectChatService },
         { provide: MessageMetricsService, useValue: mockMessageMetricsService },
+        { provide: HandoverService, useValue: mockHandoverService },
       ],
     }).compile();
 
@@ -211,6 +223,7 @@ describe('ChatService', () => {
         sessionId: 'uuid-old',
         source: 'WHATSAPP',
         status: 'ACTIVE',
+        handoverState: 'NONE',
         visitorId: PHONE,
         createdAt: new Date(Date.now() - 7 * 60 * 60 * 1000), // 7h ago, cap is 6h
         updatedAt: new Date(),
@@ -1052,6 +1065,58 @@ describe('ChatService', () => {
         data: { chatSessionId: 'session-db-id', role: 'USER', content: 'Hello' },
       });
       expect(result).toEqual(mockMsg);
+    });
+  });
+
+  describe('maybeEscalateToHuman', () => {
+    const agentEnabled = { humanTakeoverEnabled: true, organizationId: 'org-1' };
+    const noneSession = { id: 'db-1', sessionId: 'pub-1', handoverState: 'NONE' };
+
+    it('escalates when takeover is on, session is NONE, and the text asks for a human', async () => {
+      mockHandoverService.detectKeyword.mockReturnValueOnce(true);
+
+      const result = await service.maybeEscalateToHuman(noneSession, agentEnabled, 'let me talk to a human');
+
+      expect(result).toBe(true);
+      expect(mockHandoverService.raiseRequested).toHaveBeenCalledWith(
+        { sessionDbId: 'db-1', publicSessionId: 'pub-1', organizationId: 'org-1' },
+        'USER_REQUESTED',
+      );
+    });
+
+    it('does nothing when the agent has human takeover disabled', async () => {
+      mockHandoverService.detectKeyword.mockReturnValueOnce(true);
+
+      const result = await service.maybeEscalateToHuman(
+        noneSession,
+        { humanTakeoverEnabled: false, organizationId: 'org-1' },
+        'talk to a human',
+      );
+
+      expect(result).toBe(false);
+      expect(mockHandoverService.raiseRequested).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the session is already in a handover', async () => {
+      mockHandoverService.detectKeyword.mockReturnValueOnce(true);
+
+      const result = await service.maybeEscalateToHuman(
+        { id: 'db-1', sessionId: 'pub-1', handoverState: 'REQUESTED' },
+        agentEnabled,
+        'talk to a human',
+      );
+
+      expect(result).toBe(false);
+      expect(mockHandoverService.raiseRequested).not.toHaveBeenCalled();
+    });
+
+    it('does nothing when the text is not a human request', async () => {
+      mockHandoverService.detectKeyword.mockReturnValueOnce(false);
+
+      const result = await service.maybeEscalateToHuman(noneSession, agentEnabled, 'what are your hours?');
+
+      expect(result).toBe(false);
+      expect(mockHandoverService.raiseRequested).not.toHaveBeenCalled();
     });
   });
 

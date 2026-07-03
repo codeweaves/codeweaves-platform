@@ -44,6 +44,35 @@ describe('ContextAssemblyService', () => {
       expect(result.truncated).toBe(false);
     });
 
+    it('labels HUMAN_AGENT and SYSTEM turns so the model tells them apart from its own', async () => {
+      mockPrisma.chatMessage.findMany.mockResolvedValue([
+        { role: 'SYSTEM', content: 'Resolved by Priya — AI resumed' },
+        { role: 'HUMAN_AGENT', content: 'This is Priya, happy to help.' },
+        { role: 'ASSISTANT', content: 'Hi back' },
+        { role: 'USER', content: 'Hi' },
+      ]); // returned desc
+
+      const result = await service.assemble(baseParams);
+
+      // Human teammate turn → labelled, assistant role.
+      const humanTurn = result.messages.find(
+        (m) => typeof m.content === 'string' && m.content.includes('This is Priya'),
+      );
+      expect(humanTurn).toEqual({
+        role: 'assistant',
+        content: '[Human teammate]: This is Priya, happy to help.',
+      });
+      // Handover status line → labelled [System], so the model reads it as an
+      // event (the human handed the chat back), not its own words.
+      const systemTurn = result.messages.find(
+        (m) => typeof m.content === 'string' && m.content.includes('Resolved by Priya'),
+      );
+      expect(systemTurn).toEqual({
+        role: 'assistant',
+        content: '[System]: Resolved by Priya — AI resumed',
+      });
+    });
+
     it('returns just the new turn when no history exists', async () => {
       mockPrisma.chatMessage.findMany.mockResolvedValue([]);
       const result = await service.assemble(baseParams);

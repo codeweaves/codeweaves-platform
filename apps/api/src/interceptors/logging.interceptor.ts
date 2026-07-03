@@ -10,6 +10,9 @@ import { Observable } from 'rxjs';
 import { tap } from 'rxjs/operators';
 import { getRequestContext } from '../common/tracer/correlation.storage';
 
+/** High-frequency endpoints kept out of the success log (errors still log). */
+const QUIET_PATHS = /\/poll(\?|$)/;
+
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
   private readonly logger = new Logger('HTTP');
@@ -18,6 +21,7 @@ export class LoggingInterceptor implements NestInterceptor {
     const request = context.switchToHttp().getRequest();
     const { method, originalUrl, user } = request;
     const now = Date.now();
+    const quiet = QUIET_PATHS.test(originalUrl);
 
     // Enrich AsyncLocalStorage with user context (Guards have already run)
     const store = getRequestContext();
@@ -29,6 +33,7 @@ export class LoggingInterceptor implements NestInterceptor {
     return next.handle().pipe(
       tap({
         next: () => {
+          if (quiet) return;
           const res = context.switchToHttp().getResponse();
           this.logger.log(
             `← ${method} ${originalUrl} ${res.statusCode} ${Date.now() - now}ms`,

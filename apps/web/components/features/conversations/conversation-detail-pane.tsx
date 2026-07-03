@@ -26,8 +26,6 @@ import { cn } from '@/lib/utils';
 
 interface ConversationDetailPaneProps {
   sessionId: string | null;
-  /** Show a "Back to list" affordance — used on mobile. */
-  onBack?: () => void;
   className?: string;
 }
 
@@ -87,7 +85,6 @@ function HeaderStat({
 
 export function ConversationDetailPane({
   sessionId,
-  onBack,
   className,
 }: ConversationDetailPaneProps) {
   const { data: conv, isLoading, isError, error } = useConversation(
@@ -141,17 +138,6 @@ export function ConversationDetailPane({
       {/* Compact header */}
       <div className="shrink-0 border-b bg-card px-4 py-3 md:px-6">
         <div className="flex items-start gap-3">
-          {onBack && (
-            <Button
-              variant="ghost"
-              size="icon"
-              className="size-8 shrink-0 md:hidden"
-              onClick={onBack}
-              aria-label="Back to list"
-            >
-              <ArrowLeft className="size-4" />
-            </Button>
-          )}
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap items-center gap-2">
               {conv.category && (
@@ -217,7 +203,7 @@ export function ConversationDetailPane({
       </div>
 
       {/* Transcript */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
+      <div className="thin-scroll min-h-0 flex-1 overflow-y-auto px-4 py-4 md:px-6 md:py-6">
         <ConversationTranscript conversation={conv} />
       </div>
     </div>

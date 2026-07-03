@@ -21,6 +21,36 @@ import { sessionId as sessionIdSignal } from '../state/chat-store';
 let currentSessionId: string | null = null;
 let sessionActive = false;
 
+// The ONE deliberate exception to "reload = new session": while a conversation
+// is in human handover, we stash its sessionId in sessionStorage so a reload
+// reconnects to the SAME live chat (survives reload, dies on tab close). Cleared
+// the moment the handover resolves, so normal bot chats never persist.
+const HANDOVER_KEY_PREFIX = 'cw_handover_';
+
+export function persistHandoverSession(agentId: string, sessionId: string): void {
+  try {
+    sessionStorage.setItem(`${HANDOVER_KEY_PREFIX}${agentId}`, sessionId);
+  } catch {
+    /* sessionStorage unavailable (sandboxed iframe / private mode) — fine */
+  }
+}
+
+export function getPersistedHandoverSession(agentId: string): string | null {
+  try {
+    return sessionStorage.getItem(`${HANDOVER_KEY_PREFIX}${agentId}`);
+  } catch {
+    return null;
+  }
+}
+
+export function clearHandoverSession(agentId: string): void {
+  try {
+    sessionStorage.removeItem(`${HANDOVER_KEY_PREFIX}${agentId}`);
+  } catch {
+    /* nothing to clear */
+  }
+}
+
 // ── Public API ──────────────────────────────────────────────────────
 
 /**
@@ -30,7 +60,15 @@ let sessionActive = false;
  * persistent store, so each page-load / tab-open starts fresh.
  */
 export function initSession(agentId: string): void {
-  void agentId; // reserved for future per-agent state; signature kept stable for callers
+  // If this tab was reloaded MID-HANDOVER, reconnect to that same session
+  // (the only case we persist). Otherwise a fresh, in-memory-only session.
+  const persisted = getPersistedHandoverSession(agentId);
+  if (persisted) {
+    currentSessionId = persisted;
+    sessionActive = true;
+    sessionIdSignal.value = persisted;
+    return;
+  }
   currentSessionId = null;
   sessionActive = false;
   sessionIdSignal.value = null;
@@ -85,10 +123,10 @@ export function handleSessionError(agentId: string, statusCode: number): void {
  * Clear in-memory session state for the given agent.
  */
 function clearSession(agentId: string): void {
-  void agentId; // reserved for future per-agent state
   currentSessionId = null;
   sessionActive = false;
   sessionIdSignal.value = null;
+  clearHandoverSession(agentId);
 }
 
 /**

@@ -310,8 +310,10 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
   }
 
   getDefaultModel(): string {
+    // Fallback when DEFAULT_AI_MODEL is unset. gpt-4.1-mini: cheap, fast, and
+    // reliable tool calling (we don't run Claude). Override via env per deploy.
     return (
-      this.config.get<string>('DEFAULT_AI_MODEL') ?? 'anthropic/claude-sonnet-4'
+      this.config.get<string>('DEFAULT_AI_MODEL') ?? 'openai/gpt-4.1-mini'
     );
   }
 

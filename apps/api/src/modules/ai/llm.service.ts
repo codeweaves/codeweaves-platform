@@ -7,10 +7,14 @@ import { ConfigService } from '@nestjs/config';
 import {
   APICallError,
   generateText,
+  stepCountIs,
   streamText,
   type LanguageModelUsage,
   type ProviderMetadata,
 } from 'ai';
+
+/** Default max agent-loop steps when a request supplies tools (call + reply). */
+const DEFAULT_MAX_TOOL_STEPS = 3;
 
 import { AiSdkService, parseModelId } from './ai-sdk.service';
 
@@ -98,8 +102,15 @@ export class LlmService {
         presencePenalty: request.presencePenalty,
         abortSignal: request.abortSignal,
         ...(providerOptions ? { providerOptions } : {}),
-        // Tools (Phase 4). AI SDK auto-handles the tool loop when maxSteps > 0.
-        ...(request.tools ? { tools: request.tools } : {}),
+        // Tools: when present, let the AI SDK run the call→execute→reply loop.
+        // `stopWhen` caps the loop; omitted entirely for tool-less calls so
+        // normal completions keep their single-step behaviour unchanged.
+        ...(request.tools
+          ? {
+              tools: request.tools,
+              stopWhen: stepCountIs(request.maxSteps ?? DEFAULT_MAX_TOOL_STEPS),
+            }
+          : {}),
       });
 
       const latencyMs = Math.round(performance.now() - startedAt);
@@ -170,7 +181,13 @@ export class LlmService {
       presencePenalty: request.presencePenalty,
       abortSignal: combinedSignal,
       ...(providerOptions ? { providerOptions } : {}),
-      ...(request.tools ? { tools: request.tools } : {}),
+      // See generateCompletion above — multi-step loop only when tools exist.
+      ...(request.tools
+        ? {
+            tools: request.tools,
+            stopWhen: stepCountIs(request.maxSteps ?? DEFAULT_MAX_TOOL_STEPS),
+          }
+        : {}),
     });
 
     // ttftMs = Time To First Token — we capture this by marking the timestamp

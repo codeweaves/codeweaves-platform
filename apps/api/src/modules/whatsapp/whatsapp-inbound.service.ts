@@ -154,8 +154,41 @@ export class WhatsappInboundService {
       from,
     );
 
+    // 5b. Human handover: if a teammate is handling this WhatsApp chat, capture
+    //     the inbound message + push it to the dashboard, and DO NOT reply with
+    //     the AI. (Delivering the human's reply back out via WhatsApp is a
+    //     separate outbound piece — for now this just stops the double-reply.)
+    if (this.chatService.isPausedForHuman(session)) {
+      await this.chatService.recordPausedInbound(session, agent.organizationId, userText);
+      this.logger.log(
+        `WhatsApp session ${session.sessionId} is in human handover — AI reply suppressed.`,
+      );
+      return;
+    }
+
     // 6. Persist the inbound message before calling the LLM (survives LLM failure).
     await this.chatService.saveUserMessage(session.id, userText);
+
+    // 6b. Human handover parity with the widget/voice: a "talk to a human"
+    //     keyword escalates immediately; otherwise the model gets the
+    //     connect_to_human tool so it can escalate on frustration / consent.
+    //     Either way the bot stalls politely, and we ping the dashboard after the
+    //     turn so the WhatsApp exchange shows in the live thread.
+    const escalated = await this.chatService.maybeEscalateToHuman(session, agent, userText);
+    const inHandover = escalated || session.handoverState === 'REQUESTED';
+    let toolEscalated = false;
+    const offerHumanTools =
+      agent.humanTakeoverEnabled && session.source !== 'DEMO' && !inHandover
+        ? {
+            connect_to_human: this.chatService.buildHumanConnectTool(
+              session,
+              agent.organizationId,
+              () => {
+                toolEscalated = true;
+              },
+            ),
+          }
+        : undefined;
 
     // 7. Run the agent (buffered — no streaming on WhatsApp).
     let result: DirectChatResult;
@@ -166,6 +199,13 @@ export class WhatsappInboundService {
         externalSessionId: session.sessionId,
         newUserMessage: userText,
         feature: 'chat',
+        extraSystemInstruction: inHandover
+          ? this.chatService.handoverStallInstruction(agent)
+          : offerHumanTools
+            ? this.chatService.humanOfferInstruction()
+            : undefined,
+        tools: offerHumanTools,
+        maxSteps: offerHumanTools ? 3 : undefined,
       });
     } catch (err) {
       this.logger.error(
@@ -269,5 +309,12 @@ export class WhatsappInboundService {
       ...detectFallback(replyText, agent.fallbackPhrases),
     });
     await this.chatService.updateSessionTimestamp(session.id);
+
+    // 10. Handover: ping the dashboard so the WhatsApp bot turn shows in the
+    //     live Inbox thread while a teammate is being connected (keyword OR the
+    //     model's connect_to_human tool).
+    if (inHandover || toolEscalated) {
+      await this.chatService.publishHandoverBotTurn(session, agent.organizationId);
+    }
   }
 }

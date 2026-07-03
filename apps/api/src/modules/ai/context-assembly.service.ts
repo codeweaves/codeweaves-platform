@@ -16,6 +16,23 @@ const MAX_HISTORY_HARD_CAP = 100;
 const DEFAULT_MAX_INPUT_TOKENS = 8000;
 
 /**
+ * Inline label prefixed to a human teammate's replies in the model context.
+ * Both a human agent's and the bot's turns ride the AI-SDK 'assistant' role, so
+ * this is how the model tells "a human wrote this" from "I wrote this". Keep in
+ * sync with the widget's recentHistory builder (apps/widget useChat.ts).
+ */
+const HUMAN_AGENT_LABEL = '[Human teammate]: ';
+
+/**
+ * Inline label for handover status lines (SYSTEM rows: "a teammate took over",
+ * "resolved — AI resumed", "auto-resolved (inactive)", …) so the model reads
+ * them as automated events, not the assistant's own words. This is the handover
+ * narrative — connected → what the human did → handed back. Keep in sync with
+ * the widget's recentHistory builder (apps/widget useChat.ts).
+ */
+const SYSTEM_LABEL = '[System]: ';
+
+/**
  * Floor on how many recent messages we keep even if the token budget would
  * force dropping them. Prevents pathological long-message scenarios (e.g. a
  * user pasting 10K tokens of code) from stripping conversation context down
@@ -88,6 +105,11 @@ export class ContextAssemblyService {
       // Query `desc` + LIMIT lets Postgres use the (chatSessionId, createdAt)
       // index to short-circuit. Select only the columns we need — ChatMessage.metadata
       // is a fat JSONB we don't want to drag across the wire for every chat turn.
+      //
+      // HUMAN_AGENT (a teammate's replies) and SYSTEM (handover status lines)
+      // are both included and LABELLED (see labelHistoryContent) so the model
+      // reads the full handover narrative — who joined, what they said, and when
+      // the chat was handed back — without mistaking any of it for its own words.
       const recent = await this.prisma.chatMessage.findMany({
         where: { chatSessionId: params.chatSessionId },
         orderBy: { createdAt: 'desc' },
@@ -105,7 +127,7 @@ export class ContextAssemblyService {
       const chronological = recent.reverse();
       fullHistory = chronological.map((m) => ({
         role: roleToAiSdk(m.role),
-        content: m.content,
+        content: labelHistoryContent(m.role, m.content),
       }));
       loadedCount = chronological.length;
     }
@@ -210,8 +232,25 @@ const CHAT_FRAMING_OVERHEAD = 4;
  *  other way around. */
 const CHARS_PER_TOKEN = 4;
 
+/**
+ * Map a stored message role to an AI SDK role. USER → user; everything else
+ * (ASSISTANT + HUMAN_AGENT + SYSTEM) → assistant. A human teammate's reply and
+ * the handover status lines belong to the non-user side; they're labelled by
+ * {@link labelHistoryContent} so the model can still tell them apart.
+ */
 function roleToAiSdk(role: MessageRole): 'user' | 'assistant' {
   return role === 'USER' ? 'user' : 'assistant';
+}
+
+/**
+ * Prefix HUMAN_AGENT / SYSTEM turns with a label so the model can distinguish a
+ * human teammate's reply and automated handover status lines from its own turns
+ * (all three ride the 'assistant' role). USER / ASSISTANT pass through unchanged.
+ */
+function labelHistoryContent(role: MessageRole, content: string): string {
+  if (role === 'HUMAN_AGENT') return `${HUMAN_AGENT_LABEL}${content}`;
+  if (role === 'SYSTEM') return `${SYSTEM_LABEL}${content}`;
+  return content;
 }
 
 /** Extract text length from a message content that may be string | Array. */

@@ -288,10 +288,12 @@ export class AiClassifierService {
 
     const system = [
       'You extract structured details that an END-USER gave about THEMSELVES in a chat.',
-      'The transcript is labelled by speaker: [USER] is the person whose data we want; [ASSISTANT] is the business\'s bot. Use [ASSISTANT] turns only as CONTEXT to understand the conversation — NEVER extract a value from them.',
+      'The transcript is labelled by speaker: [USER] is the person whose data we want; [ASSISTANT] is the business\'s side — its bot OR a human teammate who took the chat over. Use [ASSISTANT] turns only as CONTEXT to understand the conversation — NEVER extract a value from them.',
+      'HARD RULE: a value that appears only in an [ASSISTANT] turn is the BUSINESS\'s, never the user\'s. Contact details the bot or teammate shares — e.g. "contact us at support@acme.com", "reach our team at +1 555-0100", "this is Sam, my email is sam@acme.com" — must NOT be extracted; return null for that field.',
       'Read the MEANING of each sentence. Only extract a value when the user is giving it as their OWN — usually phrased like "my email is…", "I\'m…", "my number is…", "my customer id is…".',
       'Do NOT extract a value the user is referring to as the business\'s or someone else\'s — e.g. "your email is…?", "is this your number?", "I saw it on your website". Those are not the user\'s data.',
       'If the user did not provide a field about themselves, return null for it — the JSON value null, never the text "null". NEVER guess, infer, or fabricate.',
+      'Example: the [ASSISTANT] says "reach us at support@acme.com or +1 555-0100" and the [USER] never states their own email or phone → email = null and phone = null.',
       'Reply with JSON matching the provided schema exactly.',
     ].join('\n');
 

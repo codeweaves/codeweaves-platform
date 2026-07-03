@@ -62,6 +62,8 @@ export interface UseVoiceOptions {
   onComplete?: (fullText: string) => void;
   /** Called on voice error */
   onError?: (message: string) => void;
+  /** Called when a handover is raised on a voice turn (caller asked for a human). */
+  onHandover?: (handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN') => void;
 }
 
 export interface UseVoiceReturn {
@@ -116,6 +118,7 @@ export function useVoice({
   onAudioSentence,
   onComplete,
   onError,
+  onHandover,
 }: UseVoiceOptions): UseVoiceReturn {
   const [voiceState, setVoiceState] = useState<VoiceState>('idle');
   const [recordingDurationMs, setRecordingDurationMs] = useState(0);
@@ -150,11 +153,13 @@ export function useVoice({
   const onAudioSentenceRef = useRef(onAudioSentence);
   const onCompleteRef = useRef(onComplete);
   const onErrorRef = useRef(onError);
+  const onHandoverRef = useRef(onHandover);
 
   useEffect(() => { onTranscriptionRef.current = onTranscription; }, [onTranscription]);
   useEffect(() => { onAudioSentenceRef.current = onAudioSentence; }, [onAudioSentence]);
   useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
   useEffect(() => { onErrorRef.current = onError; }, [onError]);
+  useEffect(() => { onHandoverRef.current = onHandover; }, [onHandover]);
 
   const setVoiceStateSynced = useCallback((state: VoiceState) => {
     voiceStateRef.current = state;
@@ -290,6 +295,9 @@ export function useVoice({
             if (!receivedFirstAudio || !voiceAutoPlay) {
               setVoiceStateSynced('idle');
             }
+          },
+          onHandover: (handoverState) => {
+            onHandoverRef.current?.(handoverState);
           },
           onError: (errCode: string, message: string) => {
             const mapped = ERROR_MESSAGES[errCode] ?? message;

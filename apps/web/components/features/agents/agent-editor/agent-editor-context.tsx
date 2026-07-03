@@ -87,6 +87,15 @@ export interface AgentFormData {
    * extractor reads these to pull values out of finished conversations.
    */
   dataFields: EditorDataField[];
+  /**
+   * Human handover (live agent takeover). Master toggle, the optional
+   * "Talk to a human" widget button, and the text shown to the visitor when a
+   * teammate connects (empty = a sensible built-in default). The button/line
+   * COLOURS live in the widget theme (themeData.handover).
+   */
+  humanTakeoverEnabled: boolean;
+  showTalkToHumanButton: boolean;
+  humanConnectedLabel: string;
 }
 
 interface AgentEditorContextType {
@@ -168,6 +177,36 @@ function setNestedValue<T>(obj: T, path: string, value: unknown): T {
   return result as T;
 }
 
+/**
+ * Deep-merge stored theme values over the defaults. Unlike a shallow spread,
+ * this fills NESTED keys added after a theme was saved (e.g. new
+ * `handover.requestedLabel` / line colours) from the defaults, instead of a
+ * stored section object replacing the whole default section (which left the new
+ * keys undefined → empty inputs / #000000 colour pickers). Arrays (e.g.
+ * `starters`) and primitives: the stored value wins as-is.
+ */
+function deepMergeTheme<T>(base: T, override: unknown): T {
+  if (
+    override === undefined ||
+    override === null ||
+    typeof override !== 'object' ||
+    Array.isArray(override) ||
+    typeof base !== 'object' ||
+    base === null ||
+    Array.isArray(base)
+  ) {
+    return override === undefined ? base : (override as T);
+  }
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const out: any = { ...(base as any) };
+  for (const key of Object.keys(override as Record<string, unknown>)) {
+    const o = (override as Record<string, unknown>)[key];
+    if (o === undefined) continue;
+    out[key] = deepMergeTheme(out[key], o);
+  }
+  return out as T;
+}
+
 /** Full form data shape used by the ChatWidgetSurface preview.
  *  Fields not yet persisted are filled with defaults by `toPreviewFormData`. */
 export interface PreviewFormData {
@@ -243,6 +282,18 @@ export interface PreviewFormData {
   brandingLinkColor: string;
   // Voice
   voiceEnabled: boolean;
+  // Human handover
+  handoverEnabled: boolean;
+  showHandoverButton: boolean;
+  handoverButtonLabel: string;
+  handoverButtonBg: string;
+  handoverButtonTextColor: string;
+  handoverConnectedLabel: string;
+  handoverConnectedLineColor: string;
+  handoverRequestedLabel: string;
+  handoverRequestedLineColor: string;
+  handoverEndedLabel: string;
+  handoverEndedLineColor: string;
 }
 
 /** Maps AgentFormData + WidgetTheme to the full PreviewFormData shape for the chat widget preview. */
@@ -326,6 +377,19 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     brandingLinkColor: themeData.branding.linkColor,
     // Voice
     voiceEnabled: formData.voiceEnabled,
+    // Human handover
+    handoverEnabled: formData.humanTakeoverEnabled,
+    showHandoverButton: formData.humanTakeoverEnabled && formData.showTalkToHumanButton,
+    handoverButtonLabel: themeData.handover.buttonLabel,
+    handoverButtonBg: themeData.handover.buttonBackgroundColor,
+    handoverButtonTextColor: themeData.handover.buttonTextColor,
+    handoverConnectedLabel:
+      formData.humanConnectedLabel || "You're now connected with our team",
+    handoverConnectedLineColor: themeData.handover.connectedLineColor,
+    handoverRequestedLabel: themeData.handover.requestedLabel,
+    handoverRequestedLineColor: themeData.handover.requestedLineColor,
+    handoverEndedLabel: themeData.handover.endedLabel,
+    handoverEndedLineColor: themeData.handover.endedLineColor,
   };
 }
 
@@ -390,6 +454,9 @@ export function agentToFormData(
     sessionLifetimeHours: agent.sessionLifetimeHours ?? 6,
     fallbackPhrases: agent.fallbackPhrases ?? [],
     dataFields: initialDataFields,
+    humanTakeoverEnabled: agent.humanTakeoverEnabled ?? false,
+    showTalkToHumanButton: agent.showTalkToHumanButton ?? false,
+    humanConnectedLabel: agent.humanConnectedLabel ?? '',
   };
 }
 
@@ -404,15 +471,20 @@ export function AgentEditorProvider({
   children,
   agent,
   initialFormData,
-  initialThemeData = defaultWidgetTheme,
+  initialThemeData,
 }: AgentEditorProviderProps) {
   const [savedFormData, setSavedFormData] =
     useState<AgentFormData>(initialFormData);
   const [formData, setFormData] = useState<AgentFormData>(initialFormData);
 
-  const [savedThemeData, setSavedThemeData] =
-    useState<WidgetTheme>(initialThemeData);
-  const [themeData, setThemeData] = useState<WidgetTheme>(initialThemeData);
+  // Deep-merge the saved theme over defaults so newly-added keys — top-level OR
+  // nested (e.g. `handover.requestedLabel` / line colours) — are always present
+  // with their defaults, even for themes saved before the key existed. A shallow
+  // spread would let a stored `handover` object replace the default one whole,
+  // leaving the new fields undefined (empty inputs / #000000 pickers).
+  const baseTheme: WidgetTheme = deepMergeTheme(defaultWidgetTheme, initialThemeData);
+  const [savedThemeData, setSavedThemeData] = useState<WidgetTheme>(baseTheme);
+  const [themeData, setThemeData] = useState<WidgetTheme>(baseTheme);
 
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({});
 

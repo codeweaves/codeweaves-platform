@@ -409,19 +409,17 @@ export class VoiceController {
   ): Promise<void> {
     // Resolve session for message storage
     const session = await this.chatService.resolveOrCreateSession(resolvedAgentId, dto.sessionId, dto.source ?? 'WIDGET', visitorIp);
-    const userMessage = await this.chatService.saveUserMessage(session.id, sttResult.transcript);
 
-    // Set chunked response headers
+    // Set chunked response headers. X-Message-Id is set on the AI path only —
+    // the paused branch below persists the inbound via recordPausedInbound.
     res.setHeader('Content-Type', 'application/x-ndjson');
     res.setHeader('Transfer-Encoding', 'chunked');
     res.setHeader('Cache-Control', 'no-cache');
     res.setHeader('X-Session-Id', session.id);
-    res.setHeader('X-Message-Id', userMessage.id);
 
-    // Send transcription chunk immediately so the client can show the user's message.
-    // Includes `sessionId` (external public id) so multi-turn voice clients can
-    // round-trip it on the next request — without this, every voice call creates
-    // a fresh session instead of appending to the conversation.
+    // Transcription chunk — shown to the caller regardless of handover state so
+    // they always see what we heard. `sessionId` (external public id) lets
+    // multi-turn voice clients round-trip it on the next request.
     const transcriptionChunk = {
       type: 'transcription' as const,
       sessionId: session.sessionId,
@@ -430,7 +428,67 @@ export class VoiceController {
       confidence: sttResult.confidence,
       sttLatencyMs,
     };
+
+    // Human handover: a teammate is handling this conversation → no AI audio
+    // reply on the voice route. Show the caller's transcription, capture it for
+    // the dashboard, and stop. recordPausedInbound persists the USER message, so
+    // we must NOT also saveUserMessage here (that was a double-persist bug). The
+    // human responds from the dashboard — live voice takeover isn't supported.
+    if (this.chatService.isPausedForHuman(session)) {
+      res.write(JSON.stringify(transcriptionChunk) + '\n');
+      await this.chatService.recordPausedInbound(
+        session,
+        fullAgent.organizationId,
+        sttResult.transcript,
+      );
+      if (!res.writableEnded) {
+        res.write(
+          JSON.stringify({ type: 'paused', sessionId: session.sessionId, handoverState: 'ACTIVE_HUMAN' }) + '\n',
+        );
+        res.end();
+      }
+      return;
+    }
+
+    // Normal AI path: persist the inbound + expose its id, then show transcription.
+    const userMessage = await this.chatService.saveUserMessage(session.id, sttResult.transcript);
+    res.setHeader('X-Message-Id', userMessage.id);
     res.write(JSON.stringify(transcriptionChunk) + '\n');
+
+    // "Talk to a human" in a voice turn escalates (keyword, no LLM; gated on
+    // takeover). Parity with the widget text path: the bot acknowledges via the
+    // stall instruction, and we signal the widget so it shows the "connecting"
+    // line + starts polling for the teammate's replies (which arrive as text).
+    const escalated = await this.chatService.maybeEscalateToHuman(
+      session,
+      fullAgent,
+      sttResult.transcript,
+    );
+    const inRequested = escalated || session.handoverState === 'REQUESTED';
+    // On a bot-handled voice turn, hand the model the connect_to_human tool so it
+    // can escalate on frustration / explicit consent — parity with the text path.
+    let toolEscalated = false;
+    const offerHumanTools =
+      fullAgent.humanTakeoverEnabled && session.source !== 'DEMO' && !inRequested
+        ? {
+            connect_to_human: this.chatService.buildHumanConnectTool(
+              session,
+              fullAgent.organizationId,
+              () => {
+                toolEscalated = true;
+              },
+            ),
+          }
+        : undefined;
+    if (inRequested) {
+      res.write(
+        JSON.stringify({
+          type: 'handover',
+          sessionId: session.sessionId,
+          handoverState: 'REQUESTED',
+        }) + '\n',
+      );
+    }
 
     // Client disconnect handling
     let closed = false;
@@ -476,6 +534,14 @@ export class VoiceController {
         newUserMessage: sttResult.transcript,
         feature: 'voice',
         abortSignal: abortController.signal,
+        // Already mid-handover → stall politely; otherwise offer/escalate via tool.
+        extraSystemInstruction: inRequested
+          ? this.chatService.handoverStallInstruction(fullAgent)
+          : offerHumanTools
+            ? this.chatService.humanOfferInstruction()
+            : undefined,
+        tools: offerHumanTools,
+        maxSteps: offerHumanTools ? 3 : undefined,
       });
       tokenStream = directChatToN8nStream(directStream, (r) => {
         llmResult = r;
@@ -570,6 +636,17 @@ export class VoiceController {
       }
     } finally {
       clearTimeout(timeout);
+      // Model escalated mid-stream via connect_to_human → tell the widget so it
+      // shows the "connecting" line + starts polling for the teammate's replies.
+      if (toolEscalated && !closed && !res.writableEnded) {
+        res.write(
+          JSON.stringify({
+            type: 'handover',
+            sessionId: session.sessionId,
+            handoverState: 'REQUESTED',
+          }) + '\n',
+        );
+      }
       if (!closed) {
         res.end();
       }
@@ -686,6 +763,12 @@ export class VoiceController {
       this.logger.warn(
         `Failed to save streaming voice messages: ${err instanceof Error ? err.message : 'unknown'}`,
       );
+    }
+
+    // Ping the dashboard so a watching teammate sees the live voice exchange
+    // while a human is being connected (keyword escalation or the model's tool).
+    if (inRequested || toolEscalated) {
+      await this.chatService.publishHandoverBotTurn(session, fullAgent.organizationId);
     }
   }
 

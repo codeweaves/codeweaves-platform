@@ -12,6 +12,7 @@ import {
   Sparkles,
   MessageSquareText,
   ClipboardList,
+  Headset,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProfile } from '@/hooks/use-profile';
@@ -27,7 +28,8 @@ export type CategoryId =
   | 'dataCapture'
   | 'integration'
   | 'whatsapp'
-  | 'branding';
+  | 'branding'
+  | 'humanHandover';
 
 interface Category {
   id: CategoryId;
@@ -109,6 +111,13 @@ const allCategories: Category[] = [
     description: 'Powered by / logo footer',
     adminOnly: true,
   },
+  {
+    id: 'humanHandover',
+    title: 'Human Handover',
+    icon: <Headset className="h-5 w-5" />,
+    description: 'Let a teammate take over live chats',
+    adminOnly: true,
+  },
 ];
 
 interface AgentEditorSidebarProps {
@@ -129,12 +138,13 @@ export function AgentEditorSidebar({
   );
 
   return (
-    <div className="w-64 shrink-0 border-r bg-background">
-      <div className="px-6 py-4">
+    <div className="flex h-full w-64 shrink-0 flex-col border-r bg-background">
+      <div className="shrink-0 px-6 py-4">
         <h2 className="text-lg font-semibold">Configuration</h2>
       </div>
 
-      <nav className="px-3 pb-4">
+      {/* Scrolls independently when the section list outgrows the viewport. */}
+      <nav className="thin-scroll min-h-0 flex-1 overflow-y-auto px-3 pb-4">
         <div className="space-y-1">
           {categories.map((category) => (
             <button

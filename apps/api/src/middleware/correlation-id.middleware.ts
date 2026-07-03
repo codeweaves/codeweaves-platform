@@ -6,6 +6,13 @@ import {
   RequestContext,
 } from '../common/tracer/correlation.storage';
 
+/**
+ * High-frequency endpoints we don't want flooding the request log. The widget
+ * handover poller hits `/poll` every ~2.5s per live chat — logging each one
+ * drowns the console (and the correlation chain is still set up regardless).
+ */
+const QUIET_PATHS = /\/poll(\?|$)/;
+
 @Injectable()
 export class CorrelationIdMiddleware implements NestMiddleware {
   private readonly logger = new Logger('HTTP');
@@ -22,9 +29,11 @@ export class CorrelationIdMiddleware implements NestMiddleware {
       url: req.originalUrl,
     };
 
-    this.logger.log(
-      `→ ${req.method} ${req.originalUrl} [${correlationId.slice(0, 8)}]`,
-    );
+    if (!QUIET_PATHS.test(req.originalUrl)) {
+      this.logger.log(
+        `→ ${req.method} ${req.originalUrl} [${correlationId.slice(0, 8)}]`,
+      );
+    }
 
     requestContextStorage.run(context, () => next());
   }

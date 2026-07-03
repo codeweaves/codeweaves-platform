@@ -2,10 +2,12 @@ import * as Sentry from '@sentry/nestjs';
 import helmet from 'helmet';
 import { NestFactory } from '@nestjs/core';
 import { ValidationPipe, Logger } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
 import { AppModule } from './modules/app.module';
 import { getHelmetOptions } from './config/security-headers.config';
 import { scrubSentryEvent } from './common/sentry/sentry.scrubber';
+import { RedisIoAdapter } from './common/ws/redis-io.adapter';
 
 // Sentry must be initialized before NestFactory.create() to hook into Node.js error handlers
 if (process.env.SENTRY_DSN) {
@@ -75,6 +77,19 @@ async function bootstrap() {
   // - WidgetCorsMiddleware: public routes → per-agent allowedDomains validation
   // - DashboardCorsMiddleware: authenticated routes → dashboard origin only
   // Do NOT use app.enableCors() — it conflicts with per-route middleware.
+
+  // Realtime (live handover): Socket.io gateway. Cross-instance fan-out via
+  // Redis is OPT-IN — a single instance stays in-memory (ZERO Redis). Set
+  // SOCKET_IO_REDIS=true (with REDIS_URL already present) ONLY when you run
+  // multiple instances. Scaling out is then an env change, not a code change.
+  const cfg = app.get(ConfigService);
+  const wsRedisUrl =
+    cfg.get<string>('SOCKET_IO_REDIS') === 'true'
+      ? cfg.get<string>('REDIS_URL')
+      : undefined;
+  const wsAdapter = new RedisIoAdapter(app, wsRedisUrl);
+  await wsAdapter.connectToRedis();
+  app.useWebSocketAdapter(wsAdapter);
 
   const port = process.env.PORT || 3001;
   await app.listen(port);

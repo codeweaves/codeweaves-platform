@@ -100,6 +100,10 @@ export class ConversationClassifierService {
         // for agents that opted into classification.
         agent: { deletedAt: null },
         messages: { some: {} },
+        // Never expire/classify a session that's mid-handover — a human may
+        // still be working it. It becomes a candidate again once resolved
+        // (handoverState back to NONE).
+        handoverState: 'NONE',
       },
       orderBy: { lastMessageAt: 'asc' }, // oldest-quiet first — favours fairness
       take: ConversationClassifierService.MAX_PER_RUN,

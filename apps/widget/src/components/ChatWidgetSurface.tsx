@@ -4,6 +4,7 @@
  * This component mirrors the agent editor preview (chat-widget-surface.tsx in apps/web)
  * so they always look identical. Any visual change here should be made in the preview too.
  */
+import { Fragment } from 'preact';
 import { useState, useEffect, useRef, useCallback, useMemo } from 'preact/hooks';
 import type { ChatMessage } from '../types';
 import {
@@ -19,7 +20,7 @@ import {
   MessageCircleIcon,
   ArrowUpIcon,
 } from './icons';
-import { messages as messagesSignal, showTyping, widgetState, isLoading, isStreaming, isRateLimited } from '../state/chat-store';
+import { messages as messagesSignal, showTyping, widgetState, isLoading, isStreaming, isRateLimited, handoverState, agentTyping } from '../state/chat-store';
 import { useChat } from '../hooks/useChat';
 import { useVoice } from '../hooks/useVoice';
 import { VoiceRecordingBar } from './VoiceRecordingBar';
@@ -111,13 +112,28 @@ function computeGroupPositions(msgs: ChatMessage[]): GroupPosition[] {
     const prev = i > 0 ? msgs[i - 1] : null;
     const next = i < msgs.length - 1 ? msgs[i + 1] : null;
     const isUser = msg.role === 'user';
-    const samePrev = prev && isUser === (prev.role === 'user');
-    const sameNext = next && isUser === (next.role === 'user');
+    // A SYSTEM row renders as a divider, not a bubble — it breaks the run, so a
+    // bubble sitting beside one is a group edge, never a grouped continuation.
+    const isBubble = msg.role !== 'system';
+    const samePrev = isBubble && !!prev && prev.role !== 'system' && isUser === (prev.role === 'user');
+    const sameNext = isBubble && !!next && next.role !== 'system' && isUser === (next.role === 'user');
     if (samePrev && sameNext) return 'middle';
     if (!samePrev && sameNext) return 'first';
     if (samePrev && !sameNext) return 'last';
     return 'standalone';
   });
+}
+
+/**
+ * Which handover divider a SYSTEM status line represents, by its wording, so the
+ * widget renders it at its real timeline position. Escalation lines ("asked for
+ * a human" / "frustration") → none (the REQUESTED status line covers "waiting").
+ * Keep the patterns in sync with handover.service.ts.
+ */
+function systemDividerKind(content: string): 'connected' | 'ended' | null {
+  if (/took over/i.test(content)) return 'connected';
+  if (/resumed/i.test(content)) return 'ended'; // "Resolved by … — AI resumed" / "Auto-resolved … — AI resumed"
+  return null;
 }
 
 /** iMessage-style asymmetric border-radius for grouped messages */
@@ -153,7 +169,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
 
   // Chat actions
   const {
-    sendMessage, addUserMessage, createBotMessage,
+    sendMessage, requestHuman, notifyTyping, notifyHandover, addUserMessage, createBotMessage,
     appendBotMessageText, finalizeBotMessage, setVoiceLoading,
   } = useChat({ agentId });
 
@@ -167,6 +183,32 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
   const timestamps = section(theme, 'timestamps');
   const input = section(theme, 'input');
   const sendBtn = section(theme, 'sendButton');
+  // Human handover — the "talk to a human" button (a headset icon next to send).
+  const handover = section(theme, 'handover');
+  const showHandoverBtn =
+    agentConfig.humanTakeoverEnabled === true && agentConfig.showTalkToHumanButton === true;
+  const handoverTooltip = str(handover, 'buttonLabel', 'Talk to a human');
+  const handoverBg = str(handover, 'buttonBackgroundColor', '#ffffff');
+  const handoverIconColor = str(handover, 'buttonTextColor', '#3b82f6');
+  // "Connected to a human" divider — shown above the first human-agent message.
+  const handoverLineColor = str(handover, 'connectedLineColor', '#10b981');
+  const handoverConnectedLabel =
+    agentConfig.humanConnectedLabel?.trim() || "You're now connected with our team";
+  // Visitor-facing status lines (text + colour editable in the agent editor):
+  // the "connecting…" line while waiting for a teammate, and the "back with our
+  // assistant" line shown once the teammate resolves and the AI resumes.
+  const handoverRequestedLabel = str(
+    handover,
+    'requestedLabel',
+    'Connecting you with our team. Someone will be with you shortly.',
+  );
+  const handoverRequestedColor = str(handover, 'requestedLineColor', '#9ca3af');
+  const handoverEndedLabel = str(handover, 'endedLabel', "You're back with our assistant");
+  const handoverEndedColor = str(handover, 'endedLineColor', '#3b82f6');
+  // Read the signal so this component re-renders on handover-state changes.
+  const hState = handoverState.value;
+  // Human teammate typing (socket-driven; only meaningful during ACTIVE_HUMAN).
+  const agentIsTyping = agentTyping.value;
   const branding = section(theme, 'branding');
   const typo = section(theme, 'typography');
   const animations = section(theme, 'animations');
@@ -211,6 +253,9 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
     agentId,
     voiceEnabled,
     voiceAutoPlay: true,
+    // A voice turn can raise a handover (caller asks for a human) → show the
+    // "connecting" line + start polling for the teammate's replies, same as text.
+    onHandover: notifyHandover,
     onTranscription: useCallback((text: string) => {
       addUserMessage(text);
       setVoiceLoading(true);
@@ -249,6 +294,8 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
   // Build display messages: prepend greeting
   const greeting = agentConfig.greeting?.trim() ?? '';
   const displayMessages = useMemo<ChatMessage[]>(() => {
+    // SYSTEM handover lines stay in the list — they render as connect/resolve
+    // DIVIDERS at their real timeline position (see the map), never as bubbles.
     if (!greeting) return msgs;
     return [
       { id: '__greeting__', role: 'assistant' as const, content: greeting, timestamp: new Date() },
@@ -256,14 +303,15 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
     ];
   }, [greeting, msgs]);
 
-  // Auto-scroll
+  // Auto-scroll — also on handover-state changes so the "connected" divider
+  // (which can appear on takeover before any human message) scrolls into view.
   useEffect(() => {
     if (bottomRef.current) {
       bottomRef.current.scrollIntoView({ behavior: 'smooth', block: 'end' });
     } else if (scrollRef.current) {
       scrollRef.current.scrollTop = scrollRef.current.scrollHeight;
     }
-  }, [displayMessages, isTyping]);
+  }, [displayMessages, isTyping, hState, agentIsTyping]);
 
   // Focus input on mount
   useEffect(() => {
@@ -410,18 +458,41 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
               const botAvatarShow = bool(botAvatar, 'show', false);
               const userAvatarShow = bool(userAvatar, 'show', false);
               return displayMessages.map((message, i) => {
+                // Handover event lines render as dividers at their real timeline
+                // position (took over → "connected"; resolved → "back"), never as
+                // bubbles. Escalation lines have no divider (→ null).
+                if (message.role === 'system') {
+                  const kind = systemDividerKind(message.content);
+                  if (!kind) return null;
+                  const dColor = kind === 'connected' ? handoverLineColor : handoverEndedColor;
+                  const dLabel = kind === 'connected' ? handoverConnectedLabel : handoverEndedLabel;
+                  return (
+                    <div
+                      key={message.id}
+                      class={`cw-handover-divider ${kind === 'ended' ? 'cw-handover-divider--ended' : ''} mt-3 mb-1 flex items-center gap-2`}
+                      aria-hidden="true"
+                    >
+                      <span class="h-px flex-1" style={{ backgroundColor: dColor }} />
+                      <span class="shrink-0 px-1 font-medium" style={{ color: dColor, fontSize: '0.78em' }}>
+                        {dLabel}
+                      </span>
+                      <span class="h-px flex-1" style={{ backgroundColor: dColor }} />
+                    </div>
+                  );
+                }
                 const isUser = message.role === 'user';
                 const pos = positions[i] ?? 'standalone';
                 const isLastInGroup = pos === 'last' || pos === 'standalone';
                 const avatarEnabled = isUser ? userAvatarShow : botAvatarShow;
                 const showAvatar = avatarEnabled && isLastInGroup;
                 const showTime = showTimestamp && isLastInGroup;
-                const showBotMeta = !isUser && !botAvatarShow && isLastInGroup;
+                // Don't label a human teammate's message as "AI Agent".
+                const showBotMeta = !isUser && message.role !== 'human' && !botAvatarShow && isLastInGroup;
                 const baseRadius = isUser ? num(userMessage, 'borderRadius', 14) : num(botMessage, 'borderRadius', 14);
                 const marginTop = i === 0 ? 0 : pos === 'middle' || pos === 'last' ? 2 : 12;
                 return (
+                  <Fragment key={message.id}>
                   <div
-                    key={message.id}
                     class={`cw-message ${isUser ? 'cw-message--user flex-row-reverse' : 'cw-message--bot flex-row'} flex items-start gap-2`}
                     style={{ marginTop: `${marginTop}px` }}
                   >
@@ -439,7 +510,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                         }
                       </div>
                     )}
-                    <div class="cw-message-content max-w-[80%]">
+                    <div class={`cw-message-content flex max-w-[80%] flex-col ${isUser ? 'items-end' : 'items-start'}`}>
                       <div
                         class="cw-message-bubble px-3.5 py-2"
                         style={{
@@ -467,13 +538,27 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                       )}
                     </div>
                   </div>
+                  </Fragment>
                 );
               });
             })()}
 
-            {/* Conversation starters — show in the initial state (before any
-                exchange), whether or not a greeting is configured. */}
-            {msgs.length === 0 && starters.length > 0 && (
+            {/* Waiting for a human (REQUESTED) — a handover-state-driven status
+                line, NOT a stored message, so it survives a reload and never
+                touches analytics. Replaced by the connected divider above once a
+                teammate actually takes over (ACTIVE_HUMAN). */}
+            {hState === 'REQUESTED' && (
+              <div
+                class="cw-handover-status my-3 px-4 text-center"
+                style={{ fontSize: '0.82em', color: handoverRequestedColor }}
+              >
+                {handoverRequestedLabel}
+              </div>
+            )}
+
+            {/* Conversation starters — only in a fresh bot chat. Never during a
+                handover, or a reconnect would look like a brand-new chat. */}
+            {msgs.length === 0 && hState === 'NONE' && starters.length > 0 && (
               <div class="cw-starters mt-4 flex flex-wrap gap-2">
                 {starters.map((s, i) => (
                   <button
@@ -488,8 +573,8 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
               </div>
             )}
 
-            {/* Typing indicator */}
-            {isTyping && typingEnabled && (
+            {/* Typing indicator — never show the AI typing while a human is handling. */}
+            {isTyping && typingEnabled && hState !== 'ACTIVE_HUMAN' && (
               <div class="cw-typing mt-3 flex items-start gap-2">
                 {bool(botAvatar, 'show', false) && (
                   <div
@@ -500,6 +585,33 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                     }}
                   >
                     <BotAvatarContent type={str(botAvatar, 'type', 'robot')} />
+                  </div>
+                )}
+                <div
+                  class="cw-typing-bubble flex items-center space-x-1 bg-white px-3.5 py-2"
+                  style={{ borderRadius: `${num(botMessage, 'borderRadius', 14)}px` }}
+                >
+                  <div class="cw-typing-dot h-2 w-2 animate-bounce rounded-full bg-gray-400" />
+                  <div class="cw-typing-dot h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: '0.1s' }} />
+                  <div class="cw-typing-dot h-2 w-2 animate-bounce rounded-full bg-gray-400" style={{ animationDelay: '0.2s' }} />
+                </div>
+              </div>
+            )}
+
+            {/* Human teammate is typing (ACTIVE_HUMAN) — same three-dot style as
+                the AI indicator but flagged with the headset avatar. Presence
+                signal, so it shows regardless of the AI-typing toggle. */}
+            {agentIsTyping && hState === 'ACTIVE_HUMAN' && (
+              <div class="cw-typing cw-typing--agent mt-3 flex items-start gap-2">
+                {bool(botAvatar, 'show', false) && (
+                  <div
+                    class={`cw-typing-avatar cw-avatar cw-avatar--bot ${getAvatarClass(str(botAvatar, 'shape', 'circle'))}`}
+                    style={{
+                      backgroundColor: str(botAvatar, 'backgroundColor', '#e0e7ff'),
+                      color: str(botAvatar, 'color', '#3b82f6'),
+                    }}
+                  >
+                    <HeadphonesIcon class="h-4 w-4" />
                   </div>
                 )}
                 <div
@@ -557,7 +669,12 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
             <textarea
               ref={inputRef}
               value={inputValue}
-              onInput={(e) => setInputValue((e.target as HTMLTextAreaElement).value)}
+              onInput={(e) => {
+                setInputValue((e.target as HTMLTextAreaElement).value);
+                // Let a connected teammate see the visitor is typing (no-op
+                // unless a handover socket is open — throttled internally).
+                notifyTyping();
+              }}
               onKeyDown={handleKeyDown}
               onFocus={() => setIsInputFocused(true)}
               onBlur={() => setIsInputFocused(false)}
@@ -595,19 +712,39 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                   </button>
                 )}
               </div>
-              <button
-                onClick={handleSend}
-                disabled={!inputValue.trim() || loading || streaming || rateLimited || isVoiceActive}
-                aria-label="Send message"
-                class="cw-send-btn flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
-                style={{
-                  backgroundColor: str(sendBtn, 'backgroundColor', '#3b82f6'),
-                  color: str(sendBtn, 'iconColor', '#ffffff'),
-                  opacity: (!inputValue.trim() || loading || streaming || rateLimited || isVoiceActive) ? 0.4 : 1,
-                }}
-              >
-                <ArrowUpIcon class="h-4 w-4" />
-              </button>
+              <div class="flex items-center gap-2">
+                {showHandoverBtn && hState === 'NONE' && (
+                  <button
+                    type="button"
+                    aria-label={handoverTooltip}
+                    title={handoverTooltip}
+                    onClick={() => requestHuman()}
+                    disabled={loading || streaming || rateLimited || isVoiceActive}
+                    class="cw-handover-btn flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-opacity hover:opacity-80"
+                    style={{
+                      border: `1.5px solid ${handoverIconColor}`,
+                      backgroundColor: handoverBg,
+                      color: handoverIconColor,
+                      opacity: (loading || streaming || rateLimited || isVoiceActive) ? 0.5 : 1,
+                    }}
+                  >
+                    <HeadphonesIcon class="h-4 w-4" />
+                  </button>
+                )}
+                <button
+                  onClick={handleSend}
+                  disabled={!inputValue.trim() || loading || streaming || rateLimited || isVoiceActive}
+                  aria-label="Send message"
+                  class="cw-send-btn flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
+                  style={{
+                    backgroundColor: str(sendBtn, 'backgroundColor', '#3b82f6'),
+                    color: str(sendBtn, 'iconColor', '#ffffff'),
+                    opacity: (!inputValue.trim() || loading || streaming || rateLimited || isVoiceActive) ? 0.4 : 1,
+                  }}
+                >
+                  <ArrowUpIcon class="h-4 w-4" />
+                </button>
+              </div>
             </div>
               </>
             )}

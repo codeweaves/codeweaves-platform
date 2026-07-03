@@ -55,6 +55,13 @@ describe('VoiceController', () => {
     resolveOrCreateSession: jest.fn(),
     saveUserMessage: jest.fn(),
     saveAssistantMessage: jest.fn(),
+    isPausedForHuman: jest.fn().mockReturnValue(false),
+    recordPausedInbound: jest.fn().mockResolvedValue(undefined),
+    maybeEscalateToHuman: jest.fn().mockResolvedValue(false),
+    publishHandoverBotTurn: jest.fn().mockResolvedValue(undefined),
+    handoverStallInstruction: jest.fn().mockReturnValue('A teammate is joining.'),
+    buildHumanConnectTool: jest.fn().mockReturnValue({}),
+    humanOfferInstruction: jest.fn().mockReturnValue('Offer a human if needed.'),
   };
 
   const mockN8nStreamingService = {
@@ -688,6 +695,55 @@ describe('VoiceController', () => {
       expect(parsed[0].text).toBe('Hello, how are you?');
       expect(parsed[1].type).toBe('audio');
       expect(parsed[2].type).toBe('end');
+    });
+
+    it('handover pause: captures the inbound once (no double-persist) and skips the AI', async () => {
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+      // Once, so it can't leak into sibling tests (default stays false).
+      mockChatService.isPausedForHuman.mockReturnValueOnce(true);
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
+      const req = createMockRequest({ accept: 'application/x-ndjson' });
+      const res = createMockStreamingResponse();
+
+      await controller.voiceConversation(audioFile, dto, req, res);
+
+      // recordPausedInbound persists the transcript — saveUserMessage must NOT
+      // also run (that was the double-persist bug that reordering fixed).
+      expect(mockChatService.recordPausedInbound).toHaveBeenCalledTimes(1);
+      expect(mockChatService.saveUserMessage).not.toHaveBeenCalled();
+      // Caller still sees the transcription + a 'paused' chunk; no AI stream.
+      const parsed = res.writtenChunks.map((c: string) => JSON.parse(c.trim()));
+      expect(parsed.some((c: { type: string }) => c.type === 'transcription')).toBe(true);
+      expect(parsed.some((c: { type: string }) => c.type === 'paused')).toBe(true);
+      expect(mockVoiceService.streamingTTS).not.toHaveBeenCalled();
+      expect(res.end).toHaveBeenCalled();
+    });
+
+    it('emits a handover chunk when a voice turn escalates to a human', async () => {
+      mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+      mockChatService.maybeEscalateToHuman.mockResolvedValueOnce(true);
+      mockVoiceService.streamingTTS.mockReturnValue((async function* () {
+        yield { type: 'end' as const, fullText: 'ok', totalSentences: 0 };
+      })());
+      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue((async function* () {
+        yield { type: 'item', content: 'ok' };
+      })());
+
+      const audioFile = createMockAudioFile();
+      const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
+      const req = createMockRequest({ accept: 'application/x-ndjson' });
+      const res = createMockStreamingResponse();
+
+      await controller.voiceConversation(audioFile, dto, req, res);
+
+      // The widget reads this chunk to show the "connecting" line + start polling.
+      const handover = res.writtenChunks
+        .map((c: string) => JSON.parse(c.trim()))
+        .find((c: { type: string }) => c.type === 'handover');
+      expect(handover).toBeDefined();
+      expect(handover.handoverState).toBe('REQUESTED');
     });
 
     it('should write error chunk on streaming failure', async () => {

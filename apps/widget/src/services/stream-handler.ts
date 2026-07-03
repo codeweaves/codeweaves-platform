@@ -29,6 +29,8 @@ export interface StreamCallbacks {
   onDone: (sessionId: string, messageId: string, metadata: Record<string, unknown>) => void;
   /** Called on error (backend error event, timeout, or network failure) */
   onError: (message: string, options?: StreamErrorOptions) => void;
+  /** Called when the backend reports a handover state (on `paused` or `done`). */
+  onHandover?: (state: string) => void;
 }
 
 export interface StreamHandle {
@@ -141,11 +143,19 @@ export function startStream(
         }
         break;
 
+      case 'paused':
+        // A human has taken over — no AI reply this turn. Inform the caller so
+        // it can start polling for the human's messages. The `done` event that
+        // follows ends the turn normally (no bot bubble was created).
+        callbacks.onHandover?.(event.handoverState);
+        break;
+
       case 'done':
         aborted = true; // Prevent timeout from firing after done
         receivedDone = true;
         clearInactivityTimeout();
         updateSession(agentId, event.sessionId);
+        if (event.handoverState) callbacks.onHandover?.(event.handoverState);
         callbacks.onDone(event.sessionId, event.messageId, event.metadata);
         break;
 

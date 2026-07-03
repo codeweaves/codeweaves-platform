@@ -45,6 +45,20 @@ export const streamingMessageId = signal<string | null>(null);
 /** Rate-limited flag */
 export const isRateLimited = signal(false);
 
+/**
+ * Live human-handover state for this conversation. NONE = bot; REQUESTED = a
+ * human was asked for (bot still replies); ACTIVE_HUMAN = a teammate is handling
+ * it (AI paused, the widget polls for their replies).
+ */
+export const handoverState = signal<'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN'>('NONE');
+
+/**
+ * Whether the human teammate is currently typing. Ephemeral, socket-driven —
+ * set true on an `agent` typing ping and auto-cleared by useChat after a short
+ * idle window (or when the handover ends / their message lands).
+ */
+export const agentTyping = signal(false);
+
 // ── Computed signals ─────────────────────────────────────────────────
 
 /** Whether there are any messages */
@@ -193,6 +207,8 @@ export function resetStore(): void {
   sessionId.value = null;
   streamingMessageId.value = null;
   isRateLimited.value = false;
+  handoverState.value = 'NONE';
+  agentTyping.value = false;
   starterCount.value = 0;
   idCounter = 0;
 }

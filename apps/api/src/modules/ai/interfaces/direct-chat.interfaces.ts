@@ -1,3 +1,4 @@
+import type { ToolSet } from 'ai';
 import type { Agent } from '@prisma/client';
 
 import type { LlmFeature, LlmTokenUsage } from './llm.interfaces';
@@ -37,6 +38,23 @@ export interface DirectChatRequest {
    * Order: oldest → newest.
    */
   recentHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+
+  /**
+   * Extra instruction appended to the system prompt for THIS turn only.
+   * Used by human-handover to make the bot "stall" politely while a teammate
+   * is being connected (handoverState = REQUESTED). Null/absent = no-op.
+   */
+  extraSystemInstruction?: string;
+
+  /**
+   * Optional tools the model may call this turn (e.g. human-handover's
+   * `connect_to_human`). Forwarded verbatim to the LLM; the AI SDK runs each
+   * tool's `execute` server-side. Absent = a plain text completion.
+   */
+  tools?: ToolSet;
+
+  /** Max agent-loop steps when `tools` is set (call + reply). */
+  maxSteps?: number;
 }
 
 /**
