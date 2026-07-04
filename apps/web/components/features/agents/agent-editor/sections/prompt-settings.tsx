@@ -4,12 +4,14 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { useAgentEditor } from '../agent-editor-context';
 import { useProfile } from '@/hooks/use-profile';
-import { KnowledgeSettings } from './knowledge-settings';
 
 /**
- * "Prompt" section — everything the agent's LLM sees BEFORE the user's first
- * turn: the system prompt plus any reference knowledge. Flat layout — just
- * the two fields stacked, no intermediate headings.
+ * "Prompt" section — the agent's persona (system prompt).
+ *
+ * The quick-knowledge text editor used to be embedded here; it moved to the
+ * "Knowledge Base" section so BOTH knowledge modes (always-in-prompt text and
+ * retrieved documents) live in one place. Nothing changed server-side — the
+ * text is still injected into every chat turn.
  *
  * The greeting/welcome message is deliberately NOT here — it's a chat-flow UX
  * thing (what the visitor sees on widget open) and lives in BehaviorSettings.
@@ -26,8 +28,7 @@ export function PromptSettings() {
       <div>
         <h3 className="text-lg font-semibold">Prompt</h3>
         <p className="text-sm text-muted-foreground">
-          The agent&apos;s persona and reference knowledge, sent to the model
-          on every chat turn.
+          The agent&apos;s persona, sent to the model on every chat turn.
         </p>
       </div>
 
@@ -42,13 +43,10 @@ export function PromptSettings() {
         />
         <p className="text-xs text-muted-foreground">
           Keep this focused on who the agent is and how it should behave. Put
-          factual reference material in the Knowledge Base below so it stays
+          factual reference material in the Knowledge Base section so it stays
           separately editable.
         </p>
       </div>
-
-      {/* Knowledge Base (no extra heading — embedded directly below) ---- */}
-      <KnowledgeSettings />
     </div>
   );
 }

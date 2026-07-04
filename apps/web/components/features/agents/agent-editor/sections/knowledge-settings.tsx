@@ -4,7 +4,6 @@ import { useRef } from 'react';
 import { toast } from 'sonner';
 import { Upload, FileText, Trash2, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import {
   KNOWLEDGE_UPLOAD_EXTENSIONS,
@@ -97,14 +96,13 @@ export function KnowledgeSettings() {
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
-        <Label className="text-sm font-medium">Knowledge Base</Label>
-        <p className="text-xs text-muted-foreground">
-          Paste text or upload a file (PDF, DOCX, TXT, Markdown). Prepended to
-          the system prompt on every direct-mode chat turn. Max{' '}
-          {formatBytes(MAX_KNOWLEDGE_TEXT_BYTES)}.
-        </p>
-      </div>
+      {/* No own heading — the host section (Knowledge Base → "Quick
+          knowledge") provides the title + description. */}
+      <p className="text-xs text-muted-foreground">
+        Paste text or upload a file (PDF, DOCX, TXT, Markdown). Prepended to
+        the system prompt on every direct-mode chat turn. Max{' '}
+        {formatBytes(MAX_KNOWLEDGE_TEXT_BYTES)}.
+      </p>
 
       {/* Editable content textarea --------------------------------------- */}
       <div className="space-y-2">
@@ -137,8 +135,8 @@ export function KnowledgeSettings() {
         {sizeOverLimit && (
           <p className="text-xs text-destructive">
             Over the {formatBytes(MAX_KNOWLEDGE_TEXT_BYTES)} limit. For larger
-            documents, use the RAG pipeline (coming soon) instead of the
-            static knowledge base.
+            content, add it as a document below — it will be retrieved on
+            demand instead of riding along on every message.
           </p>
         )}
       </div>
