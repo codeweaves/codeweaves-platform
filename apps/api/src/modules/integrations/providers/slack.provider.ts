@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { tool, type ToolSet } from 'ai';
+import { jsonSchema, tool, type ToolSet } from 'ai';
 import { slackCredentialsSchema } from '@repo/validation';
-import { z } from 'zod';
 
 import {
   TOOL_CALL_TIMEOUT_MS,
@@ -66,14 +65,20 @@ export class SlackProvider implements IntegrationProviderDef {
       slack_notify_team: tool({
         description:
           "Send a short notification to the company's team Slack channel. Use ONLY for things a human should act on soon: a qualified/hot lead, an urgent or unresolved complaint, or an explicit request the bot cannot fulfil. Never use it for casual conversation, and never more than once per conversation unless something new and important happens.",
-        inputSchema: z.object({
-          message: z
-            .string()
-            .min(1)
-            .max(1500)
-            .describe(
-              'The notification text. Lead with what the team should do, then 1-3 lines of context (who the visitor is, what they need). Plain text.',
-            ),
+        // jsonSchema<T> (not zod) — the codebase pattern for AI SDK tools.
+        inputSchema: jsonSchema<{ message: string }>({
+          type: 'object',
+          additionalProperties: false,
+          required: ['message'],
+          properties: {
+            message: {
+              type: 'string',
+              minLength: 1,
+              maxLength: 1500,
+              description:
+                'The notification text. Lead with what the team should do, then 1-3 lines of context (who the visitor is, what they need). Plain text.',
+            },
+          },
         }),
         execute: async ({ message }) => {
           const result = await this.post(webhookUrl, `🤖 ${message}`);

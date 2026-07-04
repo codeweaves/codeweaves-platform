@@ -1,6 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { AgentIntegration } from '@prisma/client';
-import { tool, type Tool, type ToolSet } from 'ai';
+import type { Tool, ToolSet } from 'ai';
 
 import { IntegrationLoggerService } from '../../common/logger/integration.logger';
 
@@ -94,38 +94,39 @@ export class AgentToolsService {
     const execute = original.execute;
     if (!execute) return original;
 
-    return tool({
-      ...original,
-      execute: async (input: unknown, options: never) => {
-        const startedAt = performance.now();
-        try {
-          const raw = await execute(input as never, options);
-          const result =
-            typeof raw === 'string' ? truncateToolResult(raw) : raw;
-          void this.integrationLogger.logToolCall(agentId, {
-            provider,
-            tool: toolName,
-            // Argument KEYS only — values may contain PII (emails, phones).
-            argKeys: Object.keys((input as object) ?? {}),
-            durationMs: Math.round(performance.now() - startedAt),
-            sessionId: context.sessionId,
-            traceId: context.traceId,
-            ok: true,
-          });
-          return result;
-        } catch (err) {
-          void this.integrationLogger.logToolCallFailed(agentId, err, {
-            provider,
-            tool: toolName,
-            durationMs: Math.round(performance.now() - startedAt),
-            sessionId: context.sessionId,
-            traceId: context.traceId,
-          });
-          // Structured error string — the model apologises / falls back
-          // instead of the stream dying.
-          return `The ${toolName} action failed unexpectedly. Continue helping the user without it.`;
-        }
-      },
-    } as Parameters<typeof tool>[0]) as Tool;
+    const wrappedExecute = async (input: unknown, options: unknown) => {
+      const startedAt = performance.now();
+      try {
+        const raw = await execute(input as never, options as never);
+        const result = typeof raw === 'string' ? truncateToolResult(raw) : raw;
+        void this.integrationLogger.logToolCall(agentId, {
+          provider,
+          tool: toolName,
+          // Argument KEYS only — values may contain PII (emails, phones).
+          argKeys: Object.keys((input as object) ?? {}),
+          durationMs: Math.round(performance.now() - startedAt),
+          sessionId: context.sessionId,
+          traceId: context.traceId,
+          ok: true,
+        });
+        return result;
+      } catch (err) {
+        void this.integrationLogger.logToolCallFailed(agentId, err, {
+          provider,
+          tool: toolName,
+          durationMs: Math.round(performance.now() - startedAt),
+          sessionId: context.sessionId,
+          traceId: context.traceId,
+        });
+        // Structured error string — the model apologises / falls back
+        // instead of the stream dying.
+        return `The ${toolName} action failed unexpectedly. Continue helping the user without it.`;
+      }
+    };
+
+    // Plain object spread (not the tool() helper): we're decorating an
+    // already-built Tool, and re-running the generic inference over a
+    // widened execute signature is what TS chokes on.
+    return { ...original, execute: wrappedExecute as Tool['execute'] };
   }
 }

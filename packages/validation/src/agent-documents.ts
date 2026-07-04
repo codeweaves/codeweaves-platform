@@ -103,8 +103,12 @@ export type AgentDocumentResponse = z.infer<typeof agentDocumentResponseSchema>;
  * A resolved citation attached to an assistant message. Emitted in the SSE
  * `done` event metadata and persisted on ChatMessage.metadata so past
  * conversations keep their sources.
+ *
+ * Type alias (NOT interface) on purpose: aliases get an implicit index
+ * signature, which keeps ChatMessageMetadata assignable to Prisma's
+ * InputJsonValue when citations ride along.
  */
-export interface ChatCitation {
+export type ChatCitation = {
   /** 1-based citation index as referenced in the response text, e.g. [1]. */
   index: number;
   documentId: string;
@@ -114,4 +118,4 @@ export interface ChatCitation {
   sourceUrl?: string | null;
   /** Short excerpt of the cited chunk (for hover previews). */
   snippet: string;
-}
+};

@@ -33,6 +33,8 @@ describe('directChatToN8nStream', () => {
     historyCount: 0,
     estimatedInputTokens: 50,
     historyTruncated: false,
+    citations: [],
+    ragLatencyMs: null,
   };
 
   it('emits a synthetic begin chunk on the first text-delta', async () => {

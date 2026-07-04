@@ -1,7 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
-import { tool, type ToolSet } from 'ai';
+import { jsonSchema, tool, type ToolSet } from 'ai';
 import { hubspotCredentialsSchema } from '@repo/validation';
-import { z } from 'zod';
 
 import {
   TOOL_CALL_TIMEOUT_MS,
@@ -85,23 +84,62 @@ export class HubspotProvider implements IntegrationProviderDef {
       hubspot_find_contact: tool({
         description:
           "Look up an existing customer in the company's CRM (HubSpot) by their email address. Use when the user identifies themselves and knowing their account details would help (e.g. plan, lifecycle stage, phone on file). Do NOT use for people who haven't shared an email.",
-        inputSchema: z.object({
-          email: z
-            .string()
-            .email()
-            .describe("The customer's email address, exactly as they gave it."),
+        // jsonSchema<T> (not zod) — the codebase pattern for AI SDK tools;
+        // see handover.service buildConnectTool.
+        inputSchema: jsonSchema<{ email: string }>({
+          type: 'object',
+          additionalProperties: false,
+          required: ['email'],
+          properties: {
+            email: {
+              type: 'string',
+              format: 'email',
+              description: "The customer's email address, exactly as they gave it.",
+            },
+          },
         }),
         execute: async ({ email }) => this.findContact(accessToken, email),
       }),
       hubspot_save_contact: tool({
         description:
           "Create or update a contact in the company's CRM (HubSpot). Use when the user shares contact details and wants follow-up, a demo, a callback, or to be added as a lead. Requires at least an email. Updates the existing contact when the email is already in the CRM.",
-        inputSchema: z.object({
-          email: z.string().email().describe("The contact's email address."),
-          firstName: z.string().max(100).optional().describe('First name, if shared.'),
-          lastName: z.string().max(100).optional().describe('Last name, if shared.'),
-          phone: z.string().max(40).optional().describe('Phone number, if shared.'),
-          company: z.string().max(200).optional().describe('Company name, if shared.'),
+        inputSchema: jsonSchema<{
+          email: string;
+          firstName?: string;
+          lastName?: string;
+          phone?: string;
+          company?: string;
+        }>({
+          type: 'object',
+          additionalProperties: false,
+          required: ['email'],
+          properties: {
+            email: {
+              type: 'string',
+              format: 'email',
+              description: "The contact's email address.",
+            },
+            firstName: {
+              type: 'string',
+              maxLength: 100,
+              description: 'First name, if shared.',
+            },
+            lastName: {
+              type: 'string',
+              maxLength: 100,
+              description: 'Last name, if shared.',
+            },
+            phone: {
+              type: 'string',
+              maxLength: 40,
+              description: 'Phone number, if shared.',
+            },
+            company: {
+              type: 'string',
+              maxLength: 200,
+              description: 'Company name, if shared.',
+            },
+          },
         }),
         execute: async (input) => this.saveContact(accessToken, input),
       }),
