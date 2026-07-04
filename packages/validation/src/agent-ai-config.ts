@@ -124,6 +124,33 @@ export const agentAiConfigSchema = z
     // ----- RAG (Phase 3, fields included now to avoid later migrations) -----
     /** Automatically retrieve from the agent's knowledge base before answering. */
     ragEnabled: z.boolean().default(true),
+    /**
+     * Chunking strategy applied when a document is ingested (or re-indexed):
+     *
+     *   'recursive' — split on paragraphs → lines → sentences → words down to
+     *                  the target token size, with overlap. Best general default.
+     *   'fixed'     — plain fixed-size token windows with overlap. Cheapest and
+     *                  most predictable; fine for homogeneous prose.
+     *   'markdown'  — heading-aware: split on markdown/heading boundaries first
+     *                  so sections stay intact, then recursive within oversized
+     *                  sections. Best for structured docs (manuals, wikis, FAQs).
+     *
+     * Changing this does NOT retroactively re-chunk existing documents — each
+     * document remembers the strategy it was indexed with; use re-index.
+     */
+    ragChunkingStrategy: z
+      .enum(['recursive', 'fixed', 'markdown'])
+      .default('recursive'),
+    /**
+     * Retrieval strategy at query time:
+     *
+     *   'hybrid' — vector similarity + Postgres full-text search fused with
+     *               Reciprocal Rank Fusion. Catches literal terms (codes, SKUs)
+     *               that embeddings miss. Recommended default.
+     *   'vector' — pure cosine-similarity search. Marginally faster; fine for
+     *               purely conversational/semantic corpora.
+     */
+    ragRetrievalStrategy: z.enum(['hybrid', 'vector']).default('hybrid'),
     /** Number of chunks to retrieve from the knowledge base. */
     ragTopK: z.number().int().min(1).max(20).default(5),
     /** Minimum cosine similarity (0-1) for a chunk to be considered relevant. */

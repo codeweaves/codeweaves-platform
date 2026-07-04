@@ -3,7 +3,6 @@ import {
   BadRequestException,
   Injectable,
   Logger,
-  NotFoundException,
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
@@ -18,7 +17,10 @@ import {
 } from '@repo/validation';
 
 import { AgentCacheService } from '../common/cache/agent-cache.service';
+import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { TokenCounterService } from '../modules/ai/token-counter.service';
+import { assertAgentAccessible } from '../utils/agent-access.util';
+import { extractDocumentText } from '../utils/document-text.util';
 
 import { PrismaService } from './prisma.service';
 
@@ -63,8 +65,15 @@ export class AgentKnowledgeService {
     private readonly agentCache: AgentCacheService,
   ) {}
 
-  /** Fetch the knowledge record for an agent, or null if none. */
-  async get(agentId: string): Promise<AgentKnowledge | null> {
+  /**
+   * Fetch the knowledge record for an agent, or null if none. Tenant-scoped:
+   * the agent must belong to the caller's organization (CLIENT role).
+   */
+  async get(
+    agentId: string,
+    user: CurrentUserData,
+  ): Promise<AgentKnowledge | null> {
+    await assertAgentAccessible(this.prisma, agentId, user);
     return this.prisma.agentKnowledge.findUnique({ where: { agentId } });
   }
 
@@ -78,8 +87,9 @@ export class AgentKnowledgeService {
   async set(
     agentId: string,
     dto: UpdateKnowledgeDto,
+    user: CurrentUserData,
   ): Promise<AgentKnowledge> {
-    await this.assertAgentExists(agentId);
+    await assertAgentAccessible(this.prisma, agentId, user);
     const contentBytes = Buffer.byteLength(dto.content, 'utf-8');
     if (contentBytes > MAX_KNOWLEDGE_TEXT_BYTES) {
       throw new PayloadTooLargeException(
@@ -137,8 +147,9 @@ export class AgentKnowledgeService {
   async extractFile(
     agentId: string,
     file: Express.Multer.File,
+    user: CurrentUserData,
   ): Promise<ExtractedText> {
-    await this.assertAgentExists(agentId);
+    await assertAgentAccessible(this.prisma, agentId, user);
 
     if (!file) {
       throw new BadRequestException('No file provided.');
@@ -161,7 +172,7 @@ export class AgentKnowledgeService {
       );
     }
 
-    const extracted = await extractText(file, ext);
+    const extracted = await extractDocumentText(file.buffer, file.mimetype, ext);
     const trimmed = extracted.trim();
     if (!trimmed) {
       throw new BadRequestException(
@@ -201,8 +212,9 @@ export class AgentKnowledgeService {
     return `Unsupported file type (MIME: "${mime || 'unknown'}", extension: "${ext || 'unknown'}"). Supported formats: PDF, DOCX, TXT, Markdown.`;
   }
 
-  /** Remove the knowledge record for an agent. Idempotent. */
-  async remove(agentId: string): Promise<void> {
+  /** Remove the knowledge record for an agent. Idempotent. Tenant-scoped. */
+  async remove(agentId: string, user: CurrentUserData): Promise<void> {
+    await assertAgentAccessible(this.prisma, agentId, user);
     await this.prisma.agentKnowledge
       .delete({ where: { agentId } })
       .catch(() => {
@@ -210,113 +222,7 @@ export class AgentKnowledgeService {
       });
     await this.agentCache.invalidate(agentId);
   }
-
-  private async assertAgentExists(agentId: string): Promise<void> {
-    const agent = await this.prisma.agent.findFirst({
-      where: { id: agentId, deletedAt: null },
-      select: { id: true },
-    });
-    if (!agent) {
-      throw new NotFoundException(`Agent ${agentId} not found or inactive.`);
-    }
-  }
 }
 
-// ============================================================================
-// Text extraction — dispatch by MIME type
-// ============================================================================
-
-/**
- * Extract plain text from an uploaded file. Dispatches by MIME first, falling
- * back to file extension when MIME is ambiguous (some browsers send
- * `application/octet-stream` or `application/zip` for valid .docx files).
- *
- * Uses dynamic imports so unused parsers don't eagerly load at boot.
- *
- * On parse failure (corrupt PDF, password-protected DOCX, etc.) we throw a
- * BadRequest with a message the operator can act on — not a 500.
- */
-async function extractText(
-  file: Express.Multer.File,
-  fileExtension: string,
-): Promise<string> {
-  const mime = file.mimetype;
-  const buffer = file.buffer;
-
-  // Reconcile MIME + extension → canonical format. Extension wins when MIME
-  // is the generic octet-stream / zip fallback because those are ambiguous.
-  const format = resolveFormat(mime, fileExtension);
-
-  try {
-    if (format === 'text') {
-      // Plain text / markdown — UTF-8 decode is all we need.
-      return buffer.toString('utf-8');
-    }
-
-    if (format === 'pdf') {
-      // pdf-parse v2 uses a class-based API (vs v1's function call).
-      // Convert Buffer → Uint8Array because the worker transfers TypedArrays
-      // for lower memory usage than plain Buffers.
-      const { PDFParse } = await import('pdf-parse');
-      const parser = new PDFParse({
-        data: new Uint8Array(buffer.buffer, buffer.byteOffset, buffer.byteLength),
-      });
-      try {
-        const result = await parser.getText();
-        return result.text;
-      } finally {
-        // Release the PDF worker + document. Skipping this leaks workers for
-        // long-running processes.
-        await parser.destroy().catch(() => undefined);
-      }
-    }
-
-    if (format === 'docx') {
-      const mammoth = await import('mammoth');
-      const result = await mammoth.extractRawText({ buffer });
-      return result.value;
-    }
-
-    // Shouldn't reach here — caller gated by MIME + extension.
-    throw new UnsupportedMediaTypeException(
-      `Unhandled file format (MIME: "${mime}", extension: "${fileExtension}").`,
-    );
-  } catch (err) {
-    if (err instanceof UnsupportedMediaTypeException) throw err;
-    const message = err instanceof Error ? err.message : 'unknown error';
-    throw new BadRequestException(
-      `Failed to extract text from file (${mime || fileExtension || 'unknown format'}): ${message}. The file may be corrupt, password-protected, or use an unsupported variant.`,
-    );
-  }
-}
-
-/**
- * Resolve a canonical format token from MIME + extension. Prefers the MIME
- * type, falls back to extension when MIME is generic (octet-stream, zip).
- */
-function resolveFormat(
-  mime: string | undefined,
-  ext: string,
-): 'pdf' | 'docx' | 'text' | 'unknown' {
-  // Precise MIME matches first.
-  if (mime === 'application/pdf') return 'pdf';
-  if (
-    mime ===
-    'application/vnd.openxmlformats-officedocument.wordprocessingml.document'
-  ) {
-    return 'docx';
-  }
-  if (
-    mime === 'text/plain' ||
-    mime === 'text/markdown' ||
-    mime === 'text/x-markdown'
-  ) {
-    return 'text';
-  }
-  // Fall back to extension for ambiguous MIMEs (browsers on Windows often
-  // report .docx as application/octet-stream or application/zip).
-  if (ext === '.pdf') return 'pdf';
-  if (ext === '.docx') return 'docx';
-  if (ext === '.txt' || ext === '.md' || ext === '.markdown') return 'text';
-  return 'unknown';
-}
+// Text extraction lives in ../utils/document-text.util.ts — shared with the
+// RAG document pipeline (extractDocumentText / resolveDocumentFormat).
