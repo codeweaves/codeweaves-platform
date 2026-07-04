@@ -4,6 +4,9 @@ import { useState } from 'react';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
+import { Badge } from '@/components/ui/badge';
+import { Switch } from '@/components/ui/switch';
+import { Skeleton } from '@/components/ui/skeleton';
 import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
 import {
   Select,
@@ -19,10 +22,42 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from '@/components/ui/accordion';
-import { X, Plus, Zap, Webhook } from 'lucide-react';
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from '@/components/ui/dialog';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
+import { X, Plus, Zap, Webhook, Loader2 } from 'lucide-react';
+import { toast } from 'sonner';
 import { useAgentEditor } from '../agent-editor-context';
 import { useProfile } from '@/hooks/use-profile';
-import type { AgentAiConfigDto } from '@repo/validation';
+import {
+  useAgentIntegrations,
+  useUpsertIntegration,
+  useTestIntegration,
+  useSetIntegrationEnabled,
+  useRemoveIntegration,
+  type AgentIntegration,
+} from '@/hooks/use-agent-integrations';
+import {
+  integrationCredentialsSchemas,
+  type AgentAiConfigDto,
+  type IntegrationProvider,
+} from '@repo/validation';
 
 function normalizeDomain(s: string) {
   return s
@@ -72,7 +107,7 @@ const CURATED_MODELS: ModelOption[] = [
 
 export function IntegrationSettings() {
   const { profile } = useProfile();
-  const { formData, updateFormData } = useAgentEditor();
+  const { agent, formData, updateFormData } = useAgentEditor();
   const [newDomain, setNewDomain] = useState('');
 
   const aiConfig = formData.aiConfig;
@@ -243,6 +278,7 @@ export function IntegrationSettings() {
         />
       )}
 
+      <ConnectedApps agentId={agent.id} />
     </div>
   );
 }
@@ -434,6 +470,387 @@ function DirectModeConfig({
           </AccordionContent>
         </AccordionItem>
       </Accordion>
+    </div>
+  );
+}
+
+// ============================================================================
+// Connected apps — third-party tools the AI can call mid-conversation.
+// Immediate mutations with toasts, NOT part of the central Save button.
+// ============================================================================
+
+interface ProviderMeta {
+  provider: IntegrationProvider;
+  name: string;
+  /** One-liner: what the AI can do once connected. */
+  description: string;
+  /** Where the customer finds the credential. */
+  setupHint: string;
+  /** Field name inside the `credentials` object sent to the API. */
+  credentialKey: string;
+  credentialLabel: string;
+  credentialPlaceholder: string;
+  /** password for tokens; text for URLs the user wants to paste-verify. */
+  inputType: 'password' | 'text';
+  /** Extra warning shown in the connect dialog (e.g. Slack's live test post). */
+  connectNote?: string;
+}
+
+const PROVIDER_META: ProviderMeta[] = [
+  {
+    provider: 'hubspot',
+    name: 'HubSpot',
+    description: 'Look up and save CRM contacts during conversations.',
+    setupHint:
+      'HubSpot → Settings → Integrations → Private Apps. The app needs the crm.objects.contacts.read and crm.objects.contacts.write scopes.',
+    credentialKey: 'accessToken',
+    credentialLabel: 'Private App access token',
+    credentialPlaceholder: 'pat-na1-…',
+    inputType: 'password',
+  },
+  {
+    provider: 'slack',
+    name: 'Slack',
+    description:
+      'Send the team Slack notifications for hot leads and urgent issues.',
+    setupHint:
+      'Create an Incoming Webhook in Slack (App Directory → Incoming Webhooks) and paste its URL.',
+    credentialKey: 'webhookUrl',
+    credentialLabel: 'Incoming Webhook URL',
+    credentialPlaceholder: 'https://hooks.slack.com/services/…',
+    inputType: 'text',
+    connectNote:
+      'Connecting posts a real test message to the chosen Slack channel.',
+  },
+];
+
+/** "Tested 5m ago" style relative timestamp; falls back to a date for old ones. */
+function formatTestedAt(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const minutes = Math.floor(diffMs / 60_000);
+  if (minutes < 1) return 'Tested just now';
+  if (minutes < 60) return `Tested ${minutes}m ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `Tested ${hours}h ago`;
+  const days = Math.floor(hours / 24);
+  if (days < 7) return `Tested ${days}d ago`;
+  return `Tested ${new Date(iso).toLocaleDateString()}`;
+}
+
+function ConnectedApps({ agentId }: { agentId: string }) {
+  const integrationsQuery = useAgentIntegrations(agentId);
+  const upsert = useUpsertIntegration(agentId);
+  const testIntegration = useTestIntegration(agentId);
+  const setEnabled = useSetIntegrationEnabled(agentId);
+  const removeIntegration = useRemoveIntegration(agentId);
+
+  // Connect/update-credentials dialog state. One dialog, retargeted per
+  // provider. `dialogError` surfaces the server 400 message (the live
+  // connection-test failure reason) inline instead of a toast.
+  const [dialogProvider, setDialogProvider] =
+    useState<IntegrationProvider | null>(null);
+  const [credentialValue, setCredentialValue] = useState('');
+  const [dialogError, setDialogError] = useState<string | null>(null);
+
+  const integrations = integrationsQuery.data ?? [];
+  const byProvider = new Map<IntegrationProvider, AgentIntegration>(
+    integrations.map((i) => [i.provider, i]),
+  );
+
+  const dialogMeta = PROVIDER_META.find((m) => m.provider === dialogProvider);
+
+  const openDialog = (provider: IntegrationProvider) => {
+    setCredentialValue('');
+    setDialogError(null);
+    setDialogProvider(provider);
+  };
+
+  const closeDialog = () => {
+    setDialogProvider(null);
+    setCredentialValue('');
+    setDialogError(null);
+  };
+
+  const handleConnect = () => {
+    if (!dialogMeta) return;
+    const credentials = {
+      [dialogMeta.credentialKey]: credentialValue.trim(),
+    };
+    // Client-side shape check first (empty token, non-Slack host, …) so the
+    // user gets instant feedback without burning a live connection test.
+    const parsed =
+      integrationCredentialsSchemas[dialogMeta.provider].safeParse(credentials);
+    if (!parsed.success) {
+      setDialogError(
+        parsed.error.issues[0]?.message ?? 'Invalid credentials',
+      );
+      return;
+    }
+    setDialogError(null);
+    // Preserve the enabled flag when updating credentials on an existing
+    // (possibly disabled) connection; new connections start enabled.
+    const existing = byProvider.get(dialogMeta.provider);
+    upsert.mutate(
+      {
+        provider: dialogMeta.provider,
+        credentials,
+        enabled: existing?.enabled ?? true,
+      },
+      {
+        onSuccess: () => {
+          toast.success(`${dialogMeta.name} connected`);
+          closeDialog();
+        },
+        // 400 body message = live connection-test failure reason.
+        onError: (err) =>
+          setDialogError(err.message || 'Connection test failed'),
+      },
+    );
+  };
+
+  const handleTest = (meta: ProviderMeta) => {
+    testIntegration.mutate(meta.provider, {
+      onSuccess: (result) => {
+        if (result.ok) toast.success(result.message);
+        else toast.error(result.message);
+      },
+      onError: (err) => toast.error(err.message || 'Test failed'),
+    });
+  };
+
+  const handleToggle = (meta: ProviderMeta, enabled: boolean) => {
+    setEnabled.mutate(
+      { provider: meta.provider, enabled },
+      {
+        onSuccess: () =>
+          toast.success(`${meta.name} ${enabled ? 'enabled' : 'disabled'}`),
+        onError: (err) => toast.error(err.message || 'Update failed'),
+      },
+    );
+  };
+
+  const handleDisconnect = (meta: ProviderMeta) => {
+    removeIntegration.mutate(meta.provider, {
+      onSuccess: () => toast.success(`${meta.name} disconnected`),
+      onError: (err) => toast.error(err.message || 'Disconnect failed'),
+    });
+  };
+
+  return (
+    <div className="space-y-4">
+      <div>
+        <h3 className="text-lg font-semibold">Connected apps</h3>
+        <p className="text-sm text-muted-foreground">
+          Third-party tools the AI can use during conversations. Changes here
+          apply immediately — no Save needed.
+        </p>
+      </div>
+
+      {integrationsQuery.isLoading ? (
+        <div className="space-y-3">
+          <Skeleton className="h-28 w-full" />
+          <Skeleton className="h-28 w-full" />
+        </div>
+      ) : integrationsQuery.isError ? (
+        <p className="rounded-md border border-destructive/50 p-4 text-sm text-destructive">
+          Failed to load integrations. Refresh the page to try again.
+        </p>
+      ) : (
+        <div className="space-y-3">
+          {PROVIDER_META.map((meta) => {
+            const integration = byProvider.get(meta.provider);
+            const testing =
+              testIntegration.isPending &&
+              testIntegration.variables === meta.provider;
+            return (
+              <div
+                key={meta.provider}
+                className="space-y-3 rounded-lg border bg-muted/20 p-4"
+              >
+                <div className="flex items-start justify-between gap-3">
+                  <div className="space-y-1">
+                    <div className="flex items-center gap-2">
+                      <span className="text-sm font-medium">{meta.name}</span>
+                      {integration && (
+                        <Badge
+                          variant={
+                            integration.status === 'connected'
+                              ? 'success'
+                              : 'destructive'
+                          }
+                        >
+                          {integration.status === 'connected'
+                            ? 'Connected'
+                            : 'Error'}
+                        </Badge>
+                      )}
+                    </div>
+                    <p className="text-xs text-muted-foreground">
+                      {meta.description}
+                    </p>
+                  </div>
+                  {integration ? (
+                    <Switch
+                      checked={integration.enabled}
+                      onCheckedChange={(checked) => handleToggle(meta, checked)}
+                      disabled={setEnabled.isPending}
+                      aria-label={`Enable ${meta.name}`}
+                    />
+                  ) : (
+                    <Button size="sm" onClick={() => openDialog(meta.provider)}>
+                      Connect
+                    </Button>
+                  )}
+                </div>
+
+                {integration ? (
+                  <>
+                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
+                      <code className="rounded bg-muted px-1.5 py-0.5">
+                        {integration.credentialHint}
+                      </code>
+                      {integration.lastTestedAt && (
+                        <span>{formatTestedAt(integration.lastTestedAt)}</span>
+                      )}
+                    </div>
+                    <div className="flex flex-wrap gap-2">
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => handleTest(meta)}
+                        disabled={testing}
+                      >
+                        {testing && (
+                          <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                        )}
+                        Test
+                      </Button>
+                      <Button
+                        variant="outline"
+                        size="sm"
+                        onClick={() => openDialog(meta.provider)}
+                      >
+                        Update credentials
+                      </Button>
+                      <AlertDialog>
+                        <AlertDialogTrigger asChild>
+                          <Button
+                            variant="ghost"
+                            size="sm"
+                            className="text-destructive hover:text-destructive"
+                          >
+                            Disconnect
+                          </Button>
+                        </AlertDialogTrigger>
+                        <AlertDialogContent>
+                          <AlertDialogHeader>
+                            <AlertDialogTitle>
+                              Disconnect {meta.name}?
+                            </AlertDialogTitle>
+                            <AlertDialogDescription>
+                              The stored credentials are deleted and the AI
+                              immediately loses access to this tool. You can
+                              reconnect at any time.
+                            </AlertDialogDescription>
+                          </AlertDialogHeader>
+                          <AlertDialogFooter>
+                            <AlertDialogCancel>Cancel</AlertDialogCancel>
+                            <AlertDialogAction
+                              onClick={() => handleDisconnect(meta)}
+                              className="bg-destructive text-white hover:bg-destructive/90"
+                            >
+                              Disconnect
+                            </AlertDialogAction>
+                          </AlertDialogFooter>
+                        </AlertDialogContent>
+                      </AlertDialog>
+                    </div>
+                  </>
+                ) : (
+                  <p className="text-xs text-muted-foreground">
+                    {meta.setupHint}
+                  </p>
+                )}
+              </div>
+            );
+          })}
+        </div>
+      )}
+
+      {/* Connect / update-credentials dialog */}
+      <Dialog
+        open={dialogProvider !== null}
+        onOpenChange={(open) => {
+          if (!open) closeDialog();
+        }}
+      >
+        <DialogContent>
+          {dialogMeta && (
+            <>
+              <DialogHeader>
+                <DialogTitle>
+                  {byProvider.has(dialogMeta.provider)
+                    ? `Update ${dialogMeta.name} credentials`
+                    : `Connect ${dialogMeta.name}`}
+                </DialogTitle>
+                <DialogDescription>{dialogMeta.setupHint}</DialogDescription>
+              </DialogHeader>
+              <div className="space-y-2">
+                <Label
+                  htmlFor="integration-credential"
+                  className="text-sm font-medium"
+                >
+                  {dialogMeta.credentialLabel}
+                </Label>
+                <Input
+                  id="integration-credential"
+                  type={dialogMeta.inputType}
+                  value={credentialValue}
+                  onChange={(e) => {
+                    setCredentialValue(e.target.value);
+                    setDialogError(null);
+                  }}
+                  placeholder={dialogMeta.credentialPlaceholder}
+                  autoComplete="off"
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') {
+                      e.preventDefault();
+                      handleConnect();
+                    }
+                  }}
+                />
+                {dialogMeta.connectNote && (
+                  <p className="text-xs text-muted-foreground">
+                    {dialogMeta.connectNote}
+                  </p>
+                )}
+                <p className="text-xs text-muted-foreground">
+                  The connection is tested live before saving. Credentials are
+                  stored encrypted and never shown again.
+                </p>
+                {dialogError && (
+                  <p className="text-xs text-destructive">{dialogError}</p>
+                )}
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={closeDialog}
+                  disabled={upsert.isPending}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleConnect} disabled={upsert.isPending}>
+                  {upsert.isPending && (
+                    <Loader2 className="mr-1 h-4 w-4 animate-spin" />
+                  )}
+                  {byProvider.has(dialogMeta.provider) ? 'Update' : 'Connect'}
+                </Button>
+              </DialogFooter>
+            </>
+          )}
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

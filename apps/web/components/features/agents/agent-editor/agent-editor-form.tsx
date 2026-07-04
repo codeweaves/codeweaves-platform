@@ -6,6 +6,7 @@ import { AppearanceSettings } from './sections/appearance-settings';
 import { ChatSettings } from './sections/chat-settings';
 import { BehaviorSettings } from './sections/behavior-settings';
 import { PromptSettings } from './sections/prompt-settings';
+import { KnowledgeBaseSettings } from './sections/knowledge-base-settings';
 import { ClassificationSettings } from './sections/classification-settings';
 import { DataCaptureSettings } from './sections/data-capture-settings';
 import { IntegrationSettings } from './sections/integration-settings';
@@ -32,6 +33,8 @@ export function AgentEditorForm({ selectedCategory }: AgentEditorFormProps) {
       return <VoiceSettings />;
     case 'prompt':
       return <PromptSettings />;
+    case 'knowledge':
+      return <KnowledgeBaseSettings />;
     case 'classification':
       return <ClassificationSettings />;
     case 'dataCapture':

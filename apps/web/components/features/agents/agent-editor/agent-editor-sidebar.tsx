@@ -13,6 +13,7 @@ import {
   MessageSquareText,
   ClipboardList,
   Headset,
+  BookOpen,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
 import { useProfile } from '@/hooks/use-profile';
@@ -24,6 +25,7 @@ export type CategoryId =
   | 'behavior'
   | 'voice'
   | 'prompt'
+  | 'knowledge'
   | 'classification'
   | 'dataCapture'
   | 'integration'
@@ -76,6 +78,12 @@ const allCategories: Category[] = [
     icon: <ScrollText className="h-5 w-5" />,
     description: 'Initial context and knowledge base',
     adminOnly: true,
+  },
+  {
+    id: 'knowledge',
+    title: 'Knowledge Base',
+    icon: <BookOpen className="h-5 w-5" />,
+    description: 'Documents the AI retrieves answers from',
   },
   {
     id: 'classification',

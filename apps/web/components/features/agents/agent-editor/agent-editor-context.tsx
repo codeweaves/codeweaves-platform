@@ -407,6 +407,8 @@ const DEFAULT_AI_CONFIG: import('@repo/validation').AgentAiConfigDto = {
   maxInputTokens: 8000,
   contextStrategy: 'sliding-window',
   ragEnabled: true,
+  ragChunkingStrategy: 'recursive',
+  ragRetrievalStrategy: 'hybrid',
   ragTopK: 5,
   ragSimilarityThreshold: 0.7,
   ragRerankEnabled: true,
