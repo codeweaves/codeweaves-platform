@@ -45,6 +45,21 @@ export const streamingMessageId = signal<string | null>(null);
 /** Rate-limited flag */
 export const isRateLimited = signal(false);
 
+/** A live progress step (RAG lookup / tool call) for the in-flight reply. */
+export interface StreamStep {
+  id: string;
+  kind: 'rag' | 'tool';
+  label: string;
+  status: 'active' | 'done' | 'error';
+}
+
+/**
+ * Live progress steps for the current stream. Upserted by SSE `step` events
+ * (the same id arrives as 'active' then 'done'/'error'); cleared when the
+ * turn finishes. Rendered by StepIndicator in place of the typing dots.
+ */
+export const streamSteps = signal<StreamStep[]>([]);
+
 /**
  * Live human-handover state for this conversation. NONE = bot; REQUESTED = a
  * human was asked for (bot still replies); ACTIVE_HUMAN = a teammate is handling
@@ -142,6 +157,20 @@ export function appendMessageContent(id: string, text: string): void {
   );
 }
 
+/** Upsert a stream step: replace the entry with the same id, or append. */
+export function upsertStreamStep(step: StreamStep): void {
+  const index = streamSteps.value.findIndex((s) => s.id === step.id);
+  streamSteps.value =
+    index === -1
+      ? [...streamSteps.value, step]
+      : streamSteps.value.map((s, i) => (i === index ? step : s));
+}
+
+/** Clear all stream steps (new send, done, or error). */
+export function clearStreamSteps(): void {
+  if (streamSteps.value.length > 0) streamSteps.value = [];
+}
+
 /** Remove a message by ID (e.g. failed message cleanup). Revokes blob URL if present. */
 export function removeMessage(id: string): void {
   const msg = messages.value.find((m) => m.id === id);
@@ -207,6 +236,7 @@ export function resetStore(): void {
   sessionId.value = null;
   streamingMessageId.value = null;
   isRateLimited.value = false;
+  streamSteps.value = [];
   handoverState.value = 'NONE';
   agentTyping.value = false;
   starterCount.value = 0;

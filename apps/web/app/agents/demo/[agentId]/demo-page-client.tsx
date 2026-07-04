@@ -33,11 +33,30 @@ interface AgentDemoInfo {
   voiceConfig: AgentVoiceConfig | null;
 }
 
+/** Live progress step (RAG lookup / tool call) from the SSE stream — upserted by id */
+interface StreamStep {
+  id: string;
+  kind: 'rag' | 'tool';
+  label: string;
+  status: 'active' | 'done' | 'error';
+}
+
+/** Knowledge-base source cited in a bot reply (from the done event's metadata) */
+interface Citation {
+  index: number;
+  documentId: string;
+  documentName: string;
+  sourceType: 'FILE' | 'URL';
+  sourceUrl: string | null;
+  snippet: string;
+}
+
 interface Message {
   id: string;
   role: 'user' | 'bot' | 'system';
   content: string;
   timestamp: Date;
+  citations?: Citation[];
 }
 
 interface DemoPageClientProps {
@@ -56,6 +75,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const [input, setInput] = useState('');
   const [isTyping, setIsTyping] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
+  const [steps, setSteps] = useState<StreamStep[]>([]);
   const [startersVisible, setStartersVisible] = useState(true);
   const [voiceSessionId, setVoiceSessionId] = useState<string | undefined>(undefined);
   const messagesEndRef = useRef<HTMLDivElement>(null);
@@ -215,7 +235,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages, isTyping]);
+  }, [messages, isTyping, steps]);
 
   const sendMessageToBackend = useCallback(
     async (content: string, priorHistory: Message[] = []) => {
@@ -229,6 +249,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
       const botId = crypto.randomUUID();
       streamingMsgIdRef.current = botId;
       setIsTyping(true);
+      setSteps([]);
 
       let buffer = '';
 
@@ -307,6 +328,11 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                 content?: string;
                 sessionId?: string;
                 message?: string;
+                id?: string;
+                kind?: string;
+                label?: string;
+                status?: string;
+                metadata?: { citations?: Citation[] };
               };
               try {
                 parsed = JSON.parse(jsonStr);
@@ -323,11 +349,38 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                 setVoiceSessionId(parsed.sessionId);
               } else if (parsed.type === 'chunk' && parsed.content) {
                 typewriterBufferRef.current += parsed.content;
+              } else if (parsed.type === 'step' && parsed.id && parsed.label) {
+                // Live progress (RAG lookup / tool call). The same id arrives
+                // as 'active' then 'done'/'error' — upsert by id.
+                const step: StreamStep = {
+                  id: parsed.id,
+                  kind: parsed.kind === 'tool' ? 'tool' : 'rag',
+                  label: parsed.label,
+                  status:
+                    parsed.status === 'done' || parsed.status === 'error'
+                      ? parsed.status
+                      : 'active',
+                };
+                setSteps((prev) => {
+                  const idx = prev.findIndex((s) => s.id === step.id);
+                  return idx === -1
+                    ? [...prev, step]
+                    : prev.map((s, i) => (i === idx ? step : s));
+                });
               } else if (parsed.type === 'done') {
                 if (parsed.sessionId) {
                   sessionIdRef.current = parsed.sessionId;
                   if (parsed.sessionId) setVoiceSessionId(parsed.sessionId);
                 }
+                // Attach knowledge-base citations so the bot message can render
+                // its sources line (inline [n] markers stay in the text).
+                const citations = parsed.metadata?.citations;
+                if (Array.isArray(citations) && citations.length > 0) {
+                  setMessages((prev) =>
+                    prev.map((m) => (m.id === botId ? { ...m, citations } : m)),
+                  );
+                }
+                setSteps([]);
               } else if (parsed.type === 'error') {
                 // Remove empty bot message on error, keep partial content
                 setMessages((prev) => {
@@ -386,6 +439,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         streamingMsgIdRef.current = null;
         setIsStreaming(false);
         setIsTyping(false);
+        setSteps([]);
         inputRef.current?.focus();
       }
     },
@@ -556,10 +610,35 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                     }`}
                   >
                     {msg.role === 'bot' ? (
-                      <ChatMessageContent
-                        content={msg.content}
-                        isStreaming={isStreaming && msg.id === streamingMsgIdRef.current}
-                      />
+                      <>
+                        <ChatMessageContent
+                          content={msg.content}
+                          isStreaming={isStreaming && msg.id === streamingMsgIdRef.current}
+                        />
+                        {msg.citations && msg.citations.length > 0 && (
+                          <div className="mt-2 flex flex-wrap items-center gap-x-1.5 gap-y-0.5 text-xs text-gray-400">
+                            <span className="font-medium">Sources:</span>
+                            {msg.citations.map((c) =>
+                              c.sourceType === 'URL' && c.sourceUrl ? (
+                                <a
+                                  key={`${c.index}-${c.documentId}`}
+                                  href={c.sourceUrl}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  title={c.snippet}
+                                  className="text-blue-600 hover:underline"
+                                >
+                                  {c.documentName}
+                                </a>
+                              ) : (
+                                <span key={`${c.index}-${c.documentId}`} title={c.snippet}>
+                                  {c.documentName}
+                                </span>
+                              ),
+                            )}
+                          </div>
+                        )}
+                      </>
                     ) : (
                       msg.content || '\u00A0'
                     )}
@@ -568,8 +647,36 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
               ),
             )}
 
-            {/* Typing Indicator */}
-            {isTyping && (
+            {/* Live progress steps (RAG lookup / tool calls) */}
+            {steps.length > 0 && (
+              <div className="mb-4 flex gap-3">
+                <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
+                  {agent.name.charAt(0).toUpperCase()}
+                </div>
+                <div className="rounded-2xl rounded-tl-sm bg-white px-4 py-3 shadow-sm">
+                  <div className="flex flex-col gap-1.5">
+                    {steps.map((step) => (
+                      <div
+                        key={step.id}
+                        className="flex items-center gap-2 text-xs text-gray-500"
+                      >
+                        {step.status === 'active' ? (
+                          <span className="h-3 w-3 shrink-0 animate-spin rounded-full border-2 border-gray-400 border-t-transparent" />
+                        ) : step.status === 'done' ? (
+                          <span className="w-3 shrink-0 text-center text-green-600">✓</span>
+                        ) : (
+                          <span className="w-3 shrink-0 text-center text-gray-400">!</span>
+                        )}
+                        <span>{step.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              </div>
+            )}
+
+            {/* Typing Indicator — suppressed once live steps take its place */}
+            {isTyping && steps.length === 0 && (
               <div className="mb-4 flex gap-3">
                 <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-blue-600 text-xs font-bold text-white">
                   {agent.name.charAt(0).toUpperCase()}

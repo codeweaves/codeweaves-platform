@@ -10,7 +10,7 @@ import { streamMessage, type ChatHistoryItem } from './api-client';
 import { WidgetApiError } from './api-errors';
 import { updateSession } from './session-manager';
 import { parseSSEStream } from '../utils/sse-parser';
-import type { SSEEvent } from '../utils/sse-parser';
+import type { SSEEvent, SSEStepEvent, SSEDoneEvent } from '../utils/sse-parser';
 
 /** Inactivity timeout: 60 seconds with no data = assume dead connection */
 const STREAM_INACTIVITY_TIMEOUT_MS = 60_000;
@@ -25,8 +25,10 @@ export interface StreamCallbacks {
   onFirstChunk: (content: string) => void;
   /** Called on subsequent chunks — append content to message */
   onChunk: (content: string) => void;
+  /** Called on live progress steps (RAG lookup / tool call) — upsert by step.id */
+  onStep?: (step: SSEStepEvent) => void;
   /** Called when stream completes successfully */
-  onDone: (sessionId: string, messageId: string, metadata: Record<string, unknown>) => void;
+  onDone: (sessionId: string, messageId: string, metadata: SSEDoneEvent['metadata']) => void;
   /** Called on error (backend error event, timeout, or network failure) */
   onError: (message: string, options?: StreamErrorOptions) => void;
   /** Called when the backend reports a handover state (on `paused` or `done`). */
@@ -141,6 +143,13 @@ export function startStream(
         } else {
           callbacks.onChunk(event.content);
         }
+        break;
+
+      case 'step':
+        // Live progress (RAG lookup / tool call). The read loop already reset
+        // the inactivity timeout for this event — steps are proof of life
+        // during long tool calls, even when no text chunks are flowing.
+        callbacks.onStep?.(event);
         break;
 
       case 'paused':

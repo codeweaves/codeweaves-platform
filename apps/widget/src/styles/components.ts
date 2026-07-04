@@ -497,6 +497,109 @@ export const componentCSS = `
   }
 }
 
+/* ── Step Indicator (live RAG/tool progress) ──────────────────────── */
+
+.cw-step-bubble {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+  padding: 10px 14px;
+  background: #ffffff !important;
+}
+
+.cw-step-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font-size: 12px;
+  line-height: 1.4;
+  color: #6b7280;
+  animation: cw-step-in 0.2s ease-out;
+}
+
+.cw-step-spinner {
+  width: 12px;
+  height: 12px;
+  flex-shrink: 0;
+  border: 2px solid #9ca3af;
+  border-top-color: transparent;
+  border-radius: 50%;
+  animation: cw-step-spin 0.8s linear infinite;
+}
+
+.cw-step-glyph {
+  width: 12px;
+  flex-shrink: 0;
+  text-align: center;
+  font-size: 11px;
+  line-height: 1;
+}
+
+.cw-step-glyph-done {
+  color: #22c55e;
+}
+
+.cw-step-glyph-error {
+  color: #9ca3af;
+}
+
+@keyframes cw-step-spin {
+  to { transform: rotate(360deg); }
+}
+
+@keyframes cw-step-in {
+  from { opacity: 0; transform: translateY(2px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .cw-step-row {
+    animation: none;
+  }
+  .cw-step-spinner {
+    animation: none;
+    opacity: 0.6;
+  }
+}
+
+/* ── Citations (sources footer under bot messages) ────────────────── */
+
+.cw-citations {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 4px;
+  margin-top: 6px;
+}
+
+.cw-citations-label {
+  margin-right: 2px;
+  font-size: 11px;
+  font-weight: 500;
+  color: var(--cw-muted-foreground, #9ca3af);
+}
+
+.cw-citation-chip {
+  display: inline-block;
+  max-width: 160px;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  padding: 2px 8px;
+  font-size: 11px;
+  line-height: 1.4;
+  border-radius: 999px;
+  border: 1px solid var(--cw-border, #e5e7eb);
+  background: var(--cw-msg-bot-bg, #f3f4f6);
+  color: var(--cw-msg-bot-fg, var(--cw-msg-bot-text, #1f2937));
+  text-decoration: none;
+}
+
+a.cw-citation-chip:hover {
+  text-decoration: underline;
+}
+
 /* ── Branding Footer (Story 5-23) ──────────────────────────────────── */
 
 .cw-branding {

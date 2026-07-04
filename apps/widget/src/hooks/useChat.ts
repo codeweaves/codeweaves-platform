@@ -20,10 +20,13 @@ import {
   generateMessageId,
   handoverState,
   agentTyping,
+  upsertStreamStep,
+  clearStreamSteps,
 } from '../state/chat-store';
-import type { Message } from '../types/message';
+import type { Message, Citation } from '../types/message';
 import { startStream } from '../services/stream-handler';
 import type { StreamHandle, StreamErrorOptions } from '../services/stream-handler';
+import type { SSEStepEvent, SSEDoneEvent } from '../utils/sse-parser';
 import type { ChatHistoryItem, PollResponse } from '../services/api-client';
 import { requestHuman as requestHumanApi } from '../services/api-client';
 import { startHandoverPoll, type HandoverPollHandle } from '../services/handover-poller';
@@ -252,6 +255,7 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
       isLoading.value = false;
       isStreaming.value = false;
       streamingMessageId.value = null;
+      clearStreamSteps();
     });
     loadingRef.current = false;
     streamHandleRef.current = null;
@@ -328,6 +332,7 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
       batch(() => {
         addMessage(userMsg);
         isLoading.value = true;
+        clearStreamSteps();
       });
 
       const botMsgId = generateMessageId('bot');
@@ -360,9 +365,23 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
           updateMessage(botMsgId, { content: streamContentRef.current });
         },
 
-        onDone: () => {
+        onStep: (step: SSEStepEvent) => {
           if (streamAbortedRef.current) return;
-          updateMessage(botMsgId, { isStreaming: false, status: 'sent' });
+          upsertStreamStep(step);
+        },
+
+        onDone: (_sessionId: string, _messageId: string, metadata: SSEDoneEvent['metadata']) => {
+          if (streamAbortedRef.current) return;
+          // Attach knowledge-base citations (if any) so the bubble can render
+          // its sources footer. The text keeps its inline [n] markers as-is.
+          const citations = Array.isArray(metadata.citations)
+            ? (metadata.citations as Citation[])
+            : [];
+          updateMessage(botMsgId, {
+            isStreaming: false,
+            status: 'sent',
+            ...(citations.length > 0 ? { citations } : {}),
+          });
           finishStream();
         },
 
