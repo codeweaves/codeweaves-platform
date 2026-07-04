@@ -1,11 +1,16 @@
 import { Injectable, Logger } from '@nestjs/common';
 import type { Agent, AgentDataField } from '@prisma/client';
-import {
-  agentAiConfigSchema,
-  type AgentAiConfigDto,
-} from '@repo/validation';
+import { type AgentAiConfigDto } from '@repo/validation';
 
 import { AgentCacheService } from '../../common/cache/agent-cache.service';
+import { RagLoggerService } from '../../common/logger/rag.logger';
+import { AgentToolsService, type AgentToolBundle } from '../integrations/agent-tools.service';
+import {
+  buildRagSystemBlock,
+  describeRetrievedDocuments,
+  extractCitations,
+} from '../rag/rag-context';
+import { RagRetrievalService, type RetrievedChunk } from '../rag/rag-retrieval.service';
 import { DataExtractionService } from '../../services/data-extraction.service';
 import { PrismaService } from '../../services/prisma.service';
 
@@ -16,11 +21,13 @@ import type {
   DirectChatResult,
   DirectChatStreamChunk,
 } from './interfaces/direct-chat.interfaces';
-import type { LlmStreamChunk } from './interfaces/llm.interfaces';
+import type { LlmFeature, LlmStreamChunk } from './interfaces/llm.interfaces';
 import { LlmService } from './llm.service';
 import { PromptTemplateService } from './prompt-template.service';
+import { resolveAiConfig } from './resolve-ai-config';
 import { HybridContextStrategy } from './strategies/hybrid-context.strategy';
 import { AiTraceService } from './trace/ai-trace.service';
+import type { TraceContext } from './trace/ai-trace.interfaces';
 import { UsageTrackingService } from './usage-tracking.service';
 
 /** Divider prepended before injected knowledge content in the system prompt. */
@@ -31,10 +38,11 @@ const DATA_COLLECTION_DIVIDER = '\n\n---\n\n[DATA TO COLLECT]\n';
 
 /**
  * Features that represent a real end-user conversation turn — the only ones
- * eligible to trigger background data capture. Internal `send()` calls
- * (summarisation, title-generation, rag-*, embedding, warmup) must NEVER
- * enqueue extraction. `send()` is used by WhatsApp inbound (`feature: 'chat'`),
- * so we cover it here too — not just the streaming widget path.
+ * eligible for background data capture, RAG retrieval and integration tools.
+ * Internal `send()` calls (summarisation, title-generation, rag-*, embedding,
+ * warmup) must NEVER enqueue extraction, retrieve documents or call tools.
+ * `send()` is used by WhatsApp inbound (`feature: 'chat'`), so we cover it
+ * here too — not just the streaming widget path.
  */
 const CAPTURE_ELIGIBLE_FEATURES = new Set<string>([
   'chat',
@@ -98,7 +106,106 @@ export class DirectChatService {
     private readonly prisma: PrismaService,
     private readonly agentCache: AgentCacheService,
     private readonly dataExtractionService: DataExtractionService,
+    private readonly ragRetrieval: RagRetrievalService,
+    private readonly agentTools: AgentToolsService,
+    private readonly ragLogger: RagLoggerService,
   ) {}
+
+  /**
+   * RAG runs when the agent enables it, the turn is a real conversation (not
+   * warmup/summarisation), AND the agent actually has indexed documents. The
+   * existence check is one fast indexed query — it runs BEFORE the parallel
+   * load phase so stream() can emit the "Searching…" step only for agents
+   * that truly have a knowledge base. Fails open to "no RAG".
+   */
+  private async ragAvailable(
+    req: DirectChatRequest,
+    config: AgentAiConfigDto,
+    feature: LlmFeature,
+  ): Promise<boolean> {
+    if (!config.ragEnabled || !CAPTURE_ELIGIBLE_FEATURES.has(feature)) {
+      return false;
+    }
+    try {
+      return await this.ragRetrieval.hasReadyDocuments(
+        req.agent.id,
+        req.agent.organizationId,
+      );
+    } catch (err) {
+      this.logger.warn(
+        `RAG availability check failed for agent ${req.agent.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return false;
+    }
+  }
+
+  /**
+   * Retrieve knowledge chunks for this turn. Never throws — retrieval
+   * problems degrade to "answer without RAG" and are surfaced via trace +
+   * audit log (RAG_RETRIEVAL_FAILED), not to the visitor.
+   */
+  private async retrieveRag(
+    req: DirectChatRequest,
+    config: AgentAiConfigDto,
+    trace: TraceContext,
+  ): Promise<{ chunks: RetrievedChunk[]; latencyMs: number } | null> {
+    const start = performance.now();
+    try {
+      const chunks = await this.ragRetrieval.retrieve({
+        agentId: req.agent.id,
+        organizationId: req.agent.organizationId,
+        query: req.newUserMessage,
+        strategy: config.ragRetrievalStrategy,
+        topK: config.ragTopK,
+        similarityThreshold: config.ragSimilarityThreshold,
+        sessionId: req.externalSessionId,
+      });
+      const latencyMs = Math.round(performance.now() - start);
+      trace.step(
+        'rag.retrieve',
+        {
+          strategy: config.ragRetrievalStrategy,
+          chunksRetrieved: chunks.length,
+          documents: [...new Set(chunks.map((c) => c.documentName))],
+        },
+        latencyMs,
+      );
+      return { chunks, latencyMs };
+    } catch (err) {
+      trace.error(
+        'rag.failed',
+        err instanceof Error ? err : new Error(String(err)),
+      );
+      void this.ragLogger.logRetrievalFailed(req.agent.id, err, {
+        sessionId: req.externalSessionId,
+        strategy: config.ragRetrievalStrategy,
+      });
+      return null;
+    }
+  }
+
+  /**
+   * Load the agent's integration tools (HubSpot, Slack, …) for this turn.
+   * Never throws — a broken integration must not take chat down.
+   */
+  private async loadIntegrationTools(
+    req: DirectChatRequest,
+    feature: LlmFeature,
+    traceId: string,
+  ): Promise<AgentToolBundle | null> {
+    if (!CAPTURE_ELIGIBLE_FEATURES.has(feature)) return null;
+    try {
+      return await this.agentTools.buildToolsForAgent(req.agent.id, {
+        sessionId: req.externalSessionId,
+        traceId,
+      });
+    } catch (err) {
+      this.logger.error(
+        `Integration tool load failed for agent ${req.agent.id}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+      return null;
+    }
+  }
 
   /**
    * Load an agent's static knowledge content AND its data-capture field
@@ -180,11 +287,15 @@ export class DirectChatService {
     });
 
     const modelId = config.modelId ?? this.aiSdk.getDefaultModel();
+    const feature = req.feature ?? 'chat';
 
     try {
-      // Knowledge load (Redis→Postgres for AgentKnowledge) and context load
-      // (Postgres findMany on ChatMessage) hit different tables and have no
-      // data dependency — running them serially wastes one DB round-trip.
+      const ragEligible = await this.ragAvailable(req, config, feature);
+
+      // Knowledge load (Redis→Postgres for AgentKnowledge), context load
+      // (Postgres findMany on ChatMessage), RAG retrieval (embed + pgvector)
+      // and integration-tool load hit different tables/APIs and have no data
+      // dependency — running them serially would waste round-trips.
       //
       // Context assembly DOES use the system prompt for its token-budget
       // charEstimate, but the estimate is cheap and we account for the
@@ -192,7 +303,7 @@ export class DirectChatService {
       // below for the reconciliation.
       const knowledgeStart = performance.now();
       const contextStart = performance.now();
-      const [extras, context] = await Promise.all([
+      const [extras, context, rag, toolBundle] = await Promise.all([
         this.loadAgentExtras(req.agent.id).then((e) => {
           const knowledgeMs = Math.round(performance.now() - knowledgeStart);
           trace.step(
@@ -229,20 +340,42 @@ export class DirectChatService {
           );
           return ctx;
         }),
+        ragEligible
+          ? this.retrieveRag(req, config, trace)
+          : Promise.resolve(null),
+        this.loadIntegrationTools(req, feature, trace.traceId),
       ]);
       const { knowledge, dataFields } = extras;
+      const ragChunks = rag?.chunks ?? [];
       const systemPrompt =
         (knowledge
           ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
           : systemPromptResolved) +
         buildCollectionInstruction(dataFields) +
         buildFallbackInstruction(req.agent) +
+        // RAG block goes AFTER the static sections so the per-turn retrieved
+        // text never breaks the provider prompt-cache prefix for the stable
+        // persona/knowledge/instructions part.
+        buildRagSystemBlock(ragChunks) +
         buildExtraInstruction(req.extraSystemInstruction);
+
+      // Integration tools + caller-supplied tools (e.g. handover's
+      // connect_to_human). Caller tools win on name collisions.
+      const mergedTools = {
+        ...(toolBundle?.tools ?? {}),
+        ...(req.tools ?? {}),
+      };
+      const hasTools = Object.keys(mergedTools).length > 0;
+      const maxSteps = hasTools
+        ? Math.max(req.maxSteps ?? 0, toolBundle ? 5 : 3)
+        : undefined;
 
       trace.step('llm.call_start', {
         model: modelId,
         streaming: false,
-        feature: req.feature ?? 'chat',
+        feature,
+        toolCount: Object.keys(mergedTools).length,
+        ragChunks: ragChunks.length,
       });
 
       const result = await trace.measure(
@@ -263,11 +396,11 @@ export class DirectChatService {
             agentId: req.agent.id,
             sessionId: req.externalSessionId,
             traceId: trace.traceId,
-            feature: req.feature ?? 'chat',
-            // Forward tools so buffered turns (WhatsApp) can escalate via the
-            // connect_to_human tool too — parity with the streaming path.
-            tools: req.tools,
-            maxSteps: req.maxSteps,
+            feature,
+            // Integration tools + caller tools (e.g. WhatsApp buffered turns
+            // escalating via connect_to_human) — parity with streaming.
+            tools: hasTools ? mergedTools : undefined,
+            maxSteps,
           }),
         (r) => ({
           model: r.model,
@@ -293,6 +426,8 @@ export class DirectChatService {
         historyCount: context.historyCount,
         estimatedInputTokens: context.estimatedTokens,
         historyTruncated: context.truncated,
+        citations: extractCitations(result.text, ragChunks),
+        ragLatencyMs: rag?.latencyMs ?? null,
       };
 
       this.usageTracker.record({
@@ -304,7 +439,7 @@ export class DirectChatService {
         requestedModel: modelId,
         usage: result.usage,
         cost: result.cost,
-        feature: req.feature ?? 'chat',
+        feature,
         latencyMs: result.latencyMs,
         retryCount: result.retryCount,
         finishReason: result.finishReason,
@@ -320,10 +455,7 @@ export class DirectChatService {
       // which uses send()). Same debounced, gated behaviour as stream(): only
       // when the agent collects something AND this is a real user-facing turn
       // (never internal send() calls like summarisation/title-gen).
-      if (
-        dataFields.length > 0 &&
-        CAPTURE_ELIGIBLE_FEATURES.has(req.feature ?? 'chat')
-      ) {
+      if (dataFields.length > 0 && CAPTURE_ELIGIBLE_FEATURES.has(feature)) {
         void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
       }
 
@@ -370,21 +502,39 @@ export class DirectChatService {
     let finalTotalMs = 0;
 
     const modelId = config.modelId ?? this.aiSdk.getDefaultModel();
+    const feature = req.feature ?? 'chat-stream';
 
     try {
-      // ----- Phase 0+1: Knowledge + Context (run in parallel) -----
+      // ----- Phase 0: RAG availability (one fast indexed query) -----
+      // Runs first so the widget's "Searching the knowledge base…" step only
+      // appears for agents that actually have indexed documents.
+      const ragEligible = await this.ragAvailable(req, config, feature);
+      if (ragEligible) {
+        yield {
+          type: 'step',
+          step: {
+            id: 'rag',
+            kind: 'rag',
+            label: 'Searching the knowledge base…',
+            status: 'active',
+          },
+        };
+      }
+
+      // ----- Phase 1: Knowledge + Context + RAG + Tools (in parallel) -----
       //
       // Independent reads (AgentKnowledge via Redis→Postgres; ChatMessage via
-      // Postgres OR skipped entirely if the caller supplied recentHistory).
-      // Each records its OWN wall time via a per-promise timestamp so the
-      // trace shows which of the two is actually slow.
+      // Postgres OR skipped entirely if the caller supplied recentHistory;
+      // RAG = embedding API + pgvector; tools = one indexed SELECT). Each
+      // records its OWN wall time via a per-promise timestamp so the trace
+      // shows which is actually slow.
       const parallelStart = performance.now();
       const knowledgeStart = parallelStart;
       const contextStart = parallelStart;
       let knowledgeMs = 0;
       let contextMs = 0;
 
-      const [extras, context] = await Promise.all([
+      const [extras, context, rag, toolBundle] = await Promise.all([
         this.loadAgentExtras(req.agent.id).then((e) => {
           knowledgeMs = Math.round(performance.now() - knowledgeStart);
           return e;
@@ -400,8 +550,37 @@ export class DirectChatService {
           contextMs = Math.round(performance.now() - contextStart);
           return ctx;
         }),
+        ragEligible
+          ? this.retrieveRag(req, config, trace)
+          : Promise.resolve(null),
+        this.loadIntegrationTools(req, feature, trace.traceId),
       ]);
       const { knowledge, dataFields } = extras;
+      const ragChunks = rag?.chunks ?? [];
+
+      // Settle the knowledge-search step now that retrieval finished.
+      if (ragEligible) {
+        yield {
+          type: 'step',
+          step:
+            rag === null
+              ? {
+                  id: 'rag',
+                  kind: 'rag',
+                  label: 'Knowledge search failed',
+                  status: 'error',
+                }
+              : {
+                  id: 'rag',
+                  kind: 'rag',
+                  label:
+                    ragChunks.length > 0
+                      ? `Read ${describeRetrievedDocuments(ragChunks)}`
+                      : 'Searched the knowledge base',
+                  status: 'done',
+                },
+        };
+      }
 
       const knowledgeData = {
         hasKnowledge: knowledge !== null,
@@ -421,7 +600,23 @@ export class DirectChatService {
           : systemPromptResolved) +
         buildCollectionInstruction(dataFields) +
         buildFallbackInstruction(req.agent) +
+        // RAG block goes AFTER the static sections so the per-turn retrieved
+        // text never breaks the provider prompt-cache prefix for the stable
+        // persona/knowledge/instructions part.
+        buildRagSystemBlock(ragChunks) +
         buildExtraInstruction(req.extraSystemInstruction);
+
+      // Integration tools + caller-supplied tools (e.g. handover's
+      // connect_to_human). Caller tools win on name collisions.
+      const mergedTools = {
+        ...(toolBundle?.tools ?? {}),
+        ...(req.tools ?? {}),
+      };
+      const hasTools = Object.keys(mergedTools).length > 0;
+      const maxSteps = hasTools
+        ? Math.max(req.maxSteps ?? 0, toolBundle ? 5 : 3)
+        : undefined;
+      const toolStepMeta = toolBundle?.stepMeta ?? {};
 
       const contextData = {
         strategy: config.contextStrategy ?? 'sliding-window',
@@ -444,7 +639,9 @@ export class DirectChatService {
       trace.step('llm.call_start', {
         model: modelId,
         streaming: true,
-        feature: req.feature ?? 'chat-stream',
+        feature,
+        toolCount: Object.keys(mergedTools).length,
+        ragChunks: ragChunks.length,
       });
       yield {
         type: 'trace',
@@ -468,21 +665,64 @@ export class DirectChatService {
         agentId: req.agent.id,
         sessionId: req.externalSessionId,
         traceId: trace.traceId,
-        feature: req.feature ?? 'chat-stream',
-        // Tools (e.g. human-handover's connect_to_human). The AI SDK runs the
-        // tool loop; text deltas still stream through unchanged.
-        tools: req.tools,
-        maxSteps: req.maxSteps,
+        feature,
+        // Integration tools (HubSpot/Slack) + caller tools (human-handover's
+        // connect_to_human). The AI SDK runs the tool loop; text deltas still
+        // stream through unchanged.
+        tools: hasTools ? mergedTools : undefined,
+        maxSteps,
       });
 
       let finishChunk:
         | Extract<LlmStreamChunk, { type: 'finish' }>
         | null = null;
+      // toolCallId → start time, for the tool.result trace duration.
+      const pendingToolCalls = new Map<string, number>();
 
       for await (const chunk of handle.stream) {
         if (chunk.type === 'text-delta') {
           finalTextBuffer += chunk.content;
           yield { type: 'text-delta', content: chunk.content };
+        } else if (chunk.type === 'tool-call') {
+          trace.step('tool.call', {
+            tool: chunk.toolName,
+            toolCallId: chunk.toolCallId,
+          });
+          pendingToolCalls.set(chunk.toolCallId, performance.now());
+          // Only tools with step metadata surface to the widget — internal
+          // tools (connect_to_human) have their own dedicated UX.
+          const meta = toolStepMeta[chunk.toolName];
+          if (meta) {
+            yield {
+              type: 'step',
+              step: {
+                id: `tool-${chunk.toolCallId}`,
+                kind: 'tool',
+                label: meta.activeLabel,
+                status: 'active',
+              },
+            };
+          }
+        } else if (chunk.type === 'tool-result') {
+          const startedAt = pendingToolCalls.get(chunk.toolCallId);
+          pendingToolCalls.delete(chunk.toolCallId);
+          trace.step(
+            'tool.result',
+            { tool: chunk.toolName, errored: chunk.errored ?? false },
+            startedAt ? Math.round(performance.now() - startedAt) : 0,
+          );
+          const meta = toolStepMeta[chunk.toolName];
+          if (meta) {
+            yield {
+              type: 'step',
+              step: {
+                id: `tool-${chunk.toolCallId}`,
+                kind: 'tool',
+                label: chunk.errored ? meta.errorLabel : meta.doneLabel,
+                status: chunk.errored ? 'error' : 'done',
+              },
+            };
+          }
         } else if (chunk.type === 'finish') {
           finishChunk = chunk;
           // Keep looping in case there are follow-up events; in practice
@@ -530,6 +770,16 @@ export class DirectChatService {
         data: completeData,
       };
 
+      // Map inline [N] markers back to knowledge-base documents. Cheap regex
+      // pass; empty when RAG didn't run or the model cited nothing.
+      const citations = extractCitations(finalTextBuffer, ragChunks);
+      if (citations.length > 0) {
+        trace.step('rag.citations', {
+          cited: citations.length,
+          documents: citations.map((c) => c.documentName),
+        });
+      }
+
       const result: DirectChatResult = {
         text: finalTextBuffer,
         traceId: trace.traceId,
@@ -542,6 +792,8 @@ export class DirectChatService {
         historyCount: context.historyCount,
         estimatedInputTokens: context.estimatedTokens,
         historyTruncated: context.truncated,
+        citations,
+        ragLatencyMs: rag?.latencyMs ?? null,
       };
 
       this.usageTracker.record({
@@ -553,7 +805,7 @@ export class DirectChatService {
         requestedModel: modelId,
         usage: finalUsage,
         cost: finalCost,
-        feature: req.feature ?? 'chat-stream',
+        feature,
         latencyMs: finalTotalMs,
         finishReason: finalFinishReason,
       });
@@ -575,10 +827,7 @@ export class DirectChatService {
       // real user-facing turn. Runs ~60s after the conversation settles (once
       // per conversation), so it adds ZERO latency to the reply just delivered.
       // See docs/plans/agent-data-and-integrations-plan.md.
-      if (
-        dataFields.length > 0 &&
-        CAPTURE_ELIGIBLE_FEATURES.has(req.feature ?? 'chat-stream')
-      ) {
+      if (dataFields.length > 0 && CAPTURE_ELIGIBLE_FEATURES.has(feature)) {
         void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
       }
     } catch (err) {
@@ -613,28 +862,11 @@ export class DirectChatService {
 // ============================================================================
 
 /**
- * Parse the agent's stored aiConfig (JSONB) through the Zod schema so that
- * defaults are populated consistently. If the stored config is invalid (e.g.
- * old shape from a deploy that landed before the schema updated), log a
- * warning and fall back to schema defaults rather than failing the chat call.
- *
- * The WARNING is intentionally loud — silently falling back to defaults once
- * cost us ~2 debug cycles (fallback models were being dropped because a Zod
- * max was too low and the error was swallowed).
+ * Parse the agent's stored aiConfig (JSONB) through the shared resolver so
+ * defaults populate consistently. See resolve-ai-config.ts.
  */
 function resolveConfig(agent: Agent): AgentAiConfigDto {
-  const raw = agent.aiConfig ?? {};
-  const parsed = agentAiConfigSchema.safeParse(raw);
-  if (parsed.success) {
-    return parsed.data;
-  }
-  const logger = new Logger('resolveAiConfig');
-  logger.warn(
-    `Agent ${agent.id} has an invalid aiConfig — falling back to schema defaults. Issues: ${parsed.error.issues
-      .map((i) => `${i.path.join('.')}: ${i.message}`)
-      .join('; ')}`,
-  );
-  return agentAiConfigSchema.parse({});
+  return resolveAiConfig(agent.aiConfig, `resolveAiConfig:${agent.id}`);
 }
 
 /**

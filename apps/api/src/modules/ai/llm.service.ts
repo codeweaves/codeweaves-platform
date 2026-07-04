@@ -215,13 +215,51 @@ export class LlmService {
 
     async function* streamChunks(): AsyncIterable<LlmStreamChunk> {
       try {
-        for await (const delta of streamResult.textStream) {
-          if (firstTokenAt === null) {
-            firstTokenAt = performance.now();
+        // fullStream (not textStream) so tool activity is observable by the
+        // caller — DirectChatService maps tool-call/tool-result parts to the
+        // widget's live step indicators. Text behaviour is identical: every
+        // text-delta part carries the same tokens textStream would.
+        for await (const part of streamResult.fullStream) {
+          if (part.type === 'text-delta') {
+            if (firstTokenAt === null) {
+              firstTokenAt = performance.now();
+            }
+            if (part.text.length > 0) {
+              yield { type: 'text-delta', content: part.text };
+            }
+          } else if (part.type === 'tool-call') {
+            yield {
+              type: 'tool-call',
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              input: part.input,
+            };
+          } else if (part.type === 'tool-result') {
+            yield {
+              type: 'tool-result',
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+            };
+          } else if (part.type === 'tool-error') {
+            yield {
+              type: 'tool-result',
+              toolCallId: part.toolCallId,
+              toolName: part.toolName,
+              errored: true,
+            };
+          } else if (part.type === 'error') {
+            // Surface stream-level errors through the same wrap/reject path
+            // the textStream iteration used to throw through.
+            throw part.error instanceof Error
+              ? part.error
+              : new Error(String(part.error));
+          } else if (part.type === 'abort') {
+            const abortErr = new Error('Stream aborted');
+            abortErr.name = 'AbortError';
+            throw abortErr;
           }
-          if (delta.length > 0) {
-            yield { type: 'text-delta', content: delta };
-          }
+          // start/finish/step boundaries, reasoning + tool-input deltas, raw:
+          // intentionally not surfaced.
         }
 
         // Stream drained without errors. Pull final metadata (these promises

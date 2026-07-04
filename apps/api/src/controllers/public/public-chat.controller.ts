@@ -12,7 +12,7 @@ import { MessageRateLimitService } from '../../services/message-rate-limit.servi
 import { DirectChatService } from '../../modules/ai/direct-chat.service';
 import { HandoverService } from '../../services/handover.service';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
-import { sendMessageSchema, type SendMessageDto, resolveRoutingMode } from '@repo/validation';
+import { sendMessageSchema, type SendMessageDto, type ChatCitation, resolveRoutingMode } from '@repo/validation';
 import type { ChatMessageMetadata } from '../../services/chat-metadata.interface';
 import { detectFallback } from '../../utils/fallback-detection';
 
@@ -416,7 +416,8 @@ export class PublicChatController {
           | { traceId: string; model: string | null; cost: number | null;
               inputTokens: number; outputTokens: number; totalTokens: number;
               cachedInputTokens: number | null; reasoningTokens: number | null;
-              finishReason: string | null; historyCount: number; historyTruncated: boolean }
+              finishReason: string | null; historyCount: number; historyTruncated: boolean;
+              citations: ChatCitation[]; ragLatencyMs: number | null }
           | null = null;
 
         const directStream = this.directChatService.stream({
@@ -452,6 +453,11 @@ export class PublicChatController {
             chunkCount++;
             fullResponse += chunk.content;
             res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.content })}\n\n`);
+          } else if (chunk.type === 'step') {
+            // Live progress steps ("✓ Read policies.pdf", "Checking your
+            // CRM…"). The widget upserts by id; unknown types are ignored by
+            // older widget builds, so this is backwards compatible.
+            res.write(`data: ${JSON.stringify({ type: 'step', ...chunk.step })}\n\n`);
           } else if (chunk.type === 'finish') {
             finishPayload = {
               traceId: chunk.result.traceId,
@@ -465,6 +471,8 @@ export class PublicChatController {
               finishReason: chunk.result.finishReason,
               historyCount: chunk.result.historyCount,
               historyTruncated: chunk.result.historyTruncated,
+              citations: chunk.result.citations,
+              ragLatencyMs: chunk.result.ragLatencyMs,
             };
           } else if (chunk.type === 'error') {
             // DirectChatService already logged + ended the trace. Surface to
@@ -502,6 +510,12 @@ export class PublicChatController {
           finishReason: finishPayload?.finishReason ?? null,
           historyCount: finishPayload?.historyCount ?? null,
           historyTruncated: finishPayload?.historyTruncated ?? null,
+          ragLatencyMs: finishPayload?.ragLatencyMs ?? null,
+          // Only attach citations when the model actually cited sources —
+          // keeps the common (no-RAG) metadata payload flat and small.
+          ...(finishPayload?.citations?.length
+            ? { citations: finishPayload.citations }
+            : {}),
           ...fallback,
         };
 

@@ -326,12 +326,19 @@ describe('LlmService', () => {
   });
 
   describe('streamCompletion()', () => {
-    function makeStreamResult(chunks: string[], err?: unknown) {
+    // The service consumes streamText's fullStream (so tool activity is
+    // observable); text chunks arrive as {type:'text-delta', text} parts.
+    function makeStreamResult(
+      chunks: string[],
+      err?: unknown,
+      extraParts: unknown[] = [],
+    ) {
       return {
-        get textStream() {
+        get fullStream() {
           return (async function* () {
-            for (const c of chunks) yield c;
-            if (err) throw err;
+            for (const c of chunks) yield { type: 'text-delta', id: 'txt', text: c };
+            for (const p of extraParts) yield p;
+            if (err) yield { type: 'error', error: err };
           })();
         },
         usage: Promise.resolve({
@@ -407,6 +414,71 @@ describe('LlmService', () => {
       const completion = await handle.completion;
       expect(completion.text).toBe('ab');
       expect(completion.usage.totalTokens).toBe(22);
+    });
+
+    it('surfaces tool-call / tool-result parts as typed chunks', async () => {
+      mockedStreamText.mockReturnValue(
+        makeStreamResult(['done'], undefined, [
+          {
+            type: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'hubspot_find_contact',
+            input: { email: 'a@b.com' },
+          },
+          {
+            type: 'tool-result',
+            toolCallId: 'call-1',
+            toolName: 'hubspot_find_contact',
+            output: 'Contact found',
+          },
+          {
+            type: 'tool-error',
+            toolCallId: 'call-2',
+            toolName: 'slack_notify_team',
+            error: new Error('nope'),
+          },
+        ]),
+      );
+      const handle = await service.streamCompletion(baseRequest);
+      const out: Array<Record<string, unknown>> = [];
+      for await (const c of handle.stream) out.push(c as Record<string, unknown>);
+
+      expect(out).toEqual(
+        expect.arrayContaining([
+          expect.objectContaining({
+            type: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'hubspot_find_contact',
+            input: { email: 'a@b.com' },
+          }),
+          expect.objectContaining({
+            type: 'tool-result',
+            toolCallId: 'call-1',
+            toolName: 'hubspot_find_contact',
+          }),
+          expect.objectContaining({
+            type: 'tool-result',
+            toolCallId: 'call-2',
+            errored: true,
+          }),
+        ]),
+      );
+      // Reasoning/step parts never leak; last chunk is still finish.
+      expect((out[out.length - 1] as { type: string }).type).toBe('finish');
+    });
+
+    it('ignores non-surfaced part types (reasoning, step boundaries, raw)', async () => {
+      mockedStreamText.mockReturnValue(
+        makeStreamResult(['hi'], undefined, [
+          { type: 'reasoning-delta', id: 'r', text: 'thinking…' },
+          { type: 'start-step', request: {}, warnings: [] },
+          { type: 'raw', rawValue: { x: 1 } },
+        ]),
+      );
+      const handle = await service.streamCompletion(baseRequest);
+      const out: Array<{ type: string }> = [];
+      for await (const c of handle.stream) out.push(c as { type: string });
+      expect(out.map((c) => c.type)).toEqual(['text-delta', 'finish']);
     });
 
     it('honours AI_STREAM_TIMEOUT_MS override', async () => {

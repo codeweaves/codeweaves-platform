@@ -5,6 +5,8 @@ import { UserLoggerService } from './user.logger';
 import { ClerkLoggerService } from './clerk.logger';
 import { EmailLoggerService } from './email.logger';
 import { AgentLoggerService } from './agent.logger';
+import { RagLoggerService } from './rag.logger';
+import { IntegrationLoggerService } from './integration.logger';
 
 @Module({
   providers: [
@@ -14,6 +16,8 @@ import { AgentLoggerService } from './agent.logger';
     ClerkLoggerService,
     EmailLoggerService,
     AgentLoggerService,
+    RagLoggerService,
+    IntegrationLoggerService,
   ],
   exports: [
     OrganizationLoggerService,
@@ -22,6 +26,8 @@ import { AgentLoggerService } from './agent.logger';
     ClerkLoggerService,
     EmailLoggerService,
     AgentLoggerService,
+    RagLoggerService,
+    IntegrationLoggerService,
   ],
 })
 export class LoggerModule {}

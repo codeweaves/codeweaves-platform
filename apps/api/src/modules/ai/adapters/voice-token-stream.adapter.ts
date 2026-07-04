@@ -95,6 +95,11 @@ export async function* directChatToN8nStream(
         // Trace events are orchestration metadata; the voice pipeline doesn't
         // care about them. AiTraceService already logs them to file + DB.
         break;
+
+      case 'step':
+        // Step indicators are a visual-chat affordance; voice has no UI for
+        // them (the caller just hears the answer once it's ready).
+        break;
     }
   }
 }

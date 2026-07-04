@@ -449,6 +449,11 @@ export class DevAiController {
       case 'text-delta':
         this.writeSse(res, 'chunk', { content: chunk.content });
         break;
+      case 'step':
+        // User-visible progress steps (RAG search, tool calls). Forwarded as
+        // a named event; the dev test page may render or ignore them.
+        this.writeSse(res, 'step', { ...chunk.step });
+        break;
       case 'finish':
         // `done` is emitted separately by the caller once the assistant message
         // is persisted — keeps messageId available in the done event.

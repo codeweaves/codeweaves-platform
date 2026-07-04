@@ -1,7 +1,21 @@
 import type { ToolSet } from 'ai';
 import type { Agent } from '@prisma/client';
+import type { ChatCitation } from '@repo/validation';
 
 import type { LlmFeature, LlmTokenUsage } from './llm.interfaces';
+
+/**
+ * A user-visible progress step ("✓ Read policies.pdf", "Checking your CRM…").
+ * Forwarded to widgets over SSE — unlike 'trace' chunks, which stay internal.
+ * The same `id` is emitted twice: once with status 'active' when the work
+ * starts, once with 'done'/'error' when it settles; clients upsert by id.
+ */
+export interface ChatStep {
+  id: string;
+  kind: 'rag' | 'tool';
+  label: string;
+  status: 'active' | 'done' | 'error';
+}
 
 /**
  * Input for a direct-mode chat turn. The caller (ChatService.streamMessage)
@@ -90,15 +104,27 @@ export interface DirectChatResult {
   estimatedInputTokens: number;
   /** True if older messages were dropped to fit the context cap. */
   historyTruncated: boolean;
+
+  // ----- RAG metadata -----
+  /**
+   * Resolved source citations for this reply ([N] markers mapped back to
+   * knowledge-base documents). Empty when RAG didn't run or nothing was cited.
+   */
+  citations: ChatCitation[];
+  /** Wall-clock of the retrieval phase (embed + search). Null when RAG skipped. */
+  ragLatencyMs: number | null;
 }
 
 /**
  * Chunk shape emitted by `DirectChatService.stream()`. This is the direct
  * input to the SSE controller: one event per chunk, serialised to SSE.
  *
- *   'trace'      — an intermediate orchestration step (context load, LLM start,
- *                   RAG retrieval in Phase 3). Client renders these in a
- *                   separate panel for visibility.
+ *   'trace'      — an intermediate orchestration step (context load, LLM
+ *                   start). INTERNAL — the public controller does not forward
+ *                   these to widgets.
+ *   'step'       — a USER-VISIBLE progress step (knowledge search, tool call).
+ *                   The public controller forwards these to widgets, which
+ *                   render them as live indicators.
  *   'text-delta' — a token (or token group) from the LLM. Append to the
  *                   assistant message in the UI.
  *   'finish'     — stream is done; full result + metadata ready.
@@ -112,6 +138,7 @@ export type DirectChatStreamChunk =
       durationMs: number;
       data?: Record<string, unknown>;
     }
+  | { type: 'step'; step: ChatStep }
   | { type: 'text-delta'; content: string }
   | { type: 'finish'; result: DirectChatResult }
   | { type: 'error'; error: string; code?: string };
