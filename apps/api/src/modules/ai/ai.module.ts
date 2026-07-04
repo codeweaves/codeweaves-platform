@@ -1,5 +1,6 @@
 import { Module } from '@nestjs/common';
 
+import { LoggerModule } from '../../common/logger/logger.module';
 import { PrismaModule } from '../prisma.module';
 import { DataExtractionModule } from '../data-extraction.module';
 import { IntegrationsModule } from '../integrations/integrations.module';
@@ -32,6 +33,10 @@ import { SummarizationService } from './summarization.service';
     DataExtractionModule,
     RagModule,
     IntegrationsModule,
+    // DirectChatService injects RagLoggerService directly (retrieval-failure
+    // audit events). Module exports don't propagate through RagModule's own
+    // LoggerModule import — it must be imported HERE for Nest to resolve it.
+    LoggerModule,
   ],
   providers: [
     ContextAssemblyService,
