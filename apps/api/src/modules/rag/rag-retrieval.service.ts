@@ -87,12 +87,15 @@ export class RagRetrievalService {
     // HNSW + WHERE filters post-filter the candidate list: with the default
     // ef_search=40, a tenant whose chunks aren't in the GLOBAL top-40
     // neighbours can get starved/empty results on a shared multi-tenant
-    // table. SET LOCAL (transaction-scoped, PgBouncer-safe) widens the
-    // candidate pool. On pgvector >= 0.8, `SET LOCAL hnsw.iterative_scan =
-    // 'relaxed_order'` is the stronger fix — adopt once the fleet is
-    // confirmed on 0.8; revisit per-tenant partial indexes past ~1M chunks.
+    // table. Two SET LOCALs (transaction-scoped, PgBouncer-safe) fix this:
+    //   - ef_search=100 widens the base candidate pool
+    //   - iterative_scan='relaxed_order' (pgvector >= 0.8 — our Supabase runs
+    //     0.8.0, verified 2026-07-04) keeps scanning until enough rows
+    //     SURVIVE the filters, which is the real fix for filtered starvation.
+    // Revisit per-tenant partial indexes past ~1M chunks.
     const rows = await this.prisma.$transaction(async (tx) => {
       await tx.$executeRaw`SET LOCAL hnsw.ef_search = 100`;
+      await tx.$executeRaw`SET LOCAL hnsw.iterative_scan = 'relaxed_order'`;
       return params.strategy === 'vector'
         ? this.vectorSearch(tx, params, vectorLiteral)
         : this.hybridSearch(tx, params, vectorLiteral);
