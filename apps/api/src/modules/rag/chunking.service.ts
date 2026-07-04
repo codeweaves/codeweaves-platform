@@ -120,18 +120,27 @@ export class ChunkingService {
   /**
    * Greedily pack small pieces into chunks up to TARGET_TOKENS, carrying the
    * tail of the previous chunk forward as overlap.
+   *
+   * ONE flush path for both the mid-loop and final chunk (the final flush
+   * differs only in `seedOverlap`) — the merge-or-push rule must never fork.
    */
-  private packPieces(
-    pieces: string[],
-    heading?: string,
-  ): ChunkData[] {
+  private packPieces(pieces: string[], heading?: string): ChunkData[] {
     const chunks: ChunkData[] = [];
     let current = '';
     let currentTokens = 0;
 
-    const flush = () => {
+    const flush = (seedOverlap: boolean) => {
       const trimmed = current.trim();
       if (!trimmed) return;
+      // The final flush may hold nothing but the previous chunk's overlap
+      // carry-over — emitting it would duplicate content verbatim.
+      if (
+        !seedOverlap &&
+        chunks.length > 0 &&
+        chunks[chunks.length - 1]!.content.endsWith(trimmed)
+      ) {
+        return;
+      }
       const tokenCount = this.tokenCounter.countTokens(trimmed);
       if (tokenCount < MIN_CHUNK_TOKENS && chunks.length > 0) {
         // Too small to stand alone — merge into the previous chunk.
@@ -147,40 +156,21 @@ export class ChunkingService {
         });
       }
       // Overlap: seed the next chunk with the tail of this one.
-      current = overlapTail(trimmed, OVERLAP_TOKENS);
-      currentTokens = this.tokenCounter.countTokens(current);
+      current = seedOverlap ? overlapTail(trimmed, OVERLAP_TOKENS) : '';
+      currentTokens = current
+        ? this.tokenCounter.countTokens(current)
+        : 0;
     };
 
     for (const piece of pieces) {
       const pieceTokens = this.tokenCounter.countTokens(piece);
       if (currentTokens + pieceTokens > TARGET_TOKENS && currentTokens > 0) {
-        flush();
+        flush(true);
       }
       current += (current && !current.endsWith('\n') ? ' ' : '') + piece;
       currentTokens += pieceTokens;
     }
-    // Final flush without seeding overlap.
-    const trimmed = current.trim();
-    if (trimmed) {
-      const tokenCount = this.tokenCounter.countTokens(trimmed);
-      // Skip a trailing fragment that is nothing but the overlap carry-over.
-      const isPureOverlap =
-        chunks.length > 0 && chunks[chunks.length - 1]!.content.endsWith(trimmed);
-      if (!isPureOverlap) {
-        if (tokenCount < MIN_CHUNK_TOKENS && chunks.length > 0) {
-          const prev = chunks[chunks.length - 1]!;
-          prev.content = `${prev.content}\n${trimmed}`;
-          prev.tokenCount = this.tokenCounter.countTokens(prev.content);
-        } else {
-          chunks.push({
-            content: trimmed,
-            chunkIndex: chunks.length,
-            tokenCount,
-            metadata: heading ? { sectionHeading: heading } : {},
-          });
-        }
-      }
-    }
+    flush(false);
     return chunks;
   }
 

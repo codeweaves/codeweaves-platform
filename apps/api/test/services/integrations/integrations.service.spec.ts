@@ -5,6 +5,7 @@ import { IntegrationsService } from '../../../src/modules/integrations/integrati
 import { ProviderRegistry } from '../../../src/modules/integrations/provider-registry';
 import { HubspotProvider } from '../../../src/modules/integrations/providers/hubspot.provider';
 import { SlackProvider } from '../../../src/modules/integrations/providers/slack.provider';
+import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
 import { CryptoService } from '../../../src/common/crypto/crypto.service';
 import { IntegrationLoggerService } from '../../../src/common/logger/integration.logger';
 import { PrismaService } from '../../../src/services/prisma.service';
@@ -38,6 +39,7 @@ describe('IntegrationsService', () => {
     logIntegrationDisconnected: jest.fn(),
     logIntegrationTest: jest.fn(),
   };
+  const mockAgentCache = { invalidate: jest.fn() };
 
   const clientUser = {
     clerkId: 'clerk_1',
@@ -82,6 +84,7 @@ describe('IntegrationsService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: CryptoService, useValue: mockCrypto },
         { provide: IntegrationLoggerService, useValue: mockIntegrationLogger },
+        { provide: AgentCacheService, useValue: mockAgentCache },
       ],
     }).compile();
     service = moduleRef.get(IntegrationsService);

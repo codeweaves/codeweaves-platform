@@ -12,6 +12,7 @@ import type {
   UpsertIntegrationDto,
 } from '@repo/validation';
 
+import { AgentCacheService } from '../../common/cache/agent-cache.service';
 import { CryptoService } from '../../common/crypto/crypto.service';
 import { IntegrationLoggerService } from '../../common/logger/integration.logger';
 import type { CurrentUserData } from '../../decorators/current-user.decorator';
@@ -41,6 +42,7 @@ export class IntegrationsService {
     private readonly crypto: CryptoService,
     private readonly registry: ProviderRegistry,
     private readonly integrationLogger: IntegrationLoggerService,
+    private readonly agentCache: AgentCacheService,
   ) {}
 
   async list(
@@ -109,6 +111,8 @@ export class IntegrationsService {
       },
     });
 
+    // Chat reads integrations from the agent cache — refresh it.
+    await this.agentCache.invalidate(agentId);
     void this.integrationLogger.logIntegrationConnected(agentId, {
       provider,
       enabled: dto.enabled,
@@ -158,6 +162,7 @@ export class IntegrationsService {
       where: { id: row.id },
       data: { enabled },
     });
+    await this.agentCache.invalidate(agentId);
     return this.toResponse(updated);
   }
 
@@ -169,6 +174,7 @@ export class IntegrationsService {
     await assertAgentAccessible(this.prisma, agentId, user);
     const row = await this.requireIntegration(agentId, provider);
     await this.prisma.agentIntegration.delete({ where: { id: row.id } });
+    await this.agentCache.invalidate(agentId);
     void this.integrationLogger.logIntegrationDisconnected(agentId, {
       provider,
       by: user.id,

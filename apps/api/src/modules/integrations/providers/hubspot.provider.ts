@@ -216,12 +216,11 @@ export class HubspotProvider implements IntegrationProviderDef {
     | { ok: true; status: number; body: unknown; error?: never }
     | { ok: false; status: number | null; error: string; body?: never }
   > {
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TOOL_CALL_TIMEOUT_MS);
     try {
       const res = await fetch(`${HUBSPOT_API_BASE}${path}`, {
         method,
-        signal: controller.signal,
+        // Codebase-standard timeout (rejects with name 'TimeoutError').
+        signal: AbortSignal.timeout(TOOL_CALL_TIMEOUT_MS),
         headers: {
           Authorization: `Bearer ${accessToken}`,
           'Content-Type': 'application/json',
@@ -242,7 +241,9 @@ export class HubspotProvider implements IntegrationProviderDef {
       }
       return { ok: true, status: res.status, body: text ? JSON.parse(text) : {} };
     } catch (err) {
-      const timedOut = err instanceof Error && err.name === 'AbortError';
+      const timedOut =
+        err instanceof Error &&
+        (err.name === 'TimeoutError' || err.name === 'AbortError');
       this.logger.warn(
         `HubSpot ${method} ${path} failed: ${timedOut ? 'timeout' : err instanceof Error ? err.message : String(err)}`,
       );
@@ -253,8 +254,6 @@ export class HubspotProvider implements IntegrationProviderDef {
           ? `HubSpot did not respond within ${TOOL_CALL_TIMEOUT_MS / 1000}s.`
           : 'Network error reaching HubSpot.',
       };
-    } finally {
-      clearTimeout(timeout);
     }
   }
 }

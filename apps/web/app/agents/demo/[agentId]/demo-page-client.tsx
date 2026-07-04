@@ -4,6 +4,7 @@ import { useState, useEffect, useRef, useCallback } from 'react';
 import { ArrowLeft, Send, Bot, User } from 'lucide-react';
 import Link from 'next/link';
 import { apiUrl } from '@/config/api';
+import type { ChatCitation } from '@repo/validation';
 import { ChatMessageContent } from '@/components/features/chat/chat-message-content';
 import { VoiceMicButton } from '@/components/features/chat/voice-mic-button';
 import { VoiceErrorBanner } from '@/components/features/chat/voice-error-banner';
@@ -41,15 +42,10 @@ interface StreamStep {
   status: 'active' | 'done' | 'error';
 }
 
-/** Knowledge-base source cited in a bot reply (from the done event's metadata) */
-interface Citation {
-  index: number;
-  documentId: string;
-  documentName: string;
-  sourceType: 'FILE' | 'URL';
-  sourceUrl: string | null;
-  snippet: string;
-}
+/** Knowledge-base source cited in a bot reply (from the done event's metadata).
+ * The wire shape is the shared ChatCitation from @repo/validation — no local
+ * re-declaration, so a new source type can't silently drift past this page. */
+type Citation = ChatCitation;
 
 interface Message {
   id: string;

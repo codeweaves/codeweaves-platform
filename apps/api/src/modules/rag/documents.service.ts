@@ -19,6 +19,7 @@ import {
   type IngestUrlDto,
 } from '@repo/validation';
 
+import { AgentCacheService } from '../../common/cache/agent-cache.service';
 import { RagLoggerService } from '../../common/logger/rag.logger';
 import type { CurrentUserData } from '../../decorators/current-user.decorator';
 import { PrismaService } from '../../services/prisma.service';
@@ -76,6 +77,7 @@ export class DocumentsService {
     private readonly urlFetcher: UrlFetcherService,
     private readonly chunking: ChunkingService,
     private readonly ragLogger: RagLoggerService,
+    private readonly agentCache: AgentCacheService,
   ) {}
 
   async list(
@@ -123,6 +125,7 @@ export class DocumentsService {
     const document = await this.createAndEnqueue({
       agentId,
       organizationId: agent.organizationId,
+      chunkingStrategy: resolveAiConfig(agent.aiConfig).ragChunkingStrategy,
       name: file.originalname?.slice(0, 255) || 'document',
       sourceType: 'FILE',
       sourceUrl: null,
@@ -159,6 +162,7 @@ export class DocumentsService {
     return this.createAndEnqueue({
       agentId,
       organizationId: agent.organizationId,
+      chunkingStrategy: resolveAiConfig(agent.aiConfig).ragChunkingStrategy,
       name: dto.name?.slice(0, 255) || page.title || fallbackName,
       sourceType: 'URL',
       sourceUrl: dto.url,
@@ -179,7 +183,7 @@ export class DocumentsService {
     documentId: string,
     user: CurrentUserData,
   ): Promise<AgentDocumentListItem> {
-    await assertAgentAccessible(this.prisma, agentId, user);
+    const agent = await assertAgentAccessible(this.prisma, agentId, user);
     const doc = await this.prisma.agentDocument.findFirst({
       where: { id: documentId, agentId },
     });
@@ -200,7 +204,6 @@ export class DocumentsService {
       );
     }
 
-    const strategy = this.agentChunkingStrategy(agentId);
     const updated = await this.prisma.agentDocument.update({
       where: { id: documentId },
       data: {
@@ -208,10 +211,12 @@ export class DocumentsService {
         errorMessage: null,
         rawText,
         contentHash: this.chunking.contentHash(rawText),
-        chunkingStrategy: await strategy,
+        chunkingStrategy: resolveAiConfig(agent.aiConfig).ragChunkingStrategy,
       },
       select: DOCUMENT_LIST_SELECT,
     });
+    // The document just left READY — refresh the cached hasReadyDocuments flag.
+    await this.agentCache.invalidate(agentId);
     this.ingestion.enqueue(documentId);
     void this.ragLogger.logDocumentReindexed(agentId, {
       documentId,
@@ -234,6 +239,8 @@ export class DocumentsService {
     });
     if (!doc) throw new NotFoundException('Document not found.');
     await this.prisma.agentDocument.delete({ where: { id: documentId } });
+    // Possibly the last READY document — refresh the cached flag.
+    await this.agentCache.invalidate(agentId);
     void this.ragLogger.logDocumentDeleted(agentId, {
       documentId,
       name: doc.name,
@@ -247,6 +254,9 @@ export class DocumentsService {
   private async createAndEnqueue(input: {
     agentId: string;
     organizationId: string;
+    /** The agent's configured strategy — resolved by the caller from the
+     * assertAgentAccessible result (no second agent fetch). */
+    chunkingStrategy: string;
     name: string;
     sourceType: 'FILE' | 'URL';
     sourceUrl: string | null;
@@ -255,7 +265,6 @@ export class DocumentsService {
     rawText: string;
     uploadedById: string;
   }): Promise<AgentDocumentListItem> {
-    const chunkingStrategy = await this.agentChunkingStrategy(input.agentId);
     const document = await this.prisma.agentDocument.create({
       data: {
         agentId: input.agentId,
@@ -266,7 +275,7 @@ export class DocumentsService {
         mimeType: input.mimeType,
         sizeBytes: input.sizeBytes,
         status: 'PENDING',
-        chunkingStrategy,
+        chunkingStrategy: input.chunkingStrategy,
         contentHash: this.chunking.contentHash(input.rawText),
         rawText: input.rawText,
         uploadedById: input.uploadedById,
@@ -281,22 +290,13 @@ export class DocumentsService {
       sourceType: input.sourceType,
       sourceUrl: input.sourceUrl,
       sizeBytes: input.sizeBytes,
-      chunkingStrategy,
+      chunkingStrategy: input.chunkingStrategy,
     });
 
     this.logger.log(
       `[createAndEnqueue] - document ${document.id} (${input.sourceType}) queued for agent ${input.agentId}`,
     );
     return document;
-  }
-
-  /** The agent's configured default chunking strategy (aiConfig). */
-  private async agentChunkingStrategy(agentId: string): Promise<string> {
-    const agent = await this.prisma.agent.findUnique({
-      where: { id: agentId },
-      select: { aiConfig: true },
-    });
-    return resolveAiConfig(agent?.aiConfig).ragChunkingStrategy;
   }
 
   private async assertUnderDocumentCap(agentId: string): Promise<void> {

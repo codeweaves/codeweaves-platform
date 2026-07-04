@@ -1,5 +1,5 @@
 import { Injectable, Logger } from '@nestjs/common';
-import type { Agent, AgentDataField } from '@prisma/client';
+import type { Agent, AgentDataField, AgentIntegration } from '@prisma/client';
 import { type AgentAiConfigDto } from '@repo/validation';
 
 import { AgentCacheService } from '../../common/cache/agent-cache.service';
@@ -37,14 +37,19 @@ const KNOWLEDGE_DIVIDER = '\n\n---\n\n[REFERENCE KNOWLEDGE]\n';
 const DATA_COLLECTION_DIVIDER = '\n\n---\n\n[DATA TO COLLECT]\n';
 
 /**
- * Features that represent a real end-user conversation turn — the only ones
- * eligible for background data capture, RAG retrieval and integration tools.
- * Internal `send()` calls (summarisation, title-generation, rag-*, embedding,
- * warmup) must NEVER enqueue extraction, retrieve documents or call tools.
- * `send()` is used by WhatsApp inbound (`feature: 'chat'`), so we cover it
- * here too — not just the streaming widget path.
+ * Features that represent a real end-user conversation turn. Gates THREE
+ * concerns, deliberately named for all of them: background data capture, RAG
+ * retrieval (bills embeddings), and integration-tool loading (may execute
+ * third-party writes). Internal `send()` calls (summarisation,
+ * title-generation, rag-*, embedding, warmup) must NEVER trigger any of the
+ * three. `send()` is used by WhatsApp inbound (`feature: 'chat'`), so we
+ * cover it here too — not just the streaming widget path.
+ *
+ * NOTE: integration tools have an ADDITIONAL gate on top of this —
+ * sessionSource !== 'DEMO' — so editor-preview chats never write to a
+ * customer's live CRM/Slack (see loadIntegrationTools).
  */
-const CAPTURE_ELIGIBLE_FEATURES = new Set<string>([
+const USER_FACING_TURN_FEATURES = new Set<string>([
   'chat',
   'chat-stream',
   'voice',
@@ -112,34 +117,6 @@ export class DirectChatService {
   ) {}
 
   /**
-   * RAG runs when the agent enables it, the turn is a real conversation (not
-   * warmup/summarisation), AND the agent actually has indexed documents. The
-   * existence check is one fast indexed query — it runs BEFORE the parallel
-   * load phase so stream() can emit the "Searching…" step only for agents
-   * that truly have a knowledge base. Fails open to "no RAG".
-   */
-  private async ragAvailable(
-    req: DirectChatRequest,
-    config: AgentAiConfigDto,
-    feature: LlmFeature,
-  ): Promise<boolean> {
-    if (!config.ragEnabled || !CAPTURE_ELIGIBLE_FEATURES.has(feature)) {
-      return false;
-    }
-    try {
-      return await this.ragRetrieval.hasReadyDocuments(
-        req.agent.id,
-        req.agent.organizationId,
-      );
-    } catch (err) {
-      this.logger.warn(
-        `RAG availability check failed for agent ${req.agent.id}: ${err instanceof Error ? err.message : String(err)}`,
-      );
-      return false;
-    }
-  }
-
-  /**
    * Retrieve knowledge chunks for this turn. Never throws — retrieval
    * problems degrade to "answer without RAG" and are surfaced via trace +
    * audit log (RAG_RETRIEVAL_FAILED), not to the visitor.
@@ -185,23 +162,31 @@ export class DirectChatService {
   }
 
   /**
-   * Load the agent's integration tools (HubSpot, Slack, …) for this turn.
-   * Never throws — a broken integration must not take chat down.
+   * Build the agent's integration tools (HubSpot, Slack, …) for this turn
+   * from the CACHED integration rows (no query). Never throws — a broken
+   * integration must not take chat down.
+   *
+   * DEMO sessions (editor preview / playground) never get integration tools:
+   * an operator poking at their bot must not spam their own Slack channel or
+   * write junk contacts into their live CRM. Mirrors the handover exclusion
+   * for source === 'DEMO' in the public controller.
    */
-  private async loadIntegrationTools(
+  private buildIntegrationTools(
     req: DirectChatRequest,
     feature: LlmFeature,
+    integrations: AgentIntegration[],
     traceId: string,
-  ): Promise<AgentToolBundle | null> {
-    if (!CAPTURE_ELIGIBLE_FEATURES.has(feature)) return null;
+  ): AgentToolBundle | null {
+    if (!USER_FACING_TURN_FEATURES.has(feature)) return null;
+    if (req.sessionSource === 'DEMO') return null;
     try {
-      return await this.agentTools.buildToolsForAgent(req.agent.id, {
+      return this.agentTools.buildTools(req.agent.id, integrations, {
         sessionId: req.externalSessionId,
         traceId,
       });
     } catch (err) {
       this.logger.error(
-        `Integration tool load failed for agent ${req.agent.id}: ${err instanceof Error ? err.message : String(err)}`,
+        `Integration tool build failed for agent ${req.agent.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
       return null;
     }
@@ -220,6 +205,8 @@ export class DirectChatService {
   private async loadAgentExtras(agentId: string): Promise<{
     knowledge: { content: string; tokens: number | null } | null;
     dataFields: AgentDataField[];
+    integrations: AgentIntegration[];
+    hasReadyDocuments: boolean;
   }> {
     const cached = await this.agentCache.getAgentWithKnowledge(agentId);
     const knowledge =
@@ -229,7 +216,12 @@ export class DirectChatService {
             tokens: cached.knowledge.contentTokens,
           }
         : null;
-    return { knowledge, dataFields: cached?.dataFields ?? [] };
+    return {
+      knowledge,
+      dataFields: cached?.dataFields ?? [],
+      integrations: cached?.integrations ?? [],
+      hasReadyDocuments: cached?.hasReadyDocuments ?? false,
+    };
   }
 
   /**
@@ -290,33 +282,36 @@ export class DirectChatService {
     const feature = req.feature ?? 'chat';
 
     try {
-      const ragEligible = await this.ragAvailable(req, config, feature);
-
-      // Knowledge load (Redis→Postgres for AgentKnowledge), context load
-      // (Postgres findMany on ChatMessage), RAG retrieval (embed + pgvector)
-      // and integration-tool load hit different tables/APIs and have no data
-      // dependency — running them serially would waste round-trips.
-      //
-      // Context assembly DOES use the system prompt for its token-budget
-      // charEstimate, but the estimate is cheap and we account for the
-      // knowledge tokens by pre-seeding the budget. See contextWithKnowledge()
-      // below for the reconciliation.
+      // Agent extras come from ONE cached read (Redis, ~1-3ms; Postgres on
+      // miss) and everything downstream branches on them, so this runs first.
       const knowledgeStart = performance.now();
+      const extras = await this.loadAgentExtras(req.agent.id);
+      trace.step(
+        'knowledge.load',
+        {
+          hasKnowledge: extras.knowledge !== null,
+          knowledgeTokens: extras.knowledge?.tokens ?? 0,
+          dataFieldCount: extras.dataFields.length,
+          integrationCount: extras.integrations.length,
+          hasReadyDocuments: extras.hasReadyDocuments,
+        },
+        Math.round(performance.now() - knowledgeStart),
+      );
+
+      const interactive = USER_FACING_TURN_FEATURES.has(feature);
+      const ragEligible =
+        config.ragEnabled && interactive && extras.hasReadyDocuments;
+      const toolBundle = this.buildIntegrationTools(
+        req,
+        feature,
+        extras.integrations,
+        trace.traceId,
+      );
+
+      // Context load (Postgres findMany on ChatMessage) and RAG retrieval
+      // (embedding API + pgvector) are independent — run them in parallel.
       const contextStart = performance.now();
-      const [extras, context, rag, toolBundle] = await Promise.all([
-        this.loadAgentExtras(req.agent.id).then((e) => {
-          const knowledgeMs = Math.round(performance.now() - knowledgeStart);
-          trace.step(
-            'knowledge.load',
-            {
-              hasKnowledge: e.knowledge !== null,
-              knowledgeTokens: e.knowledge?.tokens ?? 0,
-              dataFieldCount: e.dataFields.length,
-            },
-            knowledgeMs,
-          );
-          return e;
-        }),
+      const [context, rag] = await Promise.all([
         this.loadContext(
           req,
           config.contextStrategy,
@@ -343,7 +338,6 @@ export class DirectChatService {
         ragEligible
           ? this.retrieveRag(req, config, trace)
           : Promise.resolve(null),
-        this.loadIntegrationTools(req, feature, trace.traceId),
       ]);
       const { knowledge, dataFields } = extras;
       const ragChunks = rag?.chunks ?? [];
@@ -355,19 +349,23 @@ export class DirectChatService {
         buildFallbackInstruction(req.agent) +
         // RAG block goes AFTER the static sections so the per-turn retrieved
         // text never breaks the provider prompt-cache prefix for the stable
-        // persona/knowledge/instructions part.
-        buildRagSystemBlock(ragChunks) +
+        // persona/knowledge/instructions part. Inline [N] citations are only
+        // requested on the widget streaming path — WhatsApp text and voice
+        // TTS have no citation UI, so markers would just be noise there.
+        buildRagSystemBlock(ragChunks, { inlineCitations: feature === 'chat-stream' }) +
         buildExtraInstruction(req.extraSystemInstruction);
 
       // Integration tools + caller-supplied tools (e.g. handover's
-      // connect_to_human). Caller tools win on name collisions.
+      // connect_to_human). Caller tools win on name collisions, and an
+      // explicit caller maxSteps stays authoritative — callers budget
+      // latency/cost per channel (voice passes a tight cap on purpose).
       const mergedTools = {
         ...(toolBundle?.tools ?? {}),
         ...(req.tools ?? {}),
       };
       const hasTools = Object.keys(mergedTools).length > 0;
       const maxSteps = hasTools
-        ? Math.max(req.maxSteps ?? 0, toolBundle ? 5 : 3)
+        ? (req.maxSteps ?? (toolBundle ? 5 : 3))
         : undefined;
 
       trace.step('llm.call_start', {
@@ -455,7 +453,7 @@ export class DirectChatService {
       // which uses send()). Same debounced, gated behaviour as stream(): only
       // when the agent collects something AND this is a real user-facing turn
       // (never internal send() calls like summarisation/title-gen).
-      if (dataFields.length > 0 && CAPTURE_ELIGIBLE_FEATURES.has(feature)) {
+      if (dataFields.length > 0 && USER_FACING_TURN_FEATURES.has(feature)) {
         void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
       }
 
@@ -505,10 +503,25 @@ export class DirectChatService {
     const feature = req.feature ?? 'chat-stream';
 
     try {
-      // ----- Phase 0: RAG availability (one fast indexed query) -----
-      // Runs first so the widget's "Searching the knowledge base…" step only
-      // appears for agents that actually have indexed documents.
-      const ragEligible = await this.ragAvailable(req, config, feature);
+      // ----- Phase 0: Agent extras (ONE cached read — Redis ~1-3ms) -----
+      // Runs first because everything downstream branches on it: whether the
+      // "Searching the knowledge base…" step should show at all, and which
+      // integration tools this turn gets. No Postgres on the hot path when
+      // the cache is warm.
+      const knowledgeStart = performance.now();
+      const extras = await this.loadAgentExtras(req.agent.id);
+      const knowledgeMs = Math.round(performance.now() - knowledgeStart);
+
+      const interactive = USER_FACING_TURN_FEATURES.has(feature);
+      const ragEligible =
+        config.ragEnabled && interactive && extras.hasReadyDocuments;
+      const toolBundle = this.buildIntegrationTools(
+        req,
+        feature,
+        extras.integrations,
+        trace.traceId,
+      );
+
       if (ragEligible) {
         yield {
           type: 'step',
@@ -521,24 +534,15 @@ export class DirectChatService {
         };
       }
 
-      // ----- Phase 1: Knowledge + Context + RAG + Tools (in parallel) -----
+      // ----- Phase 1: Context + RAG retrieval (in parallel) -----
       //
-      // Independent reads (AgentKnowledge via Redis→Postgres; ChatMessage via
-      // Postgres OR skipped entirely if the caller supplied recentHistory;
-      // RAG = embedding API + pgvector; tools = one indexed SELECT). Each
-      // records its OWN wall time via a per-promise timestamp so the trace
-      // shows which is actually slow.
-      const parallelStart = performance.now();
-      const knowledgeStart = parallelStart;
-      const contextStart = parallelStart;
-      let knowledgeMs = 0;
+      // Independent reads (ChatMessage via Postgres OR skipped entirely if
+      // the caller supplied recentHistory; RAG = embedding API + pgvector).
+      // Each records its OWN wall time so the trace shows which is slow.
+      const contextStart = performance.now();
       let contextMs = 0;
 
-      const [extras, context, rag, toolBundle] = await Promise.all([
-        this.loadAgentExtras(req.agent.id).then((e) => {
-          knowledgeMs = Math.round(performance.now() - knowledgeStart);
-          return e;
-        }),
+      const [context, rag] = await Promise.all([
         this.loadContext(
           req,
           config.contextStrategy,
@@ -553,7 +557,6 @@ export class DirectChatService {
         ragEligible
           ? this.retrieveRag(req, config, trace)
           : Promise.resolve(null),
-        this.loadIntegrationTools(req, feature, trace.traceId),
       ]);
       const { knowledge, dataFields } = extras;
       const ragChunks = rag?.chunks ?? [];
@@ -586,6 +589,8 @@ export class DirectChatService {
         hasKnowledge: knowledge !== null,
         knowledgeTokens: knowledge?.tokens ?? 0,
         dataFieldCount: dataFields.length,
+        integrationCount: extras.integrations.length,
+        hasReadyDocuments: extras.hasReadyDocuments,
       };
       trace.step('knowledge.load', knowledgeData, knowledgeMs);
       yield {
@@ -602,19 +607,22 @@ export class DirectChatService {
         buildFallbackInstruction(req.agent) +
         // RAG block goes AFTER the static sections so the per-turn retrieved
         // text never breaks the provider prompt-cache prefix for the stable
-        // persona/knowledge/instructions part.
-        buildRagSystemBlock(ragChunks) +
+        // persona/knowledge/instructions part. Inline [N] citations only on
+        // the widget streaming path — WhatsApp/voice have no citation UI.
+        buildRagSystemBlock(ragChunks, { inlineCitations: feature === 'chat-stream' }) +
         buildExtraInstruction(req.extraSystemInstruction);
 
       // Integration tools + caller-supplied tools (e.g. handover's
-      // connect_to_human). Caller tools win on name collisions.
+      // connect_to_human). Caller tools win on name collisions, and an
+      // explicit caller maxSteps stays authoritative — callers budget
+      // latency/cost per channel (voice passes a tight cap on purpose).
       const mergedTools = {
         ...(toolBundle?.tools ?? {}),
         ...(req.tools ?? {}),
       };
       const hasTools = Object.keys(mergedTools).length > 0;
       const maxSteps = hasTools
-        ? Math.max(req.maxSteps ?? 0, toolBundle ? 5 : 3)
+        ? (req.maxSteps ?? (toolBundle ? 5 : 3))
         : undefined;
       const toolStepMeta = toolBundle?.stepMeta ?? {};
 
@@ -827,7 +835,7 @@ export class DirectChatService {
       // real user-facing turn. Runs ~60s after the conversation settles (once
       // per conversation), so it adds ZERO latency to the reply just delivered.
       // See docs/plans/agent-data-and-integrations-plan.md.
-      if (dataFields.length > 0 && CAPTURE_ELIGIBLE_FEATURES.has(feature)) {
+      if (dataFields.length > 0 && USER_FACING_TURN_FEATURES.has(feature)) {
         void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
       }
     } catch (err) {

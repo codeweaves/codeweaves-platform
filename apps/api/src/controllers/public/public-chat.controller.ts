@@ -424,6 +424,9 @@ export class PublicChatController {
           agent: fullAgent,
           chatSessionId: session.id,
           externalSessionId: session.sessionId,
+          // DEMO sessions are excluded from integration tools inside
+          // DirectChatService (same rule as the handover exclusion above).
+          sessionSource: session.source,
           newUserMessage: dto.chatInput,
           // When the caller (widget / demo / any API consumer) sends history
           // in the body, ContextAssemblyService uses it directly and skips

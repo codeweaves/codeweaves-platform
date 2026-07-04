@@ -36,15 +36,18 @@ describe('DirectChatService', () => {
     getAgentWithKnowledge: jest.fn(),
   };
   const mockDataExtractionService = { scheduleExtraction: jest.fn() };
-  // RAG defaults: no indexed documents, so send()/stream() behave exactly as
-  // pre-RAG (dedicated RAG-path tests flip these).
-  const mockRagRetrieval = {
-    hasReadyDocuments: jest.fn().mockResolvedValue(false),
-    retrieve: jest.fn(),
+  // RAG + integrations flags ride the agent cache entry; defaults below make
+  // send()/stream() behave exactly as pre-RAG (RAG-path tests override).
+  const mockRagRetrieval = { retrieve: jest.fn() };
+  const mockAgentTools = { buildTools: jest.fn() };
+  const mockRagLogger = { logRetrievalFailed: jest.fn() };
+
+  const baseCachedAgent = {
+    knowledge: null,
+    dataFields: [],
+    integrations: [],
+    hasReadyDocuments: false,
   };
-  // Integrations default: no connected tools.
-  const mockAgentTools = { buildToolsForAgent: jest.fn().mockResolvedValue(null) };
-  const mockRagLogger = { logRetrievalFailed: jest.fn().mockResolvedValue(undefined) };
 
   const traceContext = {
     traceId: 'trace-1',
@@ -84,7 +87,9 @@ describe('DirectChatService', () => {
     mockPromptTemplate.resolve.mockImplementation((s: string) => s);
     mockContext.assemble.mockResolvedValue(baseContext);
     mockHybrid.assemble.mockResolvedValue(baseContext);
-    mockCache.getAgentWithKnowledge.mockResolvedValue({ knowledge: null });
+    mockCache.getAgentWithKnowledge.mockResolvedValue({ ...baseCachedAgent });
+    mockAgentTools.buildTools.mockReturnValue(null);
+    mockRagLogger.logRetrievalFailed.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -108,8 +113,6 @@ describe('DirectChatService', () => {
       ],
     }).compile();
     service = moduleRef.get(DirectChatService);
-    mockRagRetrieval.hasReadyDocuments.mockResolvedValue(false);
-    mockAgentTools.buildToolsForAgent.mockResolvedValue(null);
   });
 
   describe('send() — non-streaming', () => {
@@ -277,7 +280,10 @@ describe('DirectChatService', () => {
     });
 
     it('runs RAG when documents are indexed: steps + system block + citations', async () => {
-      mockRagRetrieval.hasReadyDocuments.mockResolvedValue(true);
+      mockCache.getAgentWithKnowledge.mockResolvedValue({
+        ...baseCachedAgent,
+        hasReadyDocuments: true,
+      });
       mockRagRetrieval.retrieve.mockResolvedValue([
         {
           chunkId: 'c1',
@@ -342,7 +348,10 @@ describe('DirectChatService', () => {
     });
 
     it('degrades gracefully when retrieval fails (error step, chat continues)', async () => {
-      mockRagRetrieval.hasReadyDocuments.mockResolvedValue(true);
+      mockCache.getAgentWithKnowledge.mockResolvedValue({
+        ...baseCachedAgent,
+        hasReadyDocuments: true,
+      });
       mockRagRetrieval.retrieve.mockRejectedValue(new Error('pgvector down'));
       mockLlm.streamCompletion.mockResolvedValue({
         stream: tokenStream([
@@ -383,7 +392,7 @@ describe('DirectChatService', () => {
     });
 
     it('surfaces integration tool activity as step chunks', async () => {
-      mockAgentTools.buildToolsForAgent.mockResolvedValue({
+      mockAgentTools.buildTools.mockReturnValue({
         tools: { hubspot_find_contact: { execute: jest.fn() } },
         stepMeta: {
           hubspot_find_contact: {
@@ -450,6 +459,76 @@ describe('DirectChatService', () => {
       };
       expect(llmReq.tools).toHaveProperty('hubspot_find_contact');
       expect(llmReq.maxSteps).toBe(5);
+    });
+
+    it('never gives integration tools to DEMO (preview/playground) sessions', async () => {
+      mockLlm.streamCompletion.mockResolvedValue({
+        stream: tokenStream([
+          { type: 'text-delta', content: 'hi' },
+          {
+            type: 'finish',
+            model: 'gpt-4o-mini',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            cost: null,
+            finishReason: 'stop',
+            ttftMs: 100,
+            totalMs: 300,
+          },
+        ]),
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _chunk of service.stream({
+        agent: mockAgent,
+        chatSessionId: 'sess-1',
+        newUserMessage: 'test message',
+        sessionSource: 'DEMO',
+      })) {
+        // drain
+      }
+
+      // Tool assembly is skipped entirely — an operator testing their bot in
+      // the editor preview must never write to their live CRM/Slack.
+      expect(mockAgentTools.buildTools).not.toHaveBeenCalled();
+      const llmReq = mockLlm.streamCompletion.mock.calls[0][0] as {
+        tools?: Record<string, unknown>;
+      };
+      expect(llmReq.tools).toBeUndefined();
+    });
+
+    it('respects an explicit caller maxSteps over the integration default', async () => {
+      mockAgentTools.buildTools.mockReturnValue({
+        tools: { hubspot_find_contact: { execute: jest.fn() } },
+        stepMeta: {},
+      });
+      mockLlm.streamCompletion.mockResolvedValue({
+        stream: tokenStream([
+          {
+            type: 'finish',
+            model: 'gpt-4o-mini',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            cost: null,
+            finishReason: 'stop',
+            ttftMs: 100,
+            totalMs: 300,
+          },
+        ]),
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _chunk of service.stream({
+        agent: mockAgent,
+        chatSessionId: 'sess-1',
+        newUserMessage: 'hi',
+        maxSteps: 3, // voice/handover callers budget latency deliberately
+      })) {
+        // drain
+      }
+
+      const llmReq = mockLlm.streamCompletion.mock.calls[0][0] as {
+        maxSteps?: number;
+      };
+      expect(llmReq.maxSteps).toBe(3);
     });
 
     it('yields an error chunk when the LLM stream errors mid-flight', async () => {

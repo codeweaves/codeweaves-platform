@@ -1,6 +1,11 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import type { Agent, AgentDataField, AgentKnowledge } from '@prisma/client';
+import type {
+  Agent,
+  AgentDataField,
+  AgentIntegration,
+  AgentKnowledge,
+} from '@prisma/client';
 
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../../services/prisma.service';
@@ -14,10 +19,19 @@ import { PrismaService } from '../../services/prisma.service';
  * `dataFields` are included so the chat hot path can build the data-collection
  * prompt without an extra query. They're written rarely (editor save) and read
  * on every message — exactly what this cache is for.
+ *
+ * `integrations` (enabled rows — incl. encrypted credential blobs; Redis is
+ * the same server-side trust domain as Postgres) and `hasReadyDocuments` ride
+ * the same entry for the same reason: DirectChatService needs both on EVERY
+ * message, and paying two extra Postgres queries per turn — mostly to learn
+ * "this agent has neither" — was measurable hot-path waste. Write paths
+ * (documents CRUD + ingestion status flips, integrations CRUD) invalidate.
  */
 export interface CachedAgent extends Agent {
   knowledge: AgentKnowledge | null;
   dataFields: AgentDataField[];
+  integrations: AgentIntegration[];
+  hasReadyDocuments: boolean;
 }
 
 /** Default TTL (seconds). Overridable via AGENT_CACHE_TTL_SECONDS env. */
@@ -94,14 +108,23 @@ export class AgentCacheService {
       include: {
         knowledge: true,
         dataFields: { orderBy: { order: 'asc' } },
+        integrations: { where: { enabled: true } },
+        // Existence probe only — one READY row is enough to flip the flag.
+        documents: { where: { status: 'READY' }, select: { id: true }, take: 1 },
       },
     });
     if (!agent) return null;
 
-    // 3. Populate cache (fire-and-forget — don't block the read on Redis)
-    void this.setCache(key, agent);
+    const { documents, ...rest } = agent;
+    const cachedAgent: CachedAgent = {
+      ...rest,
+      hasReadyDocuments: documents.length > 0,
+    };
 
-    return agent;
+    // 3. Populate cache (fire-and-forget — don't block the read on Redis)
+    void this.setCache(key, cachedAgent);
+
+    return cachedAgent;
   }
 
   /**
@@ -141,6 +164,7 @@ const DATE_FIELDS = new Set([
   'updatedAt',
   'deletedAt',
   'lastMessageAt',
+  'lastTestedAt', // AgentIntegration
 ]);
 function reviveDates(key: string, value: unknown): unknown {
   if (

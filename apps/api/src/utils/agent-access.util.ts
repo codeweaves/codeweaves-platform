@@ -20,6 +20,12 @@ import type { PrismaService } from '../services/prisma.service';
 export interface AccessibleAgent {
   id: string;
   organizationId: string;
+  /**
+   * Raw aiConfig JSONB — included so sub-resource services that need a config
+   * field (e.g. the documents API reading ragChunkingStrategy) don't pay a
+   * second agent fetch. Parse via resolveAiConfig; may be null.
+   */
+  aiConfig: unknown;
 }
 
 /**
@@ -45,7 +51,7 @@ export async function assertAgentAccessible(
         organizationId: user.organizationId!,
       }),
     },
-    select: { id: true, organizationId: true },
+    select: { id: true, organizationId: true, aiConfig: true },
   });
   if (!agent) {
     throw new NotFoundException(`Agent ${agentId} not found or inactive.`);

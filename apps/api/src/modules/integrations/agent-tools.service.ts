@@ -1,8 +1,8 @@
 import { Injectable, Logger } from '@nestjs/common';
+import type { AgentIntegration } from '@prisma/client';
 import { tool, type Tool, type ToolSet } from 'ai';
 
 import { IntegrationLoggerService } from '../../common/logger/integration.logger';
-import { PrismaService } from '../../services/prisma.service';
 
 import { IntegrationsService } from './integrations.service';
 import { ProviderRegistry } from './provider-registry';
@@ -20,10 +20,10 @@ export interface AgentToolBundle {
 /**
  * AgentToolsService: assembles the integration tools for one chat turn.
  *
- * Chat hot path — one indexed query on agent_integrations; agents with no
- * integrations pay a single fast SELECT and get null back. Credentials are
- * decrypted per turn and captured only inside the tool closures (never
- * attached to the request or logged).
+ * Chat hot path — ZERO queries of its own: callers hand in the enabled
+ * integration rows from the AgentCacheService entry they already loaded this
+ * turn. Credentials are decrypted per turn and captured only inside the tool
+ * closures (never attached to the request or logged).
  *
  * Every `execute` is wrapped with timing + an audit event
  * (INTEGRATION_TOOL_CALLED / INTEGRATION_TOOL_FAILED, fire-and-forget) and a
@@ -35,19 +35,16 @@ export class AgentToolsService {
   private readonly logger = new Logger(AgentToolsService.name);
 
   constructor(
-    private readonly prisma: PrismaService,
     private readonly integrations: IntegrationsService,
     private readonly registry: ProviderRegistry,
     private readonly integrationLogger: IntegrationLoggerService,
   ) {}
 
-  async buildToolsForAgent(
+  buildTools(
     agentId: string,
+    rows: AgentIntegration[],
     context: { sessionId?: string; traceId?: string },
-  ): Promise<AgentToolBundle | null> {
-    const rows = await this.prisma.agentIntegration.findMany({
-      where: { agentId, enabled: true },
-    });
+  ): AgentToolBundle | null {
     if (rows.length === 0) return null;
 
     const tools: ToolSet = {};

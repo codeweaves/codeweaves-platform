@@ -5,22 +5,18 @@ import { ProviderRegistry } from '../../../src/modules/integrations/provider-reg
 import { HubspotProvider } from '../../../src/modules/integrations/providers/hubspot.provider';
 import { SlackProvider } from '../../../src/modules/integrations/providers/slack.provider';
 import { IntegrationLoggerService } from '../../../src/common/logger/integration.logger';
-import { PrismaService } from '../../../src/services/prisma.service';
 
 describe('AgentToolsService', () => {
   let service: AgentToolsService;
 
   const agentId = 'agent-uuid';
 
-  const mockPrisma = {
-    agentIntegration: { findMany: jest.fn() },
-  };
   const mockIntegrations = {
     decryptCredentials: jest.fn(),
   };
   const mockIntegrationLogger = {
-    logToolCall: jest.fn().mockResolvedValue(undefined),
-    logToolCallFailed: jest.fn().mockResolvedValue(undefined),
+    logToolCall: jest.fn(),
+    logToolCallFailed: jest.fn(),
   };
 
   const hubspotRow = {
@@ -29,17 +25,21 @@ describe('AgentToolsService', () => {
     provider: 'hubspot',
     enabled: true,
     credentialsEncrypted: 'enc',
-  };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
   const slackRow = {
     id: 'integ-2',
     agentId,
     provider: 'slack',
     enabled: true,
     credentialsEncrypted: 'enc',
-  };
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  } as any;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockIntegrationLogger.logToolCall.mockResolvedValue(undefined);
+    mockIntegrationLogger.logToolCallFailed.mockResolvedValue(undefined);
     mockIntegrations.decryptCredentials.mockImplementation(
       (row: { provider: string }) =>
         row.provider === 'hubspot'
@@ -53,7 +53,6 @@ describe('AgentToolsService', () => {
         ProviderRegistry,
         HubspotProvider,
         SlackProvider,
-        { provide: PrismaService, useValue: mockPrisma },
         { provide: IntegrationsService, useValue: mockIntegrations },
         { provide: IntegrationLoggerService, useValue: mockIntegrationLogger },
       ],
@@ -61,20 +60,12 @@ describe('AgentToolsService', () => {
     service = moduleRef.get(AgentToolsService);
   });
 
-  it('returns null for agents with no enabled integrations', async () => {
-    mockPrisma.agentIntegration.findMany.mockResolvedValue([]);
-    expect(await service.buildToolsForAgent(agentId, {})).toBeNull();
-    expect(mockPrisma.agentIntegration.findMany).toHaveBeenCalledWith({
-      where: { agentId, enabled: true },
-    });
+  it('returns null for agents with no enabled integrations', () => {
+    expect(service.buildTools(agentId, [], {})).toBeNull();
   });
 
-  it('builds tools + step metadata for connected providers', async () => {
-    mockPrisma.agentIntegration.findMany.mockResolvedValue([
-      hubspotRow,
-      slackRow,
-    ]);
-    const bundle = await service.buildToolsForAgent(agentId, {
+  it('builds tools + step metadata for connected providers', () => {
+    const bundle = service.buildTools(agentId, [hubspotRow, slackRow], {
       sessionId: 'sess-1',
     });
     expect(bundle).not.toBeNull();
@@ -89,31 +80,25 @@ describe('AgentToolsService', () => {
     });
   });
 
-  it('skips integrations whose credentials fail to decrypt (chat survives)', async () => {
-    mockPrisma.agentIntegration.findMany.mockResolvedValue([
-      hubspotRow,
-      slackRow,
-    ]);
+  it('skips integrations whose credentials fail to decrypt (chat survives)', () => {
     mockIntegrations.decryptCredentials.mockImplementation(
       (row: { provider: string }) => {
         if (row.provider === 'hubspot') throw new Error('bad key');
         return { webhookUrl: 'https://hooks.slack.com/services/T0/B0/x' };
       },
     );
-    const bundle = await service.buildToolsForAgent(agentId, {});
+    const bundle = service.buildTools(agentId, [hubspotRow, slackRow], {});
     expect(Object.keys(bundle!.tools)).toEqual(['slack_notify_team']);
   });
 
-  it('skips unknown providers gracefully', async () => {
-    mockPrisma.agentIntegration.findMany.mockResolvedValue([
-      { ...hubspotRow, provider: 'salesforce' },
-    ]);
-    expect(await service.buildToolsForAgent(agentId, {})).toBeNull();
+  it('skips unknown providers gracefully', () => {
+    expect(
+      service.buildTools(agentId, [{ ...hubspotRow, provider: 'salesforce' }], {}),
+    ).toBeNull();
   });
 
   it('wraps execute: logs the call and converts throws into readable strings', async () => {
-    mockPrisma.agentIntegration.findMany.mockResolvedValue([slackRow]);
-    const bundle = await service.buildToolsForAgent(agentId, {
+    const bundle = service.buildTools(agentId, [slackRow], {
       sessionId: 'sess-1',
       traceId: 't_123',
     });

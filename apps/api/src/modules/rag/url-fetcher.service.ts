@@ -48,24 +48,24 @@ export class UrlFetcherService {
     const url = this.parseAndValidateUrl(rawUrl);
     await this.assertPublicHost(url.hostname);
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), FETCH_TIMEOUT_MS);
     let res: Response;
     try {
       res = await fetch(url, {
         redirect: 'manual',
-        signal: controller.signal,
+        // Codebase-standard timeout (rejects with name 'TimeoutError').
+        signal: AbortSignal.timeout(FETCH_TIMEOUT_MS),
         headers: {
           'User-Agent': 'CodeWeavesBot/1.0 (+knowledge-base-ingestion)',
           Accept: 'text/html,text/plain,text/markdown;q=0.9,*/*;q=0.1',
         },
       });
     } catch (err) {
+      const timedOut =
+        err instanceof Error &&
+        (err.name === 'TimeoutError' || err.name === 'AbortError');
       throw new BadRequestException(
-        `Could not fetch URL: ${err instanceof Error && err.name === 'AbortError' ? 'request timed out' : 'network error'}.`,
+        `Could not fetch URL: ${timedOut ? 'request timed out' : 'network error'}.`,
       );
-    } finally {
-      clearTimeout(timeout);
     }
 
     if (res.status >= 300 && res.status < 400) {

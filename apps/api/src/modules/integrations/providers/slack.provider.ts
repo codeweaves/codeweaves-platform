@@ -98,12 +98,11 @@ export class SlackProvider implements IntegrationProviderDef {
       return { ok: false, error: 'Invalid webhook URL.' };
     }
 
-    const controller = new AbortController();
-    const timeout = setTimeout(() => controller.abort(), TOOL_CALL_TIMEOUT_MS);
     try {
       const res = await fetch(webhookUrl, {
         method: 'POST',
-        signal: controller.signal,
+        // Codebase-standard timeout (rejects with name 'TimeoutError').
+        signal: AbortSignal.timeout(TOOL_CALL_TIMEOUT_MS),
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ text }),
       });
@@ -114,7 +113,9 @@ export class SlackProvider implements IntegrationProviderDef {
       }
       return { ok: true };
     } catch (err) {
-      const timedOut = err instanceof Error && err.name === 'AbortError';
+      const timedOut =
+        err instanceof Error &&
+        (err.name === 'TimeoutError' || err.name === 'AbortError');
       this.logger.warn(
         `Slack webhook post failed: ${timedOut ? 'timeout' : err instanceof Error ? err.message : String(err)}`,
       );
@@ -124,8 +125,6 @@ export class SlackProvider implements IntegrationProviderDef {
           ? `Slack did not respond within ${TOOL_CALL_TIMEOUT_MS / 1000}s.`
           : 'Network error reaching Slack.',
       };
-    } finally {
-      clearTimeout(timeout);
     }
   }
 }

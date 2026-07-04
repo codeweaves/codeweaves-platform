@@ -39,6 +39,14 @@ export interface DirectChatRequest {
   /** Feature tag for usage analytics. Default: 'chat-stream' for stream(), 'chat' for send(). */
   feature?: LlmFeature;
 
+  /**
+   * Where this conversation originates (ChatSession.source: 'WIDGET' |
+   * 'WHATSAPP' | 'DEMO'). DEMO turns never get integration tools — operator
+   * playground tests must not write to the customer's live CRM/Slack.
+   * Absent = treated as a real channel.
+   */
+  sessionSource?: string;
+
   /** Signals client disconnect or request timeout. */
   abortSignal?: AbortSignal;
 

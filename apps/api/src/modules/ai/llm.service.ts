@@ -254,6 +254,13 @@ export class LlmService {
               ? part.error
               : new Error(String(part.error));
           } else if (part.type === 'abort') {
+            // Distinguish OUR timeout from a client disconnect — the fullStream
+            // 'abort' part carries no reason, but the signals do. A timeout
+            // must surface as a real failure ('llm.failed' in traces, error to
+            // the client), not be misfiled as a user-initiated abort.
+            if (timeoutController.signal.aborted) {
+              throw new Error('AI stream timeout');
+            }
             const abortErr = new Error('Stream aborted');
             abortErr.name = 'AbortError';
             throw abortErr;

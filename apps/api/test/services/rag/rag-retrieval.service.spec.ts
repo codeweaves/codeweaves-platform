@@ -11,7 +11,9 @@ describe('RagRetrievalService', () => {
 
   const mockPrisma = {
     agentDocument: { findFirst: jest.fn() },
+    $transaction: jest.fn(),
     $queryRaw: jest.fn(),
+    $executeRaw: jest.fn(),
   };
   // Implementation assigned in beforeEach (jest resetMocks:true).
   const mockEmbedding = {
@@ -33,6 +35,15 @@ describe('RagRetrievalService', () => {
   beforeEach(async () => {
     jest.clearAllMocks();
     mockEmbedding.embedQuery.mockResolvedValue([0.1, 0.2, 0.3]);
+    // Searches run inside a transaction (SET LOCAL hnsw.ef_search); the tx
+    // client delegates to the same mocked raw methods.
+    mockPrisma.$transaction.mockImplementation(
+      async (fn: (tx: unknown) => Promise<unknown>) =>
+        fn({
+          $queryRaw: mockPrisma.$queryRaw,
+          $executeRaw: mockPrisma.$executeRaw,
+        }),
+    );
     const moduleRef = await Test.createTestingModule({
       providers: [
         RagRetrievalService,

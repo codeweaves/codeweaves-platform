@@ -1,8 +1,10 @@
 import { randomUUID } from 'node:crypto';
+import { setImmediate as yieldToEventLoop } from 'node:timers/promises';
 
 import { Injectable, Logger } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
+import { AgentCacheService } from '../../common/cache/agent-cache.service';
 import { RagLoggerService } from '../../common/logger/rag.logger';
 import { PrismaService } from '../../services/prisma.service';
 
@@ -48,6 +50,7 @@ export class DocumentIngestionService {
     private readonly chunking: ChunkingService,
     private readonly embedding: EmbeddingService,
     private readonly ragLogger: RagLoggerService,
+    private readonly agentCache: AgentCacheService,
   ) {}
 
   /**
@@ -78,12 +81,22 @@ export class DocumentIngestionService {
   }
 
   private async process(documentId: string): Promise<void> {
+    // Narrow select — rawText can be megabytes; never drag along fields the
+    // pipeline doesn't use.
     const doc = await this.prisma.agentDocument.findUnique({
       where: { id: documentId },
+      select: {
+        id: true,
+        agentId: true,
+        organizationId: true,
+        name: true,
+        chunkingStrategy: true,
+        rawText: true,
+      },
     });
     if (!doc) return; // deleted while queued
     if (!doc.rawText || !doc.rawText.trim()) {
-      await this.fail(documentId, 'Document has no extracted text.');
+      await this.fail(documentId, doc.agentId, 'Document has no extracted text.');
       return;
     }
 
@@ -94,33 +107,40 @@ export class DocumentIngestionService {
     });
 
     try {
-      // 1. Chunk
+      // 1. Chunk (synchronous CPU work — yield once around it so a large
+      // document doesn't monopolise the event loop back-to-back with I/O).
+      await yieldToEventLoop();
       const chunks = this.chunking.chunk(
         doc.rawText,
         doc.chunkingStrategy as 'recursive' | 'fixed' | 'markdown',
       );
       if (chunks.length === 0) {
-        await this.fail(documentId, 'Text produced no indexable chunks.');
+        await this.fail(documentId, doc.agentId, 'Text produced no indexable chunks.');
         return;
       }
 
-      // 2. Embed
-      const vectors = await this.embedding.embedTexts(
-        chunks.map((c) => c.content),
-        { organizationId: doc.organizationId, agentId: doc.agentId },
-      );
+      // 2+3. Embed + insert PER BATCH, not whole-document: peak memory is one
+      // batch of vectors (~50 × 1536 floats) instead of every vector at once,
+      // and no long-lived transaction pins a pool connection (a 2000-chunk
+      // document would blow Prisma's 5s interactive-transaction default).
+      //
+      // Atomicity comes from the STATUS state machine, not a transaction:
+      // retrieval only ever joins status='READY' documents, and status stays
+      // PENDING/PROCESSING for the whole replace window — partially-written
+      // chunks are never visible. A mid-flight crash leaves the document
+      // recoverable via re-index.
+      await this.prisma.agentDocumentChunk.deleteMany({ where: { documentId } });
+      let totalTokens = 0;
+      for (let i = 0; i < chunks.length; i += INSERT_BATCH_SIZE) {
+        const batch = chunks.slice(i, i + INSERT_BATCH_SIZE);
+        const vectors = await this.embedding.embedTexts(
+          batch.map((c) => c.content),
+          { organizationId: doc.organizationId, agentId: doc.agentId },
+        );
+        await this.insertChunkBatch(doc, batch, vectors);
+        totalTokens += batch.reduce((sum, c) => sum + c.tokenCount, 0);
+      }
 
-      // 3. Replace chunks atomically — a re-index must never leave a mix of
-      // old and new chunks visible to retrieval.
-      await this.prisma.$transaction(async (tx) => {
-        await tx.agentDocumentChunk.deleteMany({ where: { documentId } });
-        for (let i = 0; i < chunks.length; i += INSERT_BATCH_SIZE) {
-          const batch = chunks.slice(i, i + INSERT_BATCH_SIZE);
-          await this.insertChunkBatch(tx, doc, batch, vectors, i);
-        }
-      });
-
-      const totalTokens = chunks.reduce((sum, c) => sum + c.tokenCount, 0);
       await this.prisma.agentDocument.update({
         where: { id: documentId },
         data: {
@@ -130,6 +150,8 @@ export class DocumentIngestionService {
           errorMessage: null,
         },
       });
+      // The cached hasReadyDocuments flag just (possibly) flipped.
+      await this.agentCache.invalidate(doc.agentId);
 
       const durationMs = Math.round(performance.now() - startedAt);
       this.logger.log(
@@ -145,7 +167,7 @@ export class DocumentIngestionService {
       });
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      await this.fail(documentId, message);
+      await this.fail(documentId, doc.agentId, message);
       void this.ragLogger.logDocumentIngestionFailed(doc.agentId, err, {
         documentId,
         name: doc.name,
@@ -159,14 +181,12 @@ export class DocumentIngestionService {
    * column populates itself.
    */
   private async insertChunkBatch(
-    tx: Prisma.TransactionClient,
     doc: { id: string; organizationId: string; agentId: string },
     batch: ChunkData[],
     vectors: number[][],
-    offset: number,
   ): Promise<void> {
     const rows = batch.map((chunk, i) => {
-      const vector = vectors[offset + i];
+      const vector = vectors[i];
       if (!vector) {
         throw new Error(
           `Missing embedding for chunk ${chunk.chunkIndex} of document ${doc.id}`,
@@ -180,7 +200,7 @@ export class DocumentIngestionService {
       )`;
     });
 
-    await tx.$executeRaw`
+    await this.prisma.$executeRaw`
       INSERT INTO "agent_document_chunks"
         ("id", "documentId", "organizationId", "agentId",
          "chunkIndex", "content", "tokenCount", "embedding", "metadata")
@@ -188,7 +208,11 @@ export class DocumentIngestionService {
     `;
   }
 
-  private async fail(documentId: string, message: string): Promise<void> {
+  private async fail(
+    documentId: string,
+    agentId: string,
+    message: string,
+  ): Promise<void> {
     this.logger.warn(`[ingest] - document ${documentId} failed: ${message}`);
     await this.prisma.agentDocument
       .update({
@@ -196,5 +220,7 @@ export class DocumentIngestionService {
         data: { status: 'FAILED', errorMessage: message.slice(0, 2000) },
       })
       .catch(() => undefined); // document deleted mid-flight — nothing to record
+    // A re-index failure can flip hasReadyDocuments (READY → FAILED).
+    await this.agentCache.invalidate(agentId).catch(() => undefined);
   }
 }

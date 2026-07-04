@@ -73,6 +73,7 @@ import {
   isDocumentProcessing,
   type AgentDocument,
 } from '@/hooks/use-agent-documents';
+import { formatDate } from '@/lib/utils';
 import { useAgentEditor } from '../agent-editor-context';
 import { FormSection } from '../form-section';
 
@@ -104,14 +105,6 @@ const CHUNKING_OPTIONS: Array<{
     hint: 'Plain fixed-size windows. Cheapest and most predictable for uniform prose.',
   },
 ];
-
-function formatDate(iso: string): string {
-  return new Date(iso).toLocaleDateString(undefined, {
-    month: 'short',
-    day: 'numeric',
-    year: 'numeric',
-  });
-}
 
 function StatusBadge({ doc }: { doc: AgentDocument }) {
   switch (doc.status) {

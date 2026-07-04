@@ -481,6 +481,42 @@ describe('LlmService', () => {
       expect(out.map((c) => c.type)).toEqual(['text-delta', 'finish']);
     });
 
+    it('classifies an abort part without our timeout as a client AbortError', async () => {
+      mockedStreamText.mockReturnValue(
+        makeStreamResult(['partial'], undefined, [{ type: 'abort' }]),
+      );
+      const handle = await service.streamCompletion(baseRequest);
+      const out: Array<{ type: string; error?: string }> = [];
+      for await (const c of handle.stream) out.push(c as never);
+      const errorChunk = out.find((c) => c.type === 'error');
+      expect(errorChunk?.error).toBe('Stream aborted');
+      await expect(handle.completion).rejects.toMatchObject({
+        name: 'AbortError',
+      });
+    });
+
+    it('wraps errors THROWN by the stream iterator itself (network reset)', async () => {
+      // Distinct from an 'error' part: the async iterator rejects mid-pull.
+      mockedStreamText.mockReturnValue({
+        get fullStream() {
+          return (async function* () {
+            yield { type: 'text-delta', id: 'txt', text: 'par' };
+            throw new Error('socket hang up');
+          })();
+        },
+        usage: Promise.resolve({}),
+        finishReason: Promise.resolve('stop'),
+        providerMetadata: Promise.resolve(undefined),
+        text: Promise.resolve('par'),
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      const handle = await service.streamCompletion(baseRequest);
+      const out: Array<{ type: string; error?: string }> = [];
+      for await (const c of handle.stream) out.push(c as never);
+      expect(out.find((c) => c.type === 'error')?.error).toBe('socket hang up');
+      await expect(handle.completion).rejects.toThrow('socket hang up');
+    });
+
     it('honours AI_STREAM_TIMEOUT_MS override', async () => {
       env.set('AI_STREAM_TIMEOUT_MS', '5000');
       mockedStreamText.mockReturnValue(makeStreamResult(['x']));

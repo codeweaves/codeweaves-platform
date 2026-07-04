@@ -9,6 +9,7 @@ import { DocumentsService } from '../../../src/modules/rag/documents.service';
 import { DocumentIngestionService } from '../../../src/modules/rag/document-ingestion.service';
 import { UrlFetcherService } from '../../../src/modules/rag/url-fetcher.service';
 import { ChunkingService } from '../../../src/modules/rag/chunking.service';
+import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
 import { RagLoggerService } from '../../../src/common/logger/rag.logger';
 import { PrismaService } from '../../../src/services/prisma.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
@@ -40,6 +41,7 @@ describe('DocumentsService', () => {
     logDocumentReindexed: jest.fn(),
     logDocumentDeleted: jest.fn(),
   };
+  const mockAgentCache = { invalidate: jest.fn() };
 
   const clientUser = {
     clerkId: 'clerk_1',
@@ -91,6 +93,7 @@ describe('DocumentsService', () => {
         { provide: UrlFetcherService, useValue: mockUrlFetcher },
         { provide: ChunkingService, useValue: mockChunking },
         { provide: RagLoggerService, useValue: mockRagLogger },
+        { provide: AgentCacheService, useValue: mockAgentCache },
       ],
     }).compile();
     service = moduleRef.get(DocumentsService);
@@ -136,7 +139,11 @@ describe('DocumentsService', () => {
     });
 
     it("uses the agent's configured chunking strategy", async () => {
-      mockPrisma.agent.findUnique.mockResolvedValue({
+      // Strategy is resolved from the assertAgentAccessible result — no
+      // second agent fetch on the write path.
+      mockPrisma.agent.findFirst.mockResolvedValue({
+        id: agentId,
+        organizationId: orgId,
         aiConfig: { ragChunkingStrategy: 'markdown' },
       });
       await service.uploadFile(agentId, makeFile(), clientUser);
@@ -222,7 +229,9 @@ describe('DocumentsService', () => {
 
   describe('reindex()', () => {
     it('re-fetches URL documents and re-queues with the current strategy', async () => {
-      mockPrisma.agent.findUnique.mockResolvedValue({
+      mockPrisma.agent.findFirst.mockResolvedValue({
+        id: agentId,
+        organizationId: orgId,
         aiConfig: { ragChunkingStrategy: 'fixed' },
       });
       mockPrisma.agentDocument.findFirst.mockResolvedValue({

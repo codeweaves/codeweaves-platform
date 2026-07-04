@@ -84,10 +84,19 @@ export class RagRetrievalService {
     });
     const vectorLiteral = `[${queryEmbedding.join(',')}]`;
 
-    const rows =
-      params.strategy === 'vector'
-        ? await this.vectorSearch(params, vectorLiteral)
-        : await this.hybridSearch(params, vectorLiteral);
+    // HNSW + WHERE filters post-filter the candidate list: with the default
+    // ef_search=40, a tenant whose chunks aren't in the GLOBAL top-40
+    // neighbours can get starved/empty results on a shared multi-tenant
+    // table. SET LOCAL (transaction-scoped, PgBouncer-safe) widens the
+    // candidate pool. On pgvector >= 0.8, `SET LOCAL hnsw.iterative_scan =
+    // 'relaxed_order'` is the stronger fix — adopt once the fleet is
+    // confirmed on 0.8; revisit per-tenant partial indexes past ~1M chunks.
+    const rows = await this.prisma.$transaction(async (tx) => {
+      await tx.$executeRaw`SET LOCAL hnsw.ef_search = 100`;
+      return params.strategy === 'vector'
+        ? this.vectorSearch(tx, params, vectorLiteral)
+        : this.hybridSearch(tx, params, vectorLiteral);
+    });
 
     return rows.map((row) => ({
       chunkId: row.id,
@@ -103,10 +112,11 @@ export class RagRetrievalService {
   }
 
   private async vectorSearch(
+    tx: Prisma.TransactionClient,
     params: RetrieveParams,
     vectorLiteral: string,
   ): Promise<RawChunkRow[]> {
-    return this.prisma.$queryRaw<RawChunkRow[]>`
+    return tx.$queryRaw<RawChunkRow[]>`
       SELECT
         c."id", c."documentId", c."content", c."tokenCount", c."metadata",
         d."name" AS "documentName", d."sourceType"::text AS "sourceType",
@@ -130,10 +140,11 @@ export class RagRetrievalService {
    * vector arm only — text matches are rank-based by construction.
    */
   private async hybridSearch(
+    tx: Prisma.TransactionClient,
     params: RetrieveParams,
     vectorLiteral: string,
   ): Promise<RawChunkRow[]> {
-    return this.prisma.$queryRaw<RawChunkRow[]>`
+    return tx.$queryRaw<RawChunkRow[]>`
       WITH semantic AS (
         SELECT c."id",
                ROW_NUMBER() OVER (

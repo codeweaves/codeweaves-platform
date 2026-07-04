@@ -57,6 +57,35 @@ This is what actually got built, and where it deviates from the plans (which pre
 | Generic HTTP-webhook tool + declarative Tool registry (17-3 / integrations plan §5) | Two concrete providers behind a typed registry | Explicit product decision: build the integrations we have. The safe-outbound-executor/SSRF machinery for arbitrary customer URLs is only needed when a generic tool ships. |
 | `event_logs` table | `audit_logs` via new `RagLoggerService` + `IntegrationLoggerService`, `ChatTrace` steps (`rag.retrieve`, `tool.call`, `rag.citations`), `LlmUsage` (`embedding`, `rag-query`) | There is no `event_logs` table in this codebase; these are the actual observability primitives. All fire-and-forget. |
 
+## Senior Developer Review (AI)
+
+- **Review date:** 2026-07-04 · **Outcome:** issues found and fixed · **Method:** 6 parallel adversarial review angles over `git diff develop...HEAD` (line-scan/removed-behavior/cross-file correctness + reuse/simplification/efficiency/altitude/conventions)
+
+### Findings fixed (all `[x]`)
+
+- [x] **HIGH** DEMO/preview sessions received live integration tools — playground tests would post to the customer's real Slack and write junk CRM contacts. Fixed: `sessionSource` threaded into DirectChatRequest; tool assembly skipped for `'DEMO'` (mirrors the handover exclusion) + regression test.
+- [x] **HIGH** `Math.max(req.maxSteps, …)` silently raised the handover callers' explicit tool-loop cap of 3 to 5. Fixed: explicit caller `maxSteps` is authoritative; integration default (5) applies only when the caller passes none + test.
+- [x] **HIGH** RAG citation instruction leaked `[1]`-style markers into WhatsApp text and voice TTS ("bracket one"). Fixed: `buildRagSystemBlock` takes `inlineCitations` — only `chat-stream` (widget/demo) asks for markers; other channels get grounding-only instructions + tests.
+- [x] **HIGH** fullStream switch misclassified our 60s stream timeout as a client abort (`AbortError`) — timeouts vanished from failure analytics. Fixed: the 'abort' part now checks which signal fired; timeout throws a real error + tests for both abort classes and iterator-thrown errors.
+- [x] **MED** Two new Postgres queries per chat turn (serial `hasReadyDocuments` + integrations findMany, even for agents with neither). Fixed: both flags/rows now ride the existing AgentCacheService Redis entry (one read the turn already paid); documents/ingestion/integrations write paths invalidate; AgentToolsService now builds from rows with zero queries.
+- [x] **MED** Citation regex matched `[1]` inside code blocks/inline code → phantom source chips. Fixed: code spans stripped before marker extraction + tests.
+- [x] **MED** Ingestion held a whole-document embed in memory inside an interactive transaction (Prisma 5s default would kill ~2000-chunk documents AFTER paying the embedding bill). Fixed: per-batch embed→insert loop, no wrapping transaction (atomicity via the status state machine — retrieval only sees READY), narrow `select` (rawText no longer dragged around), event-loop yield before chunking.
+- [x] **MED** HNSW post-filtering could starve/empty results for tenants outside the global top-40 neighbours. Fixed: retrieval runs inside a transaction with `SET LOCAL hnsw.ef_search = 100`; pgvector ≥0.8 `iterative_scan` documented as the follow-up.
+- [x] **LOW** Hand-rolled AbortController timeout plumbing ×3 vs the codebase-standard `AbortSignal.timeout` (13 existing call sites) — converged.
+- [x] **LOW** documents.service double-fetched the agent row per write (+ odd deferred `await`); assertAgentAccessible now returns `aiConfig`, strategy passed down, helper deleted.
+- [x] **LOW** chunking `flush` merge-or-push logic duplicated between mid-loop and final flush — unified behind one `flush(seedOverlap)`.
+- [x] **LOW** `CAPTURE_ELIGIBLE_FEATURES` renamed to `USER_FACING_TURN_FEATURES` (it now gates capture + RAG + tools; the old name hid the coupling).
+- [x] **LOW** Missing specs (CLAUDE.md rule): documents.controller, integrations.controller, document-ingestion.service, embedding.service — 26 tests added.
+- [x] **LOW** apps/web reuse: local `formatDate` replaced with the shared `lib/utils` helper (invalid-date guard); demo page's local `Citation` replaced with `ChatCitation` from @repo/validation.
+
+### Deferred (recorded, deliberate)
+
+- `send()`/`stream()` share ~80 structurally-identical lines (prompt assembly, tool merge) — extract a `prepareTurn()` helper next time either changes; both paths are test-covered today.
+- Widget 30s TypingIndicator watchdog unmounts when steps render; the 60s stream-handler inactivity timeout still recovers hangs (steps also reset it), so worst case is a 60s (not 30s) stall before the error path — acceptable; lift the watchdog to the store if it ever matters.
+- `chunkingStrategy`/`provider`/`status` are free strings in Postgres (app-layer enum enforcement only); converting to Prisma enums adds migration friction for new strategies — revisit if a second writer bypasses `resolveAiConfig`.
+- Tenancy via `assertAgentAccessible` is convention (matches AgentsService.findById), not structure; a param-scoped guard would make it impossible to forget — candidate for a hardening pass.
+- The `step` event type is declared in API interfaces, widget, and demo page (widget deliberately has no @repo/validation dependency); a shared wire-contract type in validation would collapse the API+web copies.
+
 ## Operational notes
 
 - **Migration** must run against Supabase (`CREATE EXTENSION vector` is idempotent). pgvector ≥ 0.7 required (HNSW).

@@ -512,6 +512,7 @@ export class ChatService {
       agent: fullAgent,
       chatSessionId: session.id,
       externalSessionId: session.sessionId,
+      sessionSource: session.source,
       newUserMessage: dto.chatInput,
       recentHistory: dto.recentHistory,
       feature: 'chat',
