@@ -76,7 +76,6 @@ import {
 import { formatDate } from '@/lib/utils';
 import { useAgentEditor } from '../agent-editor-context';
 import { FormSection } from '../form-section';
-import { KnowledgeSettings } from './knowledge-settings';
 
 /** Extensions the backend's text extractors support. Validated client-side
  * by extension (Windows often reports empty/odd MIME types for .md files). */
@@ -223,22 +222,13 @@ export function KnowledgeBaseSettings() {
 
   return (
     <div className="space-y-10">
-      {/* Quick knowledge — the classic always-in-prompt text. This is the
-          right (and cheaper) mode for normal bots that don't need RAG:
-          the text rides along on every reply with zero retrieval. Moved here
-          from the Prompt section so both knowledge modes live in one place. */}
-      <FormSection
-        title="Quick knowledge"
-        description="Text the AI always sees, on every reply — no documents or retrieval needed. Best for small knowledge bases (FAQs, policies, product blurbs). Saves with the main Save button."
-      >
-        <KnowledgeSettings />
-      </FormSection>
-
       {/* RAG config — saved via the central Save button like other aiConfig
-          fields. Only the document manager below mutates immediately. */}
+          fields. Only the document manager below mutates immediately.
+          The paste-text knowledge editor deliberately lives in the Prompt
+          section instead (always-in-prompt mode for non-RAG bots). */}
       <FormSection
-        title="Document retrieval (RAG)"
-        description="Upload documents or web pages the AI retrieves from on demand — answers cite their sources. Better than quick knowledge once content outgrows the prompt. Retrieval settings here save with the main Save button."
+        title="Knowledge Base"
+        description="Upload documents or web pages the AI retrieves from on demand — answers cite their sources. Retrieval settings here save with the main Save button."
       >
         <div className="flex items-center justify-between rounded-lg border p-4">
           <div className="space-y-0.5 pr-4">
@@ -333,9 +323,9 @@ export function KnowledgeBaseSettings() {
         </div>
 
         <p className="text-xs text-muted-foreground">
-          Quick knowledge above is still injected on every message. Documents
-          here are retrieved on demand and answers cite them as sources — the
-          two work together.
+          Note: the Knowledge text in the Prompt section is still injected on
+          every message. Documents here are retrieved on demand and answers
+          cite them as sources — the two work together.
         </p>
       </FormSection>
 
