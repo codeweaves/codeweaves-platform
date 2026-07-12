@@ -11,6 +11,9 @@ import { UsageTrackingService } from '../../../src/modules/ai/usage-tracking.ser
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
 import { DataExtractionService } from '../../../src/services/data-extraction.service';
+import { RagRetrievalService } from '../../../src/modules/rag/rag-retrieval.service';
+import { AgentToolsService } from '../../../src/modules/integrations/agent-tools.service';
+import { RagLoggerService } from '../../../src/common/logger/rag.logger';
 import type { LlmStreamChunk } from '../../../src/modules/ai/interfaces/llm.interfaces';
 
 describe('DirectChatService', () => {
@@ -33,6 +36,18 @@ describe('DirectChatService', () => {
     getAgentWithKnowledge: jest.fn(),
   };
   const mockDataExtractionService = { scheduleExtraction: jest.fn() };
+  // RAG + integrations flags ride the agent cache entry; defaults below make
+  // send()/stream() behave exactly as pre-RAG (RAG-path tests override).
+  const mockRagRetrieval = { retrieve: jest.fn() };
+  const mockAgentTools = { buildTools: jest.fn() };
+  const mockRagLogger = { logRetrievalFailed: jest.fn() };
+
+  const baseCachedAgent = {
+    knowledge: null,
+    dataFields: [],
+    integrations: [],
+    hasReadyDocuments: false,
+  };
 
   const traceContext = {
     traceId: 'trace-1',
@@ -72,7 +87,9 @@ describe('DirectChatService', () => {
     mockPromptTemplate.resolve.mockImplementation((s: string) => s);
     mockContext.assemble.mockResolvedValue(baseContext);
     mockHybrid.assemble.mockResolvedValue(baseContext);
-    mockCache.getAgentWithKnowledge.mockResolvedValue({ knowledge: null });
+    mockCache.getAgentWithKnowledge.mockResolvedValue({ ...baseCachedAgent });
+    mockAgentTools.buildTools.mockReturnValue(null);
+    mockRagLogger.logRetrievalFailed.mockResolvedValue(undefined);
 
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -90,6 +107,9 @@ describe('DirectChatService', () => {
           provide: DataExtractionService,
           useValue: mockDataExtractionService,
         },
+        { provide: RagRetrievalService, useValue: mockRagRetrieval },
+        { provide: AgentToolsService, useValue: mockAgentTools },
+        { provide: RagLoggerService, useValue: mockRagLogger },
       ],
     }).compile();
     service = moduleRef.get(DirectChatService);
@@ -257,6 +277,258 @@ describe('DirectChatService', () => {
       expect(finishChunk.result.text).toBe('Hi there');
       expect(finishChunk.result.ttftMs).toBe(230);
       expect(mockUsage.record).toHaveBeenCalledTimes(1);
+    });
+
+    it('runs RAG when documents are indexed: steps + system block + citations', async () => {
+      mockCache.getAgentWithKnowledge.mockResolvedValue({
+        ...baseCachedAgent,
+        hasReadyDocuments: true,
+      });
+      mockRagRetrieval.retrieve.mockResolvedValue([
+        {
+          chunkId: 'c1',
+          documentId: 'doc-1',
+          documentName: 'policies.pdf',
+          sourceType: 'FILE',
+          sourceUrl: null,
+          content: 'Refunds are available within 30 days.',
+          tokenCount: 10,
+          score: 0.9,
+          metadata: {},
+        },
+      ]);
+      mockLlm.streamCompletion.mockResolvedValue({
+        stream: tokenStream([
+          { type: 'text-delta', content: 'Refunds take 30 days [1].' },
+          {
+            type: 'finish',
+            model: 'gpt-4o-mini',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            cost: null,
+            finishReason: 'stop',
+            ttftMs: 100,
+            totalMs: 300,
+          },
+        ]),
+      });
+
+      const chunks: unknown[] = [];
+      for await (const chunk of service.stream({
+        agent: mockAgent,
+        chatSessionId: 'sess-1',
+        newUserMessage: 'What is the refund policy?',
+      })) {
+        chunks.push(chunk);
+      }
+
+      // Step lifecycle: active while searching, done with the document names.
+      const steps = chunks.filter(
+        (c) => (c as { type: string }).type === 'step',
+      ) as Array<{ step: { id: string; status: string; label: string } }>;
+      expect(steps[0]!.step).toMatchObject({ id: 'rag', status: 'active' });
+      expect(steps[1]!.step).toMatchObject({
+        id: 'rag',
+        status: 'done',
+        label: 'Read policies.pdf',
+      });
+
+      // Retrieved context injected into the system prompt.
+      const llmReq = mockLlm.streamCompletion.mock.calls[0][0] as {
+        systemPrompt: string;
+      };
+      expect(llmReq.systemPrompt).toContain('[RETRIEVED KNOWLEDGE]');
+      expect(llmReq.systemPrompt).toContain('policies.pdf');
+
+      // Citations resolved from the [1] marker.
+      const finish = chunks[chunks.length - 1] as {
+        result: { citations: Array<{ documentName: string }> };
+      };
+      expect(finish.result.citations).toHaveLength(1);
+      expect(finish.result.citations[0]!.documentName).toBe('policies.pdf');
+    });
+
+    it('degrades gracefully when retrieval fails (error step, chat continues)', async () => {
+      mockCache.getAgentWithKnowledge.mockResolvedValue({
+        ...baseCachedAgent,
+        hasReadyDocuments: true,
+      });
+      mockRagRetrieval.retrieve.mockRejectedValue(new Error('pgvector down'));
+      mockLlm.streamCompletion.mockResolvedValue({
+        stream: tokenStream([
+          { type: 'text-delta', content: 'Answer without sources.' },
+          {
+            type: 'finish',
+            model: 'gpt-4o-mini',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            cost: null,
+            finishReason: 'stop',
+            ttftMs: 100,
+            totalMs: 300,
+          },
+        ]),
+      });
+
+      const chunks: unknown[] = [];
+      for await (const chunk of service.stream({
+        agent: mockAgent,
+        chatSessionId: 'sess-1',
+        newUserMessage: 'Hello',
+      })) {
+        chunks.push(chunk);
+      }
+
+      const steps = chunks.filter(
+        (c) => (c as { type: string }).type === 'step',
+      ) as Array<{ step: { status: string } }>;
+      expect(steps[1]!.step.status).toBe('error');
+      // The turn still completes.
+      expect(
+        (chunks[chunks.length - 1] as { type: string }).type,
+      ).toBe('finish');
+      const llmReq = mockLlm.streamCompletion.mock.calls[0][0] as {
+        systemPrompt: string;
+      };
+      expect(llmReq.systemPrompt).not.toContain('[RETRIEVED KNOWLEDGE]');
+    });
+
+    it('surfaces integration tool activity as step chunks', async () => {
+      mockAgentTools.buildTools.mockReturnValue({
+        tools: { hubspot_find_contact: { execute: jest.fn() } },
+        stepMeta: {
+          hubspot_find_contact: {
+            activeLabel: 'Looking up customer data…',
+            doneLabel: 'Fetched customer data',
+            errorLabel: 'Customer lookup failed',
+          },
+        },
+      });
+      mockLlm.streamCompletion.mockResolvedValue({
+        stream: tokenStream([
+          {
+            type: 'tool-call',
+            toolCallId: 'call-1',
+            toolName: 'hubspot_find_contact',
+            input: { email: 'a@b.com' },
+          },
+          {
+            type: 'tool-result',
+            toolCallId: 'call-1',
+            toolName: 'hubspot_find_contact',
+          },
+          { type: 'text-delta', content: 'Found you!' },
+          {
+            type: 'finish',
+            model: 'gpt-4o-mini',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            cost: null,
+            finishReason: 'stop',
+            ttftMs: 100,
+            totalMs: 300,
+          },
+        ]),
+      });
+
+      const chunks: unknown[] = [];
+      for await (const chunk of service.stream({
+        agent: mockAgent,
+        chatSessionId: 'sess-1',
+        newUserMessage: 'Do you have my details? a@b.com',
+      })) {
+        chunks.push(chunk);
+      }
+
+      const steps = chunks.filter(
+        (c) => (c as { type: string }).type === 'step',
+      ) as Array<{ step: { id: string; label: string; status: string } }>;
+      expect(steps).toHaveLength(2);
+      expect(steps[0]!.step).toMatchObject({
+        id: 'tool-call-1',
+        label: 'Looking up customer data…',
+        status: 'active',
+      });
+      expect(steps[1]!.step).toMatchObject({
+        id: 'tool-call-1',
+        label: 'Fetched customer data',
+        status: 'done',
+      });
+
+      // The tools were forwarded to the LLM call.
+      const llmReq = mockLlm.streamCompletion.mock.calls[0][0] as {
+        tools?: Record<string, unknown>;
+        maxSteps?: number;
+      };
+      expect(llmReq.tools).toHaveProperty('hubspot_find_contact');
+      expect(llmReq.maxSteps).toBe(5);
+    });
+
+    it('never gives integration tools to DEMO (preview/playground) sessions', async () => {
+      mockLlm.streamCompletion.mockResolvedValue({
+        stream: tokenStream([
+          { type: 'text-delta', content: 'hi' },
+          {
+            type: 'finish',
+            model: 'gpt-4o-mini',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            cost: null,
+            finishReason: 'stop',
+            ttftMs: 100,
+            totalMs: 300,
+          },
+        ]),
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _chunk of service.stream({
+        agent: mockAgent,
+        chatSessionId: 'sess-1',
+        newUserMessage: 'test message',
+        sessionSource: 'DEMO',
+      })) {
+        // drain
+      }
+
+      // Tool assembly is skipped entirely — an operator testing their bot in
+      // the editor preview must never write to their live CRM/Slack.
+      expect(mockAgentTools.buildTools).not.toHaveBeenCalled();
+      const llmReq = mockLlm.streamCompletion.mock.calls[0][0] as {
+        tools?: Record<string, unknown>;
+      };
+      expect(llmReq.tools).toBeUndefined();
+    });
+
+    it('respects an explicit caller maxSteps over the integration default', async () => {
+      mockAgentTools.buildTools.mockReturnValue({
+        tools: { hubspot_find_contact: { execute: jest.fn() } },
+        stepMeta: {},
+      });
+      mockLlm.streamCompletion.mockResolvedValue({
+        stream: tokenStream([
+          {
+            type: 'finish',
+            model: 'gpt-4o-mini',
+            usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+            cost: null,
+            finishReason: 'stop',
+            ttftMs: 100,
+            totalMs: 300,
+          },
+        ]),
+      });
+
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _chunk of service.stream({
+        agent: mockAgent,
+        chatSessionId: 'sess-1',
+        newUserMessage: 'hi',
+        maxSteps: 3, // voice/handover callers budget latency deliberately
+      })) {
+        // drain
+      }
+
+      const llmReq = mockLlm.streamCompletion.mock.calls[0][0] as {
+        maxSteps?: number;
+      };
+      expect(llmReq.maxSteps).toBe(3);
     });
 
     it('yields an error chunk when the LLM stream errors mid-flight', async () => {

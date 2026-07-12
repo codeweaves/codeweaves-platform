@@ -2,7 +2,8 @@ import { useRef, useEffect, useCallback, useMemo } from 'preact/hooks';
 import type { ChatMessage } from '../types';
 import { MessageBubble } from './MessageBubble';
 import { TypingIndicator } from './TypingIndicator';
-import { messages as messagesSignal, showTyping } from '../state/chat-store';
+import { StepIndicator } from './StepIndicator';
+import { messages as messagesSignal, showTyping, streamSteps } from '../state/chat-store';
 
 /** Threshold in px: if user is within this distance of the bottom, auto-scroll */
 const SCROLL_THRESHOLD = 50;
@@ -39,6 +40,7 @@ export function MessageArea({
   // Read messages from centralized store (Story 5-21)
   const msgs = messagesSignal.value;
   const isTyping = showTyping.value;
+  const steps = streamSteps.value;
 
   const checkAtBottom = useCallback(() => {
     const el = containerRef.current;
@@ -55,10 +57,10 @@ export function MessageArea({
     }
   }, []);
 
-  // Auto-scroll when messages change or typing indicator appears
+  // Auto-scroll when messages change, typing indicator appears, or steps update
   useEffect(() => {
     scrollToBottom();
-  }, [msgs, isTyping, scrollToBottom]);
+  }, [msgs, isTyping, steps, scrollToBottom]);
 
   // Initial scroll to bottom on mount
   useEffect(() => {
@@ -100,26 +102,52 @@ export function MessageArea({
         {displayMessages.length === 0 ? (
           <div class="cw-msg-empty">No messages yet</div>
         ) : (
-          displayMessages.map((msg) => (
-            <MessageBubble
-              key={msg.id}
-              message={msg}
-              showTimestamp={showTimestamp}
-              botAvatarShape={botAvatarShape}
-              userAvatarShape={userAvatarShape}
-              botAvatarUrl={botAvatarUrl}
-              userAvatarUrl={userAvatarUrl}
-              botAvatarType={botAvatarType}
-              userAvatarType={userAvatarType}
-            />
-          ))
+          // While the last message is still streaming, the step list renders
+          // BEFORE it (tool calls happen mid-answer); otherwise it sits in the
+          // typing slot at the end. stepSplitIndex marks where steps go.
+          (() => {
+            const lastIsStreaming =
+              displayMessages[displayMessages.length - 1]?.isStreaming === true;
+            const stepSplitIndex = lastIsStreaming
+              ? displayMessages.length - 1
+              : displayMessages.length;
+            const renderBubble = (msg: ChatMessage) => (
+              <MessageBubble
+                key={msg.id}
+                message={msg}
+                showTimestamp={showTimestamp}
+                botAvatarShape={botAvatarShape}
+                userAvatarShape={userAvatarShape}
+                botAvatarUrl={botAvatarUrl}
+                userAvatarUrl={userAvatarUrl}
+                botAvatarType={botAvatarType}
+                userAvatarType={userAvatarType}
+              />
+            );
+            return (
+              <>
+                {displayMessages.slice(0, stepSplitIndex).map(renderBubble)}
+                {steps.length > 0 && (
+                  <StepIndicator
+                    avatarShape={botAvatarShape}
+                    botAvatarUrl={botAvatarUrl}
+                    botAvatarType={botAvatarType}
+                  />
+                )}
+                {displayMessages.slice(stepSplitIndex).map(renderBubble)}
+              </>
+            );
+          })()
         )}
-        <TypingIndicator
-          avatarShape={botAvatarShape}
-          botAvatarUrl={botAvatarUrl}
-          botAvatarType={botAvatarType}
-          onTimeout={handleTypingTimeout}
-        />
+        {/* Steps replace the generic typing dots once the first one arrives */}
+        {steps.length === 0 && (
+          <TypingIndicator
+            avatarShape={botAvatarShape}
+            botAvatarUrl={botAvatarUrl}
+            botAvatarType={botAvatarType}
+            onTimeout={handleTypingTimeout}
+          />
+        )}
       </div>
     </div>
   );

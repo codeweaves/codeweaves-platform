@@ -212,6 +212,8 @@ model Agent {
   dataFields            AgentDataField[]
   collectedData         CollectedData[]
   chatSessions          ChatSession[]
+  documents             AgentDocument[]
+  integrations          AgentIntegration[]
   createdAt             DateTime           @default(now())
   updatedAt             DateTime           @updatedAt
   deletedAt             DateTime?
@@ -286,6 +288,146 @@ model AgentKnowledge {
 
   @@index([agentId])
   @@map("agent_knowledge")
+}
+
+enum AgentDocumentStatus {
+  PENDING /// uploaded / registered, not yet processed
+  PROCESSING /// being parsed, chunked and embedded
+  READY /// fully indexed, searchable
+  FAILED /// ingestion failed — see errorMessage
+}
+
+enum AgentDocumentSourceType {
+  FILE /// uploaded file (PDF/DOCX/TXT/MD)
+  URL /// ingested from a public web page
+}
+
+/// A document in the agent's RAG knowledge base. The raw bytes of uploads are
+/// NOT stored — we extract text once (kept in rawText for re-indexing when the
+/// chunking strategy changes), chunk it, embed the chunks into
+/// AgentDocumentChunk and retrieve selectively at chat time with citations.
+///
+/// organizationId is denormalised from Agent so every query can be
+/// tenant-scoped WITHOUT a join — cross-tenant isolation must never depend on
+/// the caller remembering to join through agents.
+model AgentDocument {
+  id             String @id @default(uuid())
+  organizationId String
+  agentId        String
+  agent          Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// Display name (file name or page title / URL).
+  name String @db.VarChar(255)
+
+  sourceType AgentDocumentSourceType
+  /// Source URL for URL documents; null for uploads.
+  sourceUrl  String?                 @db.VarChar(2048)
+  /// MIME type of the uploaded source, if any.
+  mimeType   String?                 @db.VarChar(127)
+  /// Size of the original upload in bytes; null for URL documents.
+  sizeBytes  Int?
+
+  status       AgentDocumentStatus @default(PENDING)
+  errorMessage String?             @db.Text
+
+  /// Chunking strategy this document was indexed with ('recursive' | 'fixed'
+  /// | 'markdown'). Each document remembers its own so a config change never
+  /// silently invalidates existing indexes — re-index applies the new one.
+  chunkingStrategy String @default("recursive") @db.VarChar(32)
+
+  chunkCount  Int @default(0)
+  totalTokens Int @default(0)
+
+  /// SHA-256 of the normalised extracted text — dedup + change detection.
+  contentHash String? @db.VarChar(64)
+
+  /// Extracted plain text, kept so re-indexing (strategy change) never needs
+  /// the original file. Capped at MAX_DOCUMENT_TEXT_BYTES (2 MB) at write time.
+  rawText String? @db.Text
+
+  uploadedById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  chunks AgentDocumentChunk[]
+
+  @@index([agentId, status])
+  @@index([organizationId])
+  @@map("agent_documents")
+}
+
+/// One embedded chunk of an AgentDocument. `embedding` is a pgvector column
+/// (raw SQL only — Prisma has no native vector type) and `searchVector` is a
+/// generated tsvector column added in the migration for hybrid (BM25-ish)
+/// retrieval. agentId + organizationId are denormalised so similarity search
+/// filters by tenant WITHOUT joins, keeping the HNSW scan cheap and the
+/// isolation airtight.
+model AgentDocumentChunk {
+  id             String        @id @default(uuid())
+  documentId     String
+  document       AgentDocument @relation(fields: [documentId], references: [id], onDelete: Cascade)
+  organizationId String
+  agentId        String
+
+  chunkIndex Int
+  content    String @db.Text
+  tokenCount Int
+
+  /// 1536-dim embedding (openai text-embedding-3-small). Nullable so Prisma
+  /// client can still create/delete rows; values are written via raw SQL.
+  embedding Unsupported("vector(1536)")?
+
+  /// GENERATED ALWAYS AS to_tsvector('english', content) STORED — see the
+  /// migration SQL. Declared here as Unsupported so schema and DB stay in sync.
+  searchVector Unsupported("tsvector")?
+
+  /// { sectionHeading?, pageNumber?, sourceOffset? } — citation display data.
+  metadata Json @default("{}")
+
+  createdAt DateTime @default(now())
+
+  @@index([documentId])
+  @@index([agentId])
+  @@map("agent_document_chunks")
+}
+
+/// A connected third-party integration for an agent (HubSpot, Slack, …).
+/// Exposes concrete tools to the LLM at chat time. Credentials are encrypted
+/// at rest (AES-256-GCM via CryptoService) and NEVER returned by the API —
+/// only a masked hint. One row per (agent, provider).
+model AgentIntegration {
+  id             String @id @default(uuid())
+  organizationId String
+  agentId        String
+  agent          Agent  @relation(fields: [agentId], references: [id], onDelete: Cascade)
+
+  /// 'hubspot' | 'slack' — see integrationProviderEnum in @repo/validation.
+  provider String @db.VarChar(32)
+
+  enabled Boolean @default(true)
+
+  /// AES-256-GCM encrypted JSON of provider credentials (token / webhook URL).
+  credentialsEncrypted String @db.Text
+
+  /// Masked display hint, e.g. "pat-…4f2a". Safe to return to the dashboard.
+  credentialHint String @db.VarChar(120)
+
+  /// Non-secret provider options (future: pipeline IDs, channel names, …).
+  config Json @default("{}")
+
+  /// 'connected' | 'error' — result of the last connection test.
+  status       String    @default("connected") @db.VarChar(16)
+  lastTestedAt DateTime?
+
+  createdById String?
+
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@unique([agentId, provider])
+  @@index([organizationId])
+  @@map("agent_integrations")
 }
 
 /// Customer-defined fields this agent should capture from conversations (e.g.

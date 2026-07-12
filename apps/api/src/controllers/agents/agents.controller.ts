@@ -140,7 +140,7 @@ export class AgentsController {
       await Promise.allSettled([
         this.agentsService.getWebhookUrl(id, user),
         this.themesService.getTheme(id, user),
-        this.knowledgeService.get(id),
+        this.knowledgeService.get(id, user),
         this.dataFieldsService.list(id, user),
       ]);
 

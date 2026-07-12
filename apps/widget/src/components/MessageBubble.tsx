@@ -109,6 +109,35 @@ export function MessageBubble({
             </span>
           )}
         </div>
+        {/* Sources footer — knowledge-base citations attached on stream done.
+            Inline [n] markers in the text map to these chips by index. */}
+        {!isUser && message.citations && message.citations.length > 0 && (
+          <div class="cw-citations">
+            <span class="cw-citations-label">Sources</span>
+            {message.citations.map((c) =>
+              c.sourceType === 'URL' && c.sourceUrl ? (
+                <a
+                  key={`${c.index}-${c.documentId}`}
+                  class="cw-citation-chip"
+                  href={c.sourceUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  title={c.snippet}
+                >
+                  {c.documentName}
+                </a>
+              ) : (
+                <span
+                  key={`${c.index}-${c.documentId}`}
+                  class="cw-citation-chip"
+                  title={c.snippet}
+                >
+                  {c.documentName}
+                </span>
+              ),
+            )}
+          </div>
+        )}
         {showTimestamp && (
           <time class="cw-msg-time" dateTime={safeISOString(message.timestamp)}>
             {formatTime(message.timestamp)}

@@ -11,6 +11,22 @@ export type MessageRole = 'user' | 'assistant' | 'human' | 'system';
 /** Message delivery status */
 export type MessageStatus = 'sending' | 'sent' | 'error';
 
+/**
+ * A knowledge-base source cited in a bot reply. Arrives in the `done` SSE
+ * event's metadata; the message text carries matching inline [n] markers.
+ */
+export interface Citation {
+  /** 1-based marker index matching the inline [n] in the message text */
+  index: number;
+  documentId: string;
+  documentName: string;
+  sourceType: 'FILE' | 'URL';
+  /** Link target for URL documents (null for uploaded files) */
+  sourceUrl: string | null;
+  /** Short excerpt of the cited passage (shown as chip tooltip) */
+  snippet: string;
+}
+
 /** A single chat message with support for text and audio content */
 export interface Message {
   /** Unique message ID (UUID or backend-provided) */
@@ -35,4 +51,6 @@ export interface Message {
   audioBlob?: Blob;
   /** Error details when status is 'error' */
   errorMessage?: string;
+  /** Knowledge-base sources cited in this bot reply (set on stream done) */
+  citations?: Citation[];
 }

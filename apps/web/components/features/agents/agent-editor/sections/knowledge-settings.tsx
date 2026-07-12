@@ -137,8 +137,9 @@ export function KnowledgeSettings() {
         {sizeOverLimit && (
           <p className="text-xs text-destructive">
             Over the {formatBytes(MAX_KNOWLEDGE_TEXT_BYTES)} limit. For larger
-            documents, use the RAG pipeline (coming soon) instead of the
-            static knowledge base.
+            content, add it as a document in the Knowledge Base section — it
+            will be retrieved on demand instead of riding along on every
+            message.
           </p>
         )}
       </div>

@@ -5,10 +5,12 @@ import {
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
+import { Role } from '@prisma/client';
 import { AgentKnowledgeService } from '../../../src/services/agent-knowledge.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
 import { TokenCounterService } from '../../../src/modules/ai/token-counter.service';
+import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('AgentKnowledgeService', () => {
   let service: AgentKnowledgeService;
@@ -25,9 +27,30 @@ describe('AgentKnowledgeService', () => {
   const mockTokenCounter = { countTokens: jest.fn() };
 
   const agentId = 'agent-uuid';
+  const orgId = 'org-uuid';
+
+  const clientUser = {
+    clerkId: 'clerk_1',
+    email: 'client@org.com',
+    id: 'user-uuid',
+    role: Role.CLIENT,
+    organizationId: orgId,
+    organization: null,
+  } as unknown as CurrentUserData;
+
+  const adminUser = {
+    ...clientUser,
+    role: Role.ADMIN,
+    organizationId: null,
+  } as unknown as CurrentUserData;
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    // Default: the agent exists and belongs to the caller's org.
+    mockPrisma.agent.findFirst.mockResolvedValue({
+      id: agentId,
+      organizationId: orgId,
+    });
     const moduleRef = await Test.createTestingModule({
       providers: [
         AgentKnowledgeService,
@@ -55,13 +78,74 @@ describe('AgentKnowledgeService', () => {
     ...overrides,
   });
 
+  describe('tenant isolation (IDOR regression)', () => {
+    it('scopes the agent lookup by organizationId for CLIENT users', async () => {
+      mockPrisma.agentKnowledge.findUnique.mockResolvedValue(null);
+      await service.get(agentId, clientUser);
+      expect(mockPrisma.agent.findFirst).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            id: agentId,
+            deletedAt: null,
+            organizationId: orgId,
+          }),
+        }),
+      );
+    });
+
+    it('does NOT restrict org for ADMIN users (platform staff)', async () => {
+      mockPrisma.agentKnowledge.findUnique.mockResolvedValue(null);
+      await service.get(agentId, adminUser);
+      const where = mockPrisma.agent.findFirst.mock.calls[0][0].where;
+      expect(where).not.toHaveProperty('organizationId');
+    });
+
+    it("404s when a CLIENT requests another org's agent knowledge", async () => {
+      // The org-scoped lookup finds nothing → NotFound, and the knowledge
+      // table is never touched.
+      mockPrisma.agent.findFirst.mockResolvedValue(null);
+      await expect(service.get(agentId, clientUser)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockPrisma.agentKnowledge.findUnique).not.toHaveBeenCalled();
+    });
+
+    it("404s on cross-tenant set()", async () => {
+      mockPrisma.agent.findFirst.mockResolvedValue(null);
+      await expect(
+        service.set(agentId, { content: 'x' }, clientUser),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockPrisma.agentKnowledge.upsert).not.toHaveBeenCalled();
+    });
+
+    it("404s on cross-tenant remove()", async () => {
+      mockPrisma.agent.findFirst.mockResolvedValue(null);
+      await expect(service.remove(agentId, clientUser)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockPrisma.agentKnowledge.delete).not.toHaveBeenCalled();
+    });
+
+    it('404s for a CLIENT with no organization at all', async () => {
+      const orphanClient = {
+        ...clientUser,
+        organizationId: null,
+      } as unknown as CurrentUserData;
+      await expect(service.get(agentId, orphanClient)).rejects.toThrow(
+        NotFoundException,
+      );
+      // Short-circuits before any DB access.
+      expect(mockPrisma.agent.findFirst).not.toHaveBeenCalled();
+    });
+  });
+
   describe('get()', () => {
     it('returns the knowledge record when present', async () => {
       mockPrisma.agentKnowledge.findUnique.mockResolvedValue({
         agentId,
         content: 'kb',
       });
-      const result = await service.get(agentId);
+      const result = await service.get(agentId, clientUser);
       expect(result).toMatchObject({ content: 'kb' });
       expect(mockPrisma.agentKnowledge.findUnique).toHaveBeenCalledWith({
         where: { agentId },
@@ -70,13 +154,12 @@ describe('AgentKnowledgeService', () => {
 
     it('returns null when no knowledge record exists', async () => {
       mockPrisma.agentKnowledge.findUnique.mockResolvedValue(null);
-      expect(await service.get(agentId)).toBeNull();
+      expect(await service.get(agentId, clientUser)).toBeNull();
     });
   });
 
   describe('set()', () => {
     beforeEach(() => {
-      mockPrisma.agent.findFirst.mockResolvedValue({ id: agentId });
       mockTokenCounter.countTokens.mockReturnValue(42);
       mockPrisma.agentKnowledge.upsert.mockResolvedValue({
         agentId,
@@ -85,11 +168,15 @@ describe('AgentKnowledgeService', () => {
     });
 
     it('upserts content + invalidates cache', async () => {
-      const result = await service.set(agentId, {
-        content: 'Hello',
-        sourceFileName: 'kb.txt',
-        sourceMimeType: 'text/plain',
-      });
+      const result = await service.set(
+        agentId,
+        {
+          content: 'Hello',
+          sourceFileName: 'kb.txt',
+          sourceMimeType: 'text/plain',
+        },
+        clientUser,
+      );
       expect(mockPrisma.agentKnowledge.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { agentId },
@@ -110,7 +197,7 @@ describe('AgentKnowledgeService', () => {
     });
 
     it('defaults sourceFileName + sourceMimeType to null when omitted', async () => {
-      await service.set(agentId, { content: 'Hi' });
+      await service.set(agentId, { content: 'Hi' }, clientUser);
       expect(mockPrisma.agentKnowledge.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           create: expect.objectContaining({
@@ -124,23 +211,22 @@ describe('AgentKnowledgeService', () => {
     it('rejects content over the byte limit', async () => {
       // 1 MB > MAX_KNOWLEDGE_TEXT_BYTES (currently 512KB-ish).
       const huge = 'a'.repeat(2 * 1024 * 1024);
-      await expect(service.set(agentId, { content: huge })).rejects.toThrow(
-        PayloadTooLargeException,
-      );
+      await expect(
+        service.set(agentId, { content: huge }, clientUser),
+      ).rejects.toThrow(PayloadTooLargeException);
       expect(mockPrisma.agentKnowledge.upsert).not.toHaveBeenCalled();
     });
 
     it('throws NotFound when agent does not exist or is soft-deleted', async () => {
       mockPrisma.agent.findFirst.mockResolvedValue(null);
-      await expect(service.set(agentId, { content: 'x' })).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.set(agentId, { content: 'x' }, clientUser),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 
   describe('extractFile()', () => {
     beforeEach(() => {
-      mockPrisma.agent.findFirst.mockResolvedValue({ id: agentId });
       mockTokenCounter.countTokens.mockReturnValue(3);
     });
 
@@ -151,7 +237,7 @@ describe('AgentKnowledgeService', () => {
         buffer: Buffer.from('Hello world'),
         size: 11,
       });
-      const result = await service.extractFile(agentId, file);
+      const result = await service.extractFile(agentId, file, clientUser);
       expect(result).toEqual({
         content: 'Hello world',
         contentTokens: 3,
@@ -171,7 +257,7 @@ describe('AgentKnowledgeService', () => {
         buffer: Buffer.from('# heading'),
         size: 9,
       });
-      const result = await service.extractFile(agentId, file);
+      const result = await service.extractFile(agentId, file, clientUser);
       expect(result.content).toBe('# heading');
     });
 
@@ -182,7 +268,7 @@ describe('AgentKnowledgeService', () => {
         buffer: Buffer.from('plain'),
         size: 5,
       });
-      const result = await service.extractFile(agentId, file);
+      const result = await service.extractFile(agentId, file, clientUser);
       expect(result.content).toBe('plain');
     });
 
@@ -193,9 +279,9 @@ describe('AgentKnowledgeService', () => {
         buffer: Buffer.from('   \n\t  '),
         size: 7,
       });
-      await expect(service.extractFile(agentId, file)).rejects.toThrow(
-        BadRequestException,
-      );
+      await expect(
+        service.extractFile(agentId, file, clientUser),
+      ).rejects.toThrow(BadRequestException);
     });
 
     it('rejects files over the upload byte limit', async () => {
@@ -205,9 +291,9 @@ describe('AgentKnowledgeService', () => {
         size: 100 * 1024 * 1024, // 100 MB
         buffer: Buffer.from('x'),
       });
-      await expect(service.extractFile(agentId, file)).rejects.toThrow(
-        PayloadTooLargeException,
-      );
+      await expect(
+        service.extractFile(agentId, file, clientUser),
+      ).rejects.toThrow(PayloadTooLargeException);
     });
 
     it('rejects unsupported file types with helpful .doc message', async () => {
@@ -217,12 +303,12 @@ describe('AgentKnowledgeService', () => {
         size: 50,
         buffer: Buffer.from('xxx'),
       });
-      await expect(service.extractFile(agentId, file)).rejects.toThrow(
-        UnsupportedMediaTypeException,
-      );
-      await expect(service.extractFile(agentId, file)).rejects.toThrow(
-        /\.doc/i,
-      );
+      await expect(
+        service.extractFile(agentId, file, clientUser),
+      ).rejects.toThrow(UnsupportedMediaTypeException);
+      await expect(
+        service.extractFile(agentId, file, clientUser),
+      ).rejects.toThrow(/\.doc/i);
     });
 
     it('rejects unsupported file types with generic message', async () => {
@@ -232,17 +318,17 @@ describe('AgentKnowledgeService', () => {
         size: 50,
         buffer: Buffer.from('xxx'),
       });
-      await expect(service.extractFile(agentId, file)).rejects.toThrow(
-        UnsupportedMediaTypeException,
-      );
+      await expect(
+        service.extractFile(agentId, file, clientUser),
+      ).rejects.toThrow(UnsupportedMediaTypeException);
     });
 
     it('throws NotFound when agent does not exist', async () => {
       mockPrisma.agent.findFirst.mockResolvedValue(null);
       const file = makeFile();
-      await expect(service.extractFile(agentId, file)).rejects.toThrow(
-        NotFoundException,
-      );
+      await expect(
+        service.extractFile(agentId, file, clientUser),
+      ).rejects.toThrow(NotFoundException);
     });
 
     it('rejects extracted text over the byte limit', async () => {
@@ -256,16 +342,16 @@ describe('AgentKnowledgeService', () => {
       // Caller-side file size check fires first only if size > upload limit.
       // Here size < upload limit but extracted text > text limit.
       mockTokenCounter.countTokens.mockReturnValue(huge.length);
-      await expect(service.extractFile(agentId, file)).rejects.toThrow(
-        PayloadTooLargeException,
-      );
+      await expect(
+        service.extractFile(agentId, file, clientUser),
+      ).rejects.toThrow(PayloadTooLargeException);
     });
   });
 
   describe('remove()', () => {
     it('deletes the record and invalidates cache', async () => {
       mockPrisma.agentKnowledge.delete.mockResolvedValue({ agentId });
-      await service.remove(agentId);
+      await service.remove(agentId, clientUser);
       expect(mockPrisma.agentKnowledge.delete).toHaveBeenCalledWith({
         where: { agentId },
       });
@@ -274,7 +360,7 @@ describe('AgentKnowledgeService', () => {
 
     it('is idempotent — swallows missing-record errors', async () => {
       mockPrisma.agentKnowledge.delete.mockRejectedValue(new Error('not found'));
-      await expect(service.remove(agentId)).resolves.toBeUndefined();
+      await expect(service.remove(agentId, clientUser)).resolves.toBeUndefined();
       expect(mockCache.invalidate).toHaveBeenCalledWith(agentId);
     });
   });

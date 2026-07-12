@@ -51,6 +51,9 @@ export interface LoadedWidgetConfig {
 /** A single chat message — alias for Message (Story 5-21 migration) */
 export type { Message as ChatMessage } from './message';
 
+/** A knowledge-base source cited in a bot reply (re-exported for consumers) */
+export type { Citation } from './message';
+
 /** Response from POST /public/chat/send */
 export interface SendMessageResponse {
   sessionId: string;

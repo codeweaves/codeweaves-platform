@@ -11,6 +11,11 @@ import { KnowledgeSettings } from './knowledge-settings';
  * turn: the system prompt plus any reference knowledge. Flat layout — just
  * the two fields stacked, no intermediate headings.
  *
+ * The paste-text knowledge editor lives HERE (deliberate, per product owner):
+ * it's the mode for normal bots that don't need RAG — the text rides along on
+ * every reply. The RAG document pipeline lives in the separate "Knowledge
+ * Base" section.
+ *
  * The greeting/welcome message is deliberately NOT here — it's a chat-flow UX
  * thing (what the visitor sees on widget open) and lives in BehaviorSettings.
  */

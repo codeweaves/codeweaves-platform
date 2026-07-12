@@ -114,9 +114,22 @@ export interface LlmCompletionResult {
 /**
  * A single chunk emitted while streaming. `text-delta` fires on every token,
  * `finish` fires once at the end with final usage + cost.
+ *
+ * When the request carries tools, the AI SDK's multi-step loop surfaces
+ * `tool-call` / `tool-result` chunks between text segments — DirectChatService
+ * turns those into user-visible step indicators. `errored: true` on a result
+ * means the tool's execute threw at the SDK layer (our wrappers normally
+ * convert failures to string results instead).
  */
 export type LlmStreamChunk =
   | { type: 'text-delta'; content: string }
+  | { type: 'tool-call'; toolCallId: string; toolName: string; input: unknown }
+  | {
+      type: 'tool-result';
+      toolCallId: string;
+      toolName: string;
+      errored?: boolean;
+    }
   | {
       type: 'finish';
       usage: LlmTokenUsage;

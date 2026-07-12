@@ -1,3 +1,5 @@
+import type { ChatCitation } from '@repo/validation';
+
 /**
  * Unified metadata stored on every assistant ChatMessage, regardless of which
  * routing mode (n8n / direct) produced the reply. One shape everywhere means
@@ -18,11 +20,19 @@
  *
  * Index signature: Prisma's `InputJsonValue` is strict about what types can sit
  * in a JSON column. Allowing `string | number | boolean | null` on any key keeps
- * object literals of this shape assignable without casts. Nested objects aren't
- * permitted today (flat shape by design — easier to query with `->>`).
+ * object literals of this shape assignable without casts. The flat-shape rule
+ * has ONE exception: `citations` (array of small objects) — RAG source
+ * attribution is inherently structured and is only ever read whole, never
+ * queried field-by-field with `->>`.
  */
 export interface ChatMessageMetadata {
-  [key: string]: string | number | boolean | null | undefined;
+  [key: string]:
+    | string
+    | number
+    | boolean
+    | null
+    | undefined
+    | ChatCitation[];
 
   // ---- Baseline (required in all modes) ----------------------------------
   streamingMode: 'direct' | 'simulated' | 'real';
@@ -66,6 +76,12 @@ export interface ChatMessageMetadata {
   historyCount?: number | null;
   /** True if older messages were dropped to fit the token budget. */
   historyTruncated?: boolean | null;
+
+  // ---- RAG (direct mode, when the agent has an indexed knowledge base) ----
+  /** Source citations resolved from [N] markers. Omitted when nothing cited. */
+  citations?: ChatCitation[];
+  /** Retrieval phase wall-clock (embed + search). Null when RAG skipped. */
+  ragLatencyMs?: number | null;
 }
 
 /**

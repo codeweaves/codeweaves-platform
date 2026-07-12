@@ -531,6 +531,7 @@ export class VoiceController {
         agent: fullAgent,
         chatSessionId: session.id,
         externalSessionId: session.sessionId,
+        sessionSource: session.source,
         newUserMessage: sttResult.transcript,
         feature: 'voice',
         abortSignal: abortController.signal,

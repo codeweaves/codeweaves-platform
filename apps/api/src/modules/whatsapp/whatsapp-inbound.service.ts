@@ -197,6 +197,7 @@ export class WhatsappInboundService {
         agent,
         chatSessionId: session.id,
         externalSessionId: session.sessionId,
+        sessionSource: session.source,
         newUserMessage: userText,
         feature: 'chat',
         extraSystemInstruction: inHandover

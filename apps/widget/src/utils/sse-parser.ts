@@ -10,6 +10,8 @@
  *   { type: 'error', message }
  */
 
+import type { Citation } from '../types';
+
 export interface SSESessionEvent {
   type: 'session';
   sessionId: string;
@@ -20,11 +22,23 @@ export interface SSEChunkEvent {
   content: string;
 }
 
+/**
+ * Live progress step (RAG lookup or tool call). The same `id` arrives once
+ * with status 'active' and again with 'done'/'error' — clients upsert by id.
+ */
+export interface SSEStepEvent {
+  type: 'step';
+  id: string;
+  kind: 'rag' | 'tool';
+  label: string;
+  status: 'active' | 'done' | 'error';
+}
+
 export interface SSEDoneEvent {
   type: 'done';
   sessionId: string;
   messageId: string;
-  metadata: Record<string, unknown>;
+  metadata: Record<string, unknown> & { citations?: Citation[] };
   /** Current handover state, so the widget knows whether to poll for a human. */
   handoverState?: string;
 }
@@ -44,6 +58,7 @@ export interface SSEPausedEvent {
 export type SSEEvent =
   | SSESessionEvent
   | SSEChunkEvent
+  | SSEStepEvent
   | SSEDoneEvent
   | SSEErrorEvent
   | SSEPausedEvent;
@@ -124,12 +139,22 @@ function parseSSEMessage(message: string): SSEEvent | null {
       return { type: 'chunk', content: data.content as string };
     }
 
+    if (type === 'step') {
+      return {
+        type: 'step',
+        id: data.id as string,
+        kind: data.kind as 'rag' | 'tool',
+        label: data.label as string,
+        status: data.status as 'active' | 'done' | 'error',
+      };
+    }
+
     if (type === 'done') {
       return {
         type: 'done',
         sessionId: data.sessionId as string,
         messageId: data.messageId as string,
-        metadata: (data.metadata as Record<string, unknown>) ?? {},
+        metadata: (data.metadata as SSEDoneEvent['metadata']) ?? {},
         handoverState: typeof data.handoverState === 'string' ? data.handoverState : undefined,
       };
     }

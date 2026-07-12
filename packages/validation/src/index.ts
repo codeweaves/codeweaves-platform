@@ -33,6 +33,12 @@ export * from './agent-knowledge.js';
 // Re-export agent data-capture (field definitions) schemas and types
 export * from './agent-data-fields.js';
 
+// Re-export agent RAG document schemas and types
+export * from './agent-documents.js';
+
+// Re-export agent integration (agentic tools) schemas and types
+export * from './agent-integrations.js';
+
 // ============================================
 // Common Schemas
 // ============================================
