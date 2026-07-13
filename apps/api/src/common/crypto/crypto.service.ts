@@ -1,11 +1,12 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { createCipheriv, createDecipheriv, randomBytes } from 'crypto';
+import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'crypto';
 
 @Injectable()
 export class CryptoService implements OnModuleInit {
   private readonly logger = new Logger(CryptoService.name);
   private key!: Buffer;
+  private derivedHmacKey!: Buffer;
 
   constructor(private configService: ConfigService) {}
 
@@ -20,7 +21,17 @@ export class CryptoService implements OnModuleInit {
         'AGENT_SECRET_KEY must be a 64-character hex string (32 bytes)',
       );
     }
+    // Domain-separated key for keyed hashing (PII value lookup): never use
+    // the raw AES key directly for a second purpose.
+    this.derivedHmacKey = createHmac('sha256', this.key)
+      .update('pii-value-hash-v1')
+      .digest();
     this.logger.log('CryptoService initialized');
+  }
+
+  /** Derived key for HMAC-based lookups (e.g. PiiToken.valueHash). */
+  hmacKey(): Buffer {
+    return this.derivedHmacKey;
   }
 
   encrypt(plaintext: string): string {

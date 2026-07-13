@@ -6,6 +6,7 @@ import { HandoverService } from '../../../src/services/handover.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { RealtimeService } from '../../../src/services/realtime.service';
 import { WhatsappOutboundService } from '../../../src/modules/whatsapp/whatsapp-outbound.service';
+import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('HandoverService', () => {
@@ -77,6 +78,7 @@ describe('HandoverService', () => {
         { provide: RealtimeService, useValue: mockRealtime },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: WhatsappOutboundService, useValue: mockWhatsappOutbound },
+        PiiDetectionService,
       ],
     }).compile();
 

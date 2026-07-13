@@ -4,8 +4,15 @@ import {
   agentAiConfigSchema,
   type AgentAiConfigDto,
 } from '@repo/validation';
+import type { ModelMessage } from 'ai';
 
 import { AgentCacheService } from '../../common/cache/agent-cache.service';
+import { PiiDetectionService } from '../pii/pii-detection.service';
+import {
+  PiiTokenizerService,
+  type PiiSessionContext,
+} from '../pii/pii-tokenizer.service';
+import { StreamDetokenizer } from '../pii/stream-detokenizer';
 import { DataExtractionService } from '../../services/data-extraction.service';
 import { PrismaService } from '../../services/prisma.service';
 
@@ -20,6 +27,7 @@ import type { LlmStreamChunk } from './interfaces/llm.interfaces';
 import { LlmService } from './llm.service';
 import { PromptTemplateService } from './prompt-template.service';
 import { HybridContextStrategy } from './strategies/hybrid-context.strategy';
+import type { TraceContext } from './trace/ai-trace.interfaces';
 import { AiTraceService } from './trace/ai-trace.service';
 import { UsageTrackingService } from './usage-tracking.service';
 
@@ -98,7 +106,77 @@ export class DirectChatService {
     private readonly prisma: PrismaService,
     private readonly agentCache: AgentCacheService,
     private readonly dataExtractionService: DataExtractionService,
+    private readonly piiDetection: PiiDetectionService,
+    private readonly piiTokenizer: PiiTokenizerService,
   ) {}
+
+  /**
+   * PII compliance floor, applied to EVERY request before anything reads it
+   * (trace preview, context assembly, LLM): destroy HARD_DROP-tier identifiers
+   * (Aadhaar/PAN/cards/…) in the new user turn and any client-supplied
+   * history. Toggle-independent by design — see docs/plans/pii-redaction-plan.md.
+   * Returns a shallow copy; the caller's DTO is not mutated.
+   */
+  private maskHardDropInRequest(req: DirectChatRequest): DirectChatRequest {
+    return {
+      ...req,
+      newUserMessage: this.piiDetection.maskHardDrop(req.newUserMessage),
+      recentHistory: req.recentHistory?.map((m) => ({
+        ...m,
+        content: this.piiDetection.maskHardDrop(m.content),
+      })),
+    };
+  }
+
+  /**
+   * Load the session token map when the agent has PII redaction on; null
+   * otherwise. Runs in parallel with knowledge/context loading — one indexed
+   * query, never on the critical path alone.
+   */
+  private loadPiiContext(
+    req: DirectChatRequest,
+    config: AgentAiConfigDto,
+  ): Promise<PiiSessionContext | null> {
+    if (!config.piiRedactionEnabled) return Promise.resolve(null);
+    return this.piiTokenizer.forSession(
+      req.agent.organizationId,
+      req.chatSessionId,
+    );
+  }
+
+  /**
+   * What actually goes to the LLM: HARD_DROP-masked always (legacy DB rows may
+   * predate ingestion masking), TOKENIZE-tier replaced with placeholders when
+   * the agent's toggle is on. Records a `pii.redact` trace step when anything
+   * changed. Pure CPU (<1ms for a 20-message window).
+   */
+  private applyPiiToMessages(
+    messages: ModelMessage[],
+    piiCtx: PiiSessionContext | null,
+    trace: TraceContext,
+  ): ModelMessage[] {
+    const start = performance.now();
+    let changed = 0;
+    const out = messages.map((m): ModelMessage => {
+      // Only user/assistant text turns carry conversation content; tool and
+      // system parts pass through untouched.
+      if (m.role !== 'user' && m.role !== 'assistant') return m;
+      if (typeof m.content !== 'string') return m;
+      let content = this.piiDetection.maskHardDrop(m.content);
+      if (piiCtx) content = piiCtx.tokenize(content);
+      if (content === m.content) return m;
+      changed++;
+      return { ...m, content };
+    });
+    if (changed > 0) {
+      trace.step(
+        'pii.redact',
+        { messagesChanged: changed, tokenized: piiCtx !== null },
+        Math.round(performance.now() - start),
+      );
+    }
+    return out;
+  }
 
   /**
    * Load an agent's static knowledge content AND its data-capture field
@@ -138,7 +216,11 @@ export class DirectChatService {
     strategy: 'sliding-window' | 'summarize' | 'hybrid' | undefined,
     systemPrompt: string,
     modelId: string,
-    config: { maxContextMessages?: number; maxInputTokens?: number },
+    config: {
+      maxContextMessages?: number;
+      maxInputTokens?: number;
+      piiRedactionEnabled?: boolean;
+    },
     traceId: string,
   ) {
     const params = {
@@ -156,6 +238,7 @@ export class DirectChatService {
         organizationId: req.agent.organizationId,
         agentId: req.agent.id,
         traceId,
+        piiRedactionEnabled: config.piiRedactionEnabled ?? false,
       });
     }
     return this.contextService.assemble(params);
@@ -168,6 +251,9 @@ export class DirectChatService {
    */
   async send(req: DirectChatRequest): Promise<DirectChatResult> {
     const config = resolveConfig(req.agent);
+    // Compliance floor first: Aadhaar/PAN/cards/… never survive past this
+    // line, so everything below (trace, context, LLM) only ever sees masks.
+    req = this.maskHardDropInRequest(req);
     const systemPromptRaw = resolveSystemPromptTemplate(req.agent, config);
     const systemPromptResolved = this.promptTemplate.resolve(systemPromptRaw, {
       agent: req.agent,
@@ -177,6 +263,7 @@ export class DirectChatService {
       agentId: req.agent.id,
       sessionId: req.externalSessionId,
       userMessage: req.newUserMessage,
+      redactPreview: config.piiRedactionEnabled && config.piiLogRedaction,
     });
 
     const modelId = config.modelId ?? this.aiSdk.getDefaultModel();
@@ -192,7 +279,7 @@ export class DirectChatService {
       // below for the reconciliation.
       const knowledgeStart = performance.now();
       const contextStart = performance.now();
-      const [extras, context] = await Promise.all([
+      const [extras, context, piiCtx] = await Promise.all([
         this.loadAgentExtras(req.agent.id).then((e) => {
           const knowledgeMs = Math.round(performance.now() - knowledgeStart);
           trace.step(
@@ -229,8 +316,15 @@ export class DirectChatService {
           );
           return ctx;
         }),
+        this.loadPiiContext(req, config),
       ]);
       const { knowledge, dataFields } = extras;
+      // What the LLM sees: hard-drop-masked always, tokenized when toggled on.
+      const llmMessages = this.applyPiiToMessages(
+        context.messages,
+        piiCtx,
+        trace,
+      );
       const systemPrompt =
         (knowledge
           ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
@@ -251,7 +345,7 @@ export class DirectChatService {
           this.llmService.generateCompletion({
             modelId,
             systemPrompt,
-            messages: context.messages,
+            messages: llmMessages,
             temperature: config.temperature,
             maxTokens: config.maxTokens,
             topP: config.topP,
@@ -281,8 +375,13 @@ export class DirectChatService {
         }),
       );
 
+      // The model replies over placeholders; the visitor (and the persisted
+      // assistant message) must see real values again. Raw model output keeps
+      // the placeholders — that's exactly what we want in the trace log.
+      const visibleText = piiCtx ? piiCtx.detokenize(result.text) : result.text;
+
       const finalResult: DirectChatResult = {
-        text: result.text,
+        text: visibleText,
         traceId: trace.traceId,
         usage: result.usage,
         cost: result.cost,
@@ -310,11 +409,18 @@ export class DirectChatService {
         finishReason: result.finishReason,
       });
 
+      const redactTraceLog = piiCtx !== null && config.piiLogRedaction;
       void trace.end({
         success: true,
-        response: result.text,
+        // Log redaction: persist the tokenized forms (raw model output already
+        // contains placeholders); otherwise the re-hydrated text.
+        response: redactTraceLog ? result.text : visibleText,
+        ...(redactTraceLog
+          ? { userMessage: piiCtx.tokenize(req.newUserMessage) }
+          : {}),
         model: result.model,
       });
+      if (piiCtx) void piiCtx.flush();
 
       // Off-hot-path data capture for BUFFERED turns (e.g. WhatsApp inbound,
       // which uses send()). Same debounced, gated behaviour as stream(): only
@@ -350,6 +456,8 @@ export class DirectChatService {
     req: DirectChatRequest,
   ): AsyncGenerator<DirectChatStreamChunk, void, undefined> {
     const config = resolveConfig(req.agent);
+    // Compliance floor first — see send().
+    req = this.maskHardDropInRequest(req);
     const systemPromptRaw = resolveSystemPromptTemplate(req.agent, config);
     const systemPromptResolved = this.promptTemplate.resolve(systemPromptRaw, {
       agent: req.agent,
@@ -359,6 +467,7 @@ export class DirectChatService {
       agentId: req.agent.id,
       sessionId: req.externalSessionId,
       userMessage: req.newUserMessage,
+      redactPreview: config.piiRedactionEnabled && config.piiLogRedaction,
     });
 
     let finalTextBuffer = '';
@@ -384,7 +493,7 @@ export class DirectChatService {
       let knowledgeMs = 0;
       let contextMs = 0;
 
-      const [extras, context] = await Promise.all([
+      const [extras, context, piiCtx] = await Promise.all([
         this.loadAgentExtras(req.agent.id).then((e) => {
           knowledgeMs = Math.round(performance.now() - knowledgeStart);
           return e;
@@ -400,8 +509,15 @@ export class DirectChatService {
           contextMs = Math.round(performance.now() - contextStart);
           return ctx;
         }),
+        this.loadPiiContext(req, config),
       ]);
       const { knowledge, dataFields } = extras;
+      // What the LLM sees: hard-drop-masked always, tokenized when toggled on.
+      const llmMessages = this.applyPiiToMessages(
+        context.messages,
+        piiCtx,
+        trace,
+      );
 
       const knowledgeData = {
         hasKnowledge: knowledge !== null,
@@ -456,7 +572,7 @@ export class DirectChatService {
       const handle = await this.llmService.streamCompletion({
         modelId,
         systemPrompt,
-        messages: context.messages,
+        messages: llmMessages,
         temperature: config.temperature,
         maxTokens: config.maxTokens,
         topP: config.topP,
@@ -479,10 +595,17 @@ export class DirectChatService {
         | Extract<LlmStreamChunk, { type: 'finish' }>
         | null = null;
 
+      // Re-hydrates placeholders in the outgoing token stream (visitor must
+      // see real values). finalTextBuffer stays RAW (placeholders intact) —
+      // that's the form we want persisted in the trace when log redaction is
+      // on. No-op passthrough when the session has no tokens.
+      const detok = new StreamDetokenizer(piiCtx);
+
       for await (const chunk of handle.stream) {
         if (chunk.type === 'text-delta') {
           finalTextBuffer += chunk.content;
-          yield { type: 'text-delta', content: chunk.content };
+          const visible = detok.push(chunk.content);
+          if (visible) yield { type: 'text-delta', content: visible };
         } else if (chunk.type === 'finish') {
           finishChunk = chunk;
           // Keep looping in case there are follow-up events; in practice
@@ -495,6 +618,10 @@ export class DirectChatService {
       if (!finishChunk) {
         throw new Error('LLM stream ended without a finish event');
       }
+
+      // Flush any placeholder fragment the detokenizer was holding back.
+      const heldTail = detok.end();
+      if (heldTail) yield { type: 'text-delta', content: heldTail };
 
       finalModel = finishChunk.model;
       finalUsage = finishChunk.usage;
@@ -530,8 +657,14 @@ export class DirectChatService {
         data: completeData,
       };
 
+      // Same rule as send(): visitor-facing text is re-hydrated; the raw
+      // buffer (placeholders intact) is what the redacted trace persists.
+      const visibleText = piiCtx
+        ? piiCtx.detokenize(finalTextBuffer)
+        : finalTextBuffer;
+
       const result: DirectChatResult = {
-        text: finalTextBuffer,
+        text: visibleText,
         traceId: trace.traceId,
         usage: finalUsage,
         cost: finalCost,
@@ -564,11 +697,16 @@ export class DirectChatService {
       // on the trace DB write would extend the SSE connection and delay the
       // client's `done` event for no benefit. Errors are logged by trace.end
       // itself via pino — they won't surface here.
+      const redactTraceLog = piiCtx !== null && config.piiLogRedaction;
       void trace.end({
         success: true,
-        response: finalTextBuffer,
+        response: redactTraceLog ? finalTextBuffer : visibleText,
+        ...(redactTraceLog
+          ? { userMessage: piiCtx.tokenize(req.newUserMessage) }
+          : {}),
         model: finalModel ?? modelId,
       });
+      if (piiCtx) void piiCtx.flush();
 
       // Debounced, off-hot-path data capture. Only when the agent actually
       // collects something (agents without fields never enqueue) AND this is a

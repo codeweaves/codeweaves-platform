@@ -25,6 +25,11 @@ export interface StartTraceParams {
   userMessage?: string;
   /** Override the generated trace ID (useful for tests / cross-service trace propagation). */
   traceId?: string;
+  /**
+   * Suppress the raw `userMessagePreview` in the pino file log (PII log
+   * redaction). The DB row's userMessage can still be overridden at end().
+   */
+  redactPreview?: boolean;
 }
 
 /**
@@ -36,6 +41,12 @@ export interface EndTraceParams {
   response?: string;
   model?: string;
   error?: string;
+  /**
+   * Override the persisted `userMessage` (set at startTrace). Used by PII log
+   * redaction: the tokenized form only exists after the token map loads, which
+   * happens later than startTrace.
+   */
+  userMessage?: string;
 }
 
 /**

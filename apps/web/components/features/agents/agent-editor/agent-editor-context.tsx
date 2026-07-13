@@ -412,6 +412,8 @@ const DEFAULT_AI_CONFIG: import('@repo/validation').AgentAiConfigDto = {
   ragRerankEnabled: true,
   ragContextualChunking: false,
   cachingEnabled: true,
+  piiRedactionEnabled: false,
+  piiLogRedaction: true,
 };
 
 /**

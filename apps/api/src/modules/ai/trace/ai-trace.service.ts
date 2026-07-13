@@ -112,7 +112,9 @@ export class AiTraceService {
 
     log.info(
       {
-        userMessagePreview: params.userMessage?.slice(0, 200),
+        userMessagePreview: params.redactPreview
+          ? '[REDACTED]'
+          : params.userMessage?.slice(0, 200),
       },
       'trace.start',
     );
@@ -181,7 +183,9 @@ export class AiTraceService {
           agentId: active.agentId,
           sessionId: active.sessionId,
           messageId: result.messageId,
-          userMessage: active.userMessage,
+          // PII log redaction passes the tokenized form here (it only exists
+          // after the token map loads, i.e. later than startTrace).
+          userMessage: result.userMessage ?? active.userMessage,
           response: result.response,
           model: result.model,
           steps: active.steps as unknown as Prisma.InputJsonValue,

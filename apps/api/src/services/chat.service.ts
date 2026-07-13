@@ -5,6 +5,7 @@ import { HmacService } from '../common/security/hmac.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { TracerService } from '../common/tracer/tracer.service';
 import { DirectChatService } from '../modules/ai/direct-chat.service';
+import { PiiDetectionService } from '../modules/pii/pii-detection.service';
 import { HandoverService } from './handover.service';
 import type { SendMessageDto } from '@repo/validation';
 import { resolveRoutingMode } from '@repo/validation';
@@ -30,6 +31,7 @@ export class ChatService {
     private readonly directChatService: DirectChatService,
     private readonly messageMetricsService: MessageMetricsService,
     private readonly handoverService: HandoverService,
+    private readonly piiDetection: PiiDetectionService,
   ) {}
 
   /**
@@ -338,7 +340,9 @@ export class ChatService {
         ...(id ? { id } : {}),
         chatSessionId,
         role: 'USER',
-        content,
+        // Compliance floor: Aadhaar/PAN/card/… numbers never reach Postgres.
+        // Irreversible by design — see docs/plans/pii-redaction-plan.md.
+        content: this.piiDetection.maskHardDrop(content),
       },
     });
   }
@@ -547,7 +551,11 @@ export class ChatService {
 
     const [userMessage, assistantMessage] = await this.prisma.$transaction([
       this.prisma.chatMessage.create({
-        data: { chatSessionId: session.id, role: 'USER', content: dto.chatInput },
+        data: {
+          chatSessionId: session.id,
+          role: 'USER',
+          content: this.piiDetection.maskHardDrop(dto.chatInput),
+        },
       }),
       this.prisma.chatMessage.create({
         data: {
@@ -610,7 +618,7 @@ export class ChatService {
         data: {
           chatSessionId: session.id,
           role: 'USER',
-          content: dto.chatInput,
+          content: this.piiDetection.maskHardDrop(dto.chatInput),
         },
       }),
       this.prisma.chatMessage.create({
@@ -670,7 +678,7 @@ export class ChatService {
       data: {
         chatSessionId: session.id,
         role: 'USER',
-        content: dto.chatInput,
+        content: this.piiDetection.maskHardDrop(dto.chatInput),
       },
     });
 

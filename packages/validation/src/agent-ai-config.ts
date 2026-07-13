@@ -136,6 +136,25 @@ export const agentAiConfigSchema = z
     // ----- Caching (Phase 5) -----
     /** Enable semantic response caching for this agent. */
     cachingEnabled: z.boolean().default(true),
+
+    // ----- PII redaction (docs/plans/pii-redaction-plan.md) -----
+    /**
+     * When true, TOKENIZE-tier PII (addresses, DOBs, bank/account numbers, …)
+     * in conversation history is replaced with stable placeholders before any
+     * LLM call; human agents and the visitor still see real values. Coverage
+     * note (be honest in UI copy): identifier detection works in any language;
+     * name/address detection is not included yet.
+     *
+     * Government/financial identifiers (Aadhaar, PAN, cards, passport, …) are
+     * ALWAYS destroyed at ingestion regardless of this toggle — that is a
+     * compliance floor, not a feature.
+     */
+    piiRedactionEnabled: z.boolean().default(false),
+    /**
+     * When PII redaction is on, also tokenize what we persist to chat_traces
+     * (userMessage/response) and suppress raw previews in file logs.
+     */
+    piiLogRedaction: z.boolean().default(true),
   })
   .strict();
 
