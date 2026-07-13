@@ -13,6 +13,7 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
+import { Switch } from '@/components/ui/switch';
 import {
   Accordion,
   AccordionContent,
@@ -429,6 +430,26 @@ function DirectModeConfig({
               <p className="text-xs text-muted-foreground">
                 How the agent builds context for long conversations.
                 Sliding-window is cheapest and usually fine.
+              </p>
+            </div>
+
+            {/* PII redaction */}
+            <div className="space-y-2">
+              <div className="flex items-center justify-between">
+                <Label className="text-sm font-medium">PII protection</Label>
+                <Switch
+                  checked={aiConfig.piiRedactionEnabled ?? false}
+                  onCheckedChange={(v) => patch({ piiRedactionEnabled: v })}
+                />
+              </div>
+              <p className="text-xs text-muted-foreground">
+                Replaces sensitive details (bank/account numbers, dates of
+                birth, IFSC codes) with placeholders before they reach the AI
+                model and stored logs. Your team still sees real values in the
+                Inbox. Detects identifiers in any language; name and address
+                detection is not included yet. Government IDs and card numbers
+                (Aadhaar, PAN, passport, cards) are always blocked, even with
+                this off.
               </p>
             </div>
           </AccordionContent>

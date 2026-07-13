@@ -10,6 +10,7 @@ import { Prisma, Role, type HandoverReason, type HandoverState } from '@prisma/c
 import { tool, jsonSchema } from 'ai';
 import { PrismaService } from './prisma.service';
 import { RealtimeService } from './realtime.service';
+import { PiiDetectionService } from '../modules/pii/pii-detection.service';
 import { WhatsappOutboundService } from '../modules/whatsapp/whatsapp-outbound.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
@@ -47,6 +48,7 @@ export class HandoverService {
     private readonly realtime: RealtimeService,
     private readonly config: ConfigService,
     private readonly whatsappOutbound: WhatsappOutboundService,
+    private readonly piiDetection: PiiDetectionService,
   ) {}
 
   /**
@@ -241,7 +243,13 @@ export class HandoverService {
   ): Promise<void> {
     try {
       const msg = await this.prisma.chatMessage.create({
-        data: { chatSessionId: ctx.sessionDbId, role: 'USER', content },
+        data: {
+          chatSessionId: ctx.sessionDbId,
+          role: 'USER',
+          // Compliance floor: identity/card numbers are destroyed before
+          // persistence on every channel, including while a human handles.
+          content: this.piiDetection.maskHardDrop(content),
+        },
       });
       await this.prisma.chatSession.update({
         where: { id: ctx.sessionDbId },
@@ -386,11 +394,16 @@ export class HandoverService {
       throw new ConflictException('Take over the conversation before replying');
     }
     const name = await this.resolveUserName(user.id);
+    // Same compliance floor as visitor messages: a human agent pasting a
+    // card/Aadhaar number must not persist it either. WhatsApp outbound below
+    // deliberately sends the original `content` — the visitor may need the
+    // real value; only OUR storage is restricted.
+    const storedContent = this.piiDetection.maskHardDrop(content);
     const msg = await this.prisma.chatMessage.create({
       data: {
         chatSessionId: session.id,
         role: 'HUMAN_AGENT',
-        content,
+        content: storedContent,
         metadata: { humanAgent: { id: user.id, name } },
       },
     });

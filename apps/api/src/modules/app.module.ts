@@ -22,6 +22,7 @@ import { DataExtractionModule } from './data-extraction.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { TracerModule } from '../common/tracer/tracer.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
+import { PiiModule } from './pii/pii.module';
 import { RedisModule } from '../common/redis/redis.module';
 import { SentryModule } from '../common/sentry/sentry.module';
 import { RbacModule } from '../common/rbac/rbac.module';
@@ -63,6 +64,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     WhatsappModule,
     TracerModule,
     CryptoModule,
+    PiiModule,
     RedisModule,
     SentryModule,
     RbacModule,

@@ -694,3 +694,26 @@ model LlmUsage {
   @@index([traceId])
   @@map("llm_usage")
 }
+
+// Reversible PII tokenization map ("vault"). One row per unique PII value per
+// chat session: the LLM and persisted logs see the `token` placeholder
+// ("[BANK_ACCOUNT_1]"); tool execution and any future masked-view rehydration
+// resolve it back via this table. Values are AES-256-GCM encrypted; lookup is
+// by session-scoped keyed HMAC (never by plaintext). HARD_DROP-tier
+// identifiers (Aadhaar/PAN/cards/...) are destroyed at ingestion and are
+// NEVER written here. See docs/plans/pii-redaction-plan.md.
+model PiiToken {
+  id             String   @id @default(uuid())
+  organizationId String
+  chatSessionId  String
+  category       String // EMAIL | PHONE | IFSC | BANK_ACCOUNT | DOB | ...
+  token          String // "[BANK_ACCOUNT_1]" — unique within the session
+  valueHash      String // HMAC-SHA256(sessionId, normalized value) hex
+  valueEncrypted String // AES-256-GCM (CryptoService format iv:data:tag)
+  createdAt      DateTime @default(now())
+
+  @@unique([chatSessionId, token])
+  @@unique([chatSessionId, valueHash])
+  @@index([organizationId])
+  @@map("pii_tokens")
+}

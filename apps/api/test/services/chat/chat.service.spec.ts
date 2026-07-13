@@ -9,6 +9,7 @@ import { TracerService } from '../../../src/common/tracer/tracer.service';
 import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 import { MessageMetricsService } from '../../../src/services/message-metrics.service';
 import { HandoverService } from '../../../src/services/handover.service';
+import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -129,6 +130,7 @@ describe('ChatService', () => {
         { provide: DirectChatService, useValue: mockDirectChatService },
         { provide: MessageMetricsService, useValue: mockMessageMetricsService },
         { provide: HandoverService, useValue: mockHandoverService },
+        PiiDetectionService,
       ],
     }).compile();
 

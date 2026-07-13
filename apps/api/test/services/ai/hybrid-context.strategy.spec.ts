@@ -5,6 +5,10 @@ import { ContextAssemblyService } from '../../../src/modules/ai/context-assembly
 import { SummarizationService } from '../../../src/modules/ai/summarization.service';
 import { TokenCounterService } from '../../../src/modules/ai/token-counter.service';
 import { PrismaService } from '../../../src/services/prisma.service';
+import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
+import { PiiTokenizerService } from '../../../src/modules/pii/pii-tokenizer.service';
+
+const mockPiiTokenizer = { forSession: jest.fn() };
 
 describe('HybridContextStrategy', () => {
   let strategy: HybridContextStrategy;
@@ -24,6 +28,8 @@ describe('HybridContextStrategy', () => {
         { provide: SummarizationService, useValue: mockSummarization },
         { provide: TokenCounterService, useValue: mockTokenCounter },
         { provide: PrismaService, useValue: mockPrisma },
+        PiiDetectionService,
+        { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
       ],
     }).compile();
     strategy = moduleRef.get(HybridContextStrategy);

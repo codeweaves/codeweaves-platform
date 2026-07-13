@@ -2,6 +2,8 @@ import { Injectable, Logger } from '@nestjs/common';
 import type { MessageRole } from '@prisma/client';
 import type { ModelMessage } from 'ai';
 
+import { PiiDetectionService } from '../../pii/pii-detection.service';
+import { PiiTokenizerService } from '../../pii/pii-tokenizer.service';
 import { PrismaService } from '../../../services/prisma.service';
 
 import { ContextAssemblyService } from '../context-assembly.service';
@@ -61,6 +63,8 @@ export class HybridContextStrategy {
     private readonly summarization: SummarizationService,
     private readonly tokenCounter: TokenCounterService,
     private readonly prisma: PrismaService,
+    private readonly piiDetection: PiiDetectionService,
+    private readonly piiTokenizer: PiiTokenizerService,
   ) {}
 
   /**
@@ -75,6 +79,8 @@ export class HybridContextStrategy {
     organizationId: string;
     agentId: string;
     traceId?: string;
+    /** Tokenize TOKENIZE-tier PII in the summarizer's input (agent toggle). */
+    piiRedactionEnabled?: boolean;
   }): Promise<AssembledContext> {
     // Step 1: Let the base service fit messages into the budget. It will
     // mark `truncated: true` and `olderMessagesExist: true` when dropping.
@@ -119,13 +125,25 @@ export class HybridContextStrategy {
       return base;
     }
 
-    // Reverse to chronological order for the summariser
+    // Reverse to chronological order for the summariser. The summariser is an
+    // LLM call too, so the same PII boundary applies: HARD_DROP identifiers
+    // are always masked (legacy rows may predate ingestion masking) and
+    // TOKENIZE-tier values become placeholders when the agent's toggle is on
+    // — the resulting summary text then carries placeholders, never raw PII.
+    const piiCtx = params.piiRedactionEnabled
+      ? await this.piiTokenizer.forSession(
+          params.organizationId,
+          params.chatSessionId,
+        )
+      : null;
     const olderMessages: ModelMessage[] = olderRows
       .reverse()
-      .map((m) => ({
-        role: roleToAiSdk(m.role),
-        content: m.content,
-      }));
+      .map((m) => {
+        let content = this.piiDetection.maskHardDrop(m.content);
+        if (piiCtx) content = piiCtx.tokenize(content);
+        return { role: roleToAiSdk(m.role), content };
+      });
+    if (piiCtx) void piiCtx.flush();
 
     // Step 4: Summarise. This adds latency (one extra LLM call) but only runs
     // on cache miss — typically once every N messages per conversation.
