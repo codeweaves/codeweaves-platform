@@ -13,6 +13,7 @@ import {
 } from '../common/ai/ai-classifier.service';
 
 import { PrismaService } from './prisma.service';
+import { InternalEventLogger } from '../common/events/internal.logger';
 
 /** Outcome of one extraction attempt. `retry` leaves the session due. */
 type ExtractionOutcome = 'captured' | 'empty' | 'retry';
@@ -56,6 +57,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     private readonly prisma: PrismaService,
     private readonly ai: AiClassifierService,
     private readonly config: ConfigService,
+    private readonly internalLog: InternalEventLogger,
   ) {
     // Both default to sensible values; override in .env to watch it run fast
     // while testing (e.g. DATA_EXTRACT_DEBOUNCE_MS=5000, DATA_EXTRACT_POLL_MS=5000).
@@ -156,7 +158,11 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     if (due.length === 0) {
       return 0;
     }
+    const start = Date.now();
     this.logger.log(`Extraction poll: ${due.length} session(s) due.`);
+    this.internalLog.logStarted('DATA_EXTRACTION_RUN_STARTED', {
+      due: due.length,
+    });
 
     let captured = 0;
     for (const session of due) {
@@ -183,6 +189,10 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `Extraction poll done: captured ${captured}/${due.length}.`,
     );
+    this.internalLog.logCompleted('DATA_EXTRACTION_RUN_COMPLETED', {
+      latencyMs: Date.now() - start,
+      metadata: { due: due.length, captured },
+    });
     return captured;
   }
 

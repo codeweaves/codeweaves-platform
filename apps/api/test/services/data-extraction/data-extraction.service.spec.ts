@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { DataExtractionService } from '../../../src/services/data-extraction.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AiClassifierService } from '../../../src/common/ai/ai-classifier.service';
+import { InternalEventLogger } from '../../../src/common/events/internal.logger';
 
 describe('DataExtractionService', () => {
   let service: DataExtractionService;
@@ -30,6 +31,10 @@ describe('DataExtractionService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AiClassifierService, useValue: mockAi },
         { provide: ConfigService, useValue: mockConfig },
+        {
+          provide: InternalEventLogger,
+          useValue: { logStarted: jest.fn(), logCompleted: jest.fn(), logFailed: jest.fn() },
+        },
       ],
     }).compile();
     service = moduleRef.get(DataExtractionService);

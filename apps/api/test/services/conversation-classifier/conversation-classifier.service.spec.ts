@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConversationClassifierService } from '../../../src/services/conversation-classifier.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AiClassifierService } from '../../../src/common/ai/ai-classifier.service';
+import { InternalEventLogger } from '../../../src/common/events/internal.logger';
 
 describe('ConversationClassifierService', () => {
   let service: ConversationClassifierService;
@@ -25,6 +26,10 @@ describe('ConversationClassifierService', () => {
         ConversationClassifierService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AiClassifierService, useValue: mockAi },
+        {
+          provide: InternalEventLogger,
+          useValue: { logStarted: jest.fn(), logCompleted: jest.fn(), logFailed: jest.fn() },
+        },
       ],
     }).compile();
 

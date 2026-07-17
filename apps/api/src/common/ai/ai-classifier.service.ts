@@ -1,5 +1,6 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { ProviderEventLogger } from '../events/provider.logger';
 
 /**
  * A field the extractor should pull from a conversation. Decoupled from the
@@ -45,7 +46,10 @@ export class AiClassifierService {
   private static readonly LANG_UNKNOWN = 'und';
   private static readonly LANG_OTHER = 'other';
 
-  constructor(config: ConfigService) {
+  constructor(
+    config: ConfigService,
+    private readonly providerLog: ProviderEventLogger,
+  ) {
     this.apiKey = config.get<string>('OPENAI_API_KEY');
     // gpt-4o-mini is the cheapest GPT-4-class model at the time of writing
     // (~$0.15/1M input tokens) and supports structured outputs in strict
@@ -358,6 +362,8 @@ export class AiClassifierService {
     schemaName: string,
     maxTokens = 64,
   ): Promise<T | null> {
+    const eventBase = `OPENAI_${schemaName.toUpperCase()}`;
+    const start = performance.now();
     try {
       const res = await fetch(this.endpoint, {
         method: 'POST',
@@ -398,6 +404,18 @@ export class AiClassifierService {
         this.logger.warn(
           `Classifier HTTP ${res.status}: ${body.slice(0, 200)}`,
         );
+        this.providerLog.log({
+          channel: 'INTERNAL',
+          eventName: `${eventBase}_FAILED`,
+          direction: 'OUTBOUND',
+          provider: 'OPENAI',
+          requestUrl: this.endpoint,
+          requestPayload: { model: this.model, schema: schemaName },
+          responseStatus: res.status,
+          latencyMs: Math.round(performance.now() - start),
+          success: false,
+          errorMessage: `HTTP ${res.status}`,
+        });
         return null;
       }
 
@@ -418,6 +436,17 @@ export class AiClassifierService {
         return null;
       }
 
+      this.providerLog.log({
+        channel: 'INTERNAL',
+        eventName: `${eventBase}_COMPLETED`,
+        direction: 'OUTBOUND',
+        provider: 'OPENAI',
+        requestUrl: this.endpoint,
+        requestPayload: { model: this.model, schema: schemaName },
+        responseStatus: res.status,
+        latencyMs: Math.round(performance.now() - start),
+      });
+
       try {
         return JSON.parse(message.content) as T;
       } catch (err) {
@@ -432,6 +461,17 @@ export class AiClassifierService {
       this.logger.warn(
         `Classifier call failed: ${err instanceof Error ? err.message : 'unknown'}`,
       );
+      this.providerLog.log({
+        channel: 'INTERNAL',
+        eventName: `${eventBase}_FAILED`,
+        direction: 'OUTBOUND',
+        provider: 'OPENAI',
+        requestUrl: this.endpoint,
+        requestPayload: { model: this.model, schema: schemaName },
+        latencyMs: Math.round(performance.now() - start),
+        success: false,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       return null;
     }
   }

@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { AiClassifierService } from '../common/ai/ai-classifier.service';
+import { InternalEventLogger } from '../common/events/internal.logger';
 
 /**
  * Conversation categorisation logic, invoked by a BullMQ repeatable job
@@ -44,6 +45,7 @@ export class ConversationClassifierService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly ai: AiClassifierService,
+    private readonly internalLog: InternalEventLogger,
   ) {}
 
   /**
@@ -55,16 +57,25 @@ export class ConversationClassifierService {
   triggerBatch(): boolean {
     if (this.running) return false;
     this.running = true;
+    const start = Date.now();
+    this.internalLog.logStarted('CLASSIFIER_RUN_STARTED');
     void this.runBatch()
       .then((processed) => {
         this.logger.log(
           `Classifier run complete: processed ${processed} session(s).`,
         );
+        this.internalLog.logCompleted('CLASSIFIER_RUN_COMPLETED', {
+          latencyMs: Date.now() - start,
+          metadata: { processed },
+        });
       })
       .catch((err) => {
         this.logger.warn(
           `Classifier run failed: ${err instanceof Error ? err.message : 'unknown'}`,
         );
+        this.internalLog.logFailed('CLASSIFIER_RUN_FAILED', err, {
+          metadata: { latencyMs: Date.now() - start },
+        });
       })
       .finally(() => {
         this.running = false;
