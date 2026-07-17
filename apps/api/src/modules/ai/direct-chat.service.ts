@@ -408,6 +408,7 @@ export class DirectChatService {
             sessionId: req.externalSessionId,
             traceId: trace.traceId,
             feature: req.feature ?? 'chat',
+            channel: req.channel,
             // Forward tools so buffered turns (WhatsApp) can escalate via the
             // connect_to_human tool too — parity with the streaming path.
             tools: req.tools,

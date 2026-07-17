@@ -9,7 +9,12 @@
  * See docs/plans/observability-everywhere-plan.md §5.
  */
 
-const MAX_BYTES = Number(process.env.EVENT_LOG_MAX_PAYLOAD_BYTES ?? 32_768);
+// NaN-guarded: a non-numeric env value (e.g. "32kb") must NOT silently disable the
+// cap (Number("32kb") = NaN, and `len > NaN` is always false → unbounded rows).
+const MAX_BYTES = (() => {
+  const n = Number(process.env.EVENT_LOG_MAX_PAYLOAD_BYTES);
+  return Number.isFinite(n) && n > 0 ? n : 32_768;
+})();
 
 // Header names we NEVER persist (lowercased). Auth + signature headers.
 const SENSITIVE_HEADERS = new Set([
@@ -19,10 +24,12 @@ const SENSITIVE_HEADERS = new Set([
   'proxy-authorization',
   'x-api-key',
   'xi-api-key',
+  'apikey',
   'api-subscription-key',
   'x-goog-api-key',
   'x-hub-signature',
   'x-hub-signature-256',
+  'svix-signature',
   'x-internal-secret',
 ]);
 
@@ -47,8 +54,36 @@ const NOISE_HEADERS = new Set([
 ]);
 
 // Body/object keys whose VALUES get replaced with [REDACTED] wherever they appear.
-const SENSITIVE_KEY =
-  /password|secret|token|apikey|api[_-]?key|authorization|credential|cookie|ssn|card|accesstoken|refreshtoken/i;
+// Substring-matched fragments that never collide with our own telemetry keys.
+const SENSITIVE_SUBSTR =
+  /password|passphrase|secret|apikey|api[_-]?key|authorization|credential|cookie|ssn|card|private[_-]?key|client[_-]?secret/i;
+
+// Token-count / timing metric keys that legitimately contain "token" — these are
+// exactly what the event log exists to capture, so they must NOT be redacted.
+// Anything else containing "token" (accessToken, refreshToken, apiToken, …) IS.
+const TOKEN_METRIC_KEYS = new Set([
+  'tokens',
+  'inputtokens',
+  'outputtokens',
+  'totaltokens',
+  'cachedinputtokens',
+  'reasoningtokens',
+  'prompttokens',
+  'completiontokens',
+  'maxtokens',
+  'maxinputtokens',
+  'maxoutputtokens',
+  'timetofirsttoken',
+  'timetolasttoken',
+]);
+
+/** True when an object key's VALUE must be replaced with [REDACTED]. */
+export function isSensitiveKey(key: string): boolean {
+  const k = key.toLowerCase();
+  if (SENSITIVE_SUBSTR.test(k)) return true;
+  if (k.includes('token')) return !TOKEN_METRIC_KEYS.has(k);
+  return false;
+}
 
 /**
  * Keep only useful, non-sensitive headers. Accepts an Express headers object, a
@@ -92,7 +127,7 @@ export function redact(value: unknown, depth = 0): unknown {
   }
   const out: Record<string, unknown> = {};
   for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    out[k] = SENSITIVE_KEY.test(k) ? '[REDACTED]' : redact(v, depth + 1);
+    out[k] = isSensitiveKey(k) ? '[REDACTED]' : redact(v, depth + 1);
   }
   return out;
 }

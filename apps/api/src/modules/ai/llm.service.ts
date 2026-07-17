@@ -80,11 +80,21 @@ export class LlmService {
     private readonly providerLog: ProviderEventLogger,
   ) {}
 
-  /** Which channel an LLM call belongs to, from its feature tag. */
-  private channelForFeature(feature: string): EventChannel {
-    if (feature === 'chat' || feature === 'chat-stream' || feature === 'warmup')
+  /**
+   * Which channel an LLM call belongs to. Prefers the explicit `request.channel`
+   * (the caller knows widget vs whatsapp); falls back to the feature tag only when
+   * unset. Note: the feature tag alone CAN'T tell widget from whatsapp buffered
+   * chat (both use feature 'chat'), so callers on those paths should set channel.
+   */
+  private eventChannel(request: LlmCompletionRequest): EventChannel {
+    if (request.channel) return request.channel;
+    if (request.feature === 'voice') return 'VOICE';
+    if (
+      request.feature === 'chat' ||
+      request.feature === 'chat-stream' ||
+      request.feature === 'warmup'
+    )
       return 'WIDGET';
-    if (feature === 'voice') return 'VOICE';
     return 'INTERNAL';
   }
 
@@ -144,7 +154,7 @@ export class LlmService {
       const actualModel = extractActualModel(result.providerMetadata, request.modelId);
 
       this.providerLog.log({
-        channel: this.channelForFeature(request.feature),
+        channel: this.eventChannel(request),
         eventName: 'LLM_COMPLETION_COMPLETED',
         direction: 'OUTBOUND',
         provider: parseModelId(request.modelId).provider.toUpperCase(),
@@ -173,7 +183,7 @@ export class LlmService {
       };
     } catch (err) {
       this.providerLog.log({
-        channel: this.channelForFeature(request.feature),
+        channel: this.eventChannel(request),
         eventName: 'LLM_COMPLETION_FAILED',
         direction: 'OUTBOUND',
         provider: parseModelId(request.modelId).provider.toUpperCase(),

@@ -121,7 +121,7 @@ describe('LoggingInterceptor', () => {
     });
   });
 
-  it('resolves WIDGET channel for public chat POSTs', (done) => {
+  it('does NOT capture WIDGET/VOICE/WHATSAPP envelopes (dedicated events + raw bodies)', (done) => {
     const { context } = createMockContext({
       method: 'POST',
       originalUrl: '/api/klivo/v1/public/chat/message',
@@ -130,7 +130,7 @@ describe('LoggingInterceptor', () => {
     const next = { handle: () => of({}) };
     interceptor.intercept(context, next).subscribe({
       complete: () => {
-        expect(logEvent.mock.calls[0][0].channel).toBe('WIDGET');
+        expect(logEvent).not.toHaveBeenCalled();
         done();
       },
     });
@@ -149,24 +149,11 @@ describe('LoggingInterceptor', () => {
     });
   });
 
-  it('captures a 4xx business rejection on a mutating route (success=false)', (done) => {
+  it('does NOT write on ANY error path — all failures are owned by AllExceptionsFilter', (done) => {
+    // 4xx thrown by guards never reach this interceptor anyway; centralising all
+    // error capture in the filter is the single-capture-point guarantee.
     const { context } = createMockContext({ method: 'POST', originalUrl: '/api/klivo/v1/agents' });
-    const error = new HttpException('Bad Request', 400);
-    const next = { handle: () => throwError(() => error) };
-    interceptor.intercept(context, next).subscribe({
-      error: () => {
-        const arg = logEvent.mock.calls[0][0];
-        expect(arg.responseStatus).toBe(400);
-        expect(arg.success).toBe(false);
-        expect(arg.errorMessage).toBe('Bad Request');
-        done();
-      },
-    });
-  });
-
-  it('does NOT write a row for a 5xx (left to AllExceptionsFilter)', (done) => {
-    const { context } = createMockContext({ method: 'POST' });
-    const next = { handle: () => throwError(() => new Error('boom')) };
+    const next = { handle: () => throwError(() => new HttpException('Bad Request', 400)) };
     interceptor.intercept(context, next).subscribe({
       error: () => {
         expect(logEvent).not.toHaveBeenCalled();

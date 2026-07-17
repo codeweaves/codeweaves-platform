@@ -54,16 +54,27 @@ export class EventLogRetentionService {
     }
 
     const cutoff = new Date(Date.now() - retentionDays * 24 * 60 * 60 * 1000);
-    const { count } = await this.prisma.eventLog.deleteMany({
-      where: { createdAt: { lt: cutoff } },
-    });
+    // Delete in bounded batches (id-subselect + LIMIT) rather than one giant
+    // DELETE. A first sweep over months of accumulation must not hold a single
+    // long lock on the hot-write event_logs table; each batch commits + releases.
+    const BATCH = 5_000;
+    let deleted = 0;
+    for (;;) {
+      const n = await this.prisma.$executeRaw`
+        DELETE FROM event_logs
+        WHERE id IN (
+          SELECT id FROM event_logs WHERE "createdAt" < ${cutoff} LIMIT ${BATCH}
+        )`;
+      deleted += n;
+      if (n < BATCH) break;
+    }
     this.log.info('cleanup', 'deleted expired event_logs rows', {
       retentionDays,
       cutoff: cutoff.toISOString(),
-      deleted: count,
+      deleted,
     });
     return {
-      deleted: count,
+      deleted,
       skipped: false,
       retentionDays,
       cutoff: cutoff.toISOString(),

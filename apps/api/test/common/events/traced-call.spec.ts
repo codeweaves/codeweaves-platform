@@ -49,6 +49,26 @@ describe('tracedCall', () => {
     expect(arg.errorMessage).toBe('429 rate limited');
   });
 
+  it('a throwing extract callback never fails the call nor logs FAILED', async () => {
+    const result = await tracedCall(
+      tracer,
+      {
+        channel: 'VOICE',
+        provider: 'SARVAM',
+        eventBase: 'SARVAM_STT',
+        extract: () => {
+          throw new Error('extract boom');
+        },
+      },
+      async () => 'ok',
+    );
+    // The successful call still returns; the event is COMPLETED, not FAILED.
+    expect(result).toBe('ok');
+    expect(logEvent).toHaveBeenCalledTimes(1);
+    expect(logEvent.mock.calls[0][0].eventName).toBe('SARVAM_STT_COMPLETED');
+    expect(logEvent.mock.calls[0][0].success).toBe(true);
+  });
+
   it('does not await the log write — a slow logger never blocks the call', async () => {
     // logEvent's promise never settles; tracedCall must still return promptly
     // because it `void`s the write rather than awaiting it.

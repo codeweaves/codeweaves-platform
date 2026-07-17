@@ -68,6 +68,36 @@ describe('redaction.util', () => {
       expect(out.nested.ok).toBe(1);
     });
 
+    it('preserves token-count / timing metrics (the telemetry we exist to capture)', () => {
+      const out = redact({
+        inputTokens: 100,
+        outputTokens: 50,
+        totalTokens: 150,
+        cachedInputTokens: 10,
+        maxTokens: 4096,
+        timeToFirstToken: 320,
+        timeToLastToken: 900,
+      }) as Record<string, number>;
+      expect(out.inputTokens).toBe(100);
+      expect(out.totalTokens).toBe(150);
+      expect(out.maxTokens).toBe(4096);
+      expect(out.timeToFirstToken).toBe(320);
+      expect(out.cachedInputTokens).toBe(10);
+    });
+
+    it('still redacts real token secrets (access/refresh/api/bare token)', () => {
+      const out = redact({
+        accessToken: 'a',
+        refreshToken: 'b',
+        apiToken: 'c',
+        token: 'd',
+      }) as Record<string, string>;
+      expect(out.accessToken).toBe('[REDACTED]');
+      expect(out.refreshToken).toBe('[REDACTED]');
+      expect(out.apiToken).toBe('[REDACTED]');
+      expect(out.token).toBe('[REDACTED]');
+    });
+
     it('reduces Buffers/Uint8Array to byte metadata, never raw bytes', () => {
       expect(redact(Buffer.from('hello'))).toEqual({ _binary: true, bytes: 5 });
       expect(redact(new Uint8Array([1, 2, 3]))).toEqual({ _binary: true, bytes: 3 });

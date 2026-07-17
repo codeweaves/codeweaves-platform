@@ -704,6 +704,9 @@ model EventLog {
   @@index([eventName])
   @@index([provider])
   @@index([actorUserId])
+  // Bare createdAt index for the retention sweep (DELETE ... WHERE createdAt < cutoff);
+  // the composite indexes above are led by other columns and can't serve it.
+  @@index([createdAt])
   @@map("event_logs")
 }
 

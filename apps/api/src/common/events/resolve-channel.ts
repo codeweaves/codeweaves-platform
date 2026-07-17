@@ -6,11 +6,29 @@ import { EventChannel } from '@prisma/client';
  * channel bucket. See docs/plans/observability-everywhere-plan.md §8.
  */
 export function resolveChannel(url: string): EventChannel {
-  if (url.includes('/public/voice') || url.includes('/voice')) return 'VOICE';
-  if (url.includes('/public/whatsapp') || url.includes('/whatsapp')) return 'WHATSAPP';
-  if (url.includes('/public/chat') || url.includes('/public/agents')) return 'WIDGET';
+  // Match on the PUBLIC route prefix, not bare substrings — otherwise dashboard
+  // routes like /agents/:id/whatsapp or /voices would be misbucketed as
+  // WHATSAPP/VOICE. Internal is checked first so cron routes never fall through.
   if (url.includes('/internal/')) return 'INTERNAL';
+  if (url.includes('/public/voice')) return 'VOICE';
+  if (url.includes('/public/whatsapp') || url.includes('/whatsapp/webhook'))
+    return 'WHATSAPP';
+  if (url.includes('/public/chat') || url.includes('/public/agents')) return 'WIDGET';
   return 'DASHBOARD';
+}
+
+/**
+ * Whether a mutating request on this channel gets an auto HTTP-envelope row.
+ *
+ * WIDGET / VOICE / WHATSAPP are EXCLUDED: they already emit dedicated channel
+ * events (with char/byte counts), and their request bodies carry raw visitor
+ * conversation text + repeat every turn — capturing the envelope too would
+ * duplicate rows and store the full message text we deliberately keep out.
+ * DASHBOARD (agent editor, CRUD) + INTERNAL (cron) have no dedicated events and
+ * carry config/ids, so the envelope is where their audit trail lives.
+ */
+export function capturesHttpEnvelope(channel: EventChannel): boolean {
+  return channel === 'DASHBOARD' || channel === 'INTERNAL';
 }
 
 /**
@@ -33,7 +51,8 @@ export function extractEntityIds(
     out.agentId = first(params.agentId) ?? first(params.id);
   }
   if (url.includes('/organizations/')) {
-    out.organizationId = first(params.organizationId) ?? first(params.id);
+    out.organizationId =
+      first(params.organizationId) ?? first(params.orgId) ?? first(params.id);
   }
   return out;
 }

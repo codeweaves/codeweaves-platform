@@ -67,6 +67,7 @@ export class WidgetEventLogger {
     agentId?: string;
     sessionId?: string;
     visitorId?: string;
+    metadata?: Record<string, unknown>;
   }): void {
     void this.tracer.logEvent({
       channel: 'WIDGET',
@@ -75,6 +76,7 @@ export class WidgetEventLogger {
       agentId: d.agentId,
       sessionId: d.sessionId,
       visitorId: d.visitorId,
+      metadata: d.metadata,
       success: false,
     });
   }

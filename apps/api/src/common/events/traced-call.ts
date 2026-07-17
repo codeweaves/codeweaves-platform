@@ -36,26 +36,9 @@ export async function tracedCall<T>(
   fn: () => Promise<T>,
 ): Promise<T> {
   const start = performance.now();
+  let result: T;
   try {
-    const result = await fn();
-    const extra = opts.extract?.(result) ?? {};
-    void tracer.logEvent({
-      channel: opts.channel,
-      eventName: `${opts.eventBase}_COMPLETED`,
-      direction: 'OUTBOUND',
-      provider: opts.provider,
-      agentId: opts.agentId,
-      sessionId: opts.sessionId,
-      organizationId: opts.organizationId,
-      visitorId: opts.visitorId,
-      requestUrl: opts.requestUrl,
-      requestHeaders: opts.requestHeaders,
-      requestPayload: opts.requestPayload,
-      latencyMs: Math.round(performance.now() - start),
-      success: true,
-      ...extra,
-    });
-    return result;
+    result = await fn();
   } catch (err) {
     void tracer.logEvent({
       channel: opts.channel,
@@ -75,4 +58,35 @@ export async function tracedCall<T>(
     });
     throw err;
   }
+
+  // Success path. `extract` + the COMPLETED write happen OUTSIDE the fn() try so
+  // a throwing extract callback (or logging) can never flip a successful
+  // third-party call into a thrown business error / a false _FAILED row.
+  let extra: {
+    responseStatus?: number;
+    responsePayload?: unknown;
+    metadata?: Record<string, unknown>;
+  } = {};
+  try {
+    extra = opts.extract?.(result) ?? {};
+  } catch {
+    // extract is best-effort telemetry — never affects the call result.
+  }
+  void tracer.logEvent({
+    channel: opts.channel,
+    eventName: `${opts.eventBase}_COMPLETED`,
+    direction: 'OUTBOUND',
+    provider: opts.provider,
+    agentId: opts.agentId,
+    sessionId: opts.sessionId,
+    organizationId: opts.organizationId,
+    visitorId: opts.visitorId,
+    requestUrl: opts.requestUrl,
+    requestHeaders: opts.requestHeaders,
+    requestPayload: opts.requestPayload,
+    latencyMs: Math.round(performance.now() - start),
+    success: true,
+    ...extra,
+  });
+  return result;
 }

@@ -208,6 +208,7 @@ export class WhatsappInboundService {
         externalSessionId: session.sessionId,
         newUserMessage: userText,
         feature: 'chat',
+        channel: 'WHATSAPP',
         extraSystemInstruction: inHandover
           ? this.chatService.handoverStallInstruction(agent)
           : offerHumanTools

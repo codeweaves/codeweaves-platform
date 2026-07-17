@@ -253,7 +253,9 @@ export class PublicChatController {
 
     if (!rateLimitResult.allowed) {
       this.log.warn('stream', `rate limited agent=${dto.agentId}`);
-      this.widgetLog.logRateLimited({ agentId: dto.agentId });
+      // Pre-resolution: only the widget publicId is known, so keep it in metadata
+      // rather than storing a publicId in the UUID-keyed agentId column.
+      this.widgetLog.logRateLimited({ metadata: { publicId: dto.agentId } });
       res.write(`data: ${JSON.stringify({ type: 'error', message: rateLimitResult.message })}\n\n`);
       res.end();
       return;
@@ -278,8 +280,12 @@ export class PublicChatController {
       }
     }, STREAM_TIMEOUT_MS);
 
+    // Internal agent UUID once resolved — so the catch's exception event uses the
+    // same id as the success events (never the widget publicId dto.agentId).
+    let resolvedAgentId: string | undefined;
     try {
       const agent = await this.chatService.resolveAgent(dto.agentId);
+      resolvedAgentId = agent.id;
       const visitorIp = ChatService.extractVisitorIp(req);
       const routingMode = resolveRoutingMode(agent.aiConfig);
 
@@ -635,7 +641,7 @@ export class PublicChatController {
       }
     } catch (error) {
       this.log.error('stream', `chat stream failed agent=${dto.agentId}`, error);
-      this.widgetLog.logException({ agentId: dto.agentId, error });
+      this.widgetLog.logException({ agentId: resolvedAgentId, error });
       if (!closed) {
         // IG2: Map service timeout errors to the friendly controller timeout message
         const isTimeout = error instanceof Error && error.message.includes('timed out');

@@ -13,6 +13,7 @@ import { TracerService } from '../common/tracer/tracer.service';
 import {
   resolveChannel,
   extractEntityIds,
+  capturesHttpEnvelope,
 } from '../common/events/resolve-channel';
 
 /** High-frequency endpoints kept out of the success log (errors still log). */
@@ -48,7 +49,14 @@ export class LoggingInterceptor implements NestInterceptor {
       }
     }
 
-    const captureEnvelope = MUTATING.has(method) && this.httpCaptureEnabled;
+    // Success envelopes only. ALL error paths (incl. 4xx thrown by guards before
+    // this interceptor's error tap ever runs) are captured centrally in
+    // AllExceptionsFilter — that's the single capture point, avoids double-writes,
+    // and is the only place auth/rate-limit rejections are visible.
+    const captureEnvelope =
+      MUTATING.has(method) &&
+      this.httpCaptureEnabled &&
+      capturesHttpEnvelope(resolveChannel(originalUrl));
 
     return next.handle().pipe(
       tap({
@@ -59,7 +67,7 @@ export class LoggingInterceptor implements NestInterceptor {
               `← ${method} ${originalUrl} ${res.statusCode} ${Date.now() - now}ms`,
             );
           }
-          if (captureEnvelope) {
+          if (captureEnvelope && res.statusCode < 400) {
             this.writeEnvelope(request, res.statusCode, body, now);
           }
         },
@@ -69,11 +77,6 @@ export class LoggingInterceptor implements NestInterceptor {
           this.logger.error(
             `← ${method} ${originalUrl} ${status} ${Date.now() - now}ms — ${message}`,
           );
-          // 5xx are written by AllExceptionsFilter (with the stack); here we
-          // capture 4xx business rejections on mutating routes so they're audited too.
-          if (captureEnvelope && status < 500) {
-            this.writeEnvelope(request, status, undefined, now, message);
-          }
         },
       }),
     );

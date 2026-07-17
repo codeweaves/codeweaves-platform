@@ -5,7 +5,7 @@ import type { PrismaService } from '../../src/services/prisma.service';
 describe('EventLogRetentionService', () => {
   let service: EventLogRetentionService;
   let retentionDays: string | undefined;
-  const deleteMany = jest.fn();
+  const executeRaw = jest.fn();
 
   // Plain arrow (not jest.fn) so it survives jest.config resetMocks:true and
   // returns the value the test sets on `retentionDays`.
@@ -14,7 +14,7 @@ describe('EventLogRetentionService', () => {
   } as unknown as ConfigService;
 
   const prisma = {
-    eventLog: { deleteMany },
+    $executeRaw: executeRaw,
   } as unknown as PrismaService;
 
   beforeEach(() => {
@@ -28,7 +28,7 @@ describe('EventLogRetentionService', () => {
 
       const result = await service.cleanup();
 
-      expect(deleteMany).not.toHaveBeenCalled();
+      expect(executeRaw).not.toHaveBeenCalled();
       expect(result).toEqual({ deleted: 0, skipped: true, retentionDays: 0 });
     });
 
@@ -37,7 +37,7 @@ describe('EventLogRetentionService', () => {
 
       const result = await service.cleanup();
 
-      expect(deleteMany).not.toHaveBeenCalled();
+      expect(executeRaw).not.toHaveBeenCalled();
       expect(result.skipped).toBe(true);
       expect(result.deleted).toBe(0);
     });
@@ -47,23 +47,22 @@ describe('EventLogRetentionService', () => {
 
       const result = await service.cleanup();
 
-      expect(deleteMany).not.toHaveBeenCalled();
+      expect(executeRaw).not.toHaveBeenCalled();
       expect(result.skipped).toBe(true);
     });
 
     it('deletes rows older than the cutoff when retention > 0 and returns the count', async () => {
       retentionDays = '30';
-      deleteMany.mockResolvedValue({ count: 7 });
+      executeRaw.mockResolvedValue(7); // < batch size → single pass
 
       const before = Date.now();
       const result = await service.cleanup();
       const after = Date.now();
 
-      expect(deleteMany).toHaveBeenCalledTimes(1);
-      const arg = deleteMany.mock.calls[0][0];
-      const cutoff: Date = arg.where.createdAt.lt;
+      expect(executeRaw).toHaveBeenCalledTimes(1);
+      // Tagged template: call args are (stringsArray, cutoffDate, batchSize).
+      const cutoff: Date = executeRaw.mock.calls[0][1];
       expect(cutoff).toBeInstanceOf(Date);
-      // Cutoff is ~30 days in the past.
       const thirtyDaysMs = 30 * 24 * 60 * 60 * 1000;
       expect(cutoff.getTime()).toBeGreaterThanOrEqual(before - thirtyDaysMs - 1000);
       expect(cutoff.getTime()).toBeLessThanOrEqual(after - thirtyDaysMs + 1000);
@@ -76,6 +75,21 @@ describe('EventLogRetentionService', () => {
           cutoff: cutoff.toISOString(),
         }),
       );
+    });
+
+    it('loops in batches until a partial batch is returned', async () => {
+      retentionDays = '30';
+      // 5000 (full batch) → 5000 (full batch) → 42 (partial) = 3 calls, 10042 deleted.
+      executeRaw
+        .mockResolvedValueOnce(5000)
+        .mockResolvedValueOnce(5000)
+        .mockResolvedValueOnce(42);
+
+      const result = await service.cleanup();
+
+      expect(executeRaw).toHaveBeenCalledTimes(3);
+      expect(result.deleted).toBe(10042);
+      expect(result.skipped).toBe(false);
     });
   });
 });
