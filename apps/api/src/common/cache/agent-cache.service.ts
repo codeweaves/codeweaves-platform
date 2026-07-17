@@ -25,6 +25,22 @@ const DEFAULT_TTL_SECONDS = 3600;
 const CACHE_PREFIX = 'agent:cache:';
 
 /**
+ * In-process L1 TTL (ms). Overridable via AGENT_CACHE_L1_TTL_MS env
+ * (set to 0 to disable the L1 entirely).
+ *
+ * Why an L1 at all: the "Redis ~1-3ms" assumption is false in production —
+ * Upstash over TLS measured p50 199ms / p95 1.3s per chat turn on the
+ * `knowledge.load` step (chat_traces, 60 days). Agent config changes only on
+ * editor saves, so a 45s in-process memo eliminates that network hop from
+ * virtually every turn. Cross-pod staleness is bounded by this TTL: another
+ * pod may serve a ≤45s-stale agent config after a save. `invalidate()` clears
+ * the local pod's L1 immediately.
+ */
+const DEFAULT_L1_TTL_MS = 45_000;
+/** Max L1 entries (~a few KB each). Oldest-inserted evicted beyond this. */
+const L1_MAX_ENTRIES = 500;
+
+/**
  * AgentCacheService: Redis-backed read-through cache for agent rows + their
  * 1:1 relations (currently: knowledge). Invalidated explicitly on every write
  * path; the TTL is a safety net, not the primary expiry mechanism.
@@ -55,6 +71,11 @@ const CACHE_PREFIX = 'agent:cache:';
 export class AgentCacheService {
   private readonly logger = new Logger(AgentCacheService.name);
   private readonly ttlSeconds: number;
+  private readonly l1TtlMs: number;
+  private readonly l1 = new Map<
+    string,
+    { value: CachedAgent; expiresAt: number }
+  >();
 
   constructor(
     private readonly prisma: PrismaService,
@@ -65,6 +86,10 @@ export class AgentCacheService {
     const parsed = raw ? parseInt(raw, 10) : NaN;
     this.ttlSeconds =
       Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TTL_SECONDS;
+    const l1Raw = this.config.get<string>('AGENT_CACHE_L1_TTL_MS');
+    const l1Parsed = l1Raw ? parseInt(l1Raw, 10) : NaN;
+    this.l1TtlMs =
+      Number.isFinite(l1Parsed) && l1Parsed >= 0 ? l1Parsed : DEFAULT_L1_TTL_MS;
   }
 
   /**
@@ -75,11 +100,20 @@ export class AgentCacheService {
   async getAgentWithKnowledge(agentId: string): Promise<CachedAgent | null> {
     const key = CACHE_PREFIX + agentId;
 
-    // 1. Try cache
+    // 0. In-process L1 — no network at all. This is what the chat hot path
+    // hits on virtually every turn (agent config only changes on editor saves).
+    const l1Hit = this.l1.get(key);
+    if (l1Hit && l1Hit.expiresAt > Date.now()) {
+      return l1Hit.value;
+    }
+    if (l1Hit) this.l1.delete(key);
+
+    // 1. Try Redis (cross-pod layer)
     try {
       const cached = await this.redis.get(key);
       if (cached) {
         const parsed = JSON.parse(cached, reviveDates) as CachedAgent;
+        this.setL1(key, parsed);
         return parsed;
       }
     } catch (err) {
@@ -98,10 +132,21 @@ export class AgentCacheService {
     });
     if (!agent) return null;
 
-    // 3. Populate cache (fire-and-forget — don't block the read on Redis)
+    // 3. Populate caches (Redis fire-and-forget — don't block the read)
+    this.setL1(key, agent);
     void this.setCache(key, agent);
 
     return agent;
+  }
+
+  /** Insert into the L1 memo, evicting the oldest entry beyond the cap. */
+  private setL1(key: string, value: CachedAgent): void {
+    if (this.l1TtlMs === 0) return; // env opt-out
+    if (this.l1.size >= L1_MAX_ENTRIES && !this.l1.has(key)) {
+      const oldestKey = this.l1.keys().next().value;
+      if (oldestKey) this.l1.delete(oldestKey);
+    }
+    this.l1.set(key, { value, expiresAt: Date.now() + this.l1TtlMs });
   }
 
   /**
@@ -111,6 +156,9 @@ export class AgentCacheService {
    * Always safe to call — no-op if the key doesn't exist.
    */
   async invalidate(agentId: string): Promise<void> {
+    // Local pod sees the write instantly; other pods converge within the L1
+    // TTL (their next Redis read misses because we delete the key below).
+    this.l1.delete(CACHE_PREFIX + agentId);
     try {
       await this.redis.del(CACHE_PREFIX + agentId);
     } catch (err) {

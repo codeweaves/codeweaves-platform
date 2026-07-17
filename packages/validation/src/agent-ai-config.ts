@@ -118,8 +118,14 @@ export const agentAiConfigSchema = z
      * fits comfortably in every model and keeps per-message cost low.
      */
     maxInputTokens: z.number().int().min(500).max(1_000_000).default(8000),
-    /** Which context-building strategy to use. */
-    contextStrategy: aiContextStrategyEnum.default('sliding-window'),
+    /**
+     * Which context-building strategy to use. 'hybrid' (default) = sliding
+     * window + a running summary of older messages, rebuilt asynchronously
+     * off the reply path — zero added latency, and long conversations keep
+     * their early context. Costs nothing until a conversation actually
+     * outgrows the window.
+     */
+    contextStrategy: aiContextStrategyEnum.default('hybrid'),
 
     // ----- RAG (Phase 3, fields included now to avoid later migrations) -----
     /** Automatically retrieve from the agent's knowledge base before answering. */

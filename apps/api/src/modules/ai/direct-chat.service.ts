@@ -27,6 +27,7 @@ import type { LlmStreamChunk } from './interfaces/llm.interfaces';
 import { LlmService } from './llm.service';
 import { PromptTemplateService } from './prompt-template.service';
 import { HybridContextStrategy } from './strategies/hybrid-context.strategy';
+import { SummaryRefreshService } from './summary-refresh.service';
 import type { TraceContext } from './trace/ai-trace.interfaces';
 import { AiTraceService } from './trace/ai-trace.service';
 import { UsageTrackingService } from './usage-tracking.service';
@@ -36,6 +37,14 @@ const KNOWLEDGE_DIVIDER = '\n\n---\n\n[REFERENCE KNOWLEDGE]\n';
 
 /** Divider prepended before the data-collection instruction. */
 const DATA_COLLECTION_DIVIDER = '\n\n---\n\n[DATA TO COLLECT]\n';
+
+/**
+ * Divider prepended before the running conversation summary (hybrid context
+ * strategy). Placed AFTER the stable persona/knowledge/instructions prefix so
+ * the per-conversation summary never breaks the provider prompt-cache prefix
+ * for the static part.
+ */
+const SUMMARY_DIVIDER = '\n\n---\n\n[SUMMARY OF EARLIER CONVERSATION]\n';
 
 /**
  * Features that represent a real end-user conversation turn — the only ones
@@ -108,7 +117,43 @@ export class DirectChatService {
     private readonly dataExtractionService: DataExtractionService,
     private readonly piiDetection: PiiDetectionService,
     private readonly piiTokenizer: PiiTokenizerService,
+    private readonly summaryRefresh: SummaryRefreshService,
   ) {}
+
+  /**
+   * After a reply is delivered: if this turn's context assembly truncated
+   * history and the agent uses a summarising strategy, rebuild the running
+   * summary in the background so the NEXT turn has it. Fire-and-forget —
+   * adds zero latency to the reply just delivered. Gated to real user-facing
+   * turns so internal send() calls (title-gen, the summariser itself) can
+   * never recurse.
+   */
+  private maybeScheduleSummaryRefresh(
+    req: DirectChatRequest,
+    config: AgentAiConfigDto,
+    context: { truncated: boolean; olderMessagesExist: boolean },
+    feature: string,
+    traceId: string,
+  ): void {
+    const strategy = config.contextStrategy ?? 'sliding-window';
+    if (strategy !== 'hybrid' && strategy !== 'summarize') return;
+    if (!context.truncated && !context.olderMessagesExist) return;
+    if (!CAPTURE_ELIGIBLE_FEATURES.has(feature)) return;
+    this.summaryRefresh.schedule({
+      chatSessionId: req.chatSessionId,
+      organizationId: req.agent.organizationId,
+      agentId: req.agent.id,
+      maxContextMessages: config.maxContextMessages,
+      piiRedactionEnabled: config.piiRedactionEnabled,
+      traceId,
+    });
+  }
+
+  /** Format the running summary for the system prompt ('' when absent). */
+  private static buildSummaryBlock(summary?: string): string {
+    if (!summary) return '';
+    return SUMMARY_DIVIDER + summary;
+  }
 
   /**
    * PII compliance floor, applied to EVERY request before anything reads it
@@ -216,11 +261,7 @@ export class DirectChatService {
     strategy: 'sliding-window' | 'summarize' | 'hybrid' | undefined,
     systemPrompt: string,
     modelId: string,
-    config: {
-      maxContextMessages?: number;
-      maxInputTokens?: number;
-      piiRedactionEnabled?: boolean;
-    },
+    config: { maxContextMessages?: number; maxInputTokens?: number },
     traceId: string,
   ) {
     const params = {
@@ -238,7 +279,6 @@ export class DirectChatService {
         organizationId: req.agent.organizationId,
         agentId: req.agent.id,
         traceId,
-        piiRedactionEnabled: config.piiRedactionEnabled ?? false,
       });
     }
     return this.contextService.assemble(params);
@@ -331,6 +371,10 @@ export class DirectChatService {
           : systemPromptResolved) +
         buildCollectionInstruction(dataFields) +
         buildFallbackInstruction(req.agent) +
+        // Running summary of truncated history (hybrid strategy). Sits after
+        // the stable prefix — prompt-cache safe; churns once per refresh, not
+        // per turn.
+        DirectChatService.buildSummaryBlock(context.summaryBlock) +
         buildExtraInstruction(req.extraSystemInstruction);
 
       trace.step('llm.call_start', {
@@ -432,6 +476,16 @@ export class DirectChatService {
       ) {
         void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
       }
+
+      // Rebuild the running summary for the NEXT turn (no-op unless this
+      // turn actually truncated history). Off the reply path by design.
+      this.maybeScheduleSummaryRefresh(
+        req,
+        config,
+        context,
+        req.feature ?? 'chat',
+        trace.traceId,
+      );
 
       return finalResult;
     } catch (err) {
@@ -537,6 +591,10 @@ export class DirectChatService {
           : systemPromptResolved) +
         buildCollectionInstruction(dataFields) +
         buildFallbackInstruction(req.agent) +
+        // Running summary of truncated history (hybrid strategy). Sits after
+        // the stable prefix — prompt-cache safe; churns once per refresh, not
+        // per turn.
+        DirectChatService.buildSummaryBlock(context.summaryBlock) +
         buildExtraInstruction(req.extraSystemInstruction);
 
       const contextData = {
@@ -719,6 +777,16 @@ export class DirectChatService {
       ) {
         void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
       }
+
+      // Rebuild the running summary for the NEXT turn (no-op unless this
+      // turn actually truncated history). Off the reply path by design.
+      this.maybeScheduleSummaryRefresh(
+        req,
+        config,
+        context,
+        req.feature ?? 'chat-stream',
+        trace.traceId,
+      );
     } catch (err) {
       const isAbort = err instanceof Error && err.name === 'AbortError';
       const errorMsg = err instanceof Error ? err.message : String(err);

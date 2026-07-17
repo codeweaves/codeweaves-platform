@@ -113,4 +113,18 @@ export interface AssembledContext {
    * `truncated` — older messages could exist that we never even saw.
    */
   olderMessagesExist: boolean;
+
+  /**
+   * Running summary of messages that fell outside the window (hybrid
+   * strategy). Returned as a SEPARATE field — never silently merged into
+   * `systemPrompt` — so the orchestrator controls placement: it must go AFTER
+   * the stable persona/knowledge prefix to keep the provider prompt-cache
+   * intact. Absent/undefined when the conversation fits the window or no
+   * summary has been generated yet.
+   *
+   * NOTE this fixes a real bug: the previous implementation injected the
+   * summary into `systemPrompt` here, which DirectChatService never read — the
+   * summary was generated, paid for, and silently discarded.
+   */
+  summaryBlock?: string;
 }
