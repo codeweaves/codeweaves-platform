@@ -1,6 +1,7 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from './prisma.service';
+import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import type { ConversationsListQuery } from '../models/conversations.dto';
 
@@ -24,6 +25,8 @@ import type { ConversationsListQuery } from '../models/conversations.dto';
  */
 @Injectable()
 export class ConversationsService {
+  private readonly log = new AppLogger(ConversationsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -62,6 +65,12 @@ export class ConversationsService {
 
   async list(query: ConversationsListQuery, user: CurrentUserData) {
     const { page, limit, sortBy, sortOrder } = query;
+    this.log.debug('list', 'listing conversations', {
+      role: user.role,
+      page,
+      limit,
+      hasSearch: !!query.search,
+    });
 
     const scope = this.buildAgentScopeFilter(query, user);
 
@@ -203,6 +212,10 @@ export class ConversationsService {
     if (!session) {
       throw new NotFoundException('Conversation not found');
     }
+    this.log.debug('getBySessionId', 'conversation loaded', {
+      sessionId: session.sessionId,
+      messageCount: session.messages.length,
+    });
 
     // ChatTrace is keyed by ChatSession.sessionId (string). Load all traces
     // for this session so the UI can correlate them with assistant messages

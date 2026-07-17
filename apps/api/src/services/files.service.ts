@@ -2,11 +2,11 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-  Logger,
 } from '@nestjs/common';
 import { Role } from '@prisma/client';
 import { PrismaService } from './prisma.service';
 import { SupabaseStorageService } from './supabase-storage.service';
+import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 const BUCKET = 'agent_assets';
@@ -22,7 +22,7 @@ export interface UploadAgentAssetParams {
 
 @Injectable()
 export class FilesService {
-  private readonly logger = new Logger(FilesService.name);
+  private readonly log = new AppLogger(FilesService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -34,6 +34,12 @@ export class FilesService {
     params: UploadAgentAssetParams,
   ) {
     const { agentId, purpose, user } = params;
+    this.log.debug('uploadAgentAsset', 'uploading agent asset', {
+      agentId,
+      purpose,
+      mimeType: file?.mimetype,
+      bytes: file?.size,
+    });
 
     // Validate purpose
     if (!ALLOWED_PURPOSES.includes(purpose)) {
@@ -96,9 +102,11 @@ export class FilesService {
       },
     });
 
-    this.logger.log(
-      `File uploaded: ${fileRecord.id} for agent ${agentId} (${purpose})`,
-    );
+    this.log.info('uploadAgentAsset', 'file uploaded', {
+      fileId: fileRecord.id,
+      agentId,
+      purpose,
+    });
 
     return {
       id: fileRecord.id,
@@ -125,7 +133,7 @@ export class FilesService {
     // Delete DB record
     await this.prisma.file.delete({ where: { id: fileId } });
 
-    this.logger.log(`File deleted: ${fileId}`);
+    this.log.info('deleteFile', 'file deleted', { fileId, agentId });
   }
 
   private async deletePreviousFile(entityId: string, purpose: string) {
@@ -140,7 +148,10 @@ export class FilesService {
     if (existing) {
       await this.storage.remove(existing.bucket, [existing.storageKey]);
       await this.prisma.file.delete({ where: { id: existing.id } });
-      this.logger.log(`Replaced previous file: ${existing.id} (${purpose})`);
+      this.log.info('deletePreviousFile', 'replaced previous file', {
+        fileId: existing.id,
+        purpose,
+      });
     }
   }
 

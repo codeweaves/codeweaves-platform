@@ -2,7 +2,6 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-  Logger,
   ServiceUnavailableException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
@@ -13,13 +12,14 @@ import { ClerkManagementService } from './clerk-management.service';
 import { InvitationStatus, Prisma } from '@prisma/client';
 import { CreateInvitationDto, InvitationListQuery } from '../models/invitation.dto';
 import { InvitationLoggerService } from '../common/logger/invitation.logger';
+import { AppLogger } from '../common/logger/app-logger';
 
 const INVITATION_EXPIRY_DAYS = 7;
 const MAX_REISSUE_COUNT = 5;
 
 @Injectable()
 export class InvitationsService {
-  private readonly logger = new Logger(InvitationsService.name);
+  private readonly log = new AppLogger(InvitationsService.name);
 
   constructor(
     private prisma: PrismaService,
@@ -31,6 +31,10 @@ export class InvitationsService {
 
   async create(dto: CreateInvitationDto, invitedById: string) {
     const email = dto.email.toLowerCase();
+    this.log.debug('create', 'creating invitation', {
+      role: dto.role,
+      organizationId: dto.organizationId ?? null,
+    });
 
     // Check if email already registered
     const existingUser = await this.prisma.user.findUnique({
@@ -73,6 +77,7 @@ export class InvitationsService {
       await this.sendInvitationEmail(invitation, passwordSetupUrl);
 
       await this.invitationLogger.logInvitationCreated(invitation.id, { response: invitation, request: dto });
+      this.log.info('create', 'invitation created', { invitationId: invitation.id });
       return invitation;
     } catch (error) {
       if (
@@ -83,6 +88,7 @@ export class InvitationsService {
           'Pending invitation already exists for this email',
         );
       }
+      this.log.error('create', 'invitation creation failed', error);
       await this.invitationLogger.logInvitationCreationException(
         email,
         error,
@@ -172,8 +178,10 @@ export class InvitationsService {
       await this.sendInvitationEmail(updated, passwordSetupUrl);
 
       await this.invitationLogger.logInvitationResent(updated.id, { response: updated });
+      this.log.info('resend', 'invitation resent', { invitationId: updated.id });
       return updated;
     } catch (error) {
+      this.log.error('resend', 'invitation resend failed', error, { invitationId: id });
       await this.invitationLogger.logInvitationResentException(id, error, {
         invitationId: id,
       });
@@ -220,6 +228,10 @@ export class InvitationsService {
     await this.sendInvitationEmail(updated, passwordSetupUrl);
 
     await this.invitationLogger.logInvitationReissued(invitation.id, { response: updated });
+    this.log.info('reissue', 'invitation reissued', {
+      invitationId: invitation.id,
+      reissueCount: updated.reissueCount,
+    });
     return { message: 'Invitation reissued successfully' };
   }
 
@@ -272,8 +284,11 @@ export class InvitationsService {
       try {
         await this.clerkManagement.revokeInvitation(invitation.clerkInvitationId);
       } catch (error) {
-        this.logger.error(
-          `Failed to revoke Clerk invitation ${invitation.clerkInvitationId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        this.log.error(
+          'cancel',
+          `failed to revoke Clerk invitation ${invitation.clerkInvitationId}`,
+          error,
+          { invitationId: id },
         );
         throw new ServiceUnavailableException(
           'Failed to revoke Clerk invitation; invitation was not cancelled. Please retry.',
@@ -286,8 +301,10 @@ export class InvitationsService {
         where: { id },
       });
       await this.invitationLogger.logInvitationCancelled(id, { response: deleted });
+      this.log.info('cancel', 'invitation cancelled', { invitationId: id });
       return deleted;
     } catch (error) {
+      this.log.error('cancel', 'invitation cancel failed', error, { invitationId: id });
       await this.invitationLogger.logInvitationCancelledException(id, error, {
         invitationId: id,
       });
@@ -320,8 +337,10 @@ export class InvitationsService {
             invitation.clerkInvitationId,
           );
         } catch (error) {
-          this.logger.warn(
-            `Failed to revoke stale Clerk invitation ${invitation.clerkInvitationId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+          this.log.warn(
+            'createClerkInvitationTicket',
+            `failed to revoke stale Clerk invitation ${invitation.clerkInvitationId}`,
+            { err: error instanceof Error ? error.message : 'Unknown error' },
           );
         }
       }
@@ -339,8 +358,10 @@ export class InvitationsService {
 
       return created.url;
     } catch (error) {
-      this.logger.error(
-        `Failed to create Clerk invitation for invitation ${invitation.id}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      this.log.error(
+        'createClerkInvitationTicket',
+        `failed to create Clerk invitation for invitation ${invitation.id}`,
+        error,
       );
       return null;
     }

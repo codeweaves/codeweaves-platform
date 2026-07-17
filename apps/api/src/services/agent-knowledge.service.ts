@@ -2,7 +2,6 @@ import { Buffer } from 'node:buffer';
 import {
   BadRequestException,
   Injectable,
-  Logger,
   NotFoundException,
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
@@ -18,6 +17,7 @@ import {
 } from '@repo/validation';
 
 import { AgentCacheService } from '../common/cache/agent-cache.service';
+import { AppLogger } from '../common/logger/app-logger';
 import { TokenCounterService } from '../modules/ai/token-counter.service';
 
 import { PrismaService } from './prisma.service';
@@ -55,7 +55,7 @@ export interface ExtractedText {
  */
 @Injectable()
 export class AgentKnowledgeService {
-  private readonly logger = new Logger(AgentKnowledgeService.name);
+  private readonly log = new AppLogger(AgentKnowledgeService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -108,6 +108,7 @@ export class AgentKnowledgeService {
     });
     // Bust the agent cache so the next chat turn sees fresh knowledge.
     await this.agentCache.invalidate(agentId);
+    this.log.info('set', 'knowledge content saved', { agentId, contentBytes, contentTokens });
     return updated;
   }
 
@@ -139,6 +140,11 @@ export class AgentKnowledgeService {
     file: Express.Multer.File,
   ): Promise<ExtractedText> {
     await this.assertAgentExists(agentId);
+    this.log.debug('extractFile', 'extracting knowledge from upload', {
+      agentId,
+      mimeType: file?.mimetype,
+      bytes: file?.size,
+    });
 
     if (!file) {
       throw new BadRequestException('No file provided.');
@@ -177,8 +183,16 @@ export class AgentKnowledgeService {
 
     const contentTokens = this.tokenCounter.countTokens(trimmed);
 
-    this.logger.log(
-      `Knowledge extracted for agent ${agentId}: ${file.originalname} (${file.mimetype || ext}, ${file.size} bytes → ${textBytes} bytes text, ${contentTokens} tokens). NOT persisted — call PUT /knowledge to save.`,
+    this.log.info(
+      'extractFile',
+      'knowledge extracted (not persisted — PUT /knowledge to save)',
+      {
+        agentId,
+        mimeType: file.mimetype || ext,
+        uploadBytes: file.size,
+        textBytes,
+        contentTokens,
+      },
     );
 
     return {
@@ -209,6 +223,7 @@ export class AgentKnowledgeService {
         // Already gone — nothing to do.
       });
     await this.agentCache.invalidate(agentId);
+    this.log.info('remove', 'knowledge removed', { agentId });
   }
 
   private async assertAgentExists(agentId: string): Promise<void> {

@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { RateLimiterService } from '../common/redis/rate-limiter.service';
+import { AppLogger } from '../common/logger/app-logger';
 import type { Request } from 'express';
 
 export interface MessageRateLimitResult {
@@ -20,7 +21,7 @@ const MSG_HOUR_EXCEEDED =
 
 @Injectable()
 export class MessageRateLimitService {
-  private readonly logger = new Logger(MessageRateLimitService.name);
+  private readonly log = new AppLogger(MessageRateLimitService.name);
 
   constructor(private readonly rateLimiterService: RateLimiterService) {}
 
@@ -38,8 +39,9 @@ export class MessageRateLimitService {
     );
 
     if (!hourResult.allowed) {
-      this.logger.warn(
-        `Hour rate limit exceeded for device=${deviceId} agent=${agentPublicId}`,
+      this.log.warn(
+        'checkMessageRateLimit',
+        `hour rate limit exceeded for device=${deviceId} agent=${agentPublicId}`,
       );
       return {
         allowed: false,
@@ -56,8 +58,9 @@ export class MessageRateLimitService {
     );
 
     if (!minuteResult.allowed) {
-      this.logger.warn(
-        `Minute rate limit exceeded for device=${deviceId} agent=${agentPublicId}`,
+      this.log.warn(
+        'checkMessageRateLimit',
+        `minute rate limit exceeded for device=${deviceId} agent=${agentPublicId}`,
       );
       return {
         allowed: false,

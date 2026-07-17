@@ -1,9 +1,10 @@
-import { Injectable, Logger, NotFoundException, BadGatewayException } from '@nestjs/common';
+import { Injectable, NotFoundException, BadGatewayException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { AgentsService } from './agents.service';
 import { HmacService } from '../common/security/hmac.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { TracerService } from '../common/tracer/tracer.service';
+import { AppLogger } from '../common/logger/app-logger';
 import { DirectChatService } from '../modules/ai/direct-chat.service';
 import { PiiDetectionService } from '../modules/pii/pii-detection.service';
 import { HandoverService } from './handover.service';
@@ -20,7 +21,7 @@ const MAX_LOG_RESPONSE_LENGTH = 500;
 
 @Injectable()
 export class ChatService {
-  private readonly logger = new Logger(ChatService.name);
+  private readonly log = new AppLogger(ChatService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -250,8 +251,10 @@ export class ChatService {
             data: { visitorId },
           })
           .catch((err) => {
-            this.logger.warn(
-              `visitorId backfill failed (session=${existing.id}): ${err instanceof Error ? err.message : String(err)}`,
+            this.log.warn(
+              'resolveOrCreateSession',
+              `visitorId backfill failed (session=${existing.id})`,
+              { err: err instanceof Error ? err.message : String(err) },
             );
           });
       }
@@ -734,7 +737,11 @@ export class ChatService {
   ): Promise<void> {
     const secret = await this.getAgentHmacSecret(agentId);
     if (!secret) {
-      this.logger.warn(`HMAC enabled but no secret found for agent ${agentId}, skipping verification`);
+      this.log.warn(
+        'verifyHmacSignature',
+        `HMAC enabled but no secret found for agent ${agentId}, skipping verification`,
+        { agentId, sessionId },
+      );
       return;
     }
 
@@ -776,17 +783,25 @@ export class ChatService {
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'TimeoutError') {
-        this.logger.warn(`n8n webhook timeout for session ${sessionId}`);
+        this.log.warn('callN8nWebhook', `n8n webhook timeout for session ${sessionId}`, { sessionId });
         throw new BadGatewayException('Response is taking too long, please try again');
       }
-      this.logger.error(
-        `n8n webhook network error for session ${sessionId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      this.log.error(
+        'callN8nWebhook',
+        `n8n webhook network error for session ${sessionId}`,
+        error,
+        { sessionId },
       );
       throw new BadGatewayException('Unable to connect to AI service, please try again');
     }
 
     if (!response.ok) {
-      this.logger.error(`n8n webhook returned ${response.status} for session ${sessionId}`);
+      this.log.error(
+        'callN8nWebhook',
+        `n8n webhook returned ${response.status} for session ${sessionId}`,
+        undefined,
+        { sessionId, status: response.status },
+      );
       throw new BadGatewayException('AI service returned an error, please try again');
     }
 
@@ -808,7 +823,12 @@ export class ChatService {
       const agentReply = payload?.agentReply ?? payload?.output;
       if (!agentReply || typeof agentReply !== 'string') {
         const truncated = JSON.stringify(data).slice(0, MAX_LOG_RESPONSE_LENGTH);
-        this.logger.error(`Unexpected n8n response format for session ${sessionId}: ${truncated}`);
+        this.log.error(
+          'callN8nWebhook',
+          `unexpected n8n response format for session ${sessionId}`,
+          undefined,
+          { sessionId, preview: truncated },
+        );
         throw new BadGatewayException('Unexpected response format from AI service');
       }
 
@@ -819,8 +839,11 @@ export class ChatService {
       };
     } catch (error) {
       if (error instanceof BadGatewayException) throw error;
-      this.logger.error(
-        `Failed to parse n8n response for session ${sessionId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
+      this.log.error(
+        'callN8nWebhook',
+        `failed to parse n8n response for session ${sessionId}`,
+        error,
+        { sessionId },
       );
       throw new BadGatewayException('Unexpected response format from AI service');
     }

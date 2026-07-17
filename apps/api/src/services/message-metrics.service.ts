@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
+import { AppLogger } from '../common/logger/app-logger';
 
 /**
  * Strict, typed metrics for one chat message — the canonical shape that maps
@@ -74,7 +75,7 @@ export interface MessageMetricsInput {
  */
 @Injectable()
 export class MessageMetricsService {
-  private readonly logger = new Logger(MessageMetricsService.name);
+  private readonly log = new AppLogger(MessageMetricsService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -93,8 +94,10 @@ export class MessageMetricsService {
         update: data,
       });
     } catch (err) {
-      this.logger.warn(
-        `Failed to record metrics for message ${messageId}: ${err instanceof Error ? err.message : 'unknown'}`,
+      this.log.warn(
+        'record',
+        `failed to record metrics for message ${messageId}`,
+        { err: err instanceof Error ? err.message : 'unknown' },
       );
     }
   }
