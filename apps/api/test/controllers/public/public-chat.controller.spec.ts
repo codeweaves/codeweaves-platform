@@ -9,6 +9,7 @@ import { MessageRateLimitService } from '../../../src/services/message-rate-limi
 import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 import { HandoverService } from '../../../src/services/handover.service';
 import { PrismaService } from '../../../src/services/prisma.service';
+import { WidgetEventLogger } from '../../../src/common/events/widget.logger';
 
 describe('PublicChatController', () => {
   let controller: PublicChatController;
@@ -70,6 +71,16 @@ describe('PublicChatController', () => {
         { provide: DirectChatService, useValue: mockDirectChatService },
         { provide: HandoverService, useValue: mockHandoverService },
         { provide: PrismaService, useValue: mockPrisma },
+        {
+          provide: WidgetEventLogger,
+          useValue: {
+            logMessageReceived: jest.fn(),
+            logReplySent: jest.fn(),
+            logRateLimited: jest.fn(),
+            logException: jest.fn(),
+            logSessionStarted: jest.fn(),
+          },
+        },
       ],
     }).compile();
 

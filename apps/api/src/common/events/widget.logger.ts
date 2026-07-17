@@ -48,6 +48,7 @@ export class WidgetEventLogger {
     visitorId?: string;
     response?: unknown;
     latencyMs?: number;
+    metadata?: Record<string, unknown>;
   }): void {
     void this.tracer.logEvent({
       channel: 'WIDGET',
@@ -58,6 +59,7 @@ export class WidgetEventLogger {
       visitorId: d.visitorId,
       responsePayload: d.response,
       latencyMs: d.latencyMs,
+      metadata: d.metadata,
     });
   }
 

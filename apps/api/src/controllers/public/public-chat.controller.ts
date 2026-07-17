@@ -1,5 +1,7 @@
-import { Controller, Post, Get, Body, Param, Query, Res, Req, HttpException, Logger, HttpCode } from '@nestjs/common';
+import { Controller, Post, Get, Body, Param, Query, Res, Req, HttpException, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
+import { AppLogger } from '../../common/logger/app-logger';
+import { WidgetEventLogger } from '../../common/events/widget.logger';
 import type { Request, Response } from 'express';
 import { randomUUID } from 'node:crypto';
 import { z } from 'zod';
@@ -34,7 +36,7 @@ type RequestHumanDto = z.infer<typeof requestHumanSchema>;
 @Public()
 @Controller('public/chat')
 export class PublicChatController {
-  private readonly logger = new Logger(PublicChatController.name);
+  private readonly log = new AppLogger(PublicChatController.name);
 
   constructor(
     private readonly chatService: ChatService,
@@ -44,6 +46,7 @@ export class PublicChatController {
     private readonly directChatService: DirectChatService,
     private readonly handoverService: HandoverService,
     private readonly prisma: PrismaService,
+    private readonly widgetLog: WidgetEventLogger,
   ) {}
 
   /**
@@ -119,9 +122,9 @@ export class PublicChatController {
           // the LLM call progresses, independent of whether we read chunks.
         }
       } catch (err) {
-        this.logger.warn(
-          `Warmup failed for agent ${agent.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        this.log.warn('warmup', `background LLM warmup failed for agent ${agent.id}`, {
+          err: err instanceof Error ? err.message : String(err),
+        });
       }
     })();
   }
@@ -249,6 +252,8 @@ export class PublicChatController {
     );
 
     if (!rateLimitResult.allowed) {
+      this.log.warn('stream', `rate limited agent=${dto.agentId}`);
+      this.widgetLog.logRateLimited({ agentId: dto.agentId });
       res.write(`data: ${JSON.stringify({ type: 'error', message: rateLimitResult.message })}\n\n`);
       res.end();
       return;
@@ -281,9 +286,9 @@ export class PublicChatController {
       // IG1: Warn when HMAC is enabled — streaming responses cannot be HMAC-verified.
       // Direct mode has no webhook so HMAC is moot; only warn for n8n mode.
       if (agent.hmacEnabled && routingMode === 'n8n') {
-        this.logger.warn(
-          `Agent ${agent.id} has HMAC enabled but streaming responses cannot be verified. ` +
-          `HMAC verification only applies to non-streaming (sendMessage) path.`,
+        this.log.warn(
+          'stream',
+          `agent ${agent.id} has HMAC enabled but streaming responses cannot be verified (applies to sendMessage path only)`,
         );
       }
 
@@ -303,6 +308,17 @@ export class PublicChatController {
         : Promise.resolve(null);
 
       const [session, fullAgentResult] = await Promise.all([sessionPromise, fullAgentPromise]);
+
+      this.log.info('stream', `message received agent=${agent.id} mode=${routingMode}`, {
+        sessionId: session.sessionId,
+        chars: dto.chatInput.length,
+      });
+      this.widgetLog.logMessageReceived({
+        agentId: agent.id,
+        sessionId: session.sessionId,
+        visitorId: visitorIp,
+        payload: { chars: dto.chatInput.length, source: dto.source ?? 'WIDGET', routingMode },
+      });
 
       // Push an early `session` event so the client knows the connection is
       // alive and which session to round-trip on the next turn. Without this,
@@ -352,8 +368,10 @@ export class PublicChatController {
       void this.chatService
         .saveUserMessage(session.id, dto.chatInput, userMessageId)
         .catch((err) => {
-          this.logger.warn(
-            `saveUserMessage failed (sessionId=${session.sessionId}, messageId=${userMessageId}): ${err instanceof Error ? err.message : String(err)}`,
+          this.log.warn(
+            'stream',
+            `saveUserMessage failed sessionId=${session.sessionId} messageId=${userMessageId}`,
+            { err: err instanceof Error ? err.message : String(err) },
           );
         });
 
@@ -578,6 +596,22 @@ export class PublicChatController {
           handoverState: clientHandoverState,
         })}\n\n`);
 
+        this.log.info('stream', `reply sent agent=${agent.id}`, {
+          sessionId: session.sessionId,
+          chars: fullResponse.length,
+          ms: metadata.responseLatencyMs,
+        });
+        // Reply-sent event carries the full turn metadata (model, tokens, cost,
+        // latency) — the SSE envelope can't, since streams return no body.
+        this.widgetLog.logReplySent({
+          agentId: agent.id,
+          sessionId: session.sessionId,
+          visitorId: visitorIp,
+          response: { chars: fullResponse.length },
+          latencyMs: metadata.responseLatencyMs,
+          metadata: metadata as unknown as Record<string, unknown>,
+        });
+
         // Persist in the background. Errors log but don't leak to the user
         // (the response is already closed at this point). If the write fails,
         // the trace + pino logs still have the response so analytics isn't
@@ -585,19 +619,23 @@ export class PublicChatController {
         void this.chatService
           .saveAssistantMessage(session.id, fullResponse, metadata, assistantMessageId)
           .catch((err) => {
-            this.logger.warn(
-              `Assistant message persist failed (sessionId=${session.sessionId}, messageId=${assistantMessageId}): ${err instanceof Error ? err.message : String(err)}`,
+            this.log.warn(
+              'stream',
+              `assistant message persist failed sessionId=${session.sessionId} messageId=${assistantMessageId}`,
+              { err: err instanceof Error ? err.message : String(err) },
             );
           });
         void this.chatService
           .updateSessionTimestamp(session.id)
           .catch((err) => {
-            this.logger.warn(
-              `Session timestamp update failed (sessionId=${session.sessionId}): ${err instanceof Error ? err.message : String(err)}`,
-            );
+            this.log.warn('stream', `session timestamp update failed sessionId=${session.sessionId}`, {
+              err: err instanceof Error ? err.message : String(err),
+            });
           });
       }
     } catch (error) {
+      this.log.error('stream', `chat stream failed agent=${dto.agentId}`, error);
+      this.widgetLog.logException({ agentId: dto.agentId, error });
       if (!closed) {
         // IG2: Map service timeout errors to the friendly controller timeout message
         const isTimeout = error instanceof Error && error.message.includes('timed out');
