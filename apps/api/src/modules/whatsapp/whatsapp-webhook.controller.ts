@@ -5,7 +5,6 @@ import {
   Req,
   Res,
   Query,
-  Logger,
   type RawBodyRequest,
 } from '@nestjs/common';
 import { ApiTags, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
@@ -13,6 +12,8 @@ import { createHmac, timingSafeEqual } from 'node:crypto';
 import type { Request, Response } from 'express';
 
 import { Public } from '../../decorators/public.decorator';
+import { AppLogger } from '../../common/logger/app-logger';
+import { WhatsappEventLogger } from '../../common/events/whatsapp.logger';
 
 import type {
   WhatsappInboundJob,
@@ -40,7 +41,7 @@ import { WhatsappInboundService } from './whatsapp-inbound.service';
 @Public()
 @Controller('public/whatsapp')
 export class WhatsappWebhookController {
-  private readonly logger = new Logger(WhatsappWebhookController.name);
+  private readonly log = new AppLogger(WhatsappWebhookController.name);
 
   /**
    * Recently-processed inbound message ids (wamid), for best-effort dedup of
@@ -54,6 +55,7 @@ export class WhatsappWebhookController {
   constructor(
     private readonly config: WhatsappConfigService,
     private readonly inbound: WhatsappInboundService,
+    private readonly whatsappLog: WhatsappEventLogger,
   ) {}
 
   /** GET verification handshake — Meta calls this once when you register the webhook. */
@@ -69,9 +71,12 @@ export class WhatsappWebhookController {
     const verifyToken = this.config.verifyToken;
 
     if (mode === 'subscribe' && verifyToken && token === verifyToken) {
+      // Semantic event: Meta successfully verified the webhook. Fire-and-forget.
+      this.whatsappLog.logWebhookVerified();
+      this.log.info('verify', 'webhook verification succeeded');
       return res.status(200).send(challenge);
     }
-    this.logger.warn('WhatsApp webhook verification failed (token mismatch).');
+    this.log.warn('verify', 'webhook verification failed (token mismatch)');
     return res.status(403).send('Forbidden');
   }
 
@@ -83,15 +88,16 @@ export class WhatsappWebhookController {
     @Res() res: Response,
   ): Promise<Response> {
     if (!this.config.isConfigured) {
-      this.logger.error(
-        'WhatsApp not configured (WHATSAPP_APP_SECRET / WHATSAPP_WEBHOOK_VERIFY_TOKEN missing).',
+      this.log.error(
+        'receive',
+        'WhatsApp not configured (WHATSAPP_APP_SECRET / WHATSAPP_WEBHOOK_VERIFY_TOKEN missing)',
       );
       return res.status(503).send();
     }
 
     const raw = req.rawBody;
     if (!raw || !this.verifySignature(raw, req.headers['x-hub-signature-256'])) {
-      this.logger.warn('WhatsApp webhook signature verification failed.');
+      this.log.warn('receive', 'signature verification failed');
       return res.status(401).send();
     }
 
@@ -100,7 +106,7 @@ export class WhatsappWebhookController {
       payload = JSON.parse(raw.toString('utf8')) as WhatsappWebhookPayload;
     } catch {
       // Unparseable — ACK 200 so Meta doesn't retry a body we can never accept.
-      this.logger.warn('Unparseable WhatsApp webhook body.');
+      this.log.warn('receive', 'unparseable webhook body');
       return res.status(200).send();
     }
 
@@ -115,12 +121,17 @@ export class WhatsappWebhookController {
     // (WhatsappInboundService already best-effort replies to the user on failure).
     for (const job of jobs) {
       if (!this.markSeen(job.messageId)) {
-        this.logger.debug(`Duplicate WhatsApp delivery ${job.messageId} — skipping.`);
+        this.log.debug('receive', 'duplicate WhatsApp delivery — skipping', {
+          messageId: job.messageId,
+        });
         continue;
       }
       void this.inbound.handleInbound(job).catch((err: unknown) =>
-        this.logger.error(
-          `WhatsApp inbound processing failed for ${job.messageId}: ${err instanceof Error ? err.message : String(err)}`,
+        this.log.error(
+          'receive',
+          'inbound processing failed',
+          err,
+          { messageId: job.messageId },
         ),
       );
     }

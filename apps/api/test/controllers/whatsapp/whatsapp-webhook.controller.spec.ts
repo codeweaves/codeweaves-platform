@@ -3,6 +3,7 @@ import type { Request, Response } from 'express';
 
 import type { WhatsappConfigService } from '../../../src/modules/whatsapp/whatsapp-config.service';
 import type { WhatsappInboundService } from '../../../src/modules/whatsapp/whatsapp-inbound.service';
+import type { WhatsappEventLogger } from '../../../src/common/events/whatsapp.logger';
 import { WhatsappWebhookController } from '../../../src/modules/whatsapp/whatsapp-webhook.controller';
 
 const APP_SECRET = 'app-secret';
@@ -60,6 +61,7 @@ function buildPayload(messageId = 'wamid.in') {
 describe('WhatsappWebhookController', () => {
   let config: { isConfigured: boolean; appSecret: string; verifyToken: string };
   let inbound: { handleInbound: jest.Mock };
+  let whatsappLog: { logWebhookVerified: jest.Mock };
   let controller: WhatsappWebhookController;
 
   beforeEach(() => {
@@ -69,9 +71,11 @@ describe('WhatsappWebhookController', () => {
       verifyToken: VERIFY_TOKEN,
     };
     inbound = { handleInbound: jest.fn().mockResolvedValue(undefined) };
+    whatsappLog = { logWebhookVerified: jest.fn() };
     controller = new WhatsappWebhookController(
       config as unknown as WhatsappConfigService,
       inbound as unknown as WhatsappInboundService,
+      whatsappLog as unknown as WhatsappEventLogger,
     );
   });
 
@@ -88,6 +92,7 @@ describe('WhatsappWebhookController', () => {
       );
       expect(status).toHaveBeenCalledWith(200);
       expect(send).toHaveBeenCalledWith('CHALLENGE');
+      expect(whatsappLog.logWebhookVerified).toHaveBeenCalledTimes(1);
     });
 
     it('returns 403 when the token does not match', () => {
@@ -101,6 +106,7 @@ describe('WhatsappWebhookController', () => {
         res,
       );
       expect(status).toHaveBeenCalledWith(403);
+      expect(whatsappLog.logWebhookVerified).not.toHaveBeenCalled();
     });
   });
 
