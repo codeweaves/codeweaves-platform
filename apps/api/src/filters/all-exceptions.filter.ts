@@ -9,13 +9,21 @@ import {
 import { Response, Request } from 'express';
 import { getRequestContext } from '../common/tracer/correlation.storage';
 import { SentryService } from '../common/sentry/sentry.service';
+import { TracerService } from '../common/tracer/tracer.service';
+import {
+  resolveChannel,
+  extractEntityIds,
+} from '../common/events/resolve-channel';
 
 @Injectable()
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
-  constructor(private readonly sentryService: SentryService) {}
+  constructor(
+    private readonly sentryService: SentryService,
+    private readonly tracer: TracerService,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -37,6 +45,35 @@ export class AllExceptionsFilter implements ExceptionFilter {
         method: request.method,
         url: request.originalUrl,
       });
+
+      // Fire-and-forget: persist the failed-request envelope so 5xx are auditable
+      // (with the stack). 4xx on mutating routes are captured by LoggingInterceptor,
+      // so this only handles 5xx to avoid double-writing.
+      if (process.env.EVENT_LOG_HTTP_CAPTURE !== 'false') {
+        const channel = resolveChannel(request.originalUrl);
+        const { agentId, organizationId } = extractEntityIds(
+          request.originalUrl,
+          request.params ?? {},
+        );
+        void this.tracer.logEvent({
+          channel,
+          eventName: `${channel}_HTTP_ERROR`,
+          direction: 'INBOUND',
+          agentId,
+          organizationId,
+          requestUrl: request.originalUrl,
+          requestHeaders: request.headers,
+          requestPayload: request.body,
+          responseStatus: status,
+          success: false,
+          errorMessage:
+            exception instanceof Error ? exception.message : String(exception),
+          metadata: {
+            method: request.method,
+            stack: exception instanceof Error ? exception.stack : undefined,
+          },
+        });
+      }
     }
 
     // Preserve structured HttpException responses (e.g. { message, reissueToken })

@@ -5,17 +5,22 @@ import {
   RequestContext,
 } from '../../src/common/tracer/correlation.storage';
 import { SentryService } from '../../src/common/sentry/sentry.service';
+import { TracerService } from '../../src/common/tracer/tracer.service';
 
 describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
   let mockSentryService: jest.Mocked<Pick<SentryService, 'captureException'>>;
+  const logEvent = jest.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.EVENT_LOG_HTTP_CAPTURE;
     mockSentryService = {
       captureException: jest.fn(),
     };
     filter = new AllExceptionsFilter(
       mockSentryService as unknown as SentryService,
+      { logEvent } as unknown as TracerService,
     );
   });
 
@@ -170,5 +175,31 @@ describe('AllExceptionsFilter', () => {
     filter.catch(new HttpException('Not Found', 404), host);
 
     expect(mockSentryService.captureException).not.toHaveBeenCalled();
+  });
+
+  it('writes a failed-request event_logs envelope for 5xx (with stack)', () => {
+    const { host } = createMockHost();
+    filter.catch(new Error('kaboom'), host);
+
+    expect(logEvent).toHaveBeenCalledTimes(1);
+    const arg = logEvent.mock.calls[0][0];
+    expect(arg.eventName).toBe('DASHBOARD_HTTP_ERROR');
+    expect(arg.responseStatus).toBe(500);
+    expect(arg.success).toBe(false);
+    expect(arg.errorMessage).toBe('kaboom');
+    expect(typeof arg.metadata.stack).toBe('string');
+  });
+
+  it('does NOT write an event_logs row for 4xx (handled by the interceptor)', () => {
+    const { host } = createMockHost();
+    filter.catch(new HttpException('Bad Request', 400), host);
+    expect(logEvent).not.toHaveBeenCalled();
+  });
+
+  it('does not write when EVENT_LOG_HTTP_CAPTURE=false', () => {
+    process.env.EVENT_LOG_HTTP_CAPTURE = 'false';
+    const { host } = createMockHost();
+    filter.catch(new Error('kaboom'), host);
+    expect(logEvent).not.toHaveBeenCalled();
   });
 });

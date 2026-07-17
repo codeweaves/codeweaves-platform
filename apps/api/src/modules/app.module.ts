@@ -21,6 +21,7 @@ import { ConversationClassifierModule } from './conversation-classifier.module';
 import { DataExtractionModule } from './data-extraction.module';
 import { WhatsappModule } from './whatsapp/whatsapp.module';
 import { TracerModule } from '../common/tracer/tracer.module';
+import { EventsModule } from '../common/events/events.module';
 import { CryptoModule } from '../common/crypto/crypto.module';
 import { PiiModule } from './pii/pii.module';
 import { RedisModule } from '../common/redis/redis.module';
@@ -63,6 +64,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     DataExtractionModule,
     WhatsappModule,
     TracerModule,
+    EventsModule,
     CryptoModule,
     PiiModule,
     RedisModule,
