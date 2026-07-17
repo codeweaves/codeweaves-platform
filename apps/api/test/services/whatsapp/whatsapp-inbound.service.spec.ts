@@ -105,6 +105,12 @@ describe('WhatsappInboundService', () => {
       direct as unknown as DirectChatService,
       send as unknown as WhatsappSendService,
       voice as unknown as VoiceService,
+      {
+        logMessageReceived: () => undefined,
+        logReplySent: () => undefined,
+        logInboundException: () => undefined,
+        logWebhookVerified: () => undefined,
+      } as unknown as import('../../../src/common/events/whatsapp.logger').WhatsappEventLogger,
     );
   });
 
