@@ -449,11 +449,14 @@ model ChatSession {
   // exchanges. Populated asynchronously after the 2nd assistant reply.
   // Used by conversation list UIs and analytics. Null until generated.
   title               String?         @db.VarChar(200)
-  // Running summary of earlier conversation (populated by HybridContextStrategy
-  // when the conversation outgrows the token budget). Complements the
-  // in-memory cache — DB persistence survives restarts so Redis/memory cache
-  // loss doesn't force re-summarisation on every turn.
+  // Running summary of earlier conversation, rebuilt OFF the reply path by
+  // SummaryRefreshService whenever a turn's context assembly truncated
+  // history. Postgres is the single source of truth (no per-pod caches); the
+  // hybrid context strategy reads this column on truncating turns.
   summary             String?         @db.Text
+  // Generation marker: total message count when `summary` was last built.
+  // Refresh skips when this equals the live count (summary already current).
+  summaryMessageCount Int?
   // Conversation category picked by the post-session LLM classifier from the
   // agent's `categoryKeywords` list. Null until classification runs (after a
   // period of inactivity) or when the agent has no keywords configured.

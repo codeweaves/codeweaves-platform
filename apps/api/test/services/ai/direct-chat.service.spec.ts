@@ -13,9 +13,11 @@ import { AgentCacheService } from '../../../src/common/cache/agent-cache.service
 import { DataExtractionService } from '../../../src/services/data-extraction.service';
 import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
 import { PiiTokenizerService } from '../../../src/modules/pii/pii-tokenizer.service';
+import { SummaryRefreshService } from '../../../src/modules/ai/summary-refresh.service';
 import type { LlmStreamChunk } from '../../../src/modules/ai/interfaces/llm.interfaces';
 
 const mockPiiTokenizer = { forSession: jest.fn() };
+const mockSummaryRefresh = { schedule: jest.fn() };
 
 describe('DirectChatService', () => {
   let service: DirectChatService;
@@ -96,6 +98,7 @@ describe('DirectChatService', () => {
         },
         PiiDetectionService,
         { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
+        { provide: SummaryRefreshService, useValue: mockSummaryRefresh },
       ],
     }).compile();
     service = moduleRef.get(DirectChatService);

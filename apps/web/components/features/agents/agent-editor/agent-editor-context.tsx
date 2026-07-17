@@ -405,7 +405,7 @@ const DEFAULT_AI_CONFIG: import('@repo/validation').AgentAiConfigDto = {
   maxTokens: 4096,
   maxContextMessages: 20,
   maxInputTokens: 8000,
-  contextStrategy: 'sliding-window',
+  contextStrategy: 'hybrid',
   ragEnabled: true,
   ragTopK: 5,
   ragSimilarityThreshold: 0.7,

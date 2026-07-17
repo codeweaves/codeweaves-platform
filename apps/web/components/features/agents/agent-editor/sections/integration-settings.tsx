@@ -413,7 +413,7 @@ function DirectModeConfig({
             <div className="space-y-2">
               <Label className="text-sm font-medium">Context strategy</Label>
               <Select
-                value={aiConfig.contextStrategy ?? 'sliding-window'}
+                value={aiConfig.contextStrategy ?? 'hybrid'}
                 onValueChange={(v) =>
                   patch({ contextStrategy: v as AgentAiConfigDto['contextStrategy'] })
                 }
@@ -422,14 +422,17 @@ function DirectModeConfig({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="sliding-window">Sliding window (default)</SelectItem>
+                  <SelectItem value="hybrid">Hybrid — recent + summary (default)</SelectItem>
+                  <SelectItem value="sliding-window">Sliding window only</SelectItem>
                   <SelectItem value="summarize">Summarize older messages</SelectItem>
-                  <SelectItem value="hybrid">Hybrid (recent + summary)</SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                How the agent builds context for long conversations.
-                Sliding-window is cheapest and usually fine.
+                How the agent remembers long conversations. Hybrid keeps recent
+                messages verbatim and summarizes older ones in the background —
+                no added reply time, and the bot keeps early details (like a
+                name given at the start). Costs nothing until a conversation
+                gets long.
               </p>
             </div>
 

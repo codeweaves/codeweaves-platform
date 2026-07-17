@@ -9,6 +9,7 @@ import { DirectChatService } from './direct-chat.service';
 import { PromptTemplateService } from './prompt-template.service';
 import { HybridContextStrategy } from './strategies/hybrid-context.strategy';
 import { SummarizationService } from './summarization.service';
+import { SummaryRefreshService } from './summary-refresh.service';
 import { UsageTrackingService } from './usage-tracking.service';
 
 /**
@@ -27,6 +28,7 @@ import { UsageTrackingService } from './usage-tracking.service';
     HybridContextStrategy,
     PromptTemplateService,
     SummarizationService,
+    SummaryRefreshService,
     UsageTrackingService,
   ],
   exports: [
@@ -36,6 +38,7 @@ import { UsageTrackingService } from './usage-tracking.service';
     HybridContextStrategy,
     PromptTemplateService,
     SummarizationService,
+    SummaryRefreshService,
     UsageTrackingService,
   ],
 })
