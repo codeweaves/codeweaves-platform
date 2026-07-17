@@ -2,6 +2,7 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClerkClient, type ClerkClient } from '@clerk/backend';
 import { ClerkLoggerService } from '../common/logger/clerk.logger';
+import { ProviderEventLogger } from '../common/events/provider.logger';
 
 export interface CreatedInvitation {
   id: string;
@@ -17,6 +18,7 @@ export class ClerkManagementService {
   constructor(
     private configService: ConfigService,
     private readonly clerkLogger: ClerkLoggerService,
+    private readonly providerLog: ProviderEventLogger,
   ) {
     const secretKey = this.configService.get<string>('CLERK_SECRET_KEY', '');
     this.clerk = createClerkClient({ secretKey });
@@ -48,6 +50,14 @@ export class ClerkManagementService {
         email: params.email,
         invitationId: invitation.id,
       });
+      this.providerLog.log({
+        channel: 'DASHBOARD',
+        eventName: 'CLERK_INVITATION_COMPLETED',
+        direction: 'OUTBOUND',
+        provider: 'CLERK',
+        requestPayload: { email: params.email, expiresInDays: params.expiresInDays },
+        responsePayload: { invitationId: invitation.id },
+      });
 
       return { id: invitation.id, url: invitation.url ?? null };
     } catch (error) {
@@ -56,6 +66,15 @@ export class ClerkManagementService {
         error,
         { request: { email: params.email } },
       );
+      this.providerLog.log({
+        channel: 'DASHBOARD',
+        eventName: 'CLERK_INVITATION_FAILED',
+        direction: 'OUTBOUND',
+        provider: 'CLERK',
+        requestPayload: { email: params.email },
+        success: false,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       throw error;
     }
   }
@@ -69,6 +88,13 @@ export class ClerkManagementService {
       await this.clerk.invitations.revokeInvitation(invitationId);
       await this.clerkLogger.logClerkInvitationRevoked(invitationId, {
         invitationId,
+      });
+      this.providerLog.log({
+        channel: 'DASHBOARD',
+        eventName: 'CLERK_INVITATION_REVOKE_COMPLETED',
+        direction: 'OUTBOUND',
+        provider: 'CLERK',
+        requestPayload: { invitationId },
       });
     } catch (error) {
       if ((error as { status?: number })?.status === 404) {

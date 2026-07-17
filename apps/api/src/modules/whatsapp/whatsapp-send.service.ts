@@ -1,6 +1,7 @@
 import { Injectable, Logger } from '@nestjs/common';
 
 import { WhatsappConfigService } from './whatsapp-config.service';
+import { ProviderEventLogger } from '../../common/events/provider.logger';
 
 /** Mask a phone number for logs — keep only the last 4 digits. */
 function maskPhone(phone: string): string {
@@ -48,7 +49,10 @@ function audioExtension(mimeType: string): string {
 export class WhatsappSendService {
   private readonly logger = new Logger(WhatsappSendService.name);
 
-  constructor(private readonly config: WhatsappConfigService) {}
+  constructor(
+    private readonly config: WhatsappConfigService,
+    private readonly providerLog: ProviderEventLogger,
+  ) {}
 
   /**
    * Send a plain text message. Returns the sent message's wamid, or null if the
@@ -61,33 +65,46 @@ export class WhatsappSendService {
     to: string,
     body: string,
   ): Promise<string | null> {
-    const res = await fetch(`${this.config.graphBaseUrl}/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+    return this.providerLog.traced(
+      {
+        channel: 'WHATSAPP',
+        provider: 'META_WHATSAPP',
+        eventBase: 'META_WHATSAPP_SEND_TEXT',
+        visitorId: maskPhone(to),
+        requestUrl: `${this.config.graphBaseUrl}/${phoneNumberId}/messages`,
+        requestPayload: { to: maskPhone(to), type: 'text', bodyChars: body.length },
+        extract: (wamid: string | null) => ({ responsePayload: { wamid } }),
       },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to,
-        type: 'text',
-        text: { preview_url: false, body },
-      }),
-    });
+      async () => {
+        const res = await fetch(`${this.config.graphBaseUrl}/${phoneNumberId}/messages`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to,
+            type: 'text',
+            text: { preview_url: false, body },
+          }),
+        });
 
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      this.logger.error(
-        `sendText failed (${res.status}) to ${maskPhone(to)} via ${phoneNumberId}: ${errBody}`,
-      );
-      throw new Error(`WhatsApp sendText failed: ${res.status}`);
-    }
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          this.logger.error(
+            `sendText failed (${res.status}) to ${maskPhone(to)} via ${phoneNumberId}: ${errBody}`,
+          );
+          throw new Error(`WhatsApp sendText failed: ${res.status}`);
+        }
 
-    const json = (await res.json().catch(() => null)) as {
-      messages?: Array<{ id: string }>;
-    } | null;
-    return json?.messages?.[0]?.id ?? null;
+        const json = (await res.json().catch(() => null)) as {
+          messages?: Array<{ id: string }>;
+        } | null;
+        return json?.messages?.[0]?.id ?? null;
+      },
+    );
   }
 
   /**
@@ -136,31 +153,44 @@ export class WhatsappSendService {
     to: string,
     mediaId: string,
   ): Promise<string | null> {
-    const res = await fetch(`${this.config.graphBaseUrl}/${phoneNumberId}/messages`, {
-      method: 'POST',
-      headers: {
-        Authorization: `Bearer ${accessToken}`,
-        'Content-Type': 'application/json',
+    return this.providerLog.traced(
+      {
+        channel: 'WHATSAPP',
+        provider: 'META_WHATSAPP',
+        eventBase: 'META_WHATSAPP_SEND_AUDIO',
+        visitorId: maskPhone(to),
+        requestUrl: `${this.config.graphBaseUrl}/${phoneNumberId}/messages`,
+        requestPayload: { to: maskPhone(to), type: 'audio', mediaId },
+        extract: (wamid: string | null) => ({ responsePayload: { wamid } }),
       },
-      body: JSON.stringify({
-        messaging_product: 'whatsapp',
-        recipient_type: 'individual',
-        to,
-        type: 'audio',
-        audio: { id: mediaId },
-      }),
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      this.logger.error(
-        `sendAudio failed (${res.status}) to ${maskPhone(to)}: ${errBody}`,
-      );
-      throw new Error(`WhatsApp sendAudio failed: ${res.status}`);
-    }
-    const json = (await res.json().catch(() => null)) as {
-      messages?: Array<{ id: string }>;
-    } | null;
-    return json?.messages?.[0]?.id ?? null;
+      async () => {
+        const res = await fetch(`${this.config.graphBaseUrl}/${phoneNumberId}/messages`, {
+          method: 'POST',
+          headers: {
+            Authorization: `Bearer ${accessToken}`,
+            'Content-Type': 'application/json',
+          },
+          body: JSON.stringify({
+            messaging_product: 'whatsapp',
+            recipient_type: 'individual',
+            to,
+            type: 'audio',
+            audio: { id: mediaId },
+          }),
+        });
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          this.logger.error(
+            `sendAudio failed (${res.status}) to ${maskPhone(to)}: ${errBody}`,
+          );
+          throw new Error(`WhatsApp sendAudio failed: ${res.status}`);
+        }
+        const json = (await res.json().catch(() => null)) as {
+          messages?: Array<{ id: string }>;
+        } | null;
+        return json?.messages?.[0]?.id ?? null;
+      },
+    );
   }
 
   /**
