@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import type { MessageRole } from '@prisma/client';
 import type { ModelMessage } from 'ai';
 
+import { AppLogger } from '../../common/logger/app-logger';
 import { PrismaService } from '../../services/prisma.service';
 
 import type {
@@ -71,7 +72,7 @@ const MIN_MESSAGES_TO_KEEP = 2;
  */
 @Injectable()
 export class ContextAssemblyService {
-  private readonly logger = new Logger(ContextAssemblyService.name);
+  private readonly log = new AppLogger(ContextAssemblyService.name);
 
   constructor(private readonly prisma: PrismaService) {}
 
@@ -81,6 +82,13 @@ export class ContextAssemblyService {
       MAX_HISTORY_HARD_CAP,
     );
     const tokenBudget = params.maxInputTokens ?? DEFAULT_MAX_INPUT_TOKENS;
+
+    this.log.debug('assemble', 'assembling context', {
+      chatSessionId: params.chatSessionId,
+      messageCap,
+      budget: tokenBudget,
+      clientSuppliedHistory: Array.isArray(params.recentHistory),
+    });
 
     // Hot-path optimisation: when the caller supplies recentHistory (e.g. the
     // frontend's in-memory chat state), skip the DB lookup. Saves one Supabase
@@ -205,6 +213,15 @@ export class ContextAssemblyService {
         (sum, m) => sum + charEstimate(asText(m.content)) + CHAT_FRAMING_OVERHEAD,
         0,
       );
+
+    if (truncated) {
+      this.log.debug('assemble', 'history truncated to fit budget', {
+        chatSessionId: params.chatSessionId,
+        kept: kept.length,
+        droppedCount: totalDropped,
+        olderMessagesExist,
+      });
+    }
 
     return {
       systemPrompt: params.systemPrompt,

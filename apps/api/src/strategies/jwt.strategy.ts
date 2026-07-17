@@ -4,9 +4,12 @@ import { ExtractJwt, Strategy } from 'passport-jwt';
 import { passportJwtSecret } from 'jwks-rsa';
 import { ConfigService } from '@nestjs/config';
 import { JwtPayload, ValidatedUser } from '../interfaces/jwt-payload.interface';
+import { AppLogger } from '../common/logger/app-logger';
 
 @Injectable()
 export class JwtStrategy extends PassportStrategy(Strategy) {
+  private readonly log = new AppLogger(JwtStrategy.name);
+
   constructor(private configService: ConfigService) {
     // Clerk Frontend API URL, e.g. https://clerk.klivo.app (prod custom domain)
     // or https://<slug>.clerk.accounts.dev (development instance). This is the
@@ -37,6 +40,7 @@ export class JwtStrategy extends PassportStrategy(Strategy) {
   }
 
   async validate(payload: JwtPayload): Promise<ValidatedUser> {
+    this.log.debug('validate', 'token validated', { clerkId: payload.sub });
     return {
       clerkId: payload.sub,
       email: payload.email ?? '',

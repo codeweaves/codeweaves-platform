@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 
+import { AppLogger } from '../../../common/logger/app-logger';
 import { PrismaService } from '../../../services/prisma.service';
 
 import { ContextAssemblyService } from '../context-assembly.service';
@@ -35,7 +36,7 @@ import type {
  */
 @Injectable()
 export class HybridContextStrategy {
-  private readonly logger = new Logger(HybridContextStrategy.name);
+  private readonly log = new AppLogger(HybridContextStrategy.name);
 
   constructor(
     private readonly contextService: ContextAssemblyService,
@@ -71,11 +72,16 @@ export class HybridContextStrategy {
       });
       const summary = session?.summary?.trim();
       if (summary && summary !== 'No substantive conversation yet.') {
+        this.log.debug('assemble', 'attached running summary', {
+          chatSessionId: params.chatSessionId,
+          chars: summary.length,
+        });
         return { ...base, summaryBlock: summary };
       }
     } catch (err) {
       // Summary read failure is non-fatal — degrade to sliding-window only.
-      this.logger.warn(
+      this.log.warn(
+        'assemble',
         `Summary read failed for session ${params.chatSessionId}: ${err instanceof Error ? err.message : 'unknown'}. Continuing without summary.`,
       );
     }

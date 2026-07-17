@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { encodingForModel, getEncoding, type Tiktoken } from 'js-tiktoken';
 import type { ModelMessage } from 'ai';
+
+import { AppLogger } from '../../common/logger/app-logger';
 
 /**
  * TokenCounterService: count tokens in strings and conversation message arrays.
@@ -31,7 +33,7 @@ const DEFAULT_ENCODING = 'cl100k_base';
 
 @Injectable()
 export class TokenCounterService {
-  private readonly logger = new Logger(TokenCounterService.name);
+  private readonly log = new AppLogger(TokenCounterService.name);
   /**
    * Encoder instances are expensive to initialise (load BPE tables into
    * memory). Cache by encoding name and reuse across calls.
@@ -145,7 +147,8 @@ export class TokenCounterService {
       encoder = getEncoding(DEFAULT_ENCODING);
       if (model) {
         // Log once per unknown model to avoid warning spam
-        this.logger.debug(
+        this.log.debug(
+          'getEncoder',
           `No exact tokenizer for model "${model}" — falling back to ${DEFAULT_ENCODING} (~10-15% over-estimate for non-OpenAI models)`,
         );
       }

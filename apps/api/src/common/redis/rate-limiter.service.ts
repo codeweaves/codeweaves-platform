@@ -1,10 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { AppLogger } from '../logger/app-logger';
 import { RedisService } from './redis.service';
 import { RateLimitResult } from './rate-limiter.types';
 
 @Injectable()
 export class RateLimiterService {
-  private readonly logger = new Logger(RateLimiterService.name);
+  private readonly log = new AppLogger(RateLimiterService.name);
 
   constructor(private readonly redisService: RedisService) {}
 
@@ -47,7 +48,8 @@ export class RateLimiterService {
       const results = await pipeline.exec();
 
       if (!results) {
-        this.logger.warn(
+        this.log.warn(
+          'checkRateLimit',
           `Rate limit pipeline returned null for key: ${redisKey} — fail-open`,
         );
         return this.failOpen(limit, windowMs);
@@ -56,7 +58,8 @@ export class RateLimiterService {
       // results[2] is the ZCARD result: [error, count]
       const zcardResult = results[2];
       if (!zcardResult || zcardResult[0]) {
-        this.logger.warn(
+        this.log.warn(
+          'checkRateLimit',
           `Rate limit ZCARD error for key: ${redisKey} — fail-open`,
         );
         return this.failOpen(limit, windowMs);
@@ -95,7 +98,8 @@ export class RateLimiterService {
         resetMs,
       };
     } catch (error) {
-      this.logger.warn(
+      this.log.warn(
+        'checkRateLimit',
         `Rate limit check failed for key: ${redisKey} — fail-open: ${
           error instanceof Error ? error.message : String(error)
         }`,

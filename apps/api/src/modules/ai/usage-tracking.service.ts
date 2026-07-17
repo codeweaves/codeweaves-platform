@@ -1,11 +1,11 @@
 import {
   Injectable,
-  Logger,
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
+import { AppLogger } from '../../common/logger/app-logger';
 import { PrismaService } from '../../services/prisma.service';
 
 import type { LlmFeature, LlmTokenUsage } from './interfaces/llm.interfaces';
@@ -77,7 +77,7 @@ const MAX_BUFFER_SIZE = 500;
  */
 @Injectable()
 export class UsageTrackingService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(UsageTrackingService.name);
+  private readonly log = new AppLogger(UsageTrackingService.name);
   private readonly buffer: QueuedUsage[] = [];
   private flushTimer: NodeJS.Timeout | null = null;
   /** Set to true in onModuleDestroy to suppress the next-flush timer. */
@@ -101,7 +101,7 @@ export class UsageTrackingService implements OnModuleInit, OnModuleDestroy {
       this.flushTimer = null;
     }
     await this.flush().catch((err) => {
-      this.logger.error('Final usage flush failed on shutdown', err);
+      this.log.error('onModuleDestroy', 'Final usage flush failed on shutdown', err);
     });
   }
 
@@ -113,7 +113,8 @@ export class UsageTrackingService implements OnModuleInit, OnModuleDestroy {
     if (this.buffer.length >= MAX_BUFFER_SIZE) {
       // Shouldn't happen under normal load. Log-once-per-incident semantics
       // would be nice but for now a simple warn is enough to catch DB outages.
-      this.logger.warn(
+      this.log.warn(
+        'record',
         `Usage buffer full (${MAX_BUFFER_SIZE} records) — dropping record. DB persistence likely degraded.`,
       );
       return;
@@ -198,7 +199,8 @@ export class UsageTrackingService implements OnModuleInit, OnModuleDestroy {
         ),
       });
     } catch (err) {
-      this.logger.warn(
+      this.log.warn(
+        'flush',
         `Failed to flush ${batch.length} usage records: ${
           err instanceof Error ? err.message : String(err)
         }`,

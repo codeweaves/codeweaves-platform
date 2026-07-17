@@ -7,6 +7,7 @@ import {
 import type { ModelMessage } from 'ai';
 
 import { AgentCacheService } from '../../common/cache/agent-cache.service';
+import { AppLogger } from '../../common/logger/app-logger';
 import { PiiDetectionService } from '../pii/pii-detection.service';
 import {
   PiiTokenizerService,
@@ -102,7 +103,7 @@ const CAPTURE_ELIGIBLE_FEATURES = new Set<string>([
  */
 @Injectable()
 export class DirectChatService {
-  private readonly logger = new Logger(DirectChatService.name);
+  private readonly log = new AppLogger(DirectChatService.name);
 
   constructor(
     private readonly aiSdk: AiSdkService,
@@ -291,6 +292,11 @@ export class DirectChatService {
    */
   async send(req: DirectChatRequest): Promise<DirectChatResult> {
     const config = resolveConfig(req.agent);
+    this.log.debug('send', 'starting non-streaming send', {
+      agentId: req.agent.id,
+      sessionId: req.externalSessionId,
+      feature: req.feature ?? 'chat',
+    });
     // Compliance floor first: Aadhaar/PAN/cards/… never survive past this
     // line, so everything below (trace, context, LLM) only ever sees masks.
     req = this.maskHardDropInRequest(req);
@@ -490,6 +496,11 @@ export class DirectChatService {
       return finalResult;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
+      this.log.error('send', 'direct chat send failed', err, {
+        agentId: req.agent.id,
+        sessionId: req.externalSessionId,
+        traceId: trace.traceId,
+      });
       void trace.end({ success: false, error: errorMsg });
       throw err;
     }
@@ -510,6 +521,11 @@ export class DirectChatService {
     req: DirectChatRequest,
   ): AsyncGenerator<DirectChatStreamChunk, void, undefined> {
     const config = resolveConfig(req.agent);
+    this.log.debug('stream', 'starting streaming send', {
+      agentId: req.agent.id,
+      sessionId: req.externalSessionId,
+      feature: req.feature ?? 'chat-stream',
+    });
     // Compliance floor first — see send().
     req = this.maskHardDropInRequest(req);
     const systemPromptRaw = resolveSystemPromptTemplate(req.agent, config);
@@ -790,6 +806,20 @@ export class DirectChatService {
     } catch (err) {
       const isAbort = err instanceof Error && err.name === 'AbortError';
       const errorMsg = err instanceof Error ? err.message : String(err);
+
+      if (isAbort) {
+        this.log.debug('stream', 'client aborted stream', {
+          agentId: req.agent.id,
+          sessionId: req.externalSessionId,
+          traceId: trace.traceId,
+        });
+      } else {
+        this.log.error('stream', 'direct chat stream failed', err, {
+          agentId: req.agent.id,
+          sessionId: req.externalSessionId,
+          traceId: trace.traceId,
+        });
+      }
 
       // Abort is not really an error from the orchestration's POV — it's a
       // user action (client disconnected). We still end the trace but mark

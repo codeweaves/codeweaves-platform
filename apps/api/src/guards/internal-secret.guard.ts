@@ -2,12 +2,12 @@ import {
   CanActivate,
   ExecutionContext,
   Injectable,
-  Logger,
   UnauthorizedException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Request } from 'express';
 import { timingSafeEqual } from 'node:crypto';
+import { AppLogger } from '../common/logger/app-logger';
 
 /**
  * Guards machine-to-machine "internal" endpoints (e.g. the classifier cron
@@ -25,14 +25,15 @@ import { timingSafeEqual } from 'node:crypto';
  */
 @Injectable()
 export class InternalSecretGuard implements CanActivate {
-  private readonly logger = new Logger(InternalSecretGuard.name);
+  private readonly log = new AppLogger(InternalSecretGuard.name);
 
   constructor(private readonly config: ConfigService) {}
 
   canActivate(context: ExecutionContext): boolean {
     const secret = this.config.get<string>('INTERNAL_API_SECRET');
     if (!secret) {
-      this.logger.error(
+      this.log.error(
+        'canActivate',
         'INTERNAL_API_SECRET is not set — rejecting internal request (fail-closed).',
       );
       throw new UnauthorizedException();
@@ -42,6 +43,10 @@ export class InternalSecretGuard implements CanActivate {
     const header = request.headers['x-internal-secret'];
     const provided = Array.isArray(header) ? header[0] : header;
     if (!provided) {
+      this.log.warn(
+        'canActivate',
+        'internal request rejected — missing x-internal-secret header',
+      );
       throw new UnauthorizedException();
     }
 
@@ -51,6 +56,10 @@ export class InternalSecretGuard implements CanActivate {
       providedBuf.length !== secretBuf.length ||
       !timingSafeEqual(providedBuf, secretBuf)
     ) {
+      this.log.warn(
+        'canActivate',
+        'internal request rejected — invalid internal secret',
+      );
       throw new UnauthorizedException();
     }
 
