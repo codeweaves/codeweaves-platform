@@ -13,6 +13,7 @@ import { AgentsService } from '../../../src/services/agents.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 import { MessageRateLimitService } from '../../../src/services/message-rate-limit.service';
+import { VoiceEventLogger } from '../../../src/common/events/voice.logger';
 import {
   UnsupportedLanguageError,
   VoiceProviderError,
@@ -91,6 +92,12 @@ describe('VoiceController', () => {
     getDeviceIdentifier: jest.fn(),
   };
 
+  const mockVoiceEventLogger = {
+    logConversationReceived: jest.fn(),
+    logReplySent: jest.fn(),
+    logException: jest.fn(),
+  };
+
   function createMockRequest(headers?: Record<string, string>): Request {
     return {
       headers: { 'x-device-id': 'test-device', ...headers },
@@ -167,6 +174,7 @@ describe('VoiceController', () => {
         { provide: MessageRateLimitService, useValue: mockMessageRateLimitService },
         { provide: DirectChatService, useValue: { send: jest.fn(), stream: jest.fn() } },
         { provide: MessageMetricsService, useValue: { record: jest.fn(), recordFromMetadata: jest.fn() } },
+        { provide: VoiceEventLogger, useValue: mockVoiceEventLogger },
       ],
     }).compile();
 

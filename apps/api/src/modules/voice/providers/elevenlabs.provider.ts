@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpStatus } from '@nestjs/common';
 import { WebSocket } from 'undici';
+import { AppLogger } from '../../../common/logger/app-logger';
+import { ProviderEventLogger, PROVIDERS } from '../../../common/events/provider.logger';
 import type {
   VoiceProvider,
   STTRequest,
@@ -62,7 +64,7 @@ const ELEVENLABS_TTS_MODEL = 'eleven_turbo_v2_5';
 
 @Injectable()
 export class ElevenLabsProvider implements VoiceProvider {
-  private readonly logger = new Logger(ElevenLabsProvider.name);
+  private readonly log = new AppLogger(ElevenLabsProvider.name);
   private readonly apiKey: string;
   private readonly defaultVoiceId: string;
 
@@ -86,7 +88,10 @@ export class ElevenLabsProvider implements VoiceProvider {
     'en', 'hi', 'ta', // Multilingual v2 only supports Hindi + Tamil from Indian languages
   ];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly providerLog: ProviderEventLogger,
+  ) {
     this.apiKey = this.configService.get<string>('ELEVENLABS_API_KEY') || '';
     this.defaultVoiceId =
       this.configService.get<string>('ELEVENLABS_DEFAULT_VOICE_ID') || 'Xb7hH8MSUJpSbSDYk0k2';
@@ -95,7 +100,7 @@ export class ElevenLabsProvider implements VoiceProvider {
     this.maxConcurrent = Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
 
     if (!this.apiKey) {
-      this.logger.warn('ELEVENLABS_API_KEY not configured — ElevenLabs provider will not work');
+      this.log.warn('constructor', 'ELEVENLABS_API_KEY not configured — ElevenLabs provider will not work');
     }
   }
 
@@ -124,39 +129,76 @@ export class ElevenLabsProvider implements VoiceProvider {
   }
 
   async transcribe(request: STTRequest): Promise<STTResponse> {
-    const startTime = Date.now();
-
-    const formData = new FormData();
-    formData.append('file', new Blob([new Uint8Array(request.audio)]), 'audio.webm');
-    formData.append('model_id', 'scribe_v2');
-    if (request.languageHint) {
-      formData.append('language_code', request.languageHint);
-    }
-
-    const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-      method: 'POST',
-      headers: {
-        'xi-api-key': this.apiKey,
-      },
-      body: formData,
-      signal: AbortSignal.timeout(10_000),
-    }).catch((error: Error) => {
-      throw this.handleNetworkError(error, 'transcribe');
+    this.log.debug('transcribe', 'STT request', {
+      agentId: request.agentId,
+      languageHint: request.languageHint,
+      audioBytes: request.audio.length,
     });
 
-    if (!response.ok) {
-      await this.handleErrorResponse(response, 'transcribe');
-    }
+    return this.providerLog.traced<STTResponse>(
+      {
+        channel: 'VOICE',
+        provider: PROVIDERS.ELEVENLABS,
+        eventBase: 'ELEVENLABS_STT',
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        requestUrl: 'https://api.elevenlabs.io/v1/speech-to-text',
+        requestPayload: {
+          audioBytes: request.audio.length,
+          audioMime: request.audioFormat,
+          languageHint: request.languageHint,
+        },
+        extract: (r) => ({
+          responsePayload: {
+            transcriptChars: r.transcript.length,
+            detectedLanguage: r.detectedLanguage,
+            confidence: r.confidence,
+          },
+          metadata: { latencyMs: r.latencyMs },
+        }),
+      },
+      async () => {
+        const startTime = Date.now();
 
-    const data = (await response.json()) as ElevenLabsSTTResponse;
+        const formData = new FormData();
+        formData.append('file', new Blob([new Uint8Array(request.audio)]), 'audio.webm');
+        formData.append('model_id', 'scribe_v2');
+        if (request.languageHint) {
+          formData.append('language_code', request.languageHint);
+        }
 
-    return {
-      transcript: data.text,
-      confidence: data.language_probability ?? 0,
-      detectedLanguage: (data.language_code as SupportedLanguage) || 'en',
-      provider: this.name,
-      latencyMs: Date.now() - startTime,
-    };
+        const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+          method: 'POST',
+          headers: {
+            'xi-api-key': this.apiKey,
+          },
+          body: formData,
+          signal: AbortSignal.timeout(10_000),
+        }).catch((error: Error) => {
+          throw this.handleNetworkError(error, 'transcribe');
+        });
+
+        if (!response.ok) {
+          await this.handleErrorResponse(response, 'transcribe');
+        }
+
+        const data = (await response.json()) as ElevenLabsSTTResponse;
+
+        const result: STTResponse = {
+          transcript: data.text,
+          confidence: data.language_probability ?? 0,
+          detectedLanguage: (data.language_code as SupportedLanguage) || 'en',
+          provider: this.name,
+          latencyMs: Date.now() - startTime,
+        };
+        this.log.info('transcribe', 'STT completed', {
+          detectedLanguage: result.detectedLanguage,
+          transcriptChars: result.transcript.length,
+          latencyMs: result.latencyMs,
+        });
+        return result;
+      },
+    );
   }
 
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
@@ -177,53 +219,86 @@ export class ElevenLabsProvider implements VoiceProvider {
     audioFormat: string,
     operation: string,
   ): Promise<TTSResponse> {
+    const voiceId = request.voiceId || this.defaultVoiceId;
+    const sanitizedVoiceId = encodeURIComponent(voiceId);
+    const url = `https://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}?output_format=${elevenlabsFormat}`;
+    this.log.debug('synthesizeWithFormat', 'TTS request', {
+      agentId: request.agentId,
+      operation,
+      language: request.language,
+      voiceId,
+      textChars: request.text.length,
+    });
+
     // Respect the subscription-tier concurrency cap. Blocks here until a slot
     // is free — prevents the 429 cascade that caused sentences 2-3 to fall
     // back to Sarvam (audible voice switch mid-reply).
     await this.acquireSlot();
-    const startTime = Date.now();
     try {
-      const voiceId = request.voiceId || this.defaultVoiceId;
-      const sanitizedVoiceId = encodeURIComponent(voiceId);
-
-      const response = await fetch(
-        `https://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}?output_format=${elevenlabsFormat}`,
+      return await this.providerLog.traced<TTSResponse>(
         {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            'xi-api-key': this.apiKey,
+          channel: 'VOICE',
+          provider: PROVIDERS.ELEVENLABS,
+          eventBase: 'ELEVENLABS_TTS',
+          agentId: request.agentId,
+          sessionId: request.sessionId,
+          requestUrl: url,
+          requestPayload: {
+            textChars: request.text.length,
+            voiceId,
+            format: audioFormat,
+            language: request.language,
           },
-          body: JSON.stringify({
-            text: request.text,
-            model_id: ELEVENLABS_TTS_MODEL,
-            language_code: request.language,
-            voice_settings: {
-              stability: 0.5,
-              similarity_boost: 0.75,
-              speed: request.speed || 1.0,
-            },
+          extract: (r) => ({
+            metadata: { audioBytes: r.audio.length, format: r.audioFormat, latencyMs: r.latencyMs },
           }),
-          signal: AbortSignal.timeout(15_000),
         },
-      ).catch((error: Error) => {
-        throw this.handleNetworkError(error, operation);
-      });
+        async () => {
+          const startTime = Date.now();
 
-      if (!response.ok) {
-        await this.handleErrorResponse(response, operation);
-      }
+          const response = await fetch(url, {
+            method: 'POST',
+            headers: {
+              'Content-Type': 'application/json',
+              'xi-api-key': this.apiKey,
+            },
+            body: JSON.stringify({
+              text: request.text,
+              model_id: ELEVENLABS_TTS_MODEL,
+              language_code: request.language,
+              voice_settings: {
+                stability: 0.5,
+                similarity_boost: 0.75,
+                speed: request.speed || 1.0,
+              },
+            }),
+            signal: AbortSignal.timeout(15_000),
+          }).catch((error: Error) => {
+            throw this.handleNetworkError(error, operation);
+          });
 
-      // CRITICAL: Response is raw binary audio, NOT JSON
-      const arrayBuffer = await response.arrayBuffer();
-      const audio = Buffer.from(arrayBuffer);
+          if (!response.ok) {
+            await this.handleErrorResponse(response, operation);
+          }
 
-      return {
-        audio,
-        audioFormat,
-        provider: this.name,
-        latencyMs: Date.now() - startTime,
-      };
+          // CRITICAL: Response is raw binary audio, NOT JSON
+          const arrayBuffer = await response.arrayBuffer();
+          const audio = Buffer.from(arrayBuffer);
+
+          this.log.info('synthesizeWithFormat', 'TTS completed', {
+            operation,
+            audioBytes: audio.length,
+            format: audioFormat,
+            latencyMs: Date.now() - startTime,
+          });
+          return {
+            audio,
+            audioFormat,
+            provider: this.name,
+            latencyMs: Date.now() - startTime,
+          };
+        },
+      );
     } finally {
       this.releaseSlot();
     }
@@ -254,8 +329,18 @@ export class ElevenLabsProvider implements VoiceProvider {
   async *synthesizeStream(request: TTSRequest): AsyncIterable<TTSStreamChunk> {
     await this.acquireSlot();
     const startTime = Date.now();
+    // WS path emits ONE summary event at stream end (chunk count + total bytes)
+    // rather than per-chunk — see report note. Track cumulative counters here.
+    let emittedChunks = 0;
+    let emittedBytes = 0;
     const voiceId = request.voiceId || this.defaultVoiceId;
     const sanitizedVoiceId = encodeURIComponent(voiceId);
+    this.log.debug('synthesizeStream', 'opening ElevenLabs WS TTS stream', {
+      agentId: request.agentId,
+      language: request.language,
+      voiceId,
+      textChars: request.text.length,
+    });
 
     const url = new URL(
       `wss://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}/stream-input`,
@@ -377,12 +462,14 @@ export class ElevenLabsProvider implements VoiceProvider {
           `ElevenLabs WebSocket closed unexpectedly (code=${code ?? 'unknown'}${reason ? `, reason="${reason}"` : ''})`,
         );
       }
-      // Temporarily logged at .log() (was .debug()) so we can see the close
-      // code that's causing the mid-stream failure. Revert to .debug() once
-      // the EL WS issue is diagnosed.
-      this.logger.log(
-        `ElevenLabs WS closed: code=${code ?? 'unknown'} reason="${reason ?? ''}" hadError=${!!wsError}`,
-      );
+      // Temporarily logged at info (was debug) so we can see the close code
+      // that's causing the mid-stream failure. Revert to debug once the EL WS
+      // issue is diagnosed.
+      this.log.info('synthesizeStream', 'ElevenLabs WS closed', {
+        code: code ?? 'unknown',
+        reason: reason ?? '',
+        hadError: !!wsError,
+      });
       wsClosed = true;
       notify();
     });
@@ -405,6 +492,8 @@ export class ElevenLabsProvider implements VoiceProvider {
       while (true) {
         while (queue.length > 0) {
           const chunk = queue.shift()!;
+          emittedChunks += 1;
+          emittedBytes += chunk.audio.length;
           yield chunk;
           if (chunk.isFinal) return;
         }
@@ -426,6 +515,34 @@ export class ElevenLabsProvider implements VoiceProvider {
         }
       }
       this.releaseSlot();
+      // Single fire-and-forget summary for the whole WS synth (no per-chunk rows).
+      // `wsError` is only ever assigned inside the WS event closures, which the
+      // TS control-flow analysis for the finally can't see (it narrows to never)
+      // — cast back to the declared type to read it.
+      const streamErr = wsError as Error | null;
+      this.providerLog.log({
+        channel: 'VOICE',
+        eventName: streamErr ? 'ELEVENLABS_TTS_STREAM_FAILED' : 'ELEVENLABS_TTS_STREAM_COMPLETED',
+        direction: 'OUTBOUND',
+        provider: PROVIDERS.ELEVENLABS,
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        requestUrl: url.toString(),
+        requestPayload: {
+          textChars: request.text.length,
+          voiceId,
+          language: request.language,
+        },
+        latencyMs: Date.now() - startTime,
+        success: !streamErr,
+        errorMessage: streamErr?.message,
+        metadata: {
+          chunkCount: emittedChunks,
+          totalBytes: emittedBytes,
+          format: 'audio/pcm; rate=24000',
+          protocol: 'websocket',
+        },
+      });
     }
   }
 
@@ -482,37 +599,58 @@ export class ElevenLabsProvider implements VoiceProvider {
   }
 
   async detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse> {
-    const startTime = Date.now();
-    this.logger.debug(`detectLanguage called (format: ${audioFormat}, size: ${audio.length})`);
+    this.log.debug('detectLanguage', 'auto-detect request', { format: audioFormat, audioBytes: audio.length });
 
-    const formData = new FormData();
-    formData.append('file', new Blob([new Uint8Array(audio)]), 'audio.webm');
-    formData.append('model_id', 'scribe_v2');
-    // Omit language_code to let ElevenLabs auto-detect
-
-    const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-      method: 'POST',
-      headers: {
-        'xi-api-key': this.apiKey,
+    return this.providerLog.traced<LanguageDetectionResponse>(
+      {
+        channel: 'VOICE',
+        provider: PROVIDERS.ELEVENLABS,
+        eventBase: 'ELEVENLABS_STT_DETECT',
+        requestUrl: 'https://api.elevenlabs.io/v1/speech-to-text',
+        requestPayload: { audioBytes: audio.length, audioMime: audioFormat },
+        extract: (r) => ({
+          responsePayload: { detectedLanguage: r.detectedLanguage, confidence: r.confidence },
+          metadata: { latencyMs: r.latencyMs },
+        }),
       },
-      body: formData,
-      signal: AbortSignal.timeout(10_000),
-    }).catch((error: Error) => {
-      throw this.handleNetworkError(error, 'detectLanguage');
-    });
+      async () => {
+        const startTime = Date.now();
 
-    if (!response.ok) {
-      await this.handleErrorResponse(response, 'detectLanguage');
-    }
+        const formData = new FormData();
+        formData.append('file', new Blob([new Uint8Array(audio)]), 'audio.webm');
+        formData.append('model_id', 'scribe_v2');
+        // Omit language_code to let ElevenLabs auto-detect
 
-    const data = (await response.json()) as ElevenLabsSTTResponse;
+        const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
+          method: 'POST',
+          headers: {
+            'xi-api-key': this.apiKey,
+          },
+          body: formData,
+          signal: AbortSignal.timeout(10_000),
+        }).catch((error: Error) => {
+          throw this.handleNetworkError(error, 'detectLanguage');
+        });
 
-    return {
-      detectedLanguage: (data.language_code as SupportedLanguage) || 'en',
-      confidence: data.language_probability ?? 0,
-      provider: this.name,
-      latencyMs: Date.now() - startTime,
-    };
+        if (!response.ok) {
+          await this.handleErrorResponse(response, 'detectLanguage');
+        }
+
+        const data = (await response.json()) as ElevenLabsSTTResponse;
+
+        const result: LanguageDetectionResponse = {
+          detectedLanguage: (data.language_code as SupportedLanguage) || 'en',
+          confidence: data.language_probability ?? 0,
+          provider: this.name,
+          latencyMs: Date.now() - startTime,
+        };
+        this.log.info('detectLanguage', 'detection completed', {
+          detectedLanguage: result.detectedLanguage,
+          latencyMs: result.latencyMs,
+        });
+        return result;
+      },
+    );
   }
 
   private handleNetworkError(error: Error, operation: string): VoiceProviderError {
@@ -547,7 +685,11 @@ export class ElevenLabsProvider implements VoiceProvider {
 
     const message = errorData?.detail?.message || `HTTP ${response.status}`;
 
-    this.logger.error(`ElevenLabs API error (${operation}): ${response.status} — ${message}`);
+    this.log.error('handleErrorResponse', 'ElevenLabs API error', undefined, {
+      operation,
+      status: response.status,
+      message,
+    });
 
     switch (response.status) {
       case 401:

@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { AppLogger } from '../../../common/logger/app-logger';
 import type {
   VoiceProvider,
   STTRequest,
@@ -11,14 +12,14 @@ import type {
 
 @Injectable()
 export class StubProvider implements VoiceProvider {
-  private readonly logger = new Logger(StubProvider.name);
+  private readonly log = new AppLogger(StubProvider.name);
 
   readonly name = 'stub';
   readonly supportedLanguages: SupportedLanguage[] = ['en', 'hi', 'mr', 'hinglish'];
 
   async transcribe(request: STTRequest): Promise<STTResponse> {
     const start = Date.now();
-    this.logger.debug(`[stub] transcribe called for agent ${request.agentId}`);
+    this.log.debug('transcribe', 'stub STT invoked', { agentId: request.agentId });
 
     return {
       transcript: 'This is a stub transcription response.',
@@ -31,7 +32,7 @@ export class StubProvider implements VoiceProvider {
 
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
     const start = Date.now();
-    this.logger.debug(`[stub] synthesize called for agent ${request.agentId}`);
+    this.log.debug('synthesize', 'stub TTS invoked', { agentId: request.agentId });
 
     return {
       audio: Buffer.from('stub-audio-data'),
@@ -44,7 +45,10 @@ export class StubProvider implements VoiceProvider {
 
   async detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse> {
     const start = Date.now();
-    this.logger.debug(`[stub] detectLanguage called (format: ${audioFormat}, size: ${audio.length})`);
+    this.log.debug('detectLanguage', 'stub language detection invoked', {
+      format: audioFormat,
+      audioBytes: audio.length,
+    });
 
     return {
       detectedLanguage: 'en',

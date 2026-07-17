@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { HttpStatus } from '@nestjs/common';
 import { ElevenLabsProvider } from '../../../src/modules/voice/providers/elevenlabs.provider';
+import { ProviderEventLogger } from '../../../src/common/events/provider.logger';
 import {
   VoiceProviderError,
   type STTRequest,
@@ -11,6 +12,14 @@ import {
 // Mock global fetch
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
+
+// ProviderEventLogger mock. `traced` is a PLAIN arrow (not jest.fn) so its
+// passthrough impl survives jest.config `resetMocks: true` — it must actually
+// invoke the wrapped fn so the provider's real fetch logic still runs.
+const mockProviderLog = {
+  traced: <T,>(_opts: unknown, fn: () => Promise<T>): Promise<T> => fn(),
+  log: jest.fn(),
+};
 
 describe('ElevenLabsProvider', () => {
   let provider: ElevenLabsProvider;
@@ -31,6 +40,7 @@ describe('ElevenLabsProvider', () => {
       providers: [
         ElevenLabsProvider,
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: ProviderEventLogger, useValue: mockProviderLog },
       ],
     }).compile();
 
@@ -479,6 +489,7 @@ describe('ElevenLabsProvider', () => {
         providers: [
           ElevenLabsProvider,
           { provide: ConfigService, useValue: emptyConfigService },
+          { provide: ProviderEventLogger, useValue: mockProviderLog },
         ],
       }).compile();
 
@@ -501,6 +512,7 @@ describe('ElevenLabsProvider', () => {
         providers: [
           ElevenLabsProvider,
           { provide: ConfigService, useValue: customConfigService },
+          { provide: ProviderEventLogger, useValue: mockProviderLog },
         ],
       }).compile();
 
