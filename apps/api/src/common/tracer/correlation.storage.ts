@@ -4,6 +4,8 @@ export interface RequestContext {
   correlationId: string;
   userId?: string;
   clerkId?: string;
+  organizationId?: string;
+  ip?: string;
   method?: string;
   url?: string;
 }

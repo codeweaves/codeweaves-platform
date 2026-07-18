@@ -3,6 +3,7 @@ import { Reflector } from '@nestjs/core';
 import { Role } from '@prisma/client';
 import { UsersService } from '../services/users.service';
 import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+import { AppLogger } from '../common/logger/app-logger';
 
 interface CachedUserData {
   id: string;
@@ -13,6 +14,7 @@ interface CachedUserData {
 
 @Injectable()
 export class UserSyncGuard implements CanActivate {
+  private readonly log = new AppLogger(UserSyncGuard.name);
   private userCache = new Map<
     string,
     { data: CachedUserData; expiresAt: number }
@@ -50,6 +52,7 @@ export class UserSyncGuard implements CanActivate {
 
     // Cache miss or expired — sync from DB via service
     const user = await this.usersService.syncOrCreateUser(jwtUser);
+    this.log.debug('canActivate', 'user synced from DB', { userId: user.id });
 
     const userData: CachedUserData = {
       id: user.id,

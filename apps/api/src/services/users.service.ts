@@ -8,6 +8,7 @@ import { User, Role, InvitationStatus, Prisma } from '@prisma/client';
 import type { UpdateUserProfileDto, UserProfileResponse } from '../models/user.dto';
 import { buildTenantFilter, TenantFilterUser } from '../utils/tenant-filter';
 import { UserLoggerService } from '../common/logger/user.logger';
+import { AppLogger } from '../common/logger/app-logger';
 
 const USER_WITH_ORG_SELECT = {
   include: {
@@ -23,6 +24,8 @@ const USER_WITH_ORG_SELECT = {
 
 @Injectable()
 export class UsersService {
+  private readonly log = new AppLogger(UsersService.name);
+
   constructor(
     private prisma: PrismaService,
     private readonly userLogger: UserLoggerService,
@@ -95,6 +98,7 @@ export class UsersService {
       });
 
       await this.userLogger.logUserProfileUpdated(userId, { response: user, request: dto });
+      this.log.info('updateProfile', 'user profile updated', { userId });
       return this.toProfileResponse(user);
     } catch (error) {
       if (
@@ -103,6 +107,7 @@ export class UsersService {
       ) {
         throw new NotFoundException('User not found');
       }
+      this.log.error('updateProfile', 'user profile update failed', error, { userId });
       throw error;
     }
   }
@@ -205,6 +210,10 @@ export class UsersService {
           response: newUser,
           invitationId: invitation.id,
         });
+        this.log.info('createFromInvitation', 'user created from invitation', {
+          userId: newUser.id,
+          invitationId: invitation.id,
+        });
         return newUser;
       });
     } catch (error) {
@@ -217,8 +226,16 @@ export class UsersService {
           where: { clerkId: jwtUser.clerkId },
           include: { organization: true },
         });
-        if (raceUser) return raceUser;
+        if (raceUser) {
+          this.log.warn('createFromInvitation', 'concurrent first-login race resolved', {
+            userId: raceUser.id,
+          });
+          return raceUser;
+        }
       }
+      this.log.error('createFromInvitation', 'user creation from invitation failed', error, {
+        invitationId: invitation.id,
+      });
       throw error;
     }
   }

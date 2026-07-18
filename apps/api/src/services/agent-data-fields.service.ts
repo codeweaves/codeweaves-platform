@@ -1,12 +1,12 @@
 import {
   Injectable,
-  Logger,
   NotFoundException,
 } from '@nestjs/common';
 import { Role, type AgentDataField } from '@prisma/client';
 import { type UpdateDataFieldsDto } from '@repo/validation';
 
 import { AgentCacheService } from '../common/cache/agent-cache.service';
+import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 import { PrismaService } from './prisma.service';
@@ -32,7 +32,7 @@ import { PrismaService } from './prisma.service';
  */
 @Injectable()
 export class AgentDataFieldsService {
-  private readonly logger = new Logger(AgentDataFieldsService.name);
+  private readonly log = new AppLogger(AgentDataFieldsService.name);
 
   private static readonly COLLECTED_DATA_DEFAULT_LIMIT = 20;
   private static readonly COLLECTED_DATA_MAX_LIMIT = 100;
@@ -95,9 +95,10 @@ export class AgentDataFieldsService {
     // Field defs are read on the chat hot path (collection prompt), so bust the
     // agent cache after the write.
     await this.agentCache.invalidate(agentId);
-    this.logger.log(
-      `Replaced data-capture fields for agent ${agentId}: ${fields.length} field(s).`,
-    );
+    this.log.info('replaceAll', 'data-capture fields replaced', {
+      agentId,
+      fieldCount: fields.length,
+    });
     return fields;
   }
 

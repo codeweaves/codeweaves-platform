@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { Agent, AgentDataField, AgentKnowledge } from '@prisma/client';
 
+import { AppLogger } from '../logger/app-logger';
 import { RedisService } from '../redis/redis.service';
 import { PrismaService } from '../../services/prisma.service';
 
@@ -69,7 +70,7 @@ const L1_MAX_ENTRIES = 500;
  */
 @Injectable()
 export class AgentCacheService {
-  private readonly logger = new Logger(AgentCacheService.name);
+  private readonly log = new AppLogger(AgentCacheService.name);
   private readonly ttlSeconds: number;
   private readonly l1TtlMs: number;
   private readonly l1 = new Map<
@@ -117,7 +118,8 @@ export class AgentCacheService {
         return parsed;
       }
     } catch (err) {
-      this.logger.warn(
+      this.log.warn(
+        'getAgentWithKnowledge',
         `Redis GET failed for ${key} — falling through to DB. ${err instanceof Error ? err.message : ''}`,
       );
     }
@@ -162,7 +164,8 @@ export class AgentCacheService {
     try {
       await this.redis.del(CACHE_PREFIX + agentId);
     } catch (err) {
-      this.logger.warn(
+      this.log.warn(
+        'invalidate',
         `Redis DEL failed for agent ${agentId} — stale cache may persist up to TTL (${this.ttlSeconds}s). ${err instanceof Error ? err.message : ''}`,
       );
     }
@@ -172,7 +175,8 @@ export class AgentCacheService {
     try {
       await this.redis.set(key, JSON.stringify(value), this.ttlSeconds);
     } catch (err) {
-      this.logger.warn(
+      this.log.warn(
+        'setCache',
         `Redis SET failed for ${key} — cache disabled for this read. ${err instanceof Error ? err.message : ''}`,
       );
     }

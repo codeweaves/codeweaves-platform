@@ -16,7 +16,9 @@ import {
 /** Default max agent-loop steps when a request supplies tools (call + reply). */
 const DEFAULT_MAX_TOOL_STEPS = 3;
 
+import { EventChannel } from '@prisma/client';
 import { AiSdkService, parseModelId } from './ai-sdk.service';
+import { ProviderEventLogger } from '../../common/events/provider.logger';
 
 /**
  * AI SDK uses this shape for provider-specific call-time options (Gemini's
@@ -75,7 +77,39 @@ export class LlmService {
   constructor(
     private readonly aiSdk: AiSdkService,
     private readonly config: ConfigService,
+    private readonly providerLog: ProviderEventLogger,
   ) {}
+
+  /**
+   * Which channel an LLM call belongs to. Prefers the explicit `request.channel`
+   * (the caller knows widget vs whatsapp); falls back to the feature tag only when
+   * unset. Note: the feature tag alone CAN'T tell widget from whatsapp buffered
+   * chat (both use feature 'chat'), so callers on those paths should set channel.
+   */
+  private eventChannel(request: LlmCompletionRequest): EventChannel {
+    if (request.channel) return request.channel;
+    if (request.feature === 'voice') return 'VOICE';
+    if (
+      request.feature === 'chat' ||
+      request.feature === 'chat-stream' ||
+      request.feature === 'warmup'
+    )
+      return 'WIDGET';
+    return 'INTERNAL';
+  }
+
+  /** Compact, safe request descriptor for the event log (never the full prompt). */
+  private describeRequest(request: LlmCompletionRequest): Record<string, unknown> {
+    return {
+      modelId: request.modelId,
+      feature: request.feature,
+      messageCount: request.messages?.length ?? 0,
+      systemPromptChars: request.systemPrompt?.length ?? 0,
+      temperature: request.temperature,
+      maxTokens: request.maxTokens,
+      hasTools: !!request.tools,
+    };
+  }
 
   /**
    * Non-streaming completion. Use when you need the full response before
@@ -115,16 +149,51 @@ export class LlmService {
 
       const latencyMs = Math.round(performance.now() - startedAt);
       this.logProviderDiagnostics(request.modelId, result.providerMetadata, result.usage);
+      const usage = normaliseUsage(result.usage, result.providerMetadata);
+      const cost = extractCost(result.providerMetadata);
+      const actualModel = extractActualModel(result.providerMetadata, request.modelId);
+
+      this.providerLog.log({
+        channel: this.eventChannel(request),
+        eventName: 'LLM_COMPLETION_COMPLETED',
+        direction: 'OUTBOUND',
+        provider: parseModelId(request.modelId).provider.toUpperCase(),
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        requestPayload: this.describeRequest(request),
+        latencyMs,
+        metadata: {
+          model: actualModel,
+          finishReason: result.finishReason,
+          cost,
+          inputTokens: usage.inputTokens,
+          outputTokens: usage.outputTokens,
+          totalTokens: usage.totalTokens,
+        },
+      });
+
       return {
         text: result.text,
-        usage: normaliseUsage(result.usage, result.providerMetadata),
-        cost: extractCost(result.providerMetadata),
-        model: extractActualModel(result.providerMetadata, request.modelId),
+        usage,
+        cost,
+        model: actualModel,
         finishReason: result.finishReason,
         latencyMs,
         retryCount: 0, // ResilienceService layer will overwrite this if it retried
       };
     } catch (err) {
+      this.providerLog.log({
+        channel: this.eventChannel(request),
+        eventName: 'LLM_COMPLETION_FAILED',
+        direction: 'OUTBOUND',
+        provider: parseModelId(request.modelId).provider.toUpperCase(),
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        requestPayload: this.describeRequest(request),
+        latencyMs: Math.round(performance.now() - startedAt),
+        success: false,
+        errorMessage: err instanceof Error ? err.message : String(err),
+      });
       throw this.wrapError(err);
     }
   }

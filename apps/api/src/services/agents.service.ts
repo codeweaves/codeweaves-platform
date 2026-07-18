@@ -3,7 +3,6 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
-  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from './prisma.service';
@@ -21,6 +20,7 @@ import { AgentLoggerService } from '../common/logger/agent.logger';
 import { AgentCacheService } from '../common/cache/agent-cache.service';
 import { WidgetCorsCacheService } from '../common/cache/widget-cors-cache.service';
 import { CryptoService } from '../common/crypto/crypto.service';
+import { AppLogger } from '../common/logger/app-logger';
 
 const MAX_PUBLIC_ID_RETRIES = 3;
 const WEBHOOK_TEST_TIMEOUT = 10_000;
@@ -46,7 +46,7 @@ function dedupeCategoryKeywords(keywords: string[]): string[] {
 
 @Injectable()
 export class AgentsService {
-  private readonly logger = new Logger(AgentsService.name);
+  private readonly log = new AppLogger(AgentsService.name);
 
   constructor(
     private prisma: PrismaService,
@@ -58,6 +58,7 @@ export class AgentsService {
   ) {}
 
   async create(dto: CreateAgentDto, user: CurrentUserData) {
+    this.log.debug('create', 'creating agent', { organizationId: dto.organizationId });
     const org = await this.prisma.organization.findUnique({
       where: { id: dto.organizationId },
     });
@@ -77,6 +78,7 @@ export class AgentsService {
           },
         });
         await this.agentLogger.logAgentCreated(agent.id, { agent, request: dto, userId: user.id });
+        this.log.info('create', 'agent created', { agentId: agent.id, organizationId: dto.organizationId });
         return agent;
       } catch (error) {
         if (
@@ -85,11 +87,13 @@ export class AgentsService {
           Array.isArray(error.meta?.['target']) &&
           (error.meta['target'] as string[]).includes('publicId')
         ) {
+          this.log.warn('create', `publicId collision, retrying (attempt ${attempt + 1}/${MAX_PUBLIC_ID_RETRIES})`);
           if (attempt === MAX_PUBLIC_ID_RETRIES - 1) {
             throw new ConflictException('Unable to generate a unique public ID. Please try again.');
           }
           continue;
         }
+        this.log.error('create', 'agent creation failed', error, { organizationId: dto.organizationId });
         await this.agentLogger.logAgentCreationException(
           dto.organizationId,
           error,
@@ -159,6 +163,7 @@ export class AgentsService {
   }
 
   async update(id: string, dto: UpdateAgentDto, user: CurrentUserData) {
+    this.log.debug('update', 'updating agent', { agentId: id, fields: Object.keys(dto) });
     const existing = await this.findByIdRaw(id, user);
 
     // Validate, normalize, and deduplicate domains before saving
@@ -331,6 +336,7 @@ export class AgentsService {
       }
 
       await this.agentLogger.logAgentUpdated(updated.id, { agent: updated, request: dto, userId: user.id });
+      this.log.info('update', 'agent updated', { agentId: updated.id });
       // Bust the cache so the next chat turn reads fresh aiConfig / systemPrompt /
       // voiceConfig. Invalidation is best-effort (fail-open, see AgentCacheService).
       await this.agentCache.invalidate(updated.id);
@@ -348,6 +354,7 @@ export class AgentsService {
       ) {
         throw new NotFoundException('Agent not found');
       }
+      this.log.error('update', 'agent update failed', error, { agentId: id });
       await this.agentLogger.logAgentUpdateException(id, error, { request: dto, userId: user.id });
       throw error;
     }
@@ -361,6 +368,7 @@ export class AgentsService {
       data: { deletedAt: new Date() },
     });
     await this.agentLogger.logAgentDeleted(deleted.id, { agent: deleted, userId: user.id });
+    this.log.info('softDelete', 'agent soft-deleted', { agentId: deleted.id });
     return deleted;
   }
 
@@ -515,6 +523,7 @@ export class AgentsService {
       await this.agentLogger.logSecretCreated(agentId, user.id);
     }
     await this.agentLogger.logWebhookUpdated(agentId, user.id);
+    this.log.info('setWebhookUrl', 'webhook url updated', { agentId, replaced: !!existing });
 
     return { message: 'Webhook URL updated' };
   }
@@ -582,15 +591,21 @@ export class AgentsService {
         signal: AbortSignal.timeout(WEBHOOK_TEST_TIMEOUT),
       });
 
+      this.log.info('testWebhook', 'webhook test completed', {
+        agentId,
+        statusCode: response.status,
+        ok: response.ok,
+        ms: Date.now() - startTime,
+      });
       return {
         success: response.ok,
         statusCode: response.status,
         responseTime: Date.now() - startTime,
       };
     } catch (error) {
-      this.logger.warn(
-        `Webhook test failed for agent ${agentId}: ${error instanceof Error ? error.message : 'Unknown error'}`,
-      );
+      this.log.warn('testWebhook', `webhook test failed for agent ${agentId}`, {
+        err: error instanceof Error ? error.message : 'Unknown error',
+      });
       return {
         success: false,
         statusCode: null,

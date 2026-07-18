@@ -1,7 +1,8 @@
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
+import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
 import { PrismaService } from '../services/prisma.service';
 import { WidgetCorsCacheService } from '../common/cache/widget-cors-cache.service';
+import { AppLogger } from '../common/logger/app-logger';
 import { normalizeDomain } from '../utils/domain';
 
 /**
@@ -18,7 +19,7 @@ import { normalizeDomain } from '../utils/domain';
  */
 @Injectable()
 export class WidgetCorsMiddleware implements NestMiddleware {
-  private readonly logger = new Logger(WidgetCorsMiddleware.name);
+  private readonly log = new AppLogger(WidgetCorsMiddleware.name);
   private readonly dashboardOrigin: string;
 
   constructor(
@@ -66,7 +67,8 @@ export class WidgetCorsMiddleware implements NestMiddleware {
     }
 
     // Origin not allowed — respond without CORS headers (browser will block)
-    this.logger.warn(
+    this.log.warn(
+      'use',
       `CORS blocked: origin "${origin}" not in allowedDomains for agent "${agentId}"`,
     );
     if (req.method === 'OPTIONS') return res.status(204).end();
@@ -184,7 +186,11 @@ export class WidgetCorsMiddleware implements NestMiddleware {
       this.cache.set({ publicId: agent.publicId, id: agent.id }, domains);
       return domains;
     } catch (error) {
-      this.logger.error(`Failed to look up allowedDomains for agent "${agentId}": ${error}`);
+      this.log.error(
+        'getAllowedDomains',
+        `Failed to look up allowedDomains for agent "${agentId}"`,
+        error,
+      );
       return null;
     }
   }

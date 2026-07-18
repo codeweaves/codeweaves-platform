@@ -1,4 +1,5 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
+import { AppLogger } from '../logger/app-logger';
 
 /**
  * In-memory per-replica cache of `Agent.allowedDomains` keyed by both the
@@ -27,7 +28,7 @@ import { Injectable, Logger } from '@nestjs/common';
  */
 @Injectable()
 export class WidgetCorsCacheService {
-  private readonly logger = new Logger(WidgetCorsCacheService.name);
+  private readonly log = new AppLogger(WidgetCorsCacheService.name);
   private readonly cache = new Map<
     string,
     { domains: string[]; expiresAt: number }
@@ -70,7 +71,8 @@ export class WidgetCorsCacheService {
     if (keys.publicId && this.cache.delete(keys.publicId)) removed++;
     if (keys.id && this.cache.delete(keys.id)) removed++;
     if (removed > 0) {
-      this.logger.debug(
+      this.log.debug(
+        'invalidate',
         `Widget CORS cache invalidated for agent (publicId=${keys.publicId ?? '-'} id=${keys.id ?? '-'}, removed ${removed} key(s))`,
       );
     }

@@ -4,10 +4,10 @@ import {
   ExecutionContext,
   HttpException,
   HttpStatus,
-  Logger,
 } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { Request, Response } from 'express';
+import { AppLogger } from '../common/logger/app-logger';
 import { RateLimiterService } from '../common/redis/rate-limiter.service';
 import { RateLimitConfig } from '../common/redis/rate-limiter.types';
 import { SKIP_RATE_LIMIT_KEY, RATE_LIMIT_KEY } from '../decorators/rate-limit.decorator';
@@ -15,7 +15,7 @@ import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
-  private readonly logger = new Logger(RateLimitGuard.name);
+  private readonly log = new AppLogger(RateLimitGuard.name);
 
   constructor(
     private readonly reflector: Reflector,
@@ -82,7 +82,7 @@ export class RateLimitGuard implements CanActivate {
     if (!result.allowed) {
       const retryAfterSeconds = Math.ceil(result.retryAfterMs / 1000);
       response.setHeader('Retry-After', retryAfterSeconds);
-      this.logger.warn(`Rate limit exceeded for key: rate_limit:${key}`);
+      this.log.warn('canActivate', `Rate limit exceeded for key: rate_limit:${key}`);
       throw new HttpException(
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
@@ -105,7 +105,8 @@ export class RateLimitGuard implements CanActivate {
     } else if (request.ip) {
       return request.ip;
     }
-    this.logger.warn(
+    this.log.warn(
+      'getClientIp',
       'Could not determine client IP — falling back to 0.0.0.0 (shared rate limit bucket)',
     );
     return '0.0.0.0';

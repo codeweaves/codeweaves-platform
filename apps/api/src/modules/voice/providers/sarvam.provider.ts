@@ -1,7 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpStatus } from '@nestjs/common';
 import { WebSocket } from 'undici';
+import { AppLogger } from '../../../common/logger/app-logger';
+import { ProviderEventLogger, PROVIDERS } from '../../../common/events/provider.logger';
 import type {
   VoiceProvider,
   STTRequest,
@@ -89,7 +91,7 @@ interface SarvamErrorResponse {
 
 @Injectable()
 export class SarvamProvider implements VoiceProvider {
-  private readonly logger = new Logger(SarvamProvider.name);
+  private readonly log = new AppLogger(SarvamProvider.name);
   private readonly apiKey: string;
 
   readonly name = 'sarvam';
@@ -126,11 +128,14 @@ export class SarvamProvider implements VoiceProvider {
     'en-IN': 'en',
   };
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly providerLog: ProviderEventLogger,
+  ) {
     this.apiKey = this.configService.get<string>('SARVAM_API_KEY') || '';
 
     if (!this.apiKey) {
-      this.logger.warn('SARVAM_API_KEY not configured — Sarvam provider will not work');
+      this.log.warn('constructor', 'SARVAM_API_KEY not configured — Sarvam provider will not work');
     }
   }
 
@@ -138,7 +143,7 @@ export class SarvamProvider implements VoiceProvider {
     if (!language) return 'unknown';
     const mapped = this.LANGUAGE_MAP[language];
     if (!mapped) {
-      this.logger.warn(`Unmapped language code "${language}" — falling back to auto-detect`);
+      this.log.warn('toSarvamLanguage', 'unmapped language code — falling back to auto-detect', { language });
       return 'unknown';
     }
     return mapped;
@@ -150,37 +155,74 @@ export class SarvamProvider implements VoiceProvider {
   }
 
   async transcribe(request: STTRequest): Promise<STTResponse> {
-    const startTime = Date.now();
-
-    const formData = new FormData();
-    formData.append('file', new Blob([new Uint8Array(request.audio)]), 'audio.webm');
-    formData.append('model', 'saarika:v2.5');
-    formData.append('language_code', this.toSarvamLanguage(request.languageHint));
-
-    const response = await fetch('https://api.sarvam.ai/speech-to-text', {
-      method: 'POST',
-      headers: {
-        'api-subscription-key': this.apiKey,
-      },
-      body: formData,
-      signal: AbortSignal.timeout(10_000),
-    }).catch((error: Error) => {
-      throw this.handleNetworkError(error);
+    this.log.debug('transcribe', 'STT request', {
+      agentId: request.agentId,
+      languageHint: request.languageHint,
+      audioBytes: request.audio.length,
     });
 
-    if (!response.ok) {
-      await this.handleErrorResponse(response);
-    }
+    return this.providerLog.traced<STTResponse>(
+      {
+        channel: 'VOICE',
+        provider: PROVIDERS.SARVAM,
+        eventBase: 'SARVAM_STT',
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        requestUrl: 'https://api.sarvam.ai/speech-to-text',
+        requestPayload: {
+          audioBytes: request.audio.length,
+          audioMime: request.audioFormat,
+          languageHint: request.languageHint,
+        },
+        extract: (r) => ({
+          responsePayload: {
+            transcriptChars: r.transcript.length,
+            detectedLanguage: r.detectedLanguage,
+            confidence: r.confidence,
+          },
+          metadata: { latencyMs: r.latencyMs },
+        }),
+      },
+      async () => {
+        const startTime = Date.now();
 
-    const data = (await response.json()) as SarvamSTTResponse;
+        const formData = new FormData();
+        formData.append('file', new Blob([new Uint8Array(request.audio)]), 'audio.webm');
+        formData.append('model', 'saarika:v2.5');
+        formData.append('language_code', this.toSarvamLanguage(request.languageHint));
 
-    return {
-      transcript: data.transcript,
-      confidence: data.language_probability ?? 0,
-      detectedLanguage: this.fromSarvamLanguage(data.language_code),
-      provider: this.name,
-      latencyMs: Date.now() - startTime,
-    };
+        const response = await fetch('https://api.sarvam.ai/speech-to-text', {
+          method: 'POST',
+          headers: {
+            'api-subscription-key': this.apiKey,
+          },
+          body: formData,
+          signal: AbortSignal.timeout(10_000),
+        }).catch((error: Error) => {
+          throw this.handleNetworkError(error);
+        });
+
+        if (!response.ok) {
+          await this.handleErrorResponse(response);
+        }
+
+        const data = (await response.json()) as SarvamSTTResponse;
+
+        const result: STTResponse = {
+          transcript: data.transcript,
+          confidence: data.language_probability ?? 0,
+          detectedLanguage: this.fromSarvamLanguage(data.language_code),
+          provider: this.name,
+          latencyMs: Date.now() - startTime,
+        };
+        this.log.info('transcribe', 'STT completed', {
+          detectedLanguage: result.detectedLanguage,
+          transcriptChars: result.transcript.length,
+          latencyMs: result.latencyMs,
+        });
+        return result;
+      },
+    );
   }
 
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
@@ -199,48 +241,83 @@ export class SarvamProvider implements VoiceProvider {
     sarvamCodec: 'mp3' | 'wav',
     audioFormat: string,
   ): Promise<TTSResponse> {
-    const startTime = Date.now();
     const targetLanguageCode = this.toSarvamLanguage(request.language);
-
-    const response = await fetch('https://api.sarvam.ai/text-to-speech', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'api-subscription-key': this.apiKey,
-      },
-      body: JSON.stringify({
-        text: request.text,
-        target_language_code: targetLanguageCode,
-        model: 'bulbul:v3',
-        speaker: request.voiceId || SARVAM_DEFAULT_SPEAKER,
-        pace: request.speed || 1.0,
-        // 24000 Hz is bulbul:v3's native rate. See WS provider comment for why
-        // mismatching this with the audioFormat tag causes pitch shift.
-        speech_sample_rate: '24000',
-        output_audio_codec: sarvamCodec,
-      }),
-      signal: AbortSignal.timeout(10_000),
-    }).catch((error: Error) => {
-      throw this.handleNetworkError(error);
+    this.log.debug('synthesizeWithCodec', 'TTS request', {
+      agentId: request.agentId,
+      language: request.language,
+      voiceId: request.voiceId,
+      codec: sarvamCodec,
+      textChars: request.text.length,
     });
 
-    if (!response.ok) {
-      await this.handleErrorResponse(response);
-    }
+    return this.providerLog.traced<TTSResponse>(
+      {
+        channel: 'VOICE',
+        provider: PROVIDERS.SARVAM,
+        eventBase: 'SARVAM_TTS',
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        requestUrl: 'https://api.sarvam.ai/text-to-speech',
+        requestPayload: {
+          textChars: request.text.length,
+          voiceId: request.voiceId || SARVAM_DEFAULT_SPEAKER,
+          format: audioFormat,
+          language: request.language,
+        },
+        extract: (r) => ({
+          metadata: { audioBytes: r.audio.length, format: r.audioFormat, latencyMs: r.latencyMs },
+        }),
+      },
+      async () => {
+        const startTime = Date.now();
 
-    const data = (await response.json()) as SarvamTTSResponse;
-    const base64Audio = data.audios[0];
-    if (!base64Audio) {
-      throw new VoiceProviderError(this.name, 'Empty audio response from Sarvam TTS');
-    }
-    const audioBuffer = Buffer.from(base64Audio, 'base64');
+        const response = await fetch('https://api.sarvam.ai/text-to-speech', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'api-subscription-key': this.apiKey,
+          },
+          body: JSON.stringify({
+            text: request.text,
+            target_language_code: targetLanguageCode,
+            model: 'bulbul:v3',
+            speaker: request.voiceId || SARVAM_DEFAULT_SPEAKER,
+            pace: request.speed || 1.0,
+            // 24000 Hz is bulbul:v3's native rate. See WS provider comment for why
+            // mismatching this with the audioFormat tag causes pitch shift.
+            speech_sample_rate: '24000',
+            output_audio_codec: sarvamCodec,
+          }),
+          signal: AbortSignal.timeout(10_000),
+        }).catch((error: Error) => {
+          throw this.handleNetworkError(error);
+        });
 
-    return {
-      audio: audioBuffer,
-      audioFormat,
-      provider: this.name,
-      latencyMs: Date.now() - startTime,
-    };
+        if (!response.ok) {
+          await this.handleErrorResponse(response);
+        }
+
+        const data = (await response.json()) as SarvamTTSResponse;
+        const base64Audio = data.audios[0];
+        if (!base64Audio) {
+          this.log.error('synthesizeWithCodec', 'empty audio response from Sarvam TTS');
+          throw new VoiceProviderError(this.name, 'Empty audio response from Sarvam TTS');
+        }
+        const audioBuffer = Buffer.from(base64Audio, 'base64');
+
+        this.log.info('synthesizeWithCodec', 'TTS completed', {
+          audioBytes: audioBuffer.length,
+          format: audioFormat,
+          latencyMs: Date.now() - startTime,
+        });
+        return {
+          audio: audioBuffer,
+          audioFormat,
+          provider: this.name,
+          latencyMs: Date.now() - startTime,
+        };
+      },
+    );
   }
 
   /**
@@ -271,6 +348,16 @@ export class SarvamProvider implements VoiceProvider {
   async *synthesizeStream(request: TTSRequest): AsyncIterable<TTSStreamChunk> {
     const startTime = Date.now();
     const targetLanguageCode = this.toSarvamLanguage(request.language);
+    // WS paths emit ONE summary event at stream end (chunk count + total bytes)
+    // rather than per-chunk — see report note. Track cumulative counters here.
+    let emittedChunks = 0;
+    let emittedBytes = 0;
+    this.log.debug('synthesizeStream', 'opening Sarvam WS TTS stream', {
+      agentId: request.agentId,
+      language: request.language,
+      voiceId: request.voiceId,
+      textChars: request.text.length,
+    });
 
     const url = new URL('wss://api.sarvam.ai/text-to-speech/ws');
     url.searchParams.set('model', 'bulbul:v3');
@@ -492,6 +579,8 @@ export class SarvamProvider implements VoiceProvider {
       while (true) {
         while (queue.length > 0) {
           const chunk = queue.shift()!;
+          emittedChunks += 1;
+          emittedBytes += chunk.audio.length;
           yield chunk;
           if (chunk.isFinal) return;
         }
@@ -511,6 +600,34 @@ export class SarvamProvider implements VoiceProvider {
           // ignore
         }
       }
+      // Single fire-and-forget summary for the whole WS synth (no per-chunk rows).
+      // `wsError` is only ever assigned inside the WS event closures, which the
+      // TS control-flow analysis for the finally can't see (it narrows to never)
+      // — cast back to the declared type to read it.
+      const streamErr = wsError as Error | null;
+      this.providerLog.log({
+        channel: 'VOICE',
+        eventName: streamErr ? 'SARVAM_TTS_STREAM_FAILED' : 'SARVAM_TTS_STREAM_COMPLETED',
+        direction: 'OUTBOUND',
+        provider: PROVIDERS.SARVAM,
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        requestUrl: url.toString(),
+        requestPayload: {
+          textChars: request.text.length,
+          voiceId: request.voiceId || SARVAM_DEFAULT_SPEAKER,
+          language: request.language,
+        },
+        latencyMs: Date.now() - startTime,
+        success: !streamErr,
+        errorMessage: streamErr?.message,
+        metadata: {
+          chunkCount: emittedChunks,
+          totalBytes: emittedBytes,
+          format: 'audio/pcm; rate=24000',
+          protocol: 'websocket',
+        },
+      });
     }
   }
 
@@ -536,6 +653,17 @@ export class SarvamProvider implements VoiceProvider {
     const url = new URL('wss://api.sarvam.ai/text-to-speech/ws');
     url.searchParams.set('model', 'bulbul:v3');
     url.searchParams.set('send_completion_event', 'true');
+    this.log.debug('openSynthesisSession', 'opening persistent Sarvam WS session', {
+      agentId: config.agentId,
+      language: config.language,
+      voiceId: config.voiceId,
+    });
+
+    // WS session emits ONE summary event on close (cumulative chunks + bytes
+    // across all sentences synthesised on this connection) — see report note.
+    let sessionChunks = 0;
+    let sessionBytes = 0;
+    let summaryEmitted = false;
 
     const ws = new WebSocket(url, [`api-subscription-key.${this.apiKey}`]);
 
@@ -623,6 +751,8 @@ export class SarvamProvider implements VoiceProvider {
             }
           }
           if (pcm.length > 0) {
+            sessionChunks += 1;
+            sessionBytes += pcm.length;
             currentQueue.push({
               audio: pcm,
               audioFormat: 'audio/pcm; rate=24000',
@@ -687,6 +817,35 @@ export class SarvamProvider implements VoiceProvider {
     await openPromise;
 
     const provider = this.name;
+    // Capture the provider-scoped logger so the session object's close() (whose
+    // `this` is the session literal, not the provider) can emit the summary.
+    const providerLog = this.providerLog;
+    const emitSummary = (): void => {
+      if (summaryEmitted) return;
+      summaryEmitted = true;
+      providerLog.log({
+        channel: 'VOICE',
+        eventName: wsFatalError ? 'SARVAM_TTS_SESSION_FAILED' : 'SARVAM_TTS_SESSION_COMPLETED',
+        direction: 'OUTBOUND',
+        provider: PROVIDERS.SARVAM,
+        agentId: config.agentId,
+        sessionId: config.sessionId,
+        requestUrl: url.toString(),
+        requestPayload: {
+          voiceId: config.voiceId || SARVAM_DEFAULT_SPEAKER,
+          language: config.language,
+        },
+        latencyMs: Date.now() - startTime,
+        success: !wsFatalError,
+        errorMessage: wsFatalError?.message,
+        metadata: {
+          chunkCount: sessionChunks,
+          totalBytes: sessionBytes,
+          format: 'audio/pcm; rate=24000',
+          protocol: 'websocket-session',
+        },
+      });
+    };
     const session: TTSSession = {
       provider,
       async *synthesize(text: string): AsyncIterable<TTSStreamChunk> {
@@ -745,6 +904,7 @@ export class SarvamProvider implements VoiceProvider {
           }
           wsClosed = true;
         }
+        emitSummary();
       },
     };
     return session;
@@ -757,37 +917,58 @@ export class SarvamProvider implements VoiceProvider {
   }
 
   async detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse> {
-    const startTime = Date.now();
-    this.logger.debug(`detectLanguage called (format: ${audioFormat}, size: ${audio.length})`);
+    this.log.debug('detectLanguage', 'auto-detect request', { format: audioFormat, audioBytes: audio.length });
 
-    const formData = new FormData();
-    formData.append('file', new Blob([new Uint8Array(audio)]), 'audio.webm');
-    formData.append('model', 'saarika:v2.5');
-    formData.append('language_code', 'unknown');
-
-    const response = await fetch('https://api.sarvam.ai/speech-to-text', {
-      method: 'POST',
-      headers: {
-        'api-subscription-key': this.apiKey,
+    return this.providerLog.traced<LanguageDetectionResponse>(
+      {
+        channel: 'VOICE',
+        provider: PROVIDERS.SARVAM,
+        eventBase: 'SARVAM_STT_DETECT',
+        requestUrl: 'https://api.sarvam.ai/speech-to-text',
+        requestPayload: { audioBytes: audio.length, audioMime: audioFormat },
+        extract: (r) => ({
+          responsePayload: { detectedLanguage: r.detectedLanguage, confidence: r.confidence },
+          metadata: { latencyMs: r.latencyMs },
+        }),
       },
-      body: formData,
-      signal: AbortSignal.timeout(10_000),
-    }).catch((error: Error) => {
-      throw this.handleNetworkError(error);
-    });
+      async () => {
+        const startTime = Date.now();
 
-    if (!response.ok) {
-      await this.handleErrorResponse(response);
-    }
+        const formData = new FormData();
+        formData.append('file', new Blob([new Uint8Array(audio)]), 'audio.webm');
+        formData.append('model', 'saarika:v2.5');
+        formData.append('language_code', 'unknown');
 
-    const data = (await response.json()) as SarvamSTTResponse;
+        const response = await fetch('https://api.sarvam.ai/speech-to-text', {
+          method: 'POST',
+          headers: {
+            'api-subscription-key': this.apiKey,
+          },
+          body: formData,
+          signal: AbortSignal.timeout(10_000),
+        }).catch((error: Error) => {
+          throw this.handleNetworkError(error);
+        });
 
-    return {
-      detectedLanguage: this.fromSarvamLanguage(data.language_code),
-      confidence: data.language_probability ?? 0,
-      provider: this.name,
-      latencyMs: Date.now() - startTime,
-    };
+        if (!response.ok) {
+          await this.handleErrorResponse(response);
+        }
+
+        const data = (await response.json()) as SarvamSTTResponse;
+
+        const result: LanguageDetectionResponse = {
+          detectedLanguage: this.fromSarvamLanguage(data.language_code),
+          confidence: data.language_probability ?? 0,
+          provider: this.name,
+          latencyMs: Date.now() - startTime,
+        };
+        this.log.info('detectLanguage', 'detection completed', {
+          detectedLanguage: result.detectedLanguage,
+          latencyMs: result.latencyMs,
+        });
+        return result;
+      },
+    );
   }
 
   private handleNetworkError(error: Error): VoiceProviderError {
@@ -822,7 +1003,11 @@ export class SarvamProvider implements VoiceProvider {
     const code = errorData?.error?.code;
     const message = errorData?.error?.message || `HTTP ${response.status}`;
 
-    this.logger.error(`Sarvam API error: ${code} — ${message}`);
+    this.log.error('handleErrorResponse', 'Sarvam API error', undefined, {
+      status: response.status,
+      code,
+      message,
+    });
 
     switch (code) {
       case 'invalid_api_key_error':

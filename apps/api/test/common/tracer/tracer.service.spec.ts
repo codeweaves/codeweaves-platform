@@ -18,9 +18,14 @@ describe('TracerService', () => {
     auditLog: {
       create: jest.fn(),
     },
+    eventLog: {
+      create: jest.fn(),
+    },
   };
 
   beforeEach(async () => {
+    jest.clearAllMocks();
+    delete process.env.EVENT_LOG_ENABLED;
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         TracerService,
@@ -105,6 +110,93 @@ describe('TracerService', () => {
       // Should NOT throw
       await expect(
         service.logAuditEvent('ctx-1', 'TEST_EVENT', {}),
+      ).resolves.toBeUndefined();
+    });
+  });
+
+  describe('logEvent', () => {
+    it('writes an event_logs row and auto-fills actor/org/correlation from context', async () => {
+      mockPrismaService.eventLog.create.mockResolvedValue({});
+      const context: RequestContext = {
+        correlationId: 'corr-1',
+        userId: 'user-1',
+        clerkId: 'clerk_1',
+        organizationId: 'org-1',
+      };
+
+      await requestContextStorage.run(context, async () => {
+        await service.logEvent({
+          channel: 'WIDGET',
+          eventName: 'WIDGET_MESSAGE_RECEIVED',
+          direction: 'INBOUND',
+          agentId: 'agent-1',
+        });
+      });
+
+      const data = mockPrismaService.eventLog.create.mock.calls[0][0].data;
+      expect(data).toMatchObject({
+        channel: 'WIDGET',
+        eventName: 'WIDGET_MESSAGE_RECEIVED',
+        direction: 'INBOUND',
+        agentId: 'agent-1',
+        actorUserId: 'user-1',
+        clerkId: 'clerk_1',
+        organizationId: 'org-1',
+        correlationId: 'corr-1',
+        success: true,
+      });
+    });
+
+    it('lets explicit fields override context', async () => {
+      mockPrismaService.eventLog.create.mockResolvedValue({});
+      const context: RequestContext = { correlationId: 'corr-1', userId: 'ctx-user' };
+
+      await requestContextStorage.run(context, async () => {
+        await service.logEvent({
+          channel: 'INTERNAL',
+          eventName: 'CLASSIFIER_RUN_STARTED',
+          actorUserId: 'explicit-user',
+        });
+      });
+
+      expect(mockPrismaService.eventLog.create.mock.calls[0][0].data.actorUserId).toBe(
+        'explicit-user',
+      );
+    });
+
+    it('sanitizes headers and never stores authorization', async () => {
+      mockPrismaService.eventLog.create.mockResolvedValue({});
+      await service.logEvent({
+        channel: 'WHATSAPP',
+        eventName: 'META_WHATSAPP_SEND_TEXT_COMPLETED',
+        requestHeaders: { authorization: 'Bearer x', 'content-type': 'application/json' },
+        requestPayload: { to: '+123', token: 'secret' },
+      });
+      const data = mockPrismaService.eventLog.create.mock.calls[0][0].data;
+      expect(data.requestHeaders).toEqual({ 'content-type': 'application/json' });
+      expect(data.requestPayload.token).toBe('[REDACTED]');
+    });
+
+    it('omits Json columns (not null) when payloads are absent', async () => {
+      mockPrismaService.eventLog.create.mockResolvedValue({});
+      await service.logEvent({ channel: 'DASHBOARD', eventName: 'X' });
+      const data = mockPrismaService.eventLog.create.mock.calls[0][0].data;
+      expect(data).not.toHaveProperty('requestHeaders');
+      expect(data).not.toHaveProperty('requestPayload');
+      expect(data).not.toHaveProperty('responsePayload');
+      expect(data).not.toHaveProperty('metadata');
+    });
+
+    it('is a no-op when EVENT_LOG_ENABLED=false', async () => {
+      process.env.EVENT_LOG_ENABLED = 'false';
+      await service.logEvent({ channel: 'DASHBOARD', eventName: 'X' });
+      expect(mockPrismaService.eventLog.create).not.toHaveBeenCalled();
+    });
+
+    it('never throws when the DB write fails (fire-and-forget)', async () => {
+      mockPrismaService.eventLog.create.mockRejectedValue(new Error('DB down'));
+      await expect(
+        service.logEvent({ channel: 'DASHBOARD', eventName: 'X' }),
       ).resolves.toBeUndefined();
     });
   });

@@ -1,6 +1,7 @@
 import { Injectable } from '@nestjs/common';
 import type { HandoverState } from '@prisma/client';
 import { HandoverGateway } from '../gateways/handover.gateway';
+import { AppLogger } from '../common/logger/app-logger';
 
 /**
  * Thin wrapper over the self-hosted Socket.io {@link HandoverGateway} for the
@@ -26,6 +27,8 @@ import { HandoverGateway } from '../gateways/handover.gateway';
  */
 @Injectable()
 export class RealtimeService {
+  private readonly log = new AppLogger(RealtimeService.name);
+
   constructor(private readonly gateway: HandoverGateway) {}
 
   /**
@@ -39,8 +42,13 @@ export class RealtimeService {
   ): Promise<void> {
     try {
       this.gateway.emitHandover(ctx.publicSessionId, ctx.organizationId, handoverState);
-    } catch {
-      /* best-effort — realtime never breaks the hot path */
+    } catch (err) {
+      // best-effort — realtime never breaks the hot path
+      this.log.warn('emitHandover', 'handover emit failed (ignored)', {
+        organizationId: ctx.organizationId,
+        handoverState,
+        err: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -51,8 +59,12 @@ export class RealtimeService {
   async emitMessage(ctx: { organizationId: string; publicSessionId: string }): Promise<void> {
     try {
       this.gateway.emitMessage(ctx.publicSessionId, ctx.organizationId);
-    } catch {
-      /* best-effort */
+    } catch (err) {
+      // best-effort
+      this.log.warn('emitMessage', 'message emit failed (ignored)', {
+        organizationId: ctx.organizationId,
+        err: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 }

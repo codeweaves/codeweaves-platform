@@ -27,6 +27,9 @@ export interface STTRequest {
   audioFormat: string; // e.g., 'audio/webm', 'audio/wav'
   languageHint?: SupportedLanguage;
   agentId: string;
+  /** Optional chat session id — threaded through for observability (event_logs)
+   *  when the caller has it. Providers never require it; undefined is fine. */
+  sessionId?: string;
 }
 
 export interface STTResponse {
@@ -51,6 +54,9 @@ export interface TTSRequest {
   voiceId?: string;
   speed?: number;
   agentId: string;
+  /** Optional chat session id — threaded through for observability (event_logs)
+   *  when the caller has it. Providers never require it; undefined is fine. */
+  sessionId?: string;
 }
 
 export interface TTSResponse {
@@ -103,6 +109,8 @@ export interface TTSSessionConfig {
   agentId: string;
   voiceId?: string;
   speed?: number;
+  /** Optional chat session id — threaded through for observability (event_logs). */
+  sessionId?: string;
 }
 
 /**

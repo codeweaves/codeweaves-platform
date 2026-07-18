@@ -1,11 +1,11 @@
 import {
   Injectable,
-  Logger,
   ServiceUnavailableException,
   type OnModuleDestroy,
   type OnModuleInit,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { AppLogger } from '../../common/logger/app-logger';
 import {
   createGoogleGenerativeAI,
   type GoogleGenerativeAIProvider,
@@ -115,7 +115,7 @@ export function parseModelId(modelId: string): ParsedModelId {
  */
 @Injectable()
 export class AiSdkService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(AiSdkService.name);
+  private readonly log = new AppLogger(AiSdkService.name);
 
   private openrouter: OpenRouterProvider | null = null;
   private groq: GroqProvider | null = null;
@@ -168,7 +168,7 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
   onModuleInit(): void {
     const warmups = this.buildWarmupTargets();
     if (warmups.length === 0) {
-      this.logger.warn('No AI providers configured — skipping connection pre-warm.');
+      this.log.warn('onModuleInit', 'No AI providers configured — skipping connection pre-warm.');
       return;
     }
 
@@ -184,11 +184,13 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
       // Don't keep the event loop alive just for the heartbeat — let the
       // process exit cleanly during shutdown without us forcing a holding pin.
       this.heartbeatInterval.unref?.();
-      this.logger.log(
+      this.log.info(
+        'onModuleInit',
         `Keep-alive heartbeat scheduled every ${heartbeatMs}ms across ${warmups.length} provider(s).`,
       );
     } else {
-      this.logger.log(
+      this.log.info(
+        'onModuleInit',
         'Keep-alive heartbeat disabled via AI_KEEPALIVE_HEARTBEAT_MS=0 — first request after idle may pay cold-start tax.',
       );
     }
@@ -208,7 +210,8 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
     }
     const parsed = typeof raw === 'number' ? raw : Number(raw);
     if (!Number.isFinite(parsed) || parsed < 0) {
-      this.logger.warn(
+      this.log.warn(
+        'resolveHeartbeatMs',
         `Invalid AI_KEEPALIVE_HEARTBEAT_MS=${String(raw)} — falling back to default ${AiSdkService.DEFAULT_HEARTBEAT_MS}ms.`,
       );
       return AiSdkService.DEFAULT_HEARTBEAT_MS;
@@ -260,7 +263,8 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
         try {
           await keepAliveFetch(url, { method: 'GET' });
           if (opts.logSuccess) {
-            this.logger.log(
+            this.log.info(
+              'pingWarmupTargets',
               `Pre-warmed ${name} connection in ${Math.round(performance.now() - t0)}ms (${url})`,
             );
           }
@@ -269,7 +273,8 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
           // Only log if the network itself failed.
           // Heartbeat failures matter (they'll cost cold-start latency on next
           // chat) so we log them at warn level regardless of opts.logSuccess.
-          this.logger.warn(
+          this.log.warn(
+            'pingWarmupTargets',
             `${opts.logSuccess ? 'Pre-warm' : 'Heartbeat'} of ${name} failed (${url}): ${err instanceof Error ? err.message : String(err)}.`,
           );
         }
@@ -416,7 +421,8 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
       },
     });
 
-    this.logger.log(
+    this.log.info(
+      'getOpenRouterProvider',
       `OpenRouter provider initialised (referer=${referer}, default=${this.getDefaultModel()})`,
     );
     return this.openrouter;
@@ -435,7 +441,7 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.groq = createGroq({ apiKey, fetch: keepAliveFetch });
-    this.logger.log('Groq provider initialised');
+    this.log.info('getGroqProvider', 'Groq provider initialised');
     return this.groq;
   }
 
@@ -459,7 +465,8 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
       fetch: keepAliveFetch,
       ...(organization ? { organization } : {}),
     });
-    this.logger.log(
+    this.log.info(
+      'getOpenAIProvider',
       `OpenAI provider initialised${organization ? ` (org=${organization})` : ''}`,
     );
     return this.openai;
@@ -478,7 +485,7 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
     }
 
     this.google = createGoogleGenerativeAI({ apiKey, fetch: keepAliveFetch });
-    this.logger.log('Google Gemini provider initialised');
+    this.log.info('getGoogleProvider', 'Google Gemini provider initialised');
     return this.google;
   }
 
@@ -515,7 +522,7 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
       apiKey,
       fetch: keepAliveFetch,
     });
-    this.logger.log('Sarvam AI provider initialised');
+    this.log.info('getSarvamProvider', 'Sarvam AI provider initialised');
     return this.sarvam;
   }
 
@@ -552,7 +559,7 @@ export class AiSdkService implements OnModuleInit, OnModuleDestroy {
       apiKey,
       fetch: keepAliveFetch,
     });
-    this.logger.log('Cerebras provider initialised');
+    this.log.info('getCerebrasProvider', 'Cerebras provider initialised');
     return this.cerebras;
   }
 }

@@ -5,28 +5,36 @@ import {
   RequestContext,
 } from '../../src/common/tracer/correlation.storage';
 import { SentryService } from '../../src/common/sentry/sentry.service';
+import { TracerService } from '../../src/common/tracer/tracer.service';
 
 describe('AllExceptionsFilter', () => {
   let filter: AllExceptionsFilter;
   let mockSentryService: jest.Mocked<Pick<SentryService, 'captureException'>>;
+  const logEvent = jest.fn().mockResolvedValue(undefined);
 
   beforeEach(() => {
+    jest.clearAllMocks();
+    delete process.env.EVENT_LOG_HTTP_CAPTURE;
     mockSentryService = {
       captureException: jest.fn(),
     };
     filter = new AllExceptionsFilter(
       mockSentryService as unknown as SentryService,
+      { logEvent } as unknown as TracerService,
     );
   });
 
-  function createMockHost() {
+  function createMockHost(method = 'GET', originalUrl = '/api/klivo/v1/test') {
     const json = jest.fn();
     const status = jest.fn().mockReturnValue({ json });
 
     const response = { status };
     const request = {
-      method: 'GET',
-      originalUrl: '/api/klivo/v1/test',
+      method,
+      originalUrl,
+      params: {},
+      headers: {},
+      body: {},
     };
 
     const host = {
@@ -170,5 +178,48 @@ describe('AllExceptionsFilter', () => {
     filter.catch(new HttpException('Not Found', 404), host);
 
     expect(mockSentryService.captureException).not.toHaveBeenCalled();
+  });
+
+  it('writes a failed-request envelope (with stack) for a 5xx on a mutating route', () => {
+    const { host } = createMockHost('POST');
+    filter.catch(new Error('kaboom'), host);
+
+    expect(logEvent).toHaveBeenCalledTimes(1);
+    const arg = logEvent.mock.calls[0][0];
+    expect(arg.eventName).toBe('DASHBOARD_HTTP_ERROR');
+    expect(arg.responseStatus).toBe(500);
+    expect(arg.success).toBe(false);
+    expect(arg.errorMessage).toBe('kaboom');
+    expect(typeof arg.metadata.stack).toBe('string');
+  });
+
+  it('captures a 4xx auth/business rejection on a mutating route (no stack)', () => {
+    const { host } = createMockHost('DELETE');
+    filter.catch(new HttpException('Forbidden', 403), host);
+
+    expect(logEvent).toHaveBeenCalledTimes(1);
+    const arg = logEvent.mock.calls[0][0];
+    expect(arg.responseStatus).toBe(403);
+    expect(arg.success).toBe(false);
+    expect(arg.metadata.stack).toBeUndefined();
+  });
+
+  it('does NOT capture non-mutating (GET) failures', () => {
+    const { host } = createMockHost('GET');
+    filter.catch(new Error('kaboom'), host);
+    expect(logEvent).not.toHaveBeenCalled();
+  });
+
+  it('does NOT capture excluded channels (widget carries raw visitor bodies)', () => {
+    const { host } = createMockHost('POST', '/api/klivo/v1/public/chat/stream');
+    filter.catch(new Error('kaboom'), host);
+    expect(logEvent).not.toHaveBeenCalled();
+  });
+
+  it('does not write when EVENT_LOG_HTTP_CAPTURE=false', () => {
+    process.env.EVENT_LOG_HTTP_CAPTURE = 'false';
+    const { host } = createMockHost('POST');
+    filter.catch(new Error('kaboom'), host);
+    expect(logEvent).not.toHaveBeenCalled();
   });
 });

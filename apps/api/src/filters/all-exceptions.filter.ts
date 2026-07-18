@@ -9,13 +9,24 @@ import {
 import { Response, Request } from 'express';
 import { getRequestContext } from '../common/tracer/correlation.storage';
 import { SentryService } from '../common/sentry/sentry.service';
+import { TracerService } from '../common/tracer/tracer.service';
+import {
+  resolveChannel,
+  extractEntityIds,
+  capturesHttpEnvelope,
+} from '../common/events/resolve-channel';
+
+const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
 
 @Injectable()
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
   private readonly logger = new Logger(AllExceptionsFilter.name);
 
-  constructor(private readonly sentryService: SentryService) {}
+  constructor(
+    private readonly sentryService: SentryService,
+    private readonly tracer: TracerService,
+  ) {}
 
   catch(exception: unknown, host: ArgumentsHost) {
     const ctx = host.switchToHttp();
@@ -36,6 +47,45 @@ export class AllExceptionsFilter implements ExceptionFilter {
         correlationId: context?.correlationId,
         method: request.method,
         url: request.originalUrl,
+      });
+    }
+
+    // Fire-and-forget failed-request envelope. This is the SINGLE capture point for
+    // ALL failed mutating requests — including 4xx thrown by guards (401/403/429)
+    // that never reach the interceptor (guards short-circuit first), so auth /
+    // rate-limit rejections are auditable. Restricted to DASHBOARD/INTERNAL: widget/
+    // voice/whatsapp are excluded because their request bodies carry raw visitor
+    // content (pre-PII-masking) + are covered by dedicated channel events.
+    if (
+      process.env.EVENT_LOG_HTTP_CAPTURE !== 'false' &&
+      MUTATING.has(request.method) &&
+      capturesHttpEnvelope(resolveChannel(request.originalUrl))
+    ) {
+      const channel = resolveChannel(request.originalUrl);
+      const { agentId, organizationId } = extractEntityIds(
+        request.originalUrl,
+        request.params ?? {},
+      );
+      void this.tracer.logEvent({
+        channel,
+        eventName: `${channel}_HTTP_ERROR`,
+        direction: 'INBOUND',
+        agentId,
+        organizationId,
+        requestUrl: request.originalUrl,
+        requestHeaders: request.headers,
+        requestPayload: request.body,
+        responseStatus: status,
+        success: false,
+        errorMessage:
+          exception instanceof Error ? exception.message : String(exception),
+        metadata: {
+          method: request.method,
+          // Stack only for 5xx — 4xx are expected business rejections.
+          ...(status >= 500 && exception instanceof Error
+            ? { stack: exception.stack }
+            : {}),
+        },
       });
     }
 

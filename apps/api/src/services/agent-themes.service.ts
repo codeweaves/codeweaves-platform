@@ -2,6 +2,7 @@ import { Injectable, NotFoundException } from '@nestjs/common';
 import { Prisma, Role } from '@prisma/client';
 import { PrismaService } from './prisma.service';
 import { AgentLoggerService } from '../common/logger/agent.logger';
+import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { defaultWidgetTheme } from '../models/agent-theme.dto';
 import type { WidgetTheme, PartialWidgetTheme } from '../models/agent-theme.dto';
@@ -31,6 +32,8 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
 
 @Injectable()
 export class AgentThemesService {
+  private readonly log = new AppLogger(AgentThemesService.name);
+
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentLogger: AgentLoggerService,
@@ -62,6 +65,7 @@ export class AgentThemesService {
     });
 
     await this.agentLogger.logThemeUpdated(agentId, user.id);
+    this.log.info('updateTheme', 'theme replaced', { agentId, version: theme.version });
 
     return { config: theme.config as WidgetTheme, version: theme.version };
   }
@@ -89,6 +93,7 @@ export class AgentThemesService {
     });
 
     await this.agentLogger.logThemeUpdated(agentId, user.id);
+    this.log.info('patchTheme', 'theme patched', { agentId, version: theme.version });
 
     return { config: theme.config as WidgetTheme, version: theme.version };
   }
@@ -105,6 +110,7 @@ export class AgentThemesService {
     });
 
     await this.agentLogger.logThemeReset(agentId, user.id);
+    this.log.info('resetTheme', 'theme reset to default', { agentId, version: theme.version });
 
     return { config: theme.config as WidgetTheme, version: theme.version };
   }

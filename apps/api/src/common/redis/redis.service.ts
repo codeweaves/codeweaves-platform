@@ -2,14 +2,14 @@ import {
   Injectable,
   OnModuleInit,
   OnModuleDestroy,
-  Logger,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import Redis from 'ioredis';
+import { AppLogger } from '../logger/app-logger';
 
 @Injectable()
 export class RedisService implements OnModuleInit, OnModuleDestroy {
-  private readonly logger = new Logger(RedisService.name);
+  private readonly log = new AppLogger(RedisService.name);
   private client!: Redis;
 
   constructor(private configService: ConfigService) {}
@@ -19,7 +19,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     if (!redisUrl) {
       // Never crash the backend over Redis. It powers only optional, fail-open
       // features (agent cache, opt-in rate limiting) — the app runs fine without it.
-      this.logger.warn(
+      this.log.warn(
+        'onModuleInit',
         'REDIS_URL not set — cache + rate limiting disabled. Backend continues.',
       );
       return;
@@ -34,7 +35,8 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
       enableOfflineQueue: false,
       retryStrategy: (times: number) => {
         if (times > 3) {
-          this.logger.warn(
+          this.log.warn(
+            'onModuleInit',
             'Redis unavailable after 3 retries — cache/rate-limiting disabled until it recovers.',
           );
           return null; // stop retrying
@@ -45,7 +47,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
     });
 
     this.client.on('connect', () => {
-      this.logger.log('Redis connection established');
+      this.log.info('onModuleInit', 'Redis connection established');
     });
 
     this.client.on('error', () => {
@@ -54,11 +56,12 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
 
     try {
       await this.client.connect();
-      this.logger.log('RedisService initialized');
+      this.log.info('onModuleInit', 'RedisService initialized');
     } catch (err) {
       // Non-fatal: boot MUST NOT depend on Redis being reachable. Commands will
       // fail-fast and consumers fall back to Postgres / allow.
-      this.logger.warn(
+      this.log.warn(
+        'onModuleInit',
         `Redis not available at startup — backend continues, features degraded. ${err instanceof Error ? err.message : String(err)}`,
       );
     }
@@ -67,7 +70,7 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   async onModuleDestroy() {
     if (this.client) {
       await this.client.quit();
-      this.logger.log('Redis connection closed');
+      this.log.info('onModuleDestroy', 'Redis connection closed');
     }
   }
 

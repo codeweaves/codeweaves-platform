@@ -8,6 +8,7 @@ jest.mock('@clerk/backend', () => ({
 
 import { ClerkManagementService } from '../../../src/services/clerk-management.service';
 import { ClerkLoggerService } from '../../../src/common/logger/clerk.logger';
+import { ProviderEventLogger } from '../../../src/common/events/provider.logger';
 
 const mockClerkClient = {
   invitations: {
@@ -38,6 +39,7 @@ describe('ClerkManagementService', () => {
           useValue: { get: jest.fn(() => 'sk_test_secret') },
         },
         { provide: ClerkLoggerService, useValue: mockClerkLogger },
+        { provide: ProviderEventLogger, useValue: { log: jest.fn() } },
       ],
     }).compile();
 

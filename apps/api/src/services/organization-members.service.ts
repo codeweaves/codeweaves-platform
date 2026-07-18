@@ -7,6 +7,7 @@ import {
 import { PrismaService } from './prisma.service';
 import { Role } from '@prisma/client';
 import { UserLoggerService } from '../common/logger/user.logger';
+import { AppLogger } from '../common/logger/app-logger';
 
 export interface MemberResponse {
   id: string;
@@ -23,6 +24,8 @@ export interface MembersListCaller {
 
 @Injectable()
 export class OrganizationMembersService {
+  private readonly log = new AppLogger(OrganizationMembersService.name);
+
   constructor(
     private prisma: PrismaService,
     private readonly userLogger: UserLoggerService,
@@ -94,6 +97,7 @@ export class OrganizationMembersService {
     });
 
     await this.userLogger.logMemberAssigned(userId, { organizationId: orgId });
+    this.log.info('assignMember', 'member assigned to organization', { userId, organizationId: orgId });
     return this.toMemberResponse(updated);
   }
 
@@ -120,6 +124,7 @@ export class OrganizationMembersService {
       data: { organizationId: null },
     });
     await this.userLogger.logMemberRemoved(userId, { organizationId: orgId });
+    this.log.info('removeMember', 'member removed from organization', { userId, organizationId: orgId });
   }
 
   private async ensureOrgExists(orgId: string): Promise<void> {

@@ -1,6 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { AiClassifierService } from '../../../src/common/ai/ai-classifier.service';
+import { ProviderEventLogger } from '../../../src/common/events/provider.logger';
 
 describe('AiClassifierService', () => {
   let originalFetch: typeof fetch;
@@ -19,6 +20,7 @@ describe('AiClassifierService', () => {
             },
           },
         },
+        { provide: ProviderEventLogger, useValue: { log: jest.fn() } },
       ],
     })
       .compile()

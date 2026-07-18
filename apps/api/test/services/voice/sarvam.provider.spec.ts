@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { HttpStatus } from '@nestjs/common';
 import { SarvamProvider } from '../../../src/modules/voice/providers/sarvam.provider';
+import { ProviderEventLogger } from '../../../src/common/events/provider.logger';
 import {
   VoiceProviderError,
   type STTRequest,
@@ -12,6 +13,13 @@ import {
 // Mock global fetch
 const mockFetch = jest.fn();
 global.fetch = mockFetch;
+
+// ProviderEventLogger mock. `traced` is a PLAIN arrow (not jest.fn) so its
+// passthrough impl survives jest.config `resetMocks: true`.
+const mockProviderLog = {
+  traced: <T,>(_opts: unknown, fn: () => Promise<T>): Promise<T> => fn(),
+  log: jest.fn(),
+};
 
 describe('SarvamProvider', () => {
   let provider: SarvamProvider;
@@ -31,6 +39,7 @@ describe('SarvamProvider', () => {
       providers: [
         SarvamProvider,
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: ProviderEventLogger, useValue: mockProviderLog },
       ],
     }).compile();
 
@@ -600,6 +609,7 @@ describe('SarvamProvider', () => {
         providers: [
           SarvamProvider,
           { provide: ConfigService, useValue: emptyConfigService },
+          { provide: ProviderEventLogger, useValue: mockProviderLog },
         ],
       }).compile();
 

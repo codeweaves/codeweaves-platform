@@ -2,7 +2,6 @@ import {
   Body,
   Controller,
   Get,
-  Logger,
   Post,
   Res,
   HttpStatus,
@@ -10,6 +9,7 @@ import {
 import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import type { Response } from 'express';
 import * as Sentry from '@sentry/nestjs';
+import { AppLogger } from '../../common/logger/app-logger';
 import { VoiceService } from './voice.service';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { CurrentUser, type CurrentUserData } from '../../decorators/current-user.decorator';
@@ -36,7 +36,7 @@ const PREVIEW_MAX_PER_WINDOW = 60;                 // 60 previews per user per m
 @ApiTags('Voices')
 @Controller('voices')
 export class VoicesController {
-  private readonly logger = new Logger(VoicesController.name);
+  private readonly log = new AppLogger(VoicesController.name);
   /** userId → request timestamps inside the current window. Sliding window. */
   private readonly previewRateLimits = new Map<string, number[]>();
 
@@ -46,6 +46,7 @@ export class VoicesController {
   @ApiOperation({ summary: 'List available TTS voices grouped by provider' })
   @ApiResponse({ status: 200, description: 'Provider catalog with voices' })
   async listVoices(): Promise<VoiceListResponseDto> {
+    this.log.debug('listVoices', 'listing TTS voice catalog');
     const providers = await this.voiceService.listAllVoices();
     // VoiceService only registers our TTS providers (sarvam/elevenlabs) under listAllVoices,
     // so the cast to TtsProviderEnum is safe at runtime.
@@ -71,6 +72,10 @@ export class VoicesController {
   ) {
     const rate = this.checkPreviewRateLimit(user.id);
     if (!rate.allowed) {
+      this.log.warn('previewVoice', 'preview rate limited', {
+        userId: user.id,
+        retryAfterSeconds: rate.retryAfterSeconds,
+      });
       res.status(HttpStatus.TOO_MANY_REQUESTS);
       return {
         error: true,
@@ -81,6 +86,11 @@ export class VoicesController {
     }
 
     try {
+      this.log.debug('previewVoice', 'synthesizing preview', {
+        provider: dto.provider,
+        voiceId: dto.voiceId,
+        language: dto.language ?? 'en',
+      });
       const result = await this.voiceService.previewVoice(
         dto.provider,
         dto.voiceId,
@@ -92,9 +102,12 @@ export class VoicesController {
       };
     } catch (error) {
       const { errorCode, status } = this.classifyError(error);
-      this.logger.warn(
-        `Preview failed for ${dto.provider}:${dto.voiceId} (${dto.language ?? 'en'}): ${error instanceof Error ? error.message : 'unknown'}`,
-      );
+      this.log.warn('previewVoice', 'preview failed', {
+        provider: dto.provider,
+        voiceId: dto.voiceId,
+        language: dto.language ?? 'en',
+        error: error instanceof Error ? error.message : 'unknown',
+      });
       Sentry.withScope((scope) => {
         scope.setContext('voice_preview', {
           provider: dto.provider,

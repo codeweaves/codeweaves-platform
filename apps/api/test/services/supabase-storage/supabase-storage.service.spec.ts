@@ -1,6 +1,9 @@
 import { Test } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { SupabaseStorageService } from '../../../src/services/supabase-storage.service';
+import { ProviderEventLogger } from '../../../src/common/events/provider.logger';
+
+const mockProviderLog = { log: jest.fn() } as unknown as ProviderEventLogger;
 
 // Mock the @supabase/supabase-js createClient at module level so we can
 // substitute a stub client without contacting Supabase.
@@ -46,6 +49,7 @@ describe('SupabaseStorageService', () => {
       providers: [
         SupabaseStorageService,
         { provide: ConfigService, useValue: mockConfig },
+        { provide: ProviderEventLogger, useValue: mockProviderLog },
       ],
     }).compile();
     service = moduleRef.get(SupabaseStorageService);
@@ -113,6 +117,7 @@ describe('SupabaseStorageService', () => {
     it('throws when client is not configured', async () => {
       const unconfigured = new SupabaseStorageService(
         mockConfig as unknown as ConfigService,
+        mockProviderLog,
       );
       // No onModuleInit() called — client stays unset.
       await expect(

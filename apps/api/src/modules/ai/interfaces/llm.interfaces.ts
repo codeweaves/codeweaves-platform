@@ -1,4 +1,5 @@
 import type { ModelMessage, ToolSet } from 'ai';
+import type { EventChannel } from '@prisma/client';
 
 /**
  * Token usage as returned by OpenRouter (and normalised by the Vercel AI SDK).
@@ -91,6 +92,12 @@ export interface LlmCompletionRequest {
   traceId?: string;
   /** Which part of the product triggered this call (for cost slicing). */
   feature: LlmFeature;
+  /**
+   * Product channel this call serves (WIDGET/WHATSAPP/VOICE/INTERNAL), for
+   * event_logs channel attribution. When omitted, it's inferred from `feature`
+   * (which can't distinguish widget vs whatsapp buffered chat — pass it explicitly).
+   */
+  channel?: EventChannel;
 }
 
 /**

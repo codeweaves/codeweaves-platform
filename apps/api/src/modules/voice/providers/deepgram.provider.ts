@@ -1,6 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { HttpStatus } from '@nestjs/common';
+import { AppLogger } from '../../../common/logger/app-logger';
+import { ProviderEventLogger, PROVIDERS } from '../../../common/events/provider.logger';
 import type {
   VoiceProvider,
   STTRequest,
@@ -44,7 +46,7 @@ interface DeepgramError {
 
 @Injectable()
 export class DeepgramProvider implements VoiceProvider {
-  private readonly logger = new Logger(DeepgramProvider.name);
+  private readonly log = new AppLogger(DeepgramProvider.name);
   private readonly apiKey: string;
 
   readonly name = 'deepgram';
@@ -54,11 +56,14 @@ export class DeepgramProvider implements VoiceProvider {
     'en', 'hi', 'mr', 'bn', 'ta', 'te', 'gu', 'kn',
   ];
 
-  constructor(private readonly configService: ConfigService) {
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly providerLog: ProviderEventLogger,
+  ) {
     this.apiKey = this.configService.get<string>('DEEPGRAM_API_KEY') || '';
 
     if (!this.apiKey) {
-      this.logger.warn('DEEPGRAM_API_KEY not configured — Deepgram provider will not work');
+      this.log.warn('constructor', 'DEEPGRAM_API_KEY not configured — Deepgram provider will not work');
     }
   }
 
@@ -72,7 +77,7 @@ export class DeepgramProvider implements VoiceProvider {
     };
     const contentType = map[format];
     if (!contentType) {
-      this.logger.warn(`Unknown audio format "${format}" — defaulting to audio/webm`);
+      this.log.warn('getContentType', 'unknown audio format — defaulting to audio/webm', { format });
       return 'audio/webm';
     }
     return contentType;
@@ -87,8 +92,6 @@ export class DeepgramProvider implements VoiceProvider {
   }
 
   async transcribe(request: STTRequest): Promise<STTResponse> {
-    const startTime = Date.now();
-
     const url = new URL('https://api.deepgram.com/v1/listen');
     url.searchParams.set('model', 'nova-3');
     url.searchParams.set('language', request.languageHint || 'en');
@@ -96,41 +99,85 @@ export class DeepgramProvider implements VoiceProvider {
     url.searchParams.set('punctuate', 'true');
 
     const format = this.extractFormat(request.audioFormat);
-
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${this.apiKey}`,
-        'Content-Type': this.getContentType(format),
-      },
-      body: new Uint8Array(request.audio),
-      signal: AbortSignal.timeout(10_000),
-    }).catch((error: Error) => {
-      throw this.handleNetworkError(error);
+    this.log.debug('transcribe', 'STT request', {
+      agentId: request.agentId,
+      format,
+      languageHint: request.languageHint,
+      audioBytes: request.audio.length,
     });
 
-    if (!response.ok) {
-      await this.handleErrorResponse(response);
-    }
+    // Fire-and-forget event: wraps the outbound STT call and emits
+    // DEEPGRAM_STT_COMPLETED / _FAILED with timing. Never stores audio bytes.
+    return this.providerLog.traced<STTResponse>(
+      {
+        channel: 'VOICE',
+        provider: PROVIDERS.DEEPGRAM,
+        eventBase: 'DEEPGRAM_STT',
+        agentId: request.agentId,
+        sessionId: request.sessionId,
+        requestUrl: url.toString(),
+        requestPayload: {
+          audioBytes: request.audio.length,
+          audioMime: request.audioFormat,
+          languageHint: request.languageHint,
+        },
+        extract: (r) => ({
+          responsePayload: {
+            transcriptChars: r.transcript.length,
+            detectedLanguage: r.detectedLanguage,
+            confidence: r.confidence,
+          },
+          metadata: { latencyMs: r.latencyMs },
+        }),
+      },
+      async () => {
+        const startTime = Date.now();
 
-    const data = (await response.json()) as DeepgramResponse;
+        const response = await fetch(url.toString(), {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${this.apiKey}`,
+            'Content-Type': this.getContentType(format),
+          },
+          body: new Uint8Array(request.audio),
+          signal: AbortSignal.timeout(10_000),
+        }).catch((error: Error) => {
+          throw this.handleNetworkError(error);
+        });
 
-    const channel = data.results.channels[0];
-    const alternative = channel?.alternatives[0];
+        if (!response.ok) {
+          await this.handleErrorResponse(response);
+        }
 
-    return {
-      transcript: alternative?.transcript || '',
-      confidence: alternative?.confidence || 0,
-      detectedLanguage: (channel?.detected_language || request.languageHint || 'en') as SupportedLanguage,
-      provider: this.name,
-      latencyMs: Date.now() - startTime,
-    };
+        const data = (await response.json()) as DeepgramResponse;
+
+        const channel = data.results.channels[0];
+        const alternative = channel?.alternatives[0];
+
+        const result: STTResponse = {
+          transcript: alternative?.transcript || '',
+          confidence: alternative?.confidence || 0,
+          detectedLanguage: (channel?.detected_language || request.languageHint || 'en') as SupportedLanguage,
+          provider: this.name,
+          latencyMs: Date.now() - startTime,
+        };
+        this.log.info('transcribe', 'STT completed', {
+          detectedLanguage: result.detectedLanguage,
+          transcriptChars: result.transcript.length,
+          latencyMs: result.latencyMs,
+        });
+        return result;
+      },
+    );
   }
 
   // Deepgram Aura TTS is English-only and not implemented yet.
   // Throws for ALL languages (including English) so VoiceService routing (story 10-5)
   // can fall back to Sarvam or ElevenLabs.
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
+    this.log.warn('synthesize', 'Deepgram TTS not implemented — caller must route to Sarvam/ElevenLabs', {
+      language: request.language,
+    });
     throw new VoiceProviderError(
       this.name,
       `Deepgram TTS is not implemented. Use Sarvam or ElevenLabs for language: ${request.language}.`,
@@ -139,8 +186,6 @@ export class DeepgramProvider implements VoiceProvider {
   }
 
   async detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse> {
-    const startTime = Date.now();
-
     const url = new URL('https://api.deepgram.com/v1/listen');
     url.searchParams.set('model', 'nova-3');
     url.searchParams.set('language', 'multi');
@@ -148,34 +193,57 @@ export class DeepgramProvider implements VoiceProvider {
     url.searchParams.set('punctuate', 'true');
 
     const format = this.extractFormat(audioFormat);
+    this.log.debug('detectLanguage', 'auto-detect request', { format, audioBytes: audio.length });
 
-    const response = await fetch(url.toString(), {
-      method: 'POST',
-      headers: {
-        'Authorization': `Token ${this.apiKey}`,
-        'Content-Type': this.getContentType(format),
+    return this.providerLog.traced<LanguageDetectionResponse>(
+      {
+        channel: 'VOICE',
+        provider: PROVIDERS.DEEPGRAM,
+        eventBase: 'DEEPGRAM_STT_DETECT',
+        requestUrl: url.toString(),
+        requestPayload: { audioBytes: audio.length, audioMime: audioFormat },
+        extract: (r) => ({
+          responsePayload: { detectedLanguage: r.detectedLanguage, confidence: r.confidence },
+          metadata: { latencyMs: r.latencyMs },
+        }),
       },
-      body: new Uint8Array(audio),
-      signal: AbortSignal.timeout(10_000),
-    }).catch((error: Error) => {
-      throw this.handleNetworkError(error);
-    });
+      async () => {
+        const startTime = Date.now();
 
-    if (!response.ok) {
-      await this.handleErrorResponse(response);
-    }
+        const response = await fetch(url.toString(), {
+          method: 'POST',
+          headers: {
+            'Authorization': `Token ${this.apiKey}`,
+            'Content-Type': this.getContentType(format),
+          },
+          body: new Uint8Array(audio),
+          signal: AbortSignal.timeout(10_000),
+        }).catch((error: Error) => {
+          throw this.handleNetworkError(error);
+        });
 
-    const data = (await response.json()) as DeepgramResponse;
+        if (!response.ok) {
+          await this.handleErrorResponse(response);
+        }
 
-    const channel = data.results.channels[0];
-    const alternative = channel?.alternatives[0];
+        const data = (await response.json()) as DeepgramResponse;
 
-    return {
-      detectedLanguage: (channel?.detected_language || 'en') as SupportedLanguage,
-      confidence: alternative?.confidence || 0,
-      provider: this.name,
-      latencyMs: Date.now() - startTime,
-    };
+        const channel = data.results.channels[0];
+        const alternative = channel?.alternatives[0];
+
+        const result: LanguageDetectionResponse = {
+          detectedLanguage: (channel?.detected_language || 'en') as SupportedLanguage,
+          confidence: alternative?.confidence || 0,
+          provider: this.name,
+          latencyMs: Date.now() - startTime,
+        };
+        this.log.info('detectLanguage', 'detection completed', {
+          detectedLanguage: result.detectedLanguage,
+          latencyMs: result.latencyMs,
+        });
+        return result;
+      },
+    );
   }
 
   private handleNetworkError(error: Error): VoiceProviderError {
@@ -209,7 +277,11 @@ export class DeepgramProvider implements VoiceProvider {
 
     const message = errorData?.err_msg || `HTTP ${response.status}`;
 
-    this.logger.error(`Deepgram API error: ${errorData?.err_code} — ${message}`);
+    this.log.error('handleErrorResponse', 'Deepgram API error', undefined, {
+      status: response.status,
+      code: errorData?.err_code,
+      message,
+    });
 
     switch (response.status) {
       case 401:

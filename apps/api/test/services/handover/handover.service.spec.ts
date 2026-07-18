@@ -7,6 +7,7 @@ import { PrismaService } from '../../../src/services/prisma.service';
 import { RealtimeService } from '../../../src/services/realtime.service';
 import { WhatsappOutboundService } from '../../../src/modules/whatsapp/whatsapp-outbound.service';
 import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
+import { InternalEventLogger } from '../../../src/common/events/internal.logger';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('HandoverService', () => {
@@ -35,6 +36,12 @@ describe('HandoverService', () => {
 
   const mockWhatsappOutbound = {
     deliverHumanReply: jest.fn().mockResolvedValue(undefined),
+  };
+
+  const mockEvents = {
+    logStarted: jest.fn(),
+    logCompleted: jest.fn(),
+    logFailed: jest.fn(),
   };
 
   const clientUser: CurrentUserData = {
@@ -78,6 +85,7 @@ describe('HandoverService', () => {
         { provide: RealtimeService, useValue: mockRealtime },
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: WhatsappOutboundService, useValue: mockWhatsappOutbound },
+        { provide: InternalEventLogger, useValue: mockEvents },
         PiiDetectionService,
       ],
     }).compile();
@@ -142,6 +150,10 @@ describe('HandoverService', () => {
       );
       expect(mockRealtime.emitHandover).toHaveBeenCalled();
       expect(mockRealtime.emitMessage).toHaveBeenCalled();
+      expect(mockEvents.logCompleted).toHaveBeenCalledWith(
+        'HANDOVER_REQUESTED',
+        expect.objectContaining({ sessionId: 'sess-pub', organizationId: orgId }),
+      );
     });
 
     it('clears the prior cycle stamps so a re-escalation starts clean', async () => {
@@ -166,6 +178,7 @@ describe('HandoverService', () => {
 
       expect(mockPrisma.chatMessage.create).not.toHaveBeenCalled();
       expect(mockRealtime.emitHandover).not.toHaveBeenCalled();
+      expect(mockEvents.logCompleted).not.toHaveBeenCalled();
     });
 
     it('never throws (fail-open) when the DB write fails', async () => {
@@ -288,6 +301,10 @@ describe('HandoverService', () => {
         }),
       );
       expect(mockRealtime.emitHandover).toHaveBeenCalled();
+      expect(mockEvents.logCompleted).toHaveBeenCalledWith(
+        'HANDOVER_TAKEN_OVER',
+        expect.objectContaining({ agentId: 'agent-1', sessionId: 'sess-pub' }),
+      );
     });
 
     it('no-ops (no emit) when another teammate already took over', async () => {
@@ -370,6 +387,10 @@ describe('HandoverService', () => {
         expect.objectContaining({
           data: expect.objectContaining({ handoverState: 'NONE', handoverResolvedAt: expect.any(Date) }),
         }),
+      );
+      expect(mockEvents.logCompleted).toHaveBeenCalledWith(
+        'HANDOVER_RESOLVED',
+        expect.objectContaining({ agentId: 'agent-1', sessionId: 'sess-pub' }),
       );
     });
 

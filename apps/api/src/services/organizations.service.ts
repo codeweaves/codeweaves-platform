@@ -10,12 +10,15 @@ import { Prisma, Role } from '@prisma/client';
 import type { CreateOrganizationDto, UpdateOrganizationDto, OrganizationListQuery } from '../models/organization.dto';
 import { generateSlug, generateUniqueSlug } from '../utils/slug';
 import { OrganizationLoggerService } from '../common/logger/organization.logger';
+import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 const MAX_SLUG_RETRIES = 3;
 
 @Injectable()
 export class OrganizationsService {
+  private readonly log = new AppLogger(OrganizationsService.name);
+
   constructor(
     private prisma: PrismaService,
     private readonly orgLogger: OrganizationLoggerService,
@@ -44,17 +47,20 @@ export class OrganizationsService {
           },
         });
         await this.orgLogger.logOrganizationCreated(org.id, { org, request: data });
+        this.log.info('create', 'organization created', { organizationId: org.id, slug });
         return org;
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
           error.code === 'P2002'
         ) {
+          this.log.warn('create', `slug collision, retrying (attempt ${attempt + 1}/${MAX_SLUG_RETRIES})`, { slug });
           if (attempt === MAX_SLUG_RETRIES - 1) {
             throw new ConflictException('Unable to generate a unique slug. Please provide one manually.');
           }
           continue;
         }
+        this.log.error('create', 'organization creation failed', error);
         await this.orgLogger.logOrganizationCreationException(
           data.name ?? 'unknown',
           error,
@@ -224,6 +230,11 @@ export class OrganizationsService {
       cascadedAgents: agentsResult.count,
       cascadedUsers: usersResult.count,
     });
+    this.log.info('delete', 'organization soft-deleted', {
+      organizationId: id,
+      cascadedAgents: agentsResult.count,
+      cascadedUsers: usersResult.count,
+    });
 
     return {
       id: existing.id,
@@ -262,6 +273,7 @@ export class OrganizationsService {
         },
       });
       await this.orgLogger.logOrganizationUpdated(org.id, { org, request: data });
+      this.log.info('update', 'organization updated', { organizationId: org.id });
       return org;
     } catch (error) {
       if (
@@ -276,6 +288,7 @@ export class OrganizationsService {
       ) {
         throw new ConflictException('Slug is already in use');
       }
+      this.log.error('update', 'organization update failed', error, { organizationId: id });
       await this.orgLogger.logOrganizationUpdateException(id, error, { request: data });
       throw error;
     }

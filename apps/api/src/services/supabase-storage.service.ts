@@ -1,13 +1,17 @@
 import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { ProviderEventLogger } from '../common/events/provider.logger';
 
 @Injectable()
 export class SupabaseStorageService implements OnModuleInit {
   private readonly logger = new Logger(SupabaseStorageService.name);
   private client!: SupabaseClient;
 
-  constructor(private readonly configService: ConfigService) {}
+  constructor(
+    private readonly configService: ConfigService,
+    private readonly providerLog: ProviderEventLogger,
+  ) {}
 
   onModuleInit() {
     const url = this.configService.get<string>('SUPABASE_URL');
@@ -41,9 +45,23 @@ export class SupabaseStorageService implements OnModuleInit {
   ): Promise<string> {
     const supabase = this.ensureClient();
 
+    const start = performance.now();
     const { error } = await supabase.storage
       .from(bucket)
       .upload(path, file, { contentType, upsert: true });
+
+    this.providerLog.log({
+      channel: 'DASHBOARD',
+      eventName: error
+        ? 'SUPABASE_STORAGE_UPLOAD_FAILED'
+        : 'SUPABASE_STORAGE_UPLOAD_COMPLETED',
+      direction: 'OUTBOUND',
+      provider: 'SUPABASE',
+      requestPayload: { bucket, path, sizeBytes: file.length, contentType },
+      latencyMs: Math.round(performance.now() - start),
+      success: !error,
+      errorMessage: error?.message,
+    });
 
     if (error) {
       throw new Error(`Storage upload failed: ${error.message}`);
@@ -57,7 +75,21 @@ export class SupabaseStorageService implements OnModuleInit {
 
     const supabase = this.ensureClient();
 
+    const start = performance.now();
     const { error } = await supabase.storage.from(bucket).remove(paths);
+
+    this.providerLog.log({
+      channel: 'DASHBOARD',
+      eventName: error
+        ? 'SUPABASE_STORAGE_REMOVE_FAILED'
+        : 'SUPABASE_STORAGE_REMOVE_COMPLETED',
+      direction: 'OUTBOUND',
+      provider: 'SUPABASE',
+      requestPayload: { bucket, pathCount: paths.length },
+      latencyMs: Math.round(performance.now() - start),
+      success: !error,
+      errorMessage: error?.message,
+    });
 
     if (error) {
       this.logger.warn(`Storage remove failed: ${error.message}`);

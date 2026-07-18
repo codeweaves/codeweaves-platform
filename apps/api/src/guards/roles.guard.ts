@@ -13,9 +13,12 @@ import {
 } from '../decorators/require-permission.decorator';
 import { PERMISSION_MATRIX } from '../common/rbac/permissions';
 import { PermissionKey } from '../common/rbac/rbac.types';
+import { AppLogger } from '../common/logger/app-logger';
 
 @Injectable()
 export class RolesGuard implements CanActivate {
+  private readonly log = new AppLogger(RolesGuard.name);
+
   constructor(private reflector: Reflector) {}
 
   canActivate(context: ExecutionContext): boolean {
@@ -44,10 +47,20 @@ export class RolesGuard implements CanActivate {
     const user = request.user;
 
     if (!user?.role) {
+      this.log.warn('canActivate', 'role check denied — no role on user', {
+        required: requiredRoles,
+      });
       return false;
     }
 
-    return requiredRoles.includes(user.role);
+    const allowed = requiredRoles.includes(user.role);
+    if (!allowed) {
+      this.log.warn('canActivate', 'role check denied', {
+        role: user.role,
+        required: requiredRoles,
+      });
+    }
+    return allowed;
   }
 
   private checkPermission(
@@ -57,7 +70,12 @@ export class RolesGuard implements CanActivate {
     const request = context.switchToHttp().getRequest();
     const user = request.user;
 
+    const key: PermissionKey = `${permission.resource}:${permission.action}`;
+
     if (!user?.role) {
+      this.log.warn('checkPermission', 'permission denied — no role on user', {
+        permission: key,
+      });
       throw new ForbiddenException(
         `Forbidden: requires [${permission.resource}:${permission.action}] permission`,
       );
@@ -68,10 +86,13 @@ export class RolesGuard implements CanActivate {
       return true;
     }
 
-    const key: PermissionKey = `${permission.resource}:${permission.action}`;
     const allowedRoles = PERMISSION_MATRIX[key];
 
     if (!allowedRoles || !allowedRoles.includes(user.role)) {
+      this.log.warn('checkPermission', 'permission denied', {
+        role: user.role,
+        permission: key,
+      });
       throw new ForbiddenException(
         `Forbidden: requires [${permission.resource}:${permission.action}] permission`,
       );

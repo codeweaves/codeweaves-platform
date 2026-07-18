@@ -1,5 +1,6 @@
 import { Injectable, NestMiddleware } from '@nestjs/common';
 import { Request, Response, NextFunction } from 'express';
+import { AppLogger } from '../common/logger/app-logger';
 
 /**
  * CORS middleware for authenticated dashboard routes.
@@ -7,6 +8,7 @@ import { Request, Response, NextFunction } from 'express';
  */
 @Injectable()
 export class DashboardCorsMiddleware implements NestMiddleware {
+  private readonly log = new AppLogger(DashboardCorsMiddleware.name);
   private readonly dashboardOrigin: string;
 
   constructor() {
@@ -34,6 +36,9 @@ export class DashboardCorsMiddleware implements NestMiddleware {
     }
 
     // Origin not allowed — no CORS headers, browser will block
+    this.log.warn('use', 'CORS blocked — origin not permitted for dashboard', {
+      origin,
+    });
     if (req.method === 'OPTIONS') return res.status(204).end();
     return next();
   }

@@ -1,5 +1,5 @@
 import type { ToolSet } from 'ai';
-import type { Agent } from '@prisma/client';
+import type { Agent, EventChannel } from '@prisma/client';
 
 import type { LlmFeature, LlmTokenUsage } from './llm.interfaces';
 
@@ -24,6 +24,13 @@ export interface DirectChatRequest {
 
   /** Feature tag for usage analytics. Default: 'chat-stream' for stream(), 'chat' for send(). */
   feature?: LlmFeature;
+
+  /**
+   * Product channel (WIDGET/WHATSAPP/VOICE) for event_logs attribution — passed
+   * through to the LLM call. Feature alone can't distinguish widget vs whatsapp
+   * buffered chat, so channel-aware callers should set this.
+   */
+  channel?: EventChannel;
 
   /** Signals client disconnect or request timeout. */
   abortSignal?: AbortSignal;

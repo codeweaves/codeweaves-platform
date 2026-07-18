@@ -1,10 +1,11 @@
-import { Injectable, OnModuleInit, Logger } from '@nestjs/common';
+import { Injectable, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'crypto';
+import { AppLogger } from '../logger/app-logger';
 
 @Injectable()
 export class CryptoService implements OnModuleInit {
-  private readonly logger = new Logger(CryptoService.name);
+  private readonly log = new AppLogger(CryptoService.name);
   private key!: Buffer;
   private derivedHmacKey!: Buffer;
 
@@ -26,7 +27,7 @@ export class CryptoService implements OnModuleInit {
     this.derivedHmacKey = createHmac('sha256', this.key)
       .update('pii-value-hash-v1')
       .digest();
-    this.logger.log('CryptoService initialized');
+    this.log.info('onModuleInit', 'CryptoService initialized');
   }
 
   /** Derived key for HMAC-based lookups (e.g. PiiToken.valueHash). */

@@ -1,6 +1,5 @@
 import {
   Injectable,
-  Logger,
   NotFoundException,
   ForbiddenException,
   ConflictException,
@@ -12,6 +11,8 @@ import { PrismaService } from './prisma.service';
 import { RealtimeService } from './realtime.service';
 import { PiiDetectionService } from '../modules/pii/pii-detection.service';
 import { WhatsappOutboundService } from '../modules/whatsapp/whatsapp-outbound.service';
+import { AppLogger } from '../common/logger/app-logger';
+import { InternalEventLogger } from '../common/events/internal.logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 /**
@@ -41,7 +42,7 @@ interface HandoverCtx {
 
 @Injectable()
 export class HandoverService {
-  private readonly logger = new Logger(HandoverService.name);
+  private readonly log = new AppLogger(HandoverService.name);
 
   constructor(
     private readonly prisma: PrismaService,
@@ -49,6 +50,7 @@ export class HandoverService {
     private readonly config: ConfigService,
     private readonly whatsappOutbound: WhatsappOutboundService,
     private readonly piiDetection: PiiDetectionService,
+    private readonly events: InternalEventLogger,
   ) {}
 
   /**
@@ -148,8 +150,10 @@ export class HandoverService {
       execute: async ({ reason }) => {
         const mapped: HandoverReason =
           reason === 'frustration' ? 'FRUSTRATION' : 'USER_REQUESTED';
-        this.logger.log(
-          `🔔 connect_to_human fired (reason=${mapped}) for session=${ctx.publicSessionId} — escalating to a human`,
+        this.log.info(
+          'buildConnectTool',
+          'connect_to_human fired — escalating to a human',
+          { reason: mapped, sessionId: ctx.publicSessionId },
         );
         await this.raiseRequested(ctx, mapped);
         onEscalate(mapped);
@@ -184,6 +188,13 @@ export class HandoverService {
       });
       if (res.count === 0) return; // already requested or being handled
 
+      // Semantic event: the session actually flipped NONE → REQUESTED. Fire-and-forget.
+      this.events.logCompleted('HANDOVER_REQUESTED', {
+        sessionId: ctx.publicSessionId,
+        organizationId: ctx.organizationId,
+        metadata: { reason },
+      });
+
       const text =
         reason === 'BOT_FALLBACK'
           ? "Bot couldn't answer — escalated to a human"
@@ -195,9 +206,10 @@ export class HandoverService {
       await this.realtime.emitHandover(ctx, 'REQUESTED');
       await this.realtime.emitMessage(ctx);
     } catch (err) {
-      this.logger.warn(
-        `raiseRequested failed (session=${ctx.sessionDbId}): ${err instanceof Error ? err.message : String(err)}`,
-      );
+      this.log.warn('raiseRequested', 'flip failed (fail-open)', {
+        sessionId: ctx.sessionDbId,
+        err: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -225,9 +237,10 @@ export class HandoverService {
       }
       await this.raiseRequested(ctx, 'BOT_FALLBACK');
     } catch (err) {
-      this.logger.warn(
-        `maybeRaiseFromFallback failed (session=${ctx.sessionDbId}): ${err instanceof Error ? err.message : String(err)}`,
-      );
+      this.log.warn('maybeRaiseFromFallback', 'failed (fail-open)', {
+        sessionId: ctx.sessionDbId,
+        err: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -257,9 +270,10 @@ export class HandoverService {
       });
       await this.realtime.emitMessage(ctx);
     } catch (err) {
-      this.logger.warn(
-        `onVisitorMessageWhilePaused failed (session=${ctx.sessionDbId}): ${err instanceof Error ? err.message : String(err)}`,
-      );
+      this.log.warn('onVisitorMessageWhilePaused', 'failed (fail-open)', {
+        sessionId: ctx.sessionDbId,
+        err: err instanceof Error ? err.message : String(err),
+      });
     }
   }
 
@@ -381,6 +395,14 @@ export class HandoverService {
     });
     if (claimed.count === 0) return this.getThread(publicSessionId, user);
 
+    // Semantic event: a teammate claimed the chat (→ ACTIVE_HUMAN). Fire-and-forget.
+    this.events.logCompleted('HANDOVER_TAKEN_OVER', {
+      agentId: session.agent.id,
+      sessionId: session.sessionId,
+      organizationId: session.agent.organizationId,
+      metadata: { takenOverById: user.id },
+    });
+
     const ctx = this.ctxOf(session);
     await this.insertSystemMessage(session.id, `${name} took over — AI paused`);
     await this.realtime.emitHandover(ctx, 'ACTIVE_HUMAN');
@@ -433,6 +455,15 @@ export class HandoverService {
         where: { id: session.id },
         data: { handoverState: 'NONE', handoverResolvedAt: new Date() },
       });
+
+      // Semantic event: teammate resolved the chat (→ NONE, AI resumed). Fire-and-forget.
+      this.events.logCompleted('HANDOVER_RESOLVED', {
+        agentId: session.agent.id,
+        sessionId: session.sessionId,
+        organizationId: session.agent.organizationId,
+        metadata: { resolvedBy: user.id },
+      });
+
       const ctx = this.ctxOf(session);
       await this.insertSystemMessage(session.id, `Resolved by ${name} — AI resumed`);
       await this.realtime.emitHandover(ctx, 'NONE');
@@ -488,12 +519,15 @@ export class HandoverService {
         await this.realtime.emitMessage(ctx);
         resolved++;
       } catch (err) {
-        this.logger.warn(
-          `sweepIdleHandovers failed for session ${s.id}: ${err instanceof Error ? err.message : String(err)}`,
-        );
+        this.log.warn('sweepIdleHandovers', 'per-session resolve failed (fail-open)', {
+          sessionId: s.id,
+          err: err instanceof Error ? err.message : String(err),
+        });
       }
     }
-    if (resolved > 0) this.logger.log(`Handover sweep: auto-resolved ${resolved} idle session(s).`);
+    if (resolved > 0) {
+      this.log.info('sweepIdleHandovers', 'auto-resolved idle session(s)', { resolved });
+    }
     return { resolved };
   }
 

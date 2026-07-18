@@ -1,7 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import type { ModelMessage } from 'ai';
 
+import { AppLogger } from '../../common/logger/app-logger';
 import type { LlmFeature } from './interfaces/llm.interfaces';
 import { LlmService } from './llm.service';
 
@@ -71,7 +72,7 @@ export interface SummarizeResult {
  */
 @Injectable()
 export class SummarizationService {
-  private readonly logger = new Logger(SummarizationService.name);
+  private readonly log = new AppLogger(SummarizationService.name);
 
   constructor(
     private readonly llmService: LlmService,
@@ -138,7 +139,8 @@ export class SummarizationService {
     });
 
     const summary = result.text.trim();
-    this.logger.debug(
+    this.log.debug(
+      'summarize',
       `Summarised ${params.messages.length} messages → ${summary.length} chars (${result.usage.outputTokens} tokens, ${result.latencyMs}ms)`,
     );
 
@@ -209,7 +211,8 @@ export class SummarizationService {
           .slice(0, 200) || 'New Conversation'
       );
     } catch (err) {
-      this.logger.warn(
+      this.log.warn(
+        'generateTitle',
         `Title generation failed for session ${params.sessionId}: ${
           err instanceof Error ? err.message : 'unknown'
         }`,

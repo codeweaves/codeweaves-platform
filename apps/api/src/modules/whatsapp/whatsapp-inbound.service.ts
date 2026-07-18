@@ -12,6 +12,7 @@ import { WhatsappInboundJob } from './interfaces/whatsapp.interfaces';
 import { markdownToPlainText, markdownToWhatsapp } from './whatsapp-format';
 import { WhatsappSendService } from './whatsapp-send.service';
 import { detectFallback } from '../../utils/fallback-detection';
+import { WhatsappEventLogger } from '../../common/events/whatsapp.logger';
 
 /** Sent when orchestration fails, so the user isn't left on silent read. */
 const FALLBACK_REPLY =
@@ -47,6 +48,7 @@ export class WhatsappInboundService {
     private readonly directChat: DirectChatService,
     private readonly whatsappSend: WhatsappSendService,
     private readonly voiceService: VoiceService,
+    private readonly whatsappLog: WhatsappEventLogger,
   ) {}
 
   async handleInbound(job: WhatsappInboundJob): Promise<void> {
@@ -154,6 +156,13 @@ export class WhatsappInboundService {
       from,
     );
 
+    this.whatsappLog.logMessageReceived({
+      agentId: agent.id,
+      sessionId: session.sessionId,
+      visitorId: maskPhone(from),
+      metadata: { inputType: job.type },
+    });
+
     // 5b. Human handover: if a teammate is handling this WhatsApp chat, capture
     //     the inbound message + push it to the dashboard, and DO NOT reply with
     //     the AI. (Delivering the human's reply back out via WhatsApp is a
@@ -199,6 +208,7 @@ export class WhatsappInboundService {
         externalSessionId: session.sessionId,
         newUserMessage: userText,
         feature: 'chat',
+        channel: 'WHATSAPP',
         extraSystemInstruction: inHandover
           ? this.chatService.handoverStallInstruction(agent)
           : offerHumanTools
@@ -307,6 +317,20 @@ export class WhatsappInboundService {
       responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
       llmLatencyMs: result.latencyMs,
       ...detectFallback(replyText, agent.fallbackPhrases),
+    });
+
+    this.whatsappLog.logReplySent({
+      agentId: agent.id,
+      sessionId: session.sessionId,
+      visitorId: maskPhone(from),
+      latencyMs: Date.now() - backendReceivedAt.getTime(),
+      metadata: {
+        replyMode,
+        delivered,
+        model: result.model,
+        totalTokens: result.usage.totalTokens,
+        inputType: job.type === 'audio' ? 'voice' : 'text',
+      },
     });
     await this.chatService.updateSessionTimestamp(session.id);
 

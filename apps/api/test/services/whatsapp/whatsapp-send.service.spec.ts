@@ -25,8 +25,15 @@ describe('WhatsappSendService', () => {
   let service: WhatsappSendService;
   const originalFetch = global.fetch;
 
+  // `traced` must actually run the wrapped call so send methods return their wamid.
+  // Plain function (not jest.fn) so jest's `resetMocks: true` can't wipe it.
+  const providerLog = {
+    log: () => undefined,
+    traced: (_opts: unknown, fn: () => Promise<unknown>) => fn(),
+  } as unknown as import('../../../src/common/events/provider.logger').ProviderEventLogger;
+
   beforeEach(() => {
-    service = new WhatsappSendService(config);
+    service = new WhatsappSendService(config, providerLog);
   });
 
   afterEach(() => {

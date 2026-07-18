@@ -3,6 +3,7 @@ import { ConfigService } from '@nestjs/config';
 import { APICallError } from 'ai';
 import { LlmService } from '../../../src/modules/ai/llm.service';
 import { AiSdkService } from '../../../src/modules/ai/ai-sdk.service';
+import { ProviderEventLogger } from '../../../src/common/events/provider.logger';
 
 // Mock the AI SDK's generateText + streamText at module level.
 jest.mock('ai', () => {
@@ -41,6 +42,10 @@ describe('LlmService', () => {
         LlmService,
         { provide: AiSdkService, useValue: mockAiSdk },
         { provide: ConfigService, useValue: mockConfig },
+        {
+          provide: ProviderEventLogger,
+          useValue: { log: jest.fn(), traced: jest.fn() },
+        },
       ],
     }).compile();
     service = moduleRef.get(LlmService);

@@ -1,6 +1,7 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
 import { Prisma, Role } from '@prisma/client';
+import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import type { AnalyticsQuery, AgentAnalyticsQuery, ExportLogBody } from '../models/analytics.dto';
 import { startOfDayUtc, startOfNextDayUtc, isValidIanaTimezone } from '../utils/date-range';
@@ -34,6 +35,8 @@ interface ResolvedRange {
 
 @Injectable()
 export class AnalyticsService {
+  private readonly log = new AppLogger(AnalyticsService.name);
+
   constructor(private readonly prisma: PrismaService) {}
 
   /**
@@ -327,6 +330,10 @@ export class AnalyticsService {
 
   async getSummary(query: AnalyticsQuery, user: CurrentUserData) {
     const agentIds = await this.getAgentIds(query, user);
+    this.log.debug('getSummary', 'computing analytics summary', {
+      role: user.role,
+      agentCount: agentIds.length,
+    });
     const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
@@ -1112,6 +1119,10 @@ export class AnalyticsService {
           endDate: body.endDate,
         } as Prisma.JsonObject,
       },
+    });
+    this.log.info('logExport', 'analytics export logged', {
+      format: body.format,
+      organizationId: user.organizationId ?? null,
     });
     return { success: true };
   }
