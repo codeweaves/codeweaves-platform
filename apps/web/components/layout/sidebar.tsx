@@ -203,7 +203,7 @@ export function AppSidebar() {
     <Sidebar collapsible="icon">
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-primary to-violet-600 text-primary-foreground shadow-sm shadow-primary/30 ring-1 ring-inset ring-white/10">
+          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-primary to-[#1c315f] text-primary-foreground shadow-sm shadow-primary/30 ring-1 ring-inset ring-white/10">
             <Sparkles className="size-[1.05rem]" />
           </div>
           <span className="truncate text-lg font-semibold tracking-tight group-data-[collapsible=icon]:hidden">

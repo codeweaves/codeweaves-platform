@@ -68,7 +68,7 @@ export function CreateOrganizationDialog() {
       <DialogTrigger asChild>
         <Button
           variant="ghost"
-          className="rounded-full bg-[#642D91] px-4 py-2 text-sm font-medium text-white hover:bg-[#642D91]/90 hover:text-white"
+          className="rounded-full bg-primary px-4 py-2 text-sm font-medium text-white hover:bg-primary/90 hover:text-white"
         >
           Create New Organization
         </Button>
