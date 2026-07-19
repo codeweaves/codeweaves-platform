@@ -135,9 +135,44 @@ export function useSendHumanMessage() {
   return useMutation({
     mutationFn: ({ sessionId, content }: { sessionId: string; content: string }) =>
       api.post(`/handover/${sessionId}/messages`, { content }),
-    onSuccess: (_data, { sessionId }) => {
-      qc.invalidateQueries({ queryKey: ['handover', 'thread', sessionId] });
+    // Optimistic update: show the teammate's own message the instant they hit
+    // send, instead of waiting for the POST + a full thread refetch to round-trip
+    // (two hops to a possibly-distant backend — felt like 7-8s / "message lost").
+    onMutate: async ({ sessionId, content }) => {
+      // Stop any in-flight thread fetch (poll/socket refetch) from clobbering
+      // the optimistic write between now and when the POST settles.
+      await qc.cancelQueries({ queryKey: ['handover', 'thread', sessionId] });
+      const previous = qc.getQueryData<HandoverThread>(['handover', 'thread', sessionId]);
+      if (previous) {
+        const optimistic: ThreadMessage = {
+          id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`,
+          role: 'HUMAN_AGENT',
+          content,
+          createdAt: new Date().toISOString(),
+          author: null, // renders as "You" in the thread pane
+        };
+        qc.setQueryData<HandoverThread>(['handover', 'thread', sessionId], {
+          ...previous,
+          messages: [...previous.messages, optimistic],
+        });
+      }
+      return { previous };
+    },
+    onError: (_err, { sessionId }, context) => {
+      // Send failed — roll the thread back so the un-delivered bubble disappears.
+      if (context?.previous) {
+        qc.setQueryData(['handover', 'thread', sessionId], context.previous);
+      }
+    },
+    onSuccess: () => {
+      // Inbox preview/last-message changes on a successful send.
       qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
+    },
+    onSettled: (_data, _err, { sessionId }) => {
+      // Reconcile with the server copy — swaps the optimistic bubble for the real
+      // persisted message (or confirms the rollback). Runs in the background; the
+      // sender already saw their message instantly via onMutate.
+      qc.invalidateQueries({ queryKey: ['handover', 'thread', sessionId] });
     },
   });
 }

@@ -31,8 +31,8 @@
   --popover: oklch(1 0 0);
   --popover-foreground: oklch(0.21 0.015 271);
 
-  /* Accent (indigo-violet) */
-  --primary: oklch(0.585 0.22 277);
+  /* Primary (brand navy) */
+  --primary: #0a1832;
   --primary-foreground: oklch(0.985 0.005 270);
 
   /* Neutral fills */
@@ -56,7 +56,7 @@
   /* Lines + focus */
   --border: oklch(0.92 0.005 270);
   --input: oklch(0.92 0.005 270);
-  --ring: oklch(0.585 0.22 277);
+  --ring: #0a1832;
 
   /* Charts — cohesive accent-anchored ramp: violet → blue → cyan → teal → amber */
   --chart-1: oklch(0.585 0.22 277);
@@ -65,15 +65,15 @@
   --chart-4: oklch(0.72 0.15 165);
   --chart-5: oklch(0.78 0.16 75);
 
-  /* Sidebar — brighter than canvas, with a violet-tinted active pill */
+  /* Sidebar — brighter than canvas, with a navy-tinted active pill */
   --sidebar: oklch(0.992 0.002 270);
   --sidebar-foreground: oklch(0.37 0.015 271);
-  --sidebar-primary: oklch(0.585 0.22 277);
+  --sidebar-primary: #0a1832;
   --sidebar-primary-foreground: oklch(0.985 0 0);
-  --sidebar-accent: oklch(0.95 0.018 277);
-  --sidebar-accent-foreground: oklch(0.45 0.17 277);
+  --sidebar-accent: #e8ecf4;
+  --sidebar-accent-foreground: #14223f;
   --sidebar-border: oklch(0.92 0.005 270);
-  --sidebar-ring: oklch(0.585 0.22 277);
+  --sidebar-ring: #0a1832;
 }
 
 /* Map CSS variables to Tailwind theme */
