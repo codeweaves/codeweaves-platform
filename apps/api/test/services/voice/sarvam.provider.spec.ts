@@ -718,4 +718,106 @@ describe('SarvamProvider', () => {
       expect(body.speaker).toBe('kavya');
     });
   });
+
+  describe('concurrency gate (SARVAM_MAX_CONCURRENT)', () => {
+    const ttsRequest = (i: number): TTSRequest => ({
+      text: `sentence ${i}`,
+      language: 'en' as SupportedLanguage,
+      agentId: 'agent-123',
+      voiceId: 'priya',
+    });
+
+    const flush = () => new Promise((r) => setImmediate(r));
+
+    it('caps concurrent TTS requests at the default max of 3', async () => {
+      let active = 0;
+      let maxObserved = 0;
+      const resolvers: Array<() => void> = [];
+
+      mockFetch.mockImplementation(() => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        return new Promise((resolve) => {
+          resolvers.push(() => {
+            active--;
+            resolve({
+              ok: true,
+              json: async () => ({
+                request_id: 'r',
+                audios: [Buffer.from('a').toString('base64')],
+              }),
+            });
+          });
+        });
+      });
+
+      // Fire 6 syntheses in parallel — the pipeline fan-out we saw in prod.
+      const calls = Array.from({ length: 6 }, (_, i) =>
+        provider.synthesize(ttsRequest(i)),
+      );
+
+      // Let the microtask queue flush so the first batch acquires slots.
+      await flush();
+      expect(active).toBe(3);
+      expect(maxObserved).toBe(3);
+
+      // Drain FIFO: each release lets one queued request through, but never
+      // more than the cap concurrently.
+      while (resolvers.length > 0) {
+        resolvers.shift()!();
+        await flush();
+      }
+      await Promise.all(calls);
+      expect(maxObserved).toBe(3);
+    });
+
+    it('honours a custom SARVAM_MAX_CONCURRENT value', async () => {
+      mockConfigService.get.mockImplementation((key: string) => {
+        if (key === 'SARVAM_API_KEY') return 'test-sarvam-key';
+        if (key === 'SARVAM_MAX_CONCURRENT') return '1';
+        return undefined;
+      });
+      const module: TestingModule = await Test.createTestingModule({
+        providers: [
+          SarvamProvider,
+          { provide: ConfigService, useValue: mockConfigService },
+          { provide: ProviderEventLogger, useValue: mockProviderLog },
+        ],
+      }).compile();
+      const serialProvider = module.get<SarvamProvider>(SarvamProvider);
+
+      let active = 0;
+      let maxObserved = 0;
+      const resolvers: Array<() => void> = [];
+      mockFetch.mockImplementation(() => {
+        active++;
+        maxObserved = Math.max(maxObserved, active);
+        return new Promise((resolve) => {
+          resolvers.push(() => {
+            active--;
+            resolve({
+              ok: true,
+              json: async () => ({
+                request_id: 'r',
+                audios: [Buffer.from('a').toString('base64')],
+              }),
+            });
+          });
+        });
+      });
+
+      const calls = Array.from({ length: 3 }, (_, i) =>
+        serialProvider.synthesize(ttsRequest(i)),
+      );
+      await flush();
+      expect(active).toBe(1);
+
+      while (resolvers.length > 0) {
+        resolvers.shift()!();
+        await flush();
+      }
+      await Promise.all(calls);
+      expect(maxObserved).toBe(1);
+    });
+  });
 });

@@ -468,6 +468,30 @@ describe('VoiceService', () => {
       expect(elevenLabsProvider.synthesize).toHaveBeenCalled();
       expect(result.provider).toBe('elevenlabs');
     });
+
+    it("must NOT forward the primary provider's voiceId to a different fallback provider", async () => {
+      // Regression: Sarvam speaker "aayan" was passed straight to ElevenLabs on
+      // fallback → 404 "voice not found" → every fallback sentence failed.
+      (sarvamProvider.synthesize as jest.Mock).mockRejectedValueOnce(
+        new VoiceProviderError('sarvam', 'Request timed out after 10s', 504),
+      );
+
+      const result = await service.synthesize({
+        ...makeTTSRequest('hi'),
+        voiceId: 'aayan', // Sarvam-specific speaker id
+      });
+
+      // Primary keeps its own voiceId...
+      expect(sarvamProvider.synthesize).toHaveBeenCalledWith(
+        expect.objectContaining({ voiceId: 'aayan' }),
+      );
+      // ...but the fallback provider must receive it stripped so it uses its
+      // own default voice instead of rejecting an unknown id.
+      expect(result.provider).toBe('elevenlabs');
+      const fallbackArg = (elevenLabsProvider.synthesize as jest.Mock).mock
+        .calls[0][0];
+      expect(fallbackArg.voiceId).toBeUndefined();
+    });
   });
 
   describe('detectLanguage', () => {

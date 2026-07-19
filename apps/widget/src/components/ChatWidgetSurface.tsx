@@ -253,9 +253,17 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
     agentId,
     voiceEnabled,
     voiceAutoPlay: true,
-    // A voice turn can raise a handover (caller asks for a human) → show the
-    // "connecting" line + start polling for the teammate's replies, same as text.
-    onHandover: notifyHandover,
+    // A voice turn can raise a handover, OR arrive while a teammate already has
+    // the chat. Either way no bot audio is coming, so clear the loader that
+    // onTranscription set — otherwise the input stays disabled forever, with no
+    // reply to release it — then enter the handover flow (connecting line + poll).
+    onHandover: useCallback(
+      (state: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN') => {
+        setVoiceLoading(false);
+        notifyHandover(state);
+      },
+      [setVoiceLoading, notifyHandover],
+    ),
     onTranscription: useCallback((text: string) => {
       addUserMessage(text);
       setVoiceLoading(true);
