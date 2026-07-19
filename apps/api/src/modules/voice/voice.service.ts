@@ -837,6 +837,14 @@ export class VoiceService {
       // Try fallback providers ONLY when nothing was emitted to the client.
       // ALWAYS use batch HTTP for fallback — if the streaming path failed
       // on the primary, the goal is "get audio out at all", not "fast".
+      //
+      // CRITICAL: the agent's configured voiceId belongs to the PRIMARY
+      // provider (e.g. Sarvam speaker "aayan"). A different fallback provider
+      // does NOT recognise it and rejects the request (ElevenLabs → 404 "voice
+      // not found", Sarvam → 400 "invalid speaker"), which made the fallback
+      // useless. Drop the voiceId so each fallback provider uses its own default
+      // voice — a different-sounding voice beats a silent sentence.
+      const fallbackRequest: TTSRequest = { ...request, voiceId: undefined };
       const fallbackOrder = ['elevenlabs', 'sarvam'];
       for (const providerName of fallbackOrder) {
         if (providerName === primaryProvider.name) continue;
@@ -851,7 +859,7 @@ export class VoiceService {
           });
           let firstYielded = false;
           for await (const chunk of this.synthesizeWithProvider(
-            request,
+            fallbackRequest,
             fallbackProvider,
             sentence,
             sentenceIndex,
@@ -1093,6 +1101,10 @@ export class VoiceService {
     failedProviderName: string,
     originalError: Error,
   ): Promise<TTSResponse> {
+    // The configured voiceId belongs to the failed (primary) provider; a
+    // different fallback provider won't recognise it (ElevenLabs → 404, Sarvam
+    // → 400). Strip it so each fallback uses its own default voice.
+    const fallbackRequest: TTSRequest = { ...request, voiceId: undefined };
     const fallbackOrder = ['sarvam', 'elevenlabs'];
 
     for (const providerName of fallbackOrder) {
@@ -1106,7 +1118,7 @@ export class VoiceService {
           to: providerName,
           reason: originalError.message,
         });
-        return await provider.synthesize(request);
+        return await provider.synthesize(fallbackRequest);
       } catch (e) {
         if (
           e instanceof UnsupportedLanguageError ||

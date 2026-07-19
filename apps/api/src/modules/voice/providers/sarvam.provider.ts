@@ -94,6 +94,22 @@ export class SarvamProvider implements VoiceProvider {
   private readonly log = new AppLogger(SarvamProvider.name);
   private readonly apiKey: string;
 
+  /**
+   * Sarvam enforces an account-level concurrency limit on its TTS endpoint.
+   * The streaming voice pipeline fans out one TTS call per sentence IN PARALLEL,
+   * so a ~10-sentence reply blasts ~10 concurrent requests at Sarvam at once.
+   * Beyond the account limit, Sarvam silently queues the excess server-side —
+   * it doesn't return 429, the requests just hang until our 10s client timeout
+   * fires and the sentence falls back. Gate synthesis with a promise-chain
+   * semaphore so concurrent callers queue at our edge instead of overwhelming
+   * Sarvam. Mirrors the ElevenLabs provider's concurrency gate.
+   *
+   * Configurable via SARVAM_MAX_CONCURRENT (default 3).
+   */
+  private readonly maxConcurrent: number;
+  private inFlight = 0;
+  private readonly waitQueue: Array<() => void> = [];
+
   readonly name = 'sarvam';
   readonly supportedLanguages: SupportedLanguage[] = [
     'hi', 'mr', 'bn', 'ta', 'te', 'gu', 'kn', 'ml', 'pa', 'or', 'en', 'hinglish',
@@ -133,9 +149,48 @@ export class SarvamProvider implements VoiceProvider {
     private readonly providerLog: ProviderEventLogger,
   ) {
     this.apiKey = this.configService.get<string>('SARVAM_API_KEY') || '';
+    const configured = this.configService.get<string>('SARVAM_MAX_CONCURRENT');
+    const parsed = configured ? parseInt(configured, 10) : NaN;
+    this.maxConcurrent = Number.isFinite(parsed) && parsed > 0 ? parsed : 3;
 
     if (!this.apiKey) {
       this.log.warn('constructor', 'SARVAM_API_KEY not configured — Sarvam provider will not work');
+    }
+  }
+
+  /**
+   * Acquire a concurrency slot. Resolves immediately if under the cap,
+   * otherwise queues FIFO until a prior call releases. FIFO ordering matters:
+   * the per-sentence pipeline pushes sentence 0's synthesis first, so it should
+   * get a slot before later sentences queued after it.
+   */
+  private async acquireSlot(): Promise<void> {
+    if (this.inFlight < this.maxConcurrent) {
+      this.inFlight++;
+      return;
+    }
+    return new Promise<void>((resolve) => {
+      this.waitQueue.push(() => {
+        this.inFlight++;
+        resolve();
+      });
+    });
+  }
+
+  private releaseSlot(): void {
+    this.inFlight--;
+    const next = this.waitQueue.shift();
+    if (next) next();
+  }
+
+  /** Run an async op while holding a concurrency slot. Used by the batch TTS
+   *  path; the WS streaming generator acquires/releases inline instead. */
+  private async withSlot<T>(fn: () => Promise<T>): Promise<T> {
+    await this.acquireSlot();
+    try {
+      return await fn();
+    } finally {
+      this.releaseSlot();
     }
   }
 
@@ -250,7 +305,10 @@ export class SarvamProvider implements VoiceProvider {
       textChars: request.text.length,
     });
 
-    return this.providerLog.traced<TTSResponse>(
+    // Hold a concurrency slot for the whole request so a multi-sentence reply
+    // doesn't flood Sarvam's TTS endpoint and time out.
+    return this.withSlot(() =>
+      this.providerLog.traced<TTSResponse>(
       {
         channel: 'VOICE',
         provider: PROVIDERS.SARVAM,
@@ -317,6 +375,7 @@ export class SarvamProvider implements VoiceProvider {
           latencyMs: Date.now() - startTime,
         };
       },
+      ),
     );
   }
 
@@ -346,6 +405,8 @@ export class SarvamProvider implements VoiceProvider {
    * that sentence — keeps voice replies working even when WS is degraded.
    */
   async *synthesizeStream(request: TTSRequest): AsyncIterable<TTSStreamChunk> {
+    // Hold a concurrency slot for the whole WS stream, mirroring the batch path.
+    await this.acquireSlot();
     const startTime = Date.now();
     const targetLanguageCode = this.toSarvamLanguage(request.language);
     // WS paths emit ONE summary event at stream end (chunk count + total bytes)
@@ -591,6 +652,7 @@ export class SarvamProvider implements VoiceProvider {
         await waitForChunk();
       }
     } finally {
+      this.releaseSlot();
       if (inactivityHandle) clearTimeout(inactivityHandle);
       clearInterval(pingInterval);
       if (!wsClosed) {
