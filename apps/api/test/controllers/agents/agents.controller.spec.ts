@@ -31,6 +31,10 @@ describe('AgentsController', () => {
     testWebhook: jest.fn(),
   };
 
+  const mockThemesService = { getTheme: jest.fn() };
+  const mockKnowledgeService = { get: jest.fn() };
+  const mockDataFieldsService = { list: jest.fn() };
+
   const orgId = '123e4567-e89b-12d3-a456-426614174000';
   const agentId = '333e4567-e89b-12d3-a456-426614174000';
 
@@ -57,6 +61,15 @@ describe('AgentsController', () => {
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
 
+  const clientUser: CurrentUserData = {
+    clerkId: 'user_client',
+    email: 'client@test.com',
+    id: 'client-user-id',
+    role: Role.CLIENT,
+    organizationId: orgId,
+    organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
+  };
+
   const mockPaginatedResponse = {
     data: [mockAgent],
     meta: { page: 1, limit: 20, total: 1, totalPages: 1 },
@@ -70,9 +83,9 @@ describe('AgentsController', () => {
         // Co-resident services on AgentsController — mocked stubs so the
         // controller can resolve. The tests in this file don't exercise
         // them, so trivial empty mocks suffice.
-        { provide: AgentThemesService, useValue: {} },
-        { provide: AgentKnowledgeService, useValue: {} },
-        { provide: AgentDataFieldsService, useValue: {} },
+        { provide: AgentThemesService, useValue: mockThemesService },
+        { provide: AgentKnowledgeService, useValue: mockKnowledgeService },
+        { provide: AgentDataFieldsService, useValue: mockDataFieldsService },
         Reflector,
       ],
     })
@@ -136,6 +149,54 @@ describe('AgentsController', () => {
       mockAgentsService.findById.mockRejectedValue(new NotFoundException('Agent not found'));
 
       await expect(controller.findById('nonexistent', adminUser)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getEditorConfig', () => {
+    const theme = { config: { primaryColor: '#000' }, version: 1 };
+    const knowledge = { id: 'k1', content: 'kb' };
+    const dataFields = [{ id: 'df1', key: 'email', order: 0 }];
+
+    beforeEach(() => {
+      mockAgentsService.findById.mockResolvedValue(mockAgent);
+      mockAgentsService.getWebhookUrl.mockResolvedValue({ webhookUrl: 'https://hook.example.com' });
+      mockThemesService.getTheme.mockResolvedValue(theme);
+      mockKnowledgeService.get.mockResolvedValue(knowledge);
+      mockDataFieldsService.list.mockResolvedValue(dataFields);
+    });
+
+    it('returns the FULL bundle for an admin (incl. webhookUrl + dataFields)', async () => {
+      const result = await controller.getEditorConfig(agentId, adminUser);
+
+      expect(result.agent).toEqual(mockAgent);
+      expect(result.theme).toEqual(theme);
+      expect(result.knowledge).toEqual(knowledge);
+      expect(result.webhookUrl).toBe('https://hook.example.com');
+      expect(result.dataFields).toEqual(dataFields);
+      expect(mockAgentsService.getWebhookUrl).toHaveBeenCalled();
+      expect(mockDataFieldsService.list).toHaveBeenCalled();
+    });
+
+    it('STRIPS admin-only fields for a CLIENT (webhookUrl null, dataFields []) and never fetches them', async () => {
+      const result = await controller.getEditorConfig(agentId, clientUser);
+
+      // Client-visible sections still hydrate…
+      expect(result.agent).toEqual(mockAgent);
+      expect(result.theme).toEqual(theme);
+      expect(result.knowledge).toEqual(knowledge);
+      // …but the admin-only fields are stripped, and their services are not even called.
+      expect(result.webhookUrl).toBeNull();
+      expect(result.dataFields).toEqual([]);
+      expect(mockAgentsService.getWebhookUrl).not.toHaveBeenCalled();
+      expect(mockDataFieldsService.list).not.toHaveBeenCalled();
+    });
+
+    it('propagates the tenant-scoped 404 from findById (foreign agent)', async () => {
+      mockAgentsService.findById.mockRejectedValue(new NotFoundException('Agent not found'));
+
+      await expect(
+        controller.getEditorConfig('444e4567-e89b-12d3-a456-426614174000', clientUser),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

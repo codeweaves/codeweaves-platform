@@ -39,9 +39,10 @@ import { devTestChatHtml } from './dev-test-chat.page';
  *   GET  /dev/ai/traces/:traceId         — fetch a stored trace by ID
  *   GET  /dev/ai/sessions/:sessionId     — fetch session + messages
  *
- * All endpoints return 404 when `NODE_ENV === 'production'`. Marked
- * `@Public()` so you don't need to log in to use the dev tool. This is safe
- * because the endpoints are simply unreachable in prod.
+ * FAIL-CLOSED: every endpoint 404s unless `ENABLE_DEV_ROUTES=true` is set
+ * (do this ONLY in your local `.env`). Marked `@Public()` so you don't need to
+ * log in to use the dev tool locally — the opt-in flag, not auth, is what keeps
+ * it off in prod/CI, and it defaults to off so it can't be exposed by mistake.
  */
 @Public()
 @Controller('dev/ai')
@@ -119,7 +120,7 @@ export class DevAiController {
 
   @Get('test-chat')
   serveTestPage(@Res() res: Response): void {
-    this.assertNotProduction();
+    this.assertDevRoutesEnabled();
     res.setHeader('Content-Type', 'text/html; charset=utf-8');
     res.setHeader('Cache-Control', 'no-store');
     res.status(200).send(devTestChatHtml);
@@ -139,7 +140,7 @@ export class DevAiController {
       organization: { id: string; name: string };
     }>
   > {
-    this.assertNotProduction();
+    this.assertDevRoutesEnabled();
     const agents = await this.prisma.agent.findMany({
       where: {
         deletedAt: null,
@@ -176,7 +177,7 @@ export class DevAiController {
     @Body() dto: TestChatRequest,
     @Res() res: Response,
   ): Promise<void> {
-    this.assertNotProduction();
+    this.assertDevRoutesEnabled();
     this.validateRequest(dto);
 
     // resolveAgent does permission + existence checks but returns a stripped
@@ -314,7 +315,7 @@ export class DevAiController {
   @Post('test-chat')
   @HttpCode(200)
   async sendChat(@Body() dto: TestChatRequest) {
-    this.assertNotProduction();
+    this.assertDevRoutesEnabled();
     this.validateRequest(dto);
 
     const { id: agentId } = await this.chatService.resolveAgent(dto.agentId);
@@ -382,7 +383,7 @@ export class DevAiController {
 
   @Get('traces/:traceId')
   async getTrace(@Param('traceId') traceId: string) {
-    this.assertNotProduction();
+    this.assertDevRoutesEnabled();
     const trace = await this.traceService.findByTraceId(traceId);
     if (!trace) {
       throw new NotFoundException('Trace not found');
@@ -392,7 +393,7 @@ export class DevAiController {
 
   @Get('sessions/:sessionId')
   async getSession(@Param('sessionId') sessionId: string) {
-    this.assertNotProduction();
+    this.assertDevRoutesEnabled();
     const session = await this.prisma.chatSession.findUnique({
       where: { sessionId },
       include: {
@@ -410,9 +411,19 @@ export class DevAiController {
   // Helpers
   // ==========================================================================
 
-  private assertNotProduction(): void {
-    const env = this.config.get<string>('NODE_ENV');
-    if (env === 'production') {
+  /**
+   * Fail-closed gate for this dev-only surface. The routes are OFF everywhere
+   * unless `ENABLE_DEV_ROUTES=true` is explicitly set — do this ONLY in your
+   * local `.env`. Anything else (unset, empty, "false") → 404.
+   *
+   * This replaces the previous `NODE_ENV === 'production'` check, which was
+   * fail-OPEN: any environment where NODE_ENV wasn't exactly "production"
+   * (unset, "prod", a mis-set value, staging) exposed every route — including
+   * cross-org reads of sessions/messages/traces. Opt-IN is safe by default:
+   * you can't accidentally forget to opt out.
+   */
+  private assertDevRoutesEnabled(): void {
+    if (this.config.get<string>('ENABLE_DEV_ROUTES') !== 'true') {
       throw new NotFoundException();
     }
   }

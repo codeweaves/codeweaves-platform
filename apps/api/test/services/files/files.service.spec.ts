@@ -269,7 +269,7 @@ describe('FilesService', () => {
   describe('deleteFile', () => {
     it('should delete file from storage and database', async () => {
       mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.file.findUnique.mockResolvedValue({
+      mockPrismaService.file.findFirst.mockResolvedValue({
         id: fileId,
         bucket: 'agent_assets',
         storageKey: 'path/to/file.png',
@@ -283,9 +283,42 @@ describe('FilesService', () => {
       });
     });
 
+    it('should scope the file lookup to the verified agent org (cross-tenant IDOR guard)', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.file.findFirst.mockResolvedValue({
+        id: fileId,
+        bucket: 'agent_assets',
+        storageKey: 'path/to/file.png',
+      });
+
+      await service.deleteFile(fileId, agentId, clientUser);
+
+      // The file must be looked up by BOTH id AND the caller's org — never by
+      // id alone (which would let a client delete another tenant's file).
+      expect(mockPrismaService.file.findFirst).toHaveBeenCalledWith({
+        where: { id: fileId, organizationId: orgId },
+      });
+    });
+
+    it('should NOT delete a file belonging to another org', async () => {
+      // Caller owns an agent in their org (access check passes)…
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      // …but the fileId belongs to a different org, so the org-scoped lookup
+      // returns nothing.
+      mockPrismaService.file.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.deleteFile(fileId, agentId, clientUser),
+      ).rejects.toThrow(NotFoundException);
+
+      // Crucially, no destructive side-effects ran on the foreign file.
+      expect(mockStorageService.remove).not.toHaveBeenCalled();
+      expect(mockPrismaService.file.delete).not.toHaveBeenCalled();
+    });
+
     it('should throw NotFoundException when file does not exist', async () => {
       mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.file.findUnique.mockResolvedValue(null);
+      mockPrismaService.file.findFirst.mockResolvedValue(null);
 
       await expect(
         service.deleteFile(fileId, agentId, adminUser),

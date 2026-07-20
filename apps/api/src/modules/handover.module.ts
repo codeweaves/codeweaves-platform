@@ -4,6 +4,7 @@ import { RealtimeService } from '../services/realtime.service';
 import { HandoverController } from '../controllers/handover/handover.controller';
 import { HandoverSweepController } from '../controllers/internal/handover-sweep.controller';
 import { HandoverGateway } from '../gateways/handover.gateway';
+import { WsAuthService } from '../common/ws/ws-auth.service';
 import { PrismaModule } from './prisma.module';
 import { WhatsappSendModule } from './whatsapp/whatsapp-send.module';
 
@@ -16,7 +17,7 @@ import { WhatsappSendModule } from './whatsapp/whatsapp-send.module';
 @Module({
   imports: [PrismaModule, WhatsappSendModule],
   controllers: [HandoverController, HandoverSweepController],
-  providers: [HandoverService, RealtimeService, HandoverGateway],
+  providers: [HandoverService, RealtimeService, HandoverGateway, WsAuthService],
   exports: [HandoverService, RealtimeService],
 })
 export class HandoverModule {}

@@ -3,6 +3,7 @@ import { ForbiddenException, NotFoundException, UnauthorizedException } from '@n
 import { UsersService } from '../../../src/services/users.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { UserLoggerService } from '../../../src/common/logger/user.logger';
+import { ClerkManagementService } from '../../../src/services/clerk-management.service';
 import { Role, InvitationStatus, Prisma } from '@prisma/client';
 
 describe('UsersService', () => {
@@ -21,6 +22,10 @@ describe('UsersService', () => {
       update: jest.fn(),
     },
     $transaction: jest.fn(),
+  };
+
+  const mockClerkManagementService = {
+    isEmailVerified: jest.fn(),
   };
 
   const mockOrganization = {
@@ -82,12 +87,19 @@ describe('UsersService', () => {
             logMemberRemoved: jest.fn(),
           },
         },
+        {
+          provide: ClerkManagementService,
+          useValue: mockClerkManagementService,
+        },
       ],
     }).compile();
 
     service = module.get<UsersService>(UsersService);
 
     jest.clearAllMocks();
+    // Default: the Clerk account has verified the invited email. Individual
+    // tests override this to exercise the fail-closed gate.
+    mockClerkManagementService.isEmailVerified.mockResolvedValue(true);
   });
 
   it('should be defined', () => {
@@ -800,6 +812,85 @@ describe('UsersService', () => {
       expect(
         (capturedCreateData as { data: { role: Role } }).data.role,
       ).toBe(Role.ADMIN);
+    });
+
+    it('should block invitation acceptance when the email is not verified', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue({
+        ...mockInvitation,
+        email: 'unverified@example.com',
+      });
+      mockClerkManagementService.isEmailVerified.mockResolvedValue(false);
+
+      await expect(
+        service.syncOrCreateUser({
+          clerkId: 'user_unverified',
+          email: 'unverified@example.com',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      // Never provisioned — no role/org handed out on an unverified email.
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should fail closed when the Clerk verification check errors', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue({
+        ...mockInvitation,
+        email: 'flaky@example.com',
+      });
+      mockClerkManagementService.isEmailVerified.mockRejectedValue(
+        new Error('Clerk API unreachable'),
+      );
+
+      await expect(
+        service.syncOrCreateUser({
+          clerkId: 'user_flaky',
+          email: 'flaky@example.com',
+        }),
+      ).rejects.toThrow(UnauthorizedException);
+
+      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
+    });
+
+    it('should verify the invited email against the Clerk account before provisioning', async () => {
+      const createdUser = {
+        ...mockUser,
+        id: 'verify-uuid',
+        clerkId: 'user_verify',
+        email: 'verify@example.com',
+      };
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+      mockPrismaService.userInvitation.findFirst.mockResolvedValue({
+        ...mockInvitation,
+        email: 'verify@example.com',
+      });
+      mockClerkManagementService.isEmailVerified.mockResolvedValue(true);
+      mockPrismaService.$transaction.mockImplementation(
+        async (fn: (tx: unknown) => Promise<unknown>) => {
+          const tx = {
+            user: { create: jest.fn().mockResolvedValue(createdUser) },
+            userInvitation: {
+              update: jest.fn().mockResolvedValue({
+                ...mockInvitation,
+                status: InvitationStatus.ACCEPTED,
+              }),
+            },
+          };
+          return fn(tx);
+        },
+      );
+
+      await service.syncOrCreateUser({
+        clerkId: 'user_verify',
+        email: 'Verify@Example.com',
+      });
+
+      // Checked with the caller's clerkId and the normalized (lowercased) email.
+      expect(mockClerkManagementService.isEmailVerified).toHaveBeenCalledWith(
+        'user_verify',
+        'verify@example.com',
+      );
     });
   });
 

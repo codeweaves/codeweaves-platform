@@ -8,12 +8,13 @@ import { PrismaModule } from './prisma.module';
 
 /**
  * DevModule: dev-only surface for exercising internal services end-to-end
- * without UI or external integrations. Endpoints gate themselves on
- * NODE_ENV at runtime (see DevAiController.assertNotProduction).
+ * without UI or external integrations.
  *
- * Safe to leave registered in app.module.ts — the endpoints 404 in prod.
- * Could alternatively be conditionally imported, but that complicates CI
- * builds that use NODE_ENV=test.
+ * FAIL-CLOSED opt-in: every endpoint 404s unless `ENABLE_DEV_ROUTES=true`
+ * (see DevAiController.assertDevRoutesEnabled). Set that ONLY in a local `.env`.
+ * The gate is checked at request time via ConfigService (which has loaded
+ * `.env`), so it works locally and can't be tripped by a mis-set NODE_ENV.
+ * Safe to leave registered — without the flag the routes are inert.
  */
 @Module({
   imports: [PrismaModule, ChatModule, AiModule],

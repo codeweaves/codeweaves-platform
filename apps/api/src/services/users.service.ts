@@ -9,6 +9,7 @@ import type { UpdateUserProfileDto, UserProfileResponse } from '../models/user.d
 import { buildTenantFilter, TenantFilterUser } from '../utils/tenant-filter';
 import { UserLoggerService } from '../common/logger/user.logger';
 import { AppLogger } from '../common/logger/app-logger';
+import { ClerkManagementService } from './clerk-management.service';
 
 const USER_WITH_ORG_SELECT = {
   include: {
@@ -29,6 +30,7 @@ export class UsersService {
   constructor(
     private prisma: PrismaService,
     private readonly userLogger: UserLoggerService,
+    private readonly clerkManagement: ClerkManagementService,
   ) {}
 
   async findByClerkId(clerkId: string): Promise<User | null> {
@@ -186,6 +188,40 @@ export class UsersService {
     if (!invitation) {
       throw new UnauthorizedException(
         'No valid invitation found. Please contact your administrator.',
+      );
+    }
+
+    // Object-level authz: the invitation grants a role + org, and it is matched
+    // ONLY by email. Before we hand those out, confirm this Clerk account
+    // actually owns AND has verified this email — otherwise a token bearing an
+    // unverified email claim could claim someone else's invite (and its role,
+    // up to ADMIN). Fail CLOSED: any error (Clerk unreachable, unverified) =
+    // no provisioning. First-login only, so this Clerk call is not on the hot path.
+    let emailVerified = false;
+    try {
+      emailVerified = await this.clerkManagement.isEmailVerified(
+        jwtUser.clerkId,
+        email,
+      );
+    } catch (error) {
+      this.log.error(
+        'createFromInvitation',
+        'Clerk email-verification check failed; refusing to provision',
+        error,
+        { clerkId: jwtUser.clerkId },
+      );
+      throw new UnauthorizedException(
+        'Could not verify your email right now. Please try again.',
+      );
+    }
+    if (!emailVerified) {
+      this.log.warn(
+        'createFromInvitation',
+        'invitation acceptance blocked: email not verified for this account',
+        { clerkId: jwtUser.clerkId, invitationId: invitation.id },
+      );
+      throw new UnauthorizedException(
+        'Your email must be verified before accepting an invitation.',
       );
     }
 

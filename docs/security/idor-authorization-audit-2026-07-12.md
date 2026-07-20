@@ -36,6 +36,7 @@ Understanding this is prerequisite to reading the findings:
 | I6 | 🟡 MED | **`POST /invitations/reissue` is public** — gated only by reissue token + count cap (matches parked backlog item) | `controllers/invitations/invitations.controller.ts:111` |
 | I7 | 🔵 LOW | `GET /invitations/validate/:token` echoes `organizationId` + `role` pre-auth | `services/invitations.service.ts:226` |
 | I8 | 🔵 LOW | `POST /invitations` body skips `ZodValidationPipe` — schema refinements unenforced | `controllers/invitations/invitations.controller.ts:42` |
+| I9 | 🟡 MED (availability) | **`GET /agents/:id/editor-config` gated to ADMIN/SUPER_ADMIN as a whole** — a CLIENT can't load their own agent editor ("Agent not found"); it was over-gated to avoid leaking `webhookUrl`/`dataFields` in the bundle. Found live 2026-07-20 (pre-existing). | `controllers/agents/agents.controller.ts:117-118` |
 
 ---
 
@@ -199,21 +200,24 @@ These surfaces were traced and are **correctly tenant-scoped**. For SOC 2 they d
 
 ## 5. Fix-order checklist
 
-**Launch blockers — do first:**
-- [ ] **I1** — Authenticate the Socket.io handshake (Clerk JWT); derive org/role from token; reject unowned rooms; `PLATFORM_ROOM` only for ADMIN/SUPER_ADMIN.
-- [ ] **I2** — Scope `deleteFile` fileId lookup to the verified agent (`entityId: agentId`), 404 on miss.
+**Status:** I1–I5 + I8 implemented on branch `fix/idor-hardening` (2026-07-12).
+Full gate green: lint, check-types (5 pkgs), build (4/4), test:cov (1946 tests / 111 suites).
+Pending: manual verification (see the per-fix test plan handed to the team) + review + merge.
+
+**Launch blockers:**
+- [x] **I1** — Authenticated the Socket.io handshake via a `server.use` middleware + new `WsAuthService`: verifies the Clerk token, derives org/role from the DB user, ignores client-supplied `orgId`/`platform`, rejects unowned rooms; `PLATFORM_ROOM` only for ADMIN/SUPER_ADMIN. Widget `sessionId` bearer path preserved. Web client sends a fresh token on each (re)connect. New unit suite `ws-auth.service.spec.ts` (15 cases incl. the original exploit).
+- [x] **I2** — `deleteFile` now looks up the file scoped to the verified agent's `organizationId` (files are keyed by theme id, not agentId, so org-scope is the correct boundary), 404 on miss. Regression test added.
 
 **This week:**
-- [ ] **I3** — Enforce `email_verified` in `jwt.strategy.validate()`; bind invite acceptance to token/clerkInvitationId; confirm Clerk email-verification config.
-- [ ] **I4** — Exclude `DevAiController` from the prod module graph (or require `InternalSecretGuard`).
-- [ ] **I5** — Add `@UseGuards(RolesGuard)` to `AgentDataFieldsController`.
+- [x] **I3** — Invitation acceptance now confirms via Clerk backend (`ClerkManagementService.isEmailVerified`) that the account owns AND verified the invited email before provisioning role/org; fail-closed. (Chosen over a JWT `email_verified` claim check, which would depend on template config and could break all logins.) Gate tests added.
+- [x] **I4** — Replaced the fail-open `NODE_ENV === 'production'` check with a fail-closed `ENABLE_DEV_ROUTES=true` opt-in read via ConfigService (works from local `.env`, immune to NODE_ENV misconfig). Documented in `.env.example`.
+- [x] **I5** — Added `@UseGuards(RolesGuard)` to `AgentDataFieldsController`.
 
-**Backlog:**
-- [ ] **I6** — Auth-gate `POST /invitations/reissue` (SUPER_ADMIN).
-- [ ] **I7** — Consider not echoing `organizationId`/`role` from `validate/:token` pre-auth.
-- [ ] **I8** — Add `ZodValidationPipe(createInvitationSchema)` to `POST /invitations`.
-
-**After fixes:** add backend unit tests for each (per `CLAUDE.md`: controller + service tests in `apps/api/test/`), run `bun run lint && bun run check-types && bun run build && bun run test:cov`.
+**Backlog / decisions:**
+- [ ] **I6** — NOT auth-gated: `POST /invitations/reissue` is a self-service (pre-login) flow; auth-gating breaks that UX and is an open product decision. Hardened instead: `reissueToken` now UUID-validated (Zod), reissue capped at 5, and `cancel()` deletes the row so a cancelled invite can't be resurrected. Revisit if product wants admin-only.
+- [ ] **I7** — Left as-is (LOW): `validate/:token` echoes `organizationId`/`role` to a holder of the secret token; the signup UI renders from it, so changing the shape risks breaking that flow for no real gain.
+- [x] **I8** — Added `ZodValidationPipe` to `POST /invitations` (create) and `POST /invitations/reissue`.
+- [x] **I9** — `editor-config` is now `@Roles(...CLIENT)` too, and `getEditorConfig` is role-aware: it fetches/returns `webhookUrl` + `dataFields` only for ADMIN/SUPER_ADMIN, and returns `webhookUrl: null` / `dataFields: []` to a CLIENT. Fixes the "Agent not found" the client editor hit, without leaking the admin-only fields in the bundle (same principle as I5). Controller tests added (`agents.controller.spec.ts` getEditorConfig: full-for-admin, stripped-for-client, tenant 404). Found during live manual testing on 2026-07-20.
 
 ---
 

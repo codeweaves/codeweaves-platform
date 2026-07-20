@@ -80,6 +80,24 @@ export class ClerkManagementService {
   }
 
   /**
+   * Authoritatively confirm that the given Clerk account owns `email` AND has
+   * verified it. Used at invitation acceptance so a token can't claim an
+   * invite's org/role for an email the account hasn't proven it controls.
+   *
+   * Throws on API failure (network/Clerk down) so the caller can fail CLOSED —
+   * we never provision role/org on an unconfirmed email.
+   */
+  async isEmailVerified(clerkUserId: string, email: string): Promise<boolean> {
+    const user = await this.clerk.users.getUser(clerkUserId);
+    const target = email.trim().toLowerCase();
+    return user.emailAddresses.some(
+      (e) =>
+        e.emailAddress.toLowerCase() === target &&
+        e.verification?.status === 'verified',
+    );
+  }
+
+  /**
    * Revokes a pending Clerk invitation, making its link unusable. Idempotent:
    * a 404 (already revoked / not found) is treated as success.
    */

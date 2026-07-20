@@ -39,8 +39,9 @@ async function bootstrap() {
   app.use(helmet(getHelmetOptions(process.env.NODE_ENV)));
 
   // Global API prefix. `dev/*` is excluded so the AI orchestration test page
-  // works at a short URL in the browser (http://localhost:3001/dev/ai/test-chat)
-  // — NODE_ENV=production gates the endpoints themselves.
+  // works at a short URL in the browser (http://localhost:3001/dev/ai/test-chat).
+  // The endpoints themselves are fail-closed: they 404 unless ENABLE_DEV_ROUTES
+  // =true (see DevAiController.assertDevRoutesEnabled).
   app.setGlobalPrefix('api/klivo/v1', {
     exclude: [
       'health',
