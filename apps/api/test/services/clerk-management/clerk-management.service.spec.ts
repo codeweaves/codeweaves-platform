@@ -15,6 +15,9 @@ const mockClerkClient = {
     createInvitation: jest.fn(),
     revokeInvitation: jest.fn(),
   },
+  users: {
+    getUser: jest.fn(),
+  },
 };
 
 describe('ClerkManagementService', () => {
@@ -143,6 +146,77 @@ describe('ClerkManagementService', () => {
       expect(
         mockClerkLogger.logClerkInvitationRevocationFailed,
       ).toHaveBeenCalled();
+    });
+  });
+
+  describe('isEmailVerified', () => {
+    it('returns true when the account has the email AND it is verified', async () => {
+      mockClerkClient.users.getUser.mockResolvedValue({
+        emailAddresses: [
+          {
+            emailAddress: 'user@example.com',
+            verification: { status: 'verified' },
+          },
+        ],
+      });
+
+      await expect(
+        service.isEmailVerified('user_1', 'user@example.com'),
+      ).resolves.toBe(true);
+      expect(mockClerkClient.users.getUser).toHaveBeenCalledWith('user_1');
+    });
+
+    it('matches the email case-insensitively', async () => {
+      mockClerkClient.users.getUser.mockResolvedValue({
+        emailAddresses: [
+          {
+            emailAddress: 'User@Example.com',
+            verification: { status: 'verified' },
+          },
+        ],
+      });
+
+      await expect(
+        service.isEmailVerified('user_1', 'user@example.com'),
+      ).resolves.toBe(true);
+    });
+
+    it('returns false when the email exists but is unverified', async () => {
+      mockClerkClient.users.getUser.mockResolvedValue({
+        emailAddresses: [
+          {
+            emailAddress: 'user@example.com',
+            verification: { status: 'unverified' },
+          },
+        ],
+      });
+
+      await expect(
+        service.isEmailVerified('user_1', 'user@example.com'),
+      ).resolves.toBe(false);
+    });
+
+    it('returns false when the account does not have that email at all', async () => {
+      mockClerkClient.users.getUser.mockResolvedValue({
+        emailAddresses: [
+          {
+            emailAddress: 'someone-else@example.com',
+            verification: { status: 'verified' },
+          },
+        ],
+      });
+
+      await expect(
+        service.isEmailVerified('user_1', 'victim@example.com'),
+      ).resolves.toBe(false);
+    });
+
+    it('propagates errors so the caller can fail closed', async () => {
+      mockClerkClient.users.getUser.mockRejectedValue(new Error('Clerk down'));
+
+      await expect(
+        service.isEmailVerified('user_1', 'user@example.com'),
+      ).rejects.toThrow('Clerk down');
     });
   });
 });

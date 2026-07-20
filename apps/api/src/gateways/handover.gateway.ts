@@ -3,12 +3,15 @@ import {
   ConnectedSocket,
   MessageBody,
   OnGatewayConnection,
+  OnGatewayInit,
   SubscribeMessage,
   WebSocketGateway,
   WebSocketServer,
 } from '@nestjs/websockets';
 import type { HandoverState } from '@prisma/client';
 import type { Server, Socket } from 'socket.io';
+
+import { WsAuthService } from '../common/ws/ws-auth.service';
 
 /** Room helpers — one per conversation, one per org. */
 const sessionRoom = (id: string) => `session:${id}`;
@@ -34,9 +37,13 @@ function pickStr(v: unknown): string | undefined {
  *   session:<publicSessionId>  — the widget + the dashboard's open thread
  *   org:<organizationId>       — the dashboard inbox list (flags / new requests)
  *
- * Access: the widget scopes by the unguessable `sessionId` (same bearer model as
- * the public /poll endpoint). Dashboard org-room membership is validated against
- * the agent's Clerk identity when the dashboard client is wired (Phase 3).
+ * Access (enforced in a handshake middleware — see {@link afterInit}):
+ *   - Widget → presents an unguessable `sessionId` (same bearer model as the
+ *     public /poll endpoint); joins ONLY its own `session:<id>`. No login.
+ *   - Dashboard → presents a verified Clerk token; the org/platform room is
+ *     derived from the DB user, so a client can never self-assign into another
+ *     org's room. Client-supplied `orgId`/`platform` handshake flags are ignored.
+ *   - Anything else is rejected before it can join a room.
  */
 @WebSocketGateway({
   // Widget connects cross-origin (customer sites); access is gated by the
@@ -44,32 +51,54 @@ function pickStr(v: unknown): string | undefined {
   // auth payload, not cookies, so credentials stay off.
   cors: { origin: true, credentials: false },
 })
-export class HandoverGateway implements OnGatewayConnection {
+export class HandoverGateway implements OnGatewayInit, OnGatewayConnection {
   private readonly logger = new Logger(HandoverGateway.name);
 
   @WebSocketServer() server!: Server;
 
-  handleConnection(client: Socket): void {
-    const h = client.handshake;
-    const sessionId = pickStr(h.auth?.sessionId) ?? pickStr(h.query?.sessionId);
-    const orgId = pickStr(h.auth?.orgId) ?? pickStr(h.query?.orgId);
-    // Platform admins have no org — they see every org's inbox, so they join a
-    // shared broadcast room instead of a single org room.
-    const platform = h.auth?.platform === true || h.query?.platform === 'true';
+  constructor(private readonly wsAuth: WsAuthService) {}
 
-    if (sessionId) {
-      client.data.sessionId = sessionId;
-      void client.join(sessionRoom(sessionId));
-    }
-    if (orgId) {
-      client.data.orgId = orgId;
-      void client.join(orgRoom(orgId));
-    }
-    if (platform) {
-      client.data.platform = true;
-      void client.join(PLATFORM_ROOM);
-    }
-    // Nothing to scope to → not a valid client.
+  /**
+   * Authenticate EVERY socket during the handshake, before it connects. The
+   * middleware resolves the trusted scope (org/platform from a verified Clerk
+   * token, or a widget's session bearer) and stashes it on `socket.data`;
+   * a handshake that resolves to no scope is rejected here and never reaches
+   * {@link handleConnection}. This is the single tenant-isolation chokepoint
+   * for the realtime layer — client-supplied `orgId`/`platform` are ignored.
+   */
+  afterInit(server: Server): void {
+    server.use((socket, next) => {
+      void this.wsAuth
+        .resolveScope(socket.handshake)
+        .then((scope) => {
+          if (!scope) {
+            next(new Error('unauthorized'));
+            return;
+          }
+          socket.data.sessionId = scope.sessionId;
+          socket.data.orgId = scope.orgId;
+          socket.data.platform = scope.platform ?? false;
+          next();
+        })
+        .catch((err) =>
+          next(err instanceof Error ? err : new Error('unauthorized')),
+        );
+    });
+  }
+
+  handleConnection(client: Socket): void {
+    // socket.data was populated by the trusted handshake middleware (afterInit).
+    // We only ever join rooms the client is actually entitled to.
+    const sessionId = client.data.sessionId as string | undefined;
+    const orgId = client.data.orgId as string | undefined;
+    const platform = client.data.platform as boolean | undefined;
+
+    if (sessionId) void client.join(sessionRoom(sessionId));
+    if (orgId) void client.join(orgRoom(orgId));
+    if (platform) void client.join(PLATFORM_ROOM);
+
+    // No trusted scope resolved → not a valid client (defensive; the middleware
+    // already rejects these).
     if (!sessionId && !orgId && !platform) client.disconnect(true);
   }
 

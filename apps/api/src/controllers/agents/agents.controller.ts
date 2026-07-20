@@ -111,11 +111,16 @@ export class AgentsController {
    * agent itself is required; if it 404s we re-throw so the page can show the
    * "not found" state.
    *
-   * Admin-gated because the payload includes the webhook URL (sensitive field
-   * not exposed to CLIENT users).
+   * Client-accessible: a CLIENT edits their own agent's core / theme / knowledge.
+   * The admin-only bundles — `webhookUrl` (integration secret) and `dataFields`
+   * (data-capture config, admin-only per AgentDataFieldsController) — are fetched
+   * and returned ONLY for ADMIN/SUPER_ADMIN. A CLIENT gets `webhookUrl: null` and
+   * `dataFields: []`, so those sensitive fields never reach them (mirrors the
+   * editor sidebar, which hides the Integration + Data Capture sections). Tenant
+   * scope is enforced by `findById(id, user)` — a foreign agent 404s.
    */
   @Get(':id/editor-config')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
   @ApiOperation({
     summary: 'Bundled agent + webhook + theme + knowledge for the admin editor',
   })
@@ -133,27 +138,39 @@ export class AgentsController {
     @CurrentUser() user: CurrentUserData,
   ) {
     // Always resolve the agent first — no point fetching sub-resources if the
-    // agent itself 404s, and `findById` carries the auth-scoped error.
+    // agent itself 404s, and `findById` carries the auth-scoped error (a CLIENT
+    // only ever resolves an agent in their own org).
     const agent = await this.agentsService.findById(id, user);
 
+    const isAdmin =
+      user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
+
+    // Admin-only sub-resources (webhook URL + data-capture config) are fetched
+    // ONLY for ADMIN/SUPER_ADMIN. For a CLIENT we resolve to null/[] so the
+    // sensitive fields never reach them — the same per-section boundary the
+    // editor sidebar enforces, applied here at the field level.
     const [webhookResult, themeResult, knowledgeResult, dataFieldsResult] =
       await Promise.allSettled([
-        this.agentsService.getWebhookUrl(id, user),
+        isAdmin
+          ? this.agentsService.getWebhookUrl(id, user)
+          : Promise.resolve(null),
         this.themesService.getTheme(id, user),
         this.knowledgeService.get(id),
-        this.dataFieldsService.list(id, user),
+        isAdmin ? this.dataFieldsService.list(id, user) : Promise.resolve([]),
       ]);
 
     return {
       agent,
-      // Webhook: swallow any error (e.g. no secret row) — surface as null.
+      // Webhook: admin-only; swallow any error (e.g. no secret row) → null.
       webhookUrl:
-        webhookResult.status === 'fulfilled' ? webhookResult.value.webhookUrl : null,
+        webhookResult.status === 'fulfilled' && webhookResult.value
+          ? webhookResult.value.webhookUrl
+          : null,
       // Theme: null when none yet — widget falls back to defaults client-side.
       theme: themeResult.status === 'fulfilled' ? themeResult.value : null,
       // Knowledge: null when no record. Editor treats null + empty-string the same.
       knowledge: knowledgeResult.status === 'fulfilled' ? knowledgeResult.value : null,
-      // Data-capture field definitions; empty array when none configured.
+      // Data-capture field definitions (admin-only); empty array for clients.
       dataFields:
         dataFieldsResult.status === 'fulfilled' ? dataFieldsResult.value : [],
     };

@@ -117,10 +117,14 @@ export class FilesService {
   }
 
   async deleteFile(fileId: string, agentId: string, user: CurrentUserData) {
-    await this.ensureAgentAccess(agentId, user);
+    // ensureAgentAccess only proves the caller owns *an* agent in their org —
+    // it does NOT tie `fileId` to that agent. Scope the file lookup to the
+    // verified agent's org so a caller can't delete another tenant's file by
+    // pairing their own agentId with a foreign fileId (cross-tenant IDOR).
+    const agent = await this.ensureAgentAccess(agentId, user);
 
-    const file = await this.prisma.file.findUnique({
-      where: { id: fileId },
+    const file = await this.prisma.file.findFirst({
+      where: { id: fileId, organizationId: agent.organizationId },
     });
 
     if (!file) {

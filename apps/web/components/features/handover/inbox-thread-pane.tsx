@@ -31,6 +31,7 @@ import {
   emitAgentTyping,
 } from '@/lib/handover-socket';
 import { useProfile } from '@/hooks/use-profile';
+import { useAuth } from '@/hooks/use-auth';
 
 function MessageBubble({ message }: { message: ThreadMessage }) {
   if (message.role === 'SYSTEM') {
@@ -105,6 +106,7 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
   const resolve = useResolveHandover();
   const sendMessage = useSendHumanMessage();
   const { profile } = useProfile();
+  const { getToken } = useAuth();
   const [draft, setDraft] = useState('');
   const [visitorTyping, setVisitorTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -129,7 +131,7 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
       organization: scopeOrgId ? { id: scopeOrgId } : null,
     });
     if (!sessionId || !auth) return;
-    const socket = ensureHandoverSocket(auth);
+    const socket = ensureHandoverSocket(auth, getToken);
     watchSession(sessionId);
 
     const onTyping = (p?: { from?: string; sessionId?: string }) => {
@@ -149,7 +151,7 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
       }
       setVisitorTyping(false);
     };
-  }, [sessionId, scopeOrgId, scopeRole]);
+  }, [sessionId, scopeOrgId, scopeRole, getToken]);
 
   // Once a conversation is resolved — by you, another teammate, or the idle
   // sweep — it leaves the live queue, so drop it from the main pane too (back

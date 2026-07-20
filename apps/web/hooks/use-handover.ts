@@ -1,6 +1,6 @@
 'use client';
 
-import { useEffect } from 'react';
+import { useEffect, useSyncExternalStore } from 'react';
 import {
   useQuery,
   useMutation,
@@ -8,7 +8,25 @@ import {
 } from '@tanstack/react-query';
 import { useApiClient } from '@/lib/api-client';
 import { useAuth } from '@/hooks/use-auth';
-import { ensureHandoverSocket, profileHandoverAuth } from '@/lib/handover-socket';
+import {
+  ensureHandoverSocket,
+  profileHandoverAuth,
+  subscribeHandoverConnected,
+  getHandoverConnected,
+} from '@/lib/handover-socket';
+
+/**
+ * Live handover-socket connection state. While `true`, the Inbox/thread queries
+ * pause their 30s poll and rely on socket pushes; while `false` (socket down or
+ * not yet connected) they poll as the real fallback. SSR snapshot is `false`.
+ */
+export function useHandoverSocketConnected(): boolean {
+  return useSyncExternalStore(
+    subscribeHandoverConnected,
+    getHandoverConnected,
+    () => false,
+  );
+}
 
 export type HandoverState = 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN';
 export type HandoverReason = 'USER_REQUESTED' | 'BOT_FALLBACK' | 'FRUSTRATION' | 'MANUAL';
@@ -55,15 +73,17 @@ export interface HandoverThread {
 /** List of conversations in the Inbox for the given filter. */
 export function useInbox(filter: HandoverFilter) {
   const { isAuthenticated } = useAuth();
+  const socketConnected = useHandoverSocketConnected();
   const api = useApiClient();
   return useQuery<InboxItem[]>({
     queryKey: ['handover', 'inbox', filter],
     queryFn: () => api.get(`/handover/inbox?filter=${filter}`),
     enabled: isAuthenticated,
-    // Realtime (the org socket in useHandoverRealtime) drives live updates on
-    // the Inbox page. This slow poll is only a reconcile backstop + the sidebar
-    // badge's sole source on non-Inbox pages (where no socket is mounted).
-    refetchInterval: 30_000,
+    // Realtime (the org socket in useHandoverRealtime) drives live updates and
+    // fires a catch-up refetch on reconnect. So we ONLY poll when the socket is
+    // down — polling alongside a healthy socket is redundant load (and floods
+    // logs at scale). Socket up → no interval; socket down → 30s fallback.
+    refetchInterval: socketConnected ? false : 30_000,
   });
 }
 
@@ -94,14 +114,15 @@ export function useHandoverEnabled(): { enabled: boolean; isResolved: boolean } 
 
 export function useThread(sessionId: string | null | undefined) {
   const { isAuthenticated } = useAuth();
+  const socketConnected = useHandoverSocketConnected();
   const api = useApiClient();
   return useQuery<HandoverThread>({
     queryKey: ['handover', 'thread', sessionId],
     queryFn: () => api.get(`/handover/${sessionId}`),
     enabled: isAuthenticated && !!sessionId,
-    // The open thread updates live over the session-room socket (see the thread
-    // pane's onSessionPing). This slow poll is just a reconcile backstop.
-    refetchInterval: 30_000,
+    // Live over the session-room socket + catch-up on reconnect. Poll ONLY when
+    // the socket is down (see useInbox for the rationale).
+    refetchInterval: socketConnected ? false : 30_000,
   });
 }
 
@@ -189,13 +210,16 @@ export function useHandoverRealtime(
   profile: { role?: string; organization?: { id?: string | null } | null } | null | undefined,
 ) {
   const qc = useQueryClient();
+  const { getToken } = useAuth();
   const orgId = profile?.organization?.id ?? undefined;
   const role = profile?.role;
 
   useEffect(() => {
     const auth = profileHandoverAuth({ role, organization: orgId ? { id: orgId } : null });
     if (!auth) return;
-    const socket = ensureHandoverSocket(auth);
+    // The gateway authenticates the socket with a verified Clerk token; `auth`
+    // here is only the client-side scope hint for the singleton key.
+    const socket = ensureHandoverSocket(auth, getToken);
 
     // Coalesce bursts: one event can reach this socket via several rooms
     // (org/platform + a watched session), so debounce into a SINGLE refetch of
@@ -209,12 +233,17 @@ export function useHandoverRealtime(
       }, 300);
     };
 
+    // On (re)connect, do one catch-up refetch — this reconciles anything that
+    // changed while the socket was down, which is what lets us safely stop the
+    // 30s poll while connected (see useInbox/useThread refetchInterval).
+    socket.on('connect', refetchSoon);
     socket.on('handover', refetchSoon);
     socket.on('message', refetchSoon);
     return () => {
+      socket.off('connect', refetchSoon);
       socket.off('handover', refetchSoon);
       socket.off('message', refetchSoon);
       if (timer) clearTimeout(timer);
     };
-  }, [orgId, role, qc]);
+  }, [orgId, role, qc, getToken]);
 }

@@ -14,6 +14,8 @@ import { InvitationsService } from '../../services/invitations.service';
 import {
   CreateInvitationDto,
   ReissueInvitationDto,
+  createInvitationSchema,
+  reissueInvitationSchema,
   invitationListQuerySchema,
   type InvitationListQuery,
 } from '../../models/invitation.dto';
@@ -40,7 +42,7 @@ export class InvitationsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
   async create(
-    @Body() dto: CreateInvitationDto,
+    @Body(new ZodValidationPipe(createInvitationSchema)) dto: CreateInvitationDto,
     @CurrentUser() user: CurrentUserData,
   ) {
     return this.invitationsService.create(dto, user.id);
@@ -113,7 +115,9 @@ export class InvitationsController {
   @ApiOperation({ summary: 'Reissue an expired invitation' })
   @ApiResponse({ status: 201, description: 'New invitation issued' })
   @ApiResponse({ status: 404, description: 'Reissue token not found' })
-  async reissue(@Body() dto: ReissueInvitationDto) {
+  async reissue(
+    @Body(new ZodValidationPipe(reissueInvitationSchema)) dto: ReissueInvitationDto,
+  ) {
     return this.invitationsService.reissue(dto.reissueToken);
   }
 }

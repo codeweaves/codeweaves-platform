@@ -8,6 +8,7 @@ import {
   ParseUUIDPipe,
   Put,
   Query,
+  UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
@@ -18,6 +19,7 @@ import {
   type CurrentUserData,
 } from '../../decorators/current-user.decorator';
 import { Roles } from '../../decorators/roles.decorator';
+import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { AgentDataFieldsService } from '../../services/agent-data-fields.service';
 
@@ -31,6 +33,7 @@ import { AgentDataFieldsService } from '../../services/agent-data-fields.service
  * PII (emails/phones), so this stays platform-staff-only.
  */
 @ApiTags('Agents')
+@UseGuards(RolesGuard)
 @Controller('agents/:agentId/data-fields')
 export class AgentDataFieldsController {
   constructor(private readonly dataFieldsService: AgentDataFieldsService) {}
