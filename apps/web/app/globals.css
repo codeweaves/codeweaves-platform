@@ -21,8 +21,9 @@
 :root {
   --radius: 0.65rem;
 
-  /* Canvas + text */
-  --background: oklch(0.976 0.003 270);
+  /* Canvas + text. --background is the white panel surface (sidebar + main
+   * content sit on it); the gray page behind them is --sidebar. */
+  --background: oklch(0.994 0.001 270);
   --foreground: oklch(0.21 0.015 271);
 
   /* Elevated surfaces */
@@ -65,9 +66,11 @@
   --chart-4: oklch(0.72 0.15 165);
   --chart-5: oklch(0.78 0.16 75);
 
-  /* Sidebar — brighter than canvas, with a navy-tinted active pill */
-  --sidebar: oklch(0.992 0.002 270);
-  --sidebar-foreground: oklch(0.37 0.015 271);
+  /* Page background behind the panels — a soft neutral gray. Both the sidebar
+   * and the main content sit on top of it as white (bg-background) panels with
+   * a gap + shadow, so the gray only shows through the gutters around them. */
+  --sidebar: oklch(0.955 0.004 270);
+  --sidebar-foreground: oklch(0.18 0.012 271);
   --sidebar-primary: #0a1832;
   --sidebar-primary-foreground: oklch(0.985 0 0);
   --sidebar-accent: #e8ecf4;
