@@ -149,19 +149,20 @@ export function AgentEditorSidebar({
           {categories.map((category) => (
             <button
               key={category.id}
+              type="button"
               onClick={() => onCategoryChange(category.id)}
               className={cn(
                 'flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors',
                 selectedCategory === category.id
-                  ? 'bg-primary/10 text-primary'
-                  : 'text-muted-foreground hover:bg-muted hover:text-foreground',
+                  ? 'bg-primary text-primary-foreground shadow-sm'
+                  : 'text-foreground hover:bg-muted',
               )}
             >
               <div
                 className={cn(
                   'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
                   selectedCategory === category.id
-                    ? 'bg-primary/20 text-primary'
+                    ? 'bg-white/15 text-primary-foreground'
                     : 'bg-muted text-muted-foreground',
                 )}
               >

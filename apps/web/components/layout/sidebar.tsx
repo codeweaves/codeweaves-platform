@@ -1,7 +1,7 @@
 'use client';
 
 import Link from 'next/link';
-import { usePathname, useRouter } from 'next/navigation';
+import { usePathname } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
 import {
   LayoutDashboard,
@@ -11,30 +11,15 @@ import {
   MessageSquare,
   Inbox,
   Database,
-  Settings,
   Users,
-  ChevronsUpDown,
   ChevronRight,
-  LogOut,
   Sparkles,
 } from 'lucide-react';
-import { useAuth } from '@/hooks/use-auth';
 import { useProfile } from '@/hooks/use-profile';
 import { useInboxCount } from '@/hooks/use-handover';
-import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import {
-  DropdownMenu,
-  DropdownMenuContent,
-  DropdownMenuGroup,
-  DropdownMenuItem,
-  DropdownMenuLabel,
-  DropdownMenuSeparator,
-  DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
 import {
   Sidebar,
   SidebarContent,
-  SidebarFooter,
   SidebarGroup,
   SidebarGroupContent,
   SidebarHeader,
@@ -42,7 +27,6 @@ import {
   SidebarMenuButton,
   SidebarMenuItem,
   SidebarRail,
-  useSidebar,
 } from '@/components/ui/sidebar';
 
 interface NavItem {
@@ -87,105 +71,6 @@ function InboxNavBadge() {
   );
 }
 
-function NavUser() {
-  const router = useRouter();
-  const { user: clerkUser, logout, isAuthenticated } = useAuth();
-  const { profile } = useProfile();
-  const { isMobile } = useSidebar();
-
-  if (!isAuthenticated || !clerkUser) return null;
-
-  const email = profile?.email || clerkUser.email || '';
-  // Prefer the backend profile name; fall back to the Clerk user's name.
-  const name = profile?.name || clerkUser.name || null;
-
-  const initials =
-    name
-      ?.split(' ')
-      .map((n) => n[0])
-      .join('')
-      .toUpperCase() || email[0]?.toUpperCase() || '?';
-
-  const roleLabel = profile?.role
-    ? profile.role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    : null;
-
-  return (
-    <SidebarMenu>
-      <SidebarMenuItem>
-        <DropdownMenu>
-          <DropdownMenuTrigger asChild>
-            <SidebarMenuButton
-              size="lg"
-              className="cursor-pointer data-[state=open]:bg-sidebar-accent data-[state=open]:text-sidebar-accent-foreground"
-            >
-              <Avatar className="h-8 w-8 rounded-lg">
-                <AvatarFallback className="rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">
-                  {initials}
-                </AvatarFallback>
-              </Avatar>
-              <div className="grid flex-1 text-left text-sm leading-tight">
-                <span className="truncate font-medium">
-                  {name || email}
-                </span>
-                {roleLabel && (
-                  <span className="truncate text-xs text-sidebar-foreground/70">
-                    {roleLabel}
-                  </span>
-                )}
-              </div>
-              <ChevronsUpDown className="ml-auto size-4" />
-            </SidebarMenuButton>
-          </DropdownMenuTrigger>
-          <DropdownMenuContent
-            className="w-[--radix-dropdown-menu-trigger-width] min-w-56 rounded-lg"
-            side={isMobile ? 'bottom' : 'right'}
-            align="end"
-            sideOffset={4}
-          >
-            <DropdownMenuLabel className="p-0 font-normal">
-              <div className="flex items-center gap-2 px-1 py-1.5 text-left text-sm">
-                <Avatar className="h-8 w-8 rounded-lg">
-                  <AvatarFallback className="rounded-lg bg-sidebar-primary text-sidebar-primary-foreground text-xs font-semibold">
-                    {initials}
-                  </AvatarFallback>
-                </Avatar>
-                <div className="grid flex-1 text-left text-sm leading-tight">
-                  <span className="truncate font-medium">
-                    {name || email}
-                  </span>
-                  <span className="truncate text-xs text-muted-foreground">
-                    {email}
-                  </span>
-                  {roleLabel && (
-                    <span className="truncate text-xs text-muted-foreground/70">
-                      {roleLabel}
-                    </span>
-                  )}
-                </div>
-              </div>
-            </DropdownMenuLabel>
-            <DropdownMenuSeparator />
-            <DropdownMenuGroup>
-              <DropdownMenuItem
-                onClick={() => router.push('/dashboard/profile-settings')}
-              >
-                <Settings />
-                Profile Settings
-              </DropdownMenuItem>
-            </DropdownMenuGroup>
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={logout}>
-              <LogOut />
-              Log Out
-            </DropdownMenuItem>
-          </DropdownMenuContent>
-        </DropdownMenu>
-      </SidebarMenuItem>
-    </SidebarMenu>
-  );
-}
-
 export function AppSidebar() {
   const pathname = usePathname();
   const { profile } = useProfile();
@@ -200,7 +85,11 @@ export function AppSidebar() {
   });
 
   return (
-    <Sidebar collapsible="icon">
+    <Sidebar
+      collapsible="icon"
+      variant="inset"
+      className="[&_[data-slot=sidebar-inner]]:rounded-xl [&_[data-slot=sidebar-inner]]:bg-background [&_[data-slot=sidebar-inner]]:shadow-sm"
+    >
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center">
           <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-primary to-[#1c315f] text-primary-foreground shadow-sm shadow-primary/30 ring-1 ring-inset ring-white/10">
@@ -229,6 +118,7 @@ export function AppSidebar() {
                       asChild
                       isActive={isActive}
                       tooltip={item.name}
+                      className="data-[active=true]:bg-primary data-[active=true]:text-primary-foreground data-[active=true]:shadow-sm data-[active=true]:hover:bg-primary data-[active=true]:hover:text-primary-foreground"
                     >
                       <Link href={item.href}>
                         <item.icon />
@@ -244,10 +134,6 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
       </SidebarContent>
-
-      <SidebarFooter>
-        <NavUser />
-      </SidebarFooter>
 
       <SidebarRail />
     </Sidebar>

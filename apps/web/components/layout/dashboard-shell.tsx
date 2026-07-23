@@ -49,7 +49,7 @@ export function DashboardShell({ children }: DashboardShellProps) {
          * horizontal scroll is contained inside <main> (below) rather than
          * overflowing the body — otherwise the fixed sidebar floats over the
          * sideways-scrolled content. */}
-        <SidebarInset className="min-w-0">
+        <SidebarInset className="min-w-0 overflow-hidden">
           <Header />
           {/* Fixed-width dashboard: content floors at ~1080px and scrolls
            * sideways on narrow screens instead of reflowing responsively
