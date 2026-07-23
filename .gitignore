@@ -65,3 +65,7 @@ _bmad/
 
 nul
 NUL
+
+# graphify knowledge graph — fully generated, regenerate anytime with /graphify.
+# Ignored entirely so the large graph.json/graph.html never churn in commits.
+graphify-out/

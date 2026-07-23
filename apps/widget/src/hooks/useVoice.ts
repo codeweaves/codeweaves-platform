@@ -23,7 +23,13 @@ export type VoiceErrorSeverity = 'error' | 'warning' | 'info';
 
 const MAX_RECORDING_MS = 60_000;
 const DURATION_UPDATE_MS = 100;
-const API_TIMEOUT_MS = 30_000;
+// IDLE timeout: give up only if NO stream activity arrives for this long. It is
+// RE-ARMED on every chunk (see armIdleTimeout below), so an actively-streaming
+// reply is never aborted mid-audio no matter how long the full answer runs.
+// (Previously this was a fixed 30s deadline on the whole request, which killed
+// long replies while they were still streaming and playing — surfacing a false
+// "Voice processing timed out" even though audio was coming through fine.)
+const IDLE_TIMEOUT_MS = 25_000;
 
 // ── Error message mapping (matches demo page) ──
 
@@ -234,10 +240,18 @@ export function useVoice({
     abortRef.current = controller;
     timedOutRef.current = false;
 
-    timeoutRef.current = setTimeout(() => {
-      timedOutRef.current = true;
-      controller.abort();
-    }, API_TIMEOUT_MS);
+    // Arm (and re-arm) an IDLE timeout. It fires only after IDLE_TIMEOUT_MS with
+    // no stream activity; every chunk callback below re-arms it, so a healthy
+    // stream is never aborted while audio is still arriving. It's cleared once
+    // the stream finishes (see the clearTimeout after the await).
+    const armIdleTimeout = () => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        timedOutRef.current = true;
+        controller.abort();
+      }, IDLE_TIMEOUT_MS);
+    };
+    armIdleTimeout();
 
     let receivedFirstAudio = false;
     let fullResponseText = '';
@@ -259,6 +273,7 @@ export function useVoice({
         signal: controller.signal,
         callbacks: {
           onTranscription: (text: string) => {
+            armIdleTimeout();
             onTranscriptionRef.current?.(text);
             // Drop out of 'processing' the instant the transcript lands so the
             // "Transcribing…" loader disappears as soon as the user sees their words.
@@ -266,6 +281,7 @@ export function useVoice({
             setVoiceStateSynced('idle');
           },
           onAudioChunk: (chunk: VoiceAudioChunk) => {
+            armIdleTimeout();
             // Skip empty-audio chunks. The server's per-sentence final marker
             // (isFinalChunk=true) carries no audio bytes — it only exists to
             // settle metrics on the server side. Enqueuing an empty buffer
@@ -287,6 +303,7 @@ export function useVoice({
             }
           },
           onComplete: (fullText: string) => {
+            armIdleTimeout();
             fullResponseText = fullText;
             onCompleteRef.current?.(fullText);
             queue.markStreamComplete();
@@ -297,6 +314,7 @@ export function useVoice({
             }
           },
           onHandover: (handoverState) => {
+            armIdleTimeout();
             onHandoverRef.current?.(handoverState);
           },
           onError: (errCode: string, message: string) => {
