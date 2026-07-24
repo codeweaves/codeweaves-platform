@@ -686,6 +686,7 @@ describe('AnalyticsService', () => {
           userId: adminUser.id,
           clerkId: adminUser.clerkId,
           contextId: adminUser.organizationId,
+          organizationId: adminUser.organizationId,
           event: 'ANALYTICS_EXPORT',
           data: {
             format: 'csv',
@@ -707,6 +708,7 @@ describe('AnalyticsService', () => {
           userId: clientUser.id,
           clerkId: clientUser.clerkId,
           contextId: clientUser.organizationId,
+          organizationId: clientUser.organizationId,
           event: 'ANALYTICS_EXPORT',
           data: {
             format: 'csv',

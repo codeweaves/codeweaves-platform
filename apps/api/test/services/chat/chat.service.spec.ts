@@ -10,6 +10,7 @@ import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 import { MessageMetricsService } from '../../../src/services/message-metrics.service';
 import { HandoverService } from '../../../src/services/handover.service';
 import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
+import { WidgetEventLogger } from '../../../src/common/events/widget.logger';
 
 describe('ChatService', () => {
   let service: ChatService;
@@ -67,6 +68,8 @@ describe('ChatService', () => {
     publishBotTurn: jest.fn().mockResolvedValue(undefined),
     stallInstruction: jest.fn().mockReturnValue('A teammate is joining shortly.'),
   };
+
+  const mockWidgetLog = { logSessionStarted: jest.fn() };
 
   const MOCK_AGENT_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
   const MOCK_SESSION_ID = 'session-uuid-1234';
@@ -130,6 +133,7 @@ describe('ChatService', () => {
         { provide: DirectChatService, useValue: mockDirectChatService },
         { provide: MessageMetricsService, useValue: mockMessageMetricsService },
         { provide: HandoverService, useValue: mockHandoverService },
+        { provide: WidgetEventLogger, useValue: mockWidgetLog },
         PiiDetectionService,
       ],
     }).compile();
@@ -157,6 +161,34 @@ describe('ChatService', () => {
 
   it('should be defined', () => {
     expect(service).toBeDefined();
+  });
+
+  describe('resolveOrCreateSession (widget session-started event)', () => {
+    it('emits WIDGET_SESSION_STARTED when a new widget session is created', async () => {
+      mockPrismaService.chatSession.create.mockResolvedValue({
+        id: 'db-1',
+        sessionId: 'pub-1',
+        source: 'WIDGET',
+      });
+
+      await service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, 'WIDGET', 'vh_abc');
+
+      expect(mockWidgetLog.logSessionStarted).toHaveBeenCalledWith(
+        expect.objectContaining({ agentId: MOCK_AGENT_ID, sessionId: 'pub-1' }),
+      );
+    });
+
+    it('does NOT emit WIDGET_SESSION_STARTED for a demo session', async () => {
+      mockPrismaService.chatSession.create.mockResolvedValue({
+        id: 'db-2',
+        sessionId: 'pub-2',
+        source: 'DEMO',
+      });
+
+      await service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, 'DEMO');
+
+      expect(mockWidgetLog.logSessionStarted).not.toHaveBeenCalled();
+    });
   });
 
   describe('resolveOrCreateVisitorSession (WhatsApp / server-keyed channels)', () => {
@@ -934,6 +966,7 @@ describe('ChatService', () => {
           MOCK_AGENT_ID,
           'HMAC_VERIFICATION_FAILED',
           { sessionId: MOCK_SESSION_ID, reason: 'invalid_signature' },
+          { agentId: MOCK_AGENT_ID },
         );
       });
     });
@@ -961,6 +994,7 @@ describe('ChatService', () => {
           MOCK_AGENT_ID,
           'HMAC_VERIFICATION_FAILED',
           { sessionId: MOCK_SESSION_ID, reason: 'missing_signature_header' },
+          { agentId: MOCK_AGENT_ID },
         );
       });
     });

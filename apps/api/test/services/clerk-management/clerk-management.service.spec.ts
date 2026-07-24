@@ -42,7 +42,15 @@ describe('ClerkManagementService', () => {
           useValue: { get: jest.fn(() => 'sk_test_secret') },
         },
         { provide: ClerkLoggerService, useValue: mockClerkLogger },
-        { provide: ProviderEventLogger, useValue: { log: jest.fn() } },
+        {
+          provide: ProviderEventLogger,
+          useValue: {
+            log: jest.fn(),
+            // traced() runs the wrapped fn and returns its result (logging is
+            // fire-and-forget, tested in traced-call.spec).
+            traced: jest.fn((_opts: unknown, fn: () => unknown) => fn()),
+          },
+        },
       ],
     }).compile();
 

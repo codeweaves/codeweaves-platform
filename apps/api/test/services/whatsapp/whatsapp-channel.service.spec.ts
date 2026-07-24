@@ -2,6 +2,7 @@ import { ConflictException, NotFoundException } from '@nestjs/common';
 import { Prisma } from '@prisma/client';
 
 import type { CryptoService } from '../../../src/common/crypto/crypto.service';
+import type { TracerService } from '../../../src/common/tracer/tracer.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 import { WhatsappChannelService } from '../../../src/modules/whatsapp/whatsapp-channel.service';
 import type { AgentsService } from '../../../src/services/agents.service';
@@ -18,6 +19,7 @@ describe('WhatsappChannelService', () => {
   };
   let crypto: { encrypt: jest.Mock };
   let agents: { findById: jest.Mock };
+  let tracer: { logAuditEvent: jest.Mock };
   let service: WhatsappChannelService;
 
   const user = { id: 'u', organizationId: 'org' } as unknown as CurrentUserData;
@@ -48,10 +50,12 @@ describe('WhatsappChannelService', () => {
     };
     crypto = { encrypt: jest.fn().mockReturnValue('enc') };
     agents = { findById: jest.fn().mockResolvedValue({ id: 'a1' }) };
+    tracer = { logAuditEvent: jest.fn().mockResolvedValue(undefined) };
     service = new WhatsappChannelService(
       prisma as unknown as PrismaService,
       crypto as unknown as CryptoService,
       agents as unknown as AgentsService,
+      tracer as unknown as TracerService,
     );
   });
 
@@ -74,6 +78,22 @@ describe('WhatsappChannelService', () => {
     expect(view.status).toBe('CONNECTED');
     expect(view).not.toHaveProperty('accessTokenEnc');
     expect(view).not.toHaveProperty('accessToken');
+  });
+
+  it('connect: writes a WHATSAPP_CHANNEL_CONNECTED audit event without the token', async () => {
+    prisma.whatsappChannel.upsert.mockResolvedValue(channelRow);
+
+    await service.connect('a1', dto, user);
+
+    expect(tracer.logAuditEvent).toHaveBeenCalledWith(
+      'a1',
+      'WHATSAPP_CHANNEL_CONNECTED',
+      expect.anything(),
+      { agentId: 'a1' },
+    );
+    // The plaintext token must never reach the audit trail.
+    const auditArg = JSON.stringify(tracer.logAuditEvent.mock.calls[0]);
+    expect(auditArg).not.toContain('PLAINTEXT_TOKEN');
   });
 
   it('connect: maps a unique-constraint violation (P2002) to ConflictException', async () => {
@@ -121,6 +141,12 @@ describe('WhatsappChannelService', () => {
     expect(prisma.whatsappChannel.deleteMany).toHaveBeenCalledWith({
       where: { agentId: 'a1' },
     });
+    expect(tracer.logAuditEvent).toHaveBeenCalledWith(
+      'a1',
+      'WHATSAPP_CHANNEL_DISCONNECTED',
+      expect.anything(),
+      { agentId: 'a1' },
+    );
   });
 
   it('setVoiceReply: authorizes then updates the flag', async () => {
@@ -141,6 +167,12 @@ describe('WhatsappChannelService', () => {
       data: { voiceReplyEnabled: true },
     });
     expect(view.voiceReplyEnabled).toBe(true);
+    expect(tracer.logAuditEvent).toHaveBeenCalledWith(
+      'a1',
+      'WHATSAPP_CHANNEL_UPDATED',
+      expect.anything(),
+      { agentId: 'a1' },
+    );
   });
 
   it('setVoiceReply: 404 when no channel exists (P2025)', async () => {

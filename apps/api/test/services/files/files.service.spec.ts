@@ -4,6 +4,7 @@ import { Role } from '@prisma/client';
 import { FilesService } from '../../../src/services/files.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { SupabaseStorageService } from '../../../src/services/supabase-storage.service';
+import { TracerService } from '../../../src/common/tracer/tracer.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('FilesService', () => {
@@ -25,6 +26,8 @@ describe('FilesService', () => {
     remove: jest.fn(),
     getPublicUrl: jest.fn(),
   };
+
+  const mockTracer = { logAuditEvent: jest.fn() };
 
   const orgId = '123e4567-e89b-12d3-a456-426614174000';
   const agentId = '333e4567-e89b-12d3-a456-426614174000';
@@ -74,6 +77,7 @@ describe('FilesService', () => {
         FilesService,
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: SupabaseStorageService, useValue: mockStorageService },
+        { provide: TracerService, useValue: mockTracer },
       ],
     }).compile();
 
@@ -128,6 +132,12 @@ describe('FilesService', () => {
           uploadedById: adminUser.id,
         }),
       });
+      expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
+        agentId,
+        'AGENT_FILE_UPLOADED',
+        expect.anything(),
+        { organizationId: orgId, agentId },
+      );
     });
 
     it('should replace previous file with same purpose', async () => {
@@ -281,6 +291,12 @@ describe('FilesService', () => {
       expect(mockPrismaService.file.delete).toHaveBeenCalledWith({
         where: { id: fileId },
       });
+      expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
+        agentId,
+        'AGENT_FILE_DELETED',
+        expect.anything(),
+        { organizationId: orgId, agentId },
+      );
     });
 
     it('should scope the file lookup to the verified agent org (cross-tenant IDOR guard)', async () => {

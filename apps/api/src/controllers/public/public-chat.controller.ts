@@ -13,6 +13,7 @@ import { N8nStreamingService } from '../../services/n8n-streaming.service';
 import { MessageRateLimitService } from '../../services/message-rate-limit.service';
 import { DirectChatService } from '../../modules/ai/direct-chat.service';
 import { HandoverService } from '../../services/handover.service';
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { sendMessageSchema, type SendMessageDto, resolveRoutingMode } from '@repo/validation';
 import type { ChatMessageMetadata } from '../../services/chat-metadata.interface';
@@ -47,7 +48,17 @@ export class PublicChatController {
     private readonly handoverService: HandoverService,
     private readonly prisma: PrismaService,
     private readonly widgetLog: WidgetEventLogger,
+    private readonly crypto: CryptoService,
   ) {}
+
+  /**
+   * Visitor identifier for storage: keyed hash of the client IP (S1 — DPDP
+   * data minimisation). The raw IP never travels past this line; loopback
+   * resolves to undefined so the session backfill can fill it in later.
+   */
+  private visitorIdFrom(req: Request): string | undefined {
+    return this.crypto.hashVisitorIp(ChatService.extractVisitorIp(req));
+  }
 
   /**
    * Warmup: fire a tiny LLM call to populate OpenAI's prompt cache for this
@@ -149,7 +160,7 @@ export class PublicChatController {
       return { error: true, message: rateLimitResult.message, retryAfterSeconds: rateLimitResult.retryAfterSeconds };
     }
 
-    const visitorIp = ChatService.extractVisitorIp(req);
+    const visitorIp = this.visitorIdFrom(req);
     return this.chatService.sendMessage(dto, visitorIp);
   }
 
@@ -197,7 +208,7 @@ export class PublicChatController {
 
     const agent = await this.chatService.resolveAgent(dto.agentId);
     const fullAgent = await this.prisma.agent.findUniqueOrThrow({ where: { id: agent.id } });
-    const visitorIp = ChatService.extractVisitorIp(req);
+    const visitorIp = this.visitorIdFrom(req);
     const session = await this.chatService.resolveOrCreateSession(
       agent.id,
       dto.sessionId,
@@ -286,7 +297,7 @@ export class PublicChatController {
     try {
       const agent = await this.chatService.resolveAgent(dto.agentId);
       resolvedAgentId = agent.id;
-      const visitorIp = ChatService.extractVisitorIp(req);
+      const visitorIp = this.visitorIdFrom(req);
       const routingMode = resolveRoutingMode(agent.aiConfig);
 
       // IG1: Warn when HMAC is enabled — streaming responses cannot be HMAC-verified.

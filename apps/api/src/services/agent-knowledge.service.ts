@@ -18,6 +18,7 @@ import {
 
 import { AgentCacheService } from '../common/cache/agent-cache.service';
 import { AppLogger } from '../common/logger/app-logger';
+import { TracerService } from '../common/tracer/tracer.service';
 import { TokenCounterService } from '../modules/ai/token-counter.service';
 
 import { PrismaService } from './prisma.service';
@@ -61,6 +62,7 @@ export class AgentKnowledgeService {
     private readonly prisma: PrismaService,
     private readonly tokenCounter: TokenCounterService,
     private readonly agentCache: AgentCacheService,
+    private readonly tracer: TracerService,
   ) {}
 
   /** Fetch the knowledge record for an agent, or null if none. */
@@ -109,6 +111,14 @@ export class AgentKnowledgeService {
     // Bust the agent cache so the next chat turn sees fresh knowledge.
     await this.agentCache.invalidate(agentId);
     this.log.info('set', 'knowledge content saved', { agentId, contentBytes, contentTokens });
+    // Accountability: changes text prepended to the system prompt (what the bot
+    // tells customers). Size/source only — not the content body.
+    await this.tracer.logAuditEvent(
+      agentId,
+      'AGENT_KNOWLEDGE_UPDATED',
+      { response: { contentBytes, contentTokens, sourceFileName: dto.sourceFileName ?? null } },
+      { agentId },
+    );
     return updated;
   }
 
@@ -224,6 +234,12 @@ export class AgentKnowledgeService {
       });
     await this.agentCache.invalidate(agentId);
     this.log.info('remove', 'knowledge removed', { agentId });
+    await this.tracer.logAuditEvent(
+      agentId,
+      'AGENT_KNOWLEDGE_DELETED',
+      { response: {} },
+      { agentId },
+    );
   }
 
   private async assertAgentExists(agentId: string): Promise<void> {

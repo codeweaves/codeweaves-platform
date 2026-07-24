@@ -84,6 +84,11 @@ export class WhatsappInboundService {
       this.logger.error(
         `Failed to decrypt token for channel ${channel.id}: ${err instanceof Error ? err.message : String(err)}`,
       );
+      this.whatsappLog.logInboundException({
+        agentId: agent.id,
+        visitorId: maskPhone(from),
+        error: err,
+      });
       return;
     }
 
@@ -126,6 +131,11 @@ export class WhatsappInboundService {
         this.logger.error(
           `Transcription failed for ${maskPhone(from)} (msg ${messageId}): ${err instanceof Error ? err.message : String(err)}`,
         );
+        this.whatsappLog.logInboundException({
+          agentId: agent.id,
+          visitorId: maskPhone(from),
+          error: err,
+        });
         await this.whatsappSend
           .sendText(phoneNumberId, accessToken, from, CANT_TRANSCRIBE_REPLY)
           .catch(() => undefined);
@@ -221,6 +231,12 @@ export class WhatsappInboundService {
       this.logger.error(
         `Orchestration failed for session ${session.sessionId} (${maskPhone(from)}): ${err instanceof Error ? err.message : String(err)}`,
       );
+      this.whatsappLog.logInboundException({
+        agentId: agent.id,
+        sessionId: session.sessionId,
+        visitorId: maskPhone(from),
+        error: err,
+      });
       // Best-effort fallback so the user isn't left hanging.
       await this.whatsappSend
         .sendText(phoneNumberId, accessToken, from, FALLBACK_REPLY)

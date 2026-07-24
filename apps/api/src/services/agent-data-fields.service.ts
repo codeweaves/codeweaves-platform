@@ -6,7 +6,9 @@ import { Role, type AgentDataField } from '@prisma/client';
 import { type UpdateDataFieldsDto } from '@repo/validation';
 
 import { AgentCacheService } from '../common/cache/agent-cache.service';
+import { CryptoService } from '../common/crypto/crypto.service';
 import { AppLogger } from '../common/logger/app-logger';
+import { TracerService } from '../common/tracer/tracer.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 import { PrismaService } from './prisma.service';
@@ -40,6 +42,8 @@ export class AgentDataFieldsService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly agentCache: AgentCacheService,
+    private readonly crypto: CryptoService,
+    private readonly tracer: TracerService,
   ) {}
 
   /** List an agent's field definitions, in display order. */
@@ -69,7 +73,7 @@ export class AgentDataFieldsService {
     dto: UpdateDataFieldsDto,
     user: CurrentUserData,
   ): Promise<AgentDataField[]> {
-    await this.assertAgentAccess(agentId, user);
+    const { organizationId } = await this.assertAgentAccess(agentId, user);
 
     const fields = await this.prisma.$transaction(async (tx) => {
       await tx.agentDataField.deleteMany({ where: { agentId } });
@@ -99,6 +103,20 @@ export class AgentDataFieldsService {
       agentId,
       fieldCount: fields.length,
     });
+    // Accountability: defines what PII the bot captures from visitors — a
+    // data-governance change. Store keys/labels/types only, never captured values.
+    await this.tracer.logAuditEvent(
+      agentId,
+      'AGENT_DATA_FIELDS_UPDATED',
+      {
+        response: {
+          fieldCount: fields.length,
+          keys: fields.map((f) => f.key),
+          userId: user.id,
+        },
+      },
+      { organizationId, agentId },
+    );
     return fields;
   }
 
@@ -180,7 +198,17 @@ export class AgentDataFieldsService {
       this.prisma.collectedData.count({ where: { agentId } }),
     ]);
 
-    return { columns, rows, total, page: safePage, limit: safeLimit };
+    // Stored values are encrypted at rest (S1); decrypt for display. Keys are
+    // plaintext (the column derivation above depends on that), legacy
+    // plaintext rows pass through unchanged.
+    const decryptedRows = rows.map((row) => ({
+      ...row,
+      data: this.crypto.decryptFieldValues(
+        row.data as Record<string, unknown> | null,
+      ),
+    }));
+
+    return { columns, rows: decryptedRows, total, page: safePage, limit: safeLimit };
   }
 
   /**
@@ -192,7 +220,7 @@ export class AgentDataFieldsService {
   private async assertAgentAccess(
     agentId: string,
     user: CurrentUserData,
-  ): Promise<void> {
+  ): Promise<{ id: string; organizationId: string }> {
     const agent = await this.prisma.agent.findFirst({
       where: {
         id: agentId,
@@ -201,10 +229,11 @@ export class AgentDataFieldsService {
           organizationId: user.organizationId!,
         }),
       },
-      select: { id: true },
+      select: { id: true, organizationId: true },
     });
     if (!agent) {
       throw new NotFoundException('Agent not found');
     }
+    return agent;
   }
 }

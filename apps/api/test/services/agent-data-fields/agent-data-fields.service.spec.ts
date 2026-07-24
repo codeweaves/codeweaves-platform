@@ -4,6 +4,8 @@ import { Role } from '@prisma/client';
 import { AgentDataFieldsService } from '../../../src/services/agent-data-fields.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
+import { CryptoService } from '../../../src/common/crypto/crypto.service';
+import { TracerService } from '../../../src/common/tracer/tracer.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('AgentDataFieldsService', () => {
@@ -24,6 +26,10 @@ describe('AgentDataFieldsService', () => {
     $queryRaw: jest.fn(),
   };
   const mockCache = { invalidate: jest.fn() };
+  // Passthrough: decryption behaviour is unit-tested in crypto.service.spec.ts.
+  // Implementation applied in beforeEach (jest resetMocks: true).
+  const mockCrypto = { decryptFieldValues: jest.fn() };
+  const mockTracer = { logAuditEvent: jest.fn() };
 
   const agentId = 'agent-uuid';
   const adminUser = {
@@ -39,6 +45,9 @@ describe('AgentDataFieldsService', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockCrypto.decryptFieldValues.mockImplementation(
+      (d: Record<string, unknown> | null | undefined) => d ?? {},
+    );
     mockPrisma.$transaction.mockImplementation(
       async (cb: (t: typeof tx) => unknown) => cb(tx),
     );
@@ -47,6 +56,8 @@ describe('AgentDataFieldsService', () => {
         AgentDataFieldsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AgentCacheService, useValue: mockCache },
+        { provide: CryptoService, useValue: mockCrypto },
+        { provide: TracerService, useValue: mockTracer },
       ],
     }).compile();
     service = moduleRef.get(AgentDataFieldsService);
@@ -81,7 +92,7 @@ describe('AgentDataFieldsService', () => {
 
       expect(mockPrisma.agent.findFirst).toHaveBeenCalledWith({
         where: { id: agentId, deletedAt: null, organizationId: 'org2' },
-        select: { id: true },
+        select: { id: true, organizationId: true },
       });
     });
 
@@ -93,14 +104,14 @@ describe('AgentDataFieldsService', () => {
 
       expect(mockPrisma.agent.findFirst).toHaveBeenCalledWith({
         where: { id: agentId, deletedAt: null },
-        select: { id: true },
+        select: { id: true, organizationId: true },
       });
     });
   });
 
   describe('replaceAll()', () => {
     beforeEach(() => {
-      mockPrisma.agent.findFirst.mockResolvedValue({ id: agentId });
+      mockPrisma.agent.findFirst.mockResolvedValue({ id: agentId, organizationId: 'org1' });
     });
 
     it('wipes + recreates fields with order from array index, then busts cache', async () => {
@@ -140,6 +151,12 @@ describe('AgentDataFieldsService', () => {
       });
       expect(mockCache.invalidate).toHaveBeenCalledWith(agentId);
       expect(result).toEqual([{ key: 'email', order: 0 }]);
+      expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
+        agentId,
+        'AGENT_DATA_FIELDS_UPDATED',
+        expect.anything(),
+        { organizationId: 'org1', agentId },
+      );
     });
 
     it('clears fields without createMany when the list is empty', async () => {

@@ -60,6 +60,8 @@ describe('TracerService', () => {
           userId: 'user-uuid',
           clerkId: 'user_123',
           contextId: 'org-uuid',
+          organizationId: null,
+          agentId: null,
           event: 'ORGANIZATION_CREATED',
           data: { response: { name: 'Test Org' } },
         },
@@ -96,10 +98,49 @@ describe('TracerService', () => {
           userId: undefined,
           clerkId: undefined,
           contextId: 'ctx-1',
+          organizationId: null,
+          agentId: null,
           event: 'TEST_EVENT',
           data: { test: true },
         },
       });
+    });
+
+    it('auto-fills organizationId from the request context', async () => {
+      mockPrismaService.auditLog.create.mockResolvedValue({});
+      const context: RequestContext = {
+        correlationId: 'c',
+        userId: 'u',
+        organizationId: 'org-from-ctx',
+      };
+
+      await requestContextStorage.run(context, async () => {
+        await service.logAuditEvent('ctx-1', 'TEST_EVENT', {});
+      });
+
+      const data = mockPrismaService.auditLog.create.mock.calls[0][0].data;
+      expect(data.organizationId).toBe('org-from-ctx');
+      expect(data.agentId).toBeNull();
+    });
+
+    it('uses explicit scope over the request context, and stores agentId', async () => {
+      mockPrismaService.auditLog.create.mockResolvedValue({});
+      const context: RequestContext = {
+        correlationId: 'c',
+        userId: 'u',
+        organizationId: 'org-from-ctx',
+      };
+
+      await requestContextStorage.run(context, async () => {
+        await service.logAuditEvent('agent-1', 'AGENT_CREATED', {}, {
+          organizationId: 'explicit-org',
+          agentId: 'agent-1',
+        });
+      });
+
+      const data = mockPrismaService.auditLog.create.mock.calls[0][0].data;
+      expect(data.organizationId).toBe('explicit-org');
+      expect(data.agentId).toBe('agent-1');
     });
 
     it('should catch database errors without throwing', async () => {

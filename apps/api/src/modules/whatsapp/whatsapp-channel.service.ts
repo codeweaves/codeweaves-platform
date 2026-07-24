@@ -7,6 +7,7 @@ import {
 import { Prisma, type WhatsappChannel } from '@prisma/client';
 
 import { CryptoService } from '../../common/crypto/crypto.service';
+import { TracerService } from '../../common/tracer/tracer.service';
 import { CurrentUserData } from '../../decorators/current-user.decorator';
 import { AgentsService } from '../../services/agents.service';
 import { PrismaService } from '../../services/prisma.service';
@@ -34,6 +35,7 @@ export class WhatsappChannelService {
     private readonly prisma: PrismaService,
     private readonly crypto: CryptoService,
     private readonly agentsService: AgentsService,
+    private readonly tracer: TracerService,
   ) {}
 
   async getByAgent(
@@ -83,6 +85,21 @@ export class WhatsappChannelService {
       this.logger.log(
         `WhatsApp channel connected for agent ${agentId} (phoneNumberId=${dto.phoneNumberId})`,
       );
+      // Accountability: connecting a channel stores an encrypted API token and
+      // binds a phone number — a security-relevant action. Never log the token.
+      await this.tracer.logAuditEvent(
+        agentId,
+        'WHATSAPP_CHANNEL_CONNECTED',
+        {
+          response: {
+            wabaId: dto.wabaId,
+            phoneNumberId: dto.phoneNumberId,
+            displayPhone: dto.displayPhone,
+            userId: user.id,
+          },
+        },
+        { agentId },
+      );
       return this.toView(channel);
     } catch (err) {
       // phoneNumberId is globally unique — a collision means another agent
@@ -106,6 +123,12 @@ export class WhatsappChannelService {
     // rather than a P2025 "record not found" error.
     await this.prisma.whatsappChannel.deleteMany({ where: { agentId } });
     this.logger.log(`WhatsApp channel disconnected for agent ${agentId}`);
+    await this.tracer.logAuditEvent(
+      agentId,
+      'WHATSAPP_CHANNEL_DISCONNECTED',
+      { response: { userId: user.id } },
+      { agentId },
+    );
   }
 
   /** Toggle whether the agent replies to voice notes with a voice note (TTS). */
@@ -121,6 +144,12 @@ export class WhatsappChannelService {
         where: { agentId },
         data: { voiceReplyEnabled: dto.voiceReplyEnabled },
       });
+      await this.tracer.logAuditEvent(
+        agentId,
+        'WHATSAPP_CHANNEL_UPDATED',
+        { response: { voiceReplyEnabled: dto.voiceReplyEnabled, userId: user.id } },
+        { agentId },
+      );
       return this.toView(channel);
     } catch (err) {
       if (

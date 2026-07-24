@@ -547,6 +547,21 @@ export class ElevenLabsProvider implements VoiceProvider {
   }
 
   async listVoices(): Promise<VoiceListItem[]> {
+    return this.providerLog.traced(
+      {
+        channel: 'DASHBOARD',
+        provider: PROVIDERS.ELEVENLABS,
+        eventBase: 'ELEVENLABS_LIST_VOICES',
+        requestUrl: 'https://api.elevenlabs.io/v1/voices',
+        extract: (voices: VoiceListItem[]) => ({
+          responsePayload: { count: voices.length },
+        }),
+      },
+      () => this.fetchVoicesRaw(),
+    );
+  }
+
+  private async fetchVoicesRaw(): Promise<VoiceListItem[]> {
     const response = await fetch('https://api.elevenlabs.io/v1/voices', {
       method: 'GET',
       headers: { 'xi-api-key': this.apiKey },

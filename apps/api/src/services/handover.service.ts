@@ -13,6 +13,7 @@ import { PiiDetectionService } from '../modules/pii/pii-detection.service';
 import { WhatsappOutboundService } from '../modules/whatsapp/whatsapp-outbound.service';
 import { AppLogger } from '../common/logger/app-logger';
 import { InternalEventLogger } from '../common/events/internal.logger';
+import { TracerService } from '../common/tracer/tracer.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 /**
@@ -51,6 +52,7 @@ export class HandoverService {
     private readonly whatsappOutbound: WhatsappOutboundService,
     private readonly piiDetection: PiiDetectionService,
     private readonly events: InternalEventLogger,
+    private readonly tracer: TracerService,
   ) {}
 
   /**
@@ -402,6 +404,14 @@ export class HandoverService {
       organizationId: session.agent.organizationId,
       metadata: { takenOverById: user.id },
     });
+    // Accountability trail (distinct from the event_log above): who seized a
+    // live customer conversation, when.
+    await this.tracer.logAuditEvent(
+      session.sessionId,
+      'HANDOVER_TAKEN_OVER',
+      { response: { takenOverById: user.id, sessionId: session.sessionId } },
+      { organizationId: session.agent.organizationId, agentId: session.agent.id },
+    );
 
     const ctx = this.ctxOf(session);
     await this.insertSystemMessage(session.id, `${name} took over — AI paused`);
@@ -435,6 +445,15 @@ export class HandoverService {
     });
     await this.realtime.emitMessage(this.ctxOf(session));
 
+    // Accountability: a staff member sent a message to a customer as the brand.
+    // Content is masked in storage; the audit row records who/when only (no body).
+    await this.tracer.logAuditEvent(
+      session.sessionId,
+      'HANDOVER_HUMAN_REPLY_SENT',
+      { response: { userId: user.id, messageId: msg.id, sessionId: session.sessionId } },
+      { organizationId: session.agent.organizationId, agentId: session.agent.id },
+    );
+
     // WhatsApp visitors aren't watching a widget — push the human's reply OUT
     // to their phone via the bot's own Graph sender. Fire-and-forget + swallowed
     // inside the service, so an outbound failure never breaks this reply. (Widget
@@ -463,6 +482,13 @@ export class HandoverService {
         organizationId: session.agent.organizationId,
         metadata: { resolvedBy: user.id },
       });
+      // Accountability trail: who ended the human session / resumed the AI.
+      await this.tracer.logAuditEvent(
+        session.sessionId,
+        'HANDOVER_RESOLVED',
+        { response: { resolvedBy: user.id, sessionId: session.sessionId } },
+        { organizationId: session.agent.organizationId, agentId: session.agent.id },
+      );
 
       const ctx = this.ctxOf(session);
       await this.insertSystemMessage(session.id, `Resolved by ${name} — AI resumed`);
@@ -528,6 +554,11 @@ export class HandoverService {
     if (resolved > 0) {
       this.log.info('sweepIdleHandovers', 'auto-resolved idle session(s)', { resolved });
     }
+    // INTERNAL observability: record each sweep run (cron liveness + how many
+    // stale sessions it auto-resolved). Fire-and-forget.
+    this.events.logCompleted('HANDOVER_SWEEP_COMPLETED', {
+      metadata: { scanned: stale.length, resolved },
+    });
     return { resolved };
   }
 

@@ -10,6 +10,7 @@ import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 import { HandoverService } from '../../../src/services/handover.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { WidgetEventLogger } from '../../../src/common/events/widget.logger';
+import { CryptoService } from '../../../src/common/crypto/crypto.service';
 
 describe('PublicChatController', () => {
   let controller: PublicChatController;
@@ -53,6 +54,14 @@ describe('PublicChatController', () => {
     agent: { findUnique: jest.fn(), findUniqueOrThrow: jest.fn() },
   };
 
+  // Mirrors real behaviour: loopback → undefined, real IP → vh_ hash.
+  // Implementation applied in beforeEach (jest resetMocks: true).
+  const mockCrypto = { hashVisitorIp: jest.fn() };
+  const hashVisitorIpImpl = (ip?: string | null) =>
+    !ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('::ffff:127.')
+      ? undefined
+      : `vh_${ip}`;
+
   function createMockRequest(): Request {
     return {
       headers: { 'x-device-id': 'test-device' },
@@ -81,11 +90,13 @@ describe('PublicChatController', () => {
             logSessionStarted: jest.fn(),
           },
         },
+        { provide: CryptoService, useValue: mockCrypto },
       ],
     }).compile();
 
     controller = module.get<PublicChatController>(PublicChatController);
     jest.clearAllMocks();
+    mockCrypto.hashVisitorIp.mockImplementation(hashVisitorIpImpl);
     mockMessageRateLimitService.getDeviceIdentifier.mockReturnValue('test-device');
     mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({ allowed: true });
   });
@@ -175,7 +186,7 @@ describe('PublicChatController', () => {
 
       const result = await controller.sendMessage(dto, req);
 
-      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dto, '127.0.0.1');
+      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dto, undefined); // loopback IP is suppressed (S1)
       expect(result).toEqual(mockResponse);
     });
 
@@ -186,7 +197,7 @@ describe('PublicChatController', () => {
 
       await controller.sendMessage(dtoWithSession, req);
 
-      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dtoWithSession, '127.0.0.1');
+      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dtoWithSession, undefined); // loopback IP is suppressed (S1)
     });
 
     it('should return friendly error JSON (not 429) when rate limited', async () => {
@@ -395,7 +406,7 @@ describe('PublicChatController', () => {
       await controller.stream(dto, req, res);
 
       expect(mockChatService.resolveAgent).toHaveBeenCalledWith(dto.agentId);
-      expect(mockChatService.resolveOrCreateSession).toHaveBeenCalledWith(mockAgent.id, undefined, 'WIDGET', '127.0.0.1');
+      expect(mockChatService.resolveOrCreateSession).toHaveBeenCalledWith(mockAgent.id, undefined, 'WIDGET', undefined); // loopback IP is suppressed (S1)
       expect(mockAgentsService.getEffectiveWebhookUrl).toHaveBeenCalledWith(mockAgent.id);
     });
 

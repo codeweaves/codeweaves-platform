@@ -83,6 +83,7 @@ export class TracerService {
     contextId: string,
     event: string,
     data: Record<string, unknown>,
+    scope?: { organizationId?: string; agentId?: string },
   ): Promise<void> {
     const context = getRequestContext();
     try {
@@ -92,6 +93,12 @@ export class TracerService {
           userId: context?.userId,
           clerkId: context?.clerkId,
           contextId,
+          // Typed tenancy scope. organizationId falls back to the acting user's
+          // org from the request context (same pattern as logEvent) when the
+          // caller doesn't pass one; agentId is caller-supplied only (the
+          // request context doesn't carry it).
+          organizationId: scope?.organizationId ?? context?.organizationId ?? null,
+          agentId: scope?.agentId ?? null,
           event,
           data: data as Prisma.InputJsonValue,
         },

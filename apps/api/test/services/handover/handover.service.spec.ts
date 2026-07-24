@@ -8,6 +8,7 @@ import { RealtimeService } from '../../../src/services/realtime.service';
 import { WhatsappOutboundService } from '../../../src/modules/whatsapp/whatsapp-outbound.service';
 import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
 import { InternalEventLogger } from '../../../src/common/events/internal.logger';
+import { TracerService } from '../../../src/common/tracer/tracer.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('HandoverService', () => {
@@ -43,6 +44,8 @@ describe('HandoverService', () => {
     logCompleted: jest.fn(),
     logFailed: jest.fn(),
   };
+
+  const mockTracer = { logAuditEvent: jest.fn().mockResolvedValue(undefined) };
 
   const clientUser: CurrentUserData = {
     clerkId: 'user_client',
@@ -86,6 +89,7 @@ describe('HandoverService', () => {
         { provide: ConfigService, useValue: { get: jest.fn() } },
         { provide: WhatsappOutboundService, useValue: mockWhatsappOutbound },
         { provide: InternalEventLogger, useValue: mockEvents },
+        { provide: TracerService, useValue: mockTracer },
         PiiDetectionService,
       ],
     }).compile();
@@ -305,6 +309,13 @@ describe('HandoverService', () => {
         'HANDOVER_TAKEN_OVER',
         expect.objectContaining({ agentId: 'agent-1', sessionId: 'sess-pub' }),
       );
+      // …and the accountability trail gets its own scoped audit row.
+      expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
+        'sess-pub',
+        'HANDOVER_TAKEN_OVER',
+        expect.anything(),
+        { organizationId: orgId, agentId: 'agent-1' },
+      );
     });
 
     it('no-ops (no emit) when another teammate already took over', async () => {
@@ -423,6 +434,11 @@ describe('HandoverService', () => {
         }),
       );
       expect(mockRealtime.emitHandover).toHaveBeenCalled();
+      // Cron liveness / result observability.
+      expect(mockEvents.logCompleted).toHaveBeenCalledWith(
+        'HANDOVER_SWEEP_COMPLETED',
+        expect.objectContaining({ metadata: expect.objectContaining({ resolved: 1 }) }),
+      );
     });
 
     it('resolves nothing when none are idle', async () => {
