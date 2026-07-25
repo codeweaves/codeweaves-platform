@@ -95,6 +95,35 @@ function scrubHeaders(headers: Record<string, unknown>): void {
 }
 
 /**
+ * Redact `event.request.cookies`, which Sentry populates as a field SEPARATE
+ * from `request.headers` — so the header denylist never sees it. Cookies carry
+ * session material wholesale, and `@sentry/*` collects them by default, so every
+ * value is redacted while the cookie NAMES are kept (useful for debugging, and
+ * not secret). Handles both the parsed dictionary and a raw `a=1; b=2` string.
+ */
+function scrubCookies(cookies: unknown): unknown {
+  if (typeof cookies === 'string') {
+    return cookies
+      .split(';')
+      .map((pair) => {
+        const eqIdx = pair.indexOf('=');
+        if (eqIdx === -1) return pair.trim();
+        return `${pair.slice(0, eqIdx).trim()}=[REDACTED]`;
+      })
+      .join('; ');
+  }
+  if (cookies && typeof cookies === 'object') {
+    if (Array.isArray(cookies)) return cookies.map(() => '[REDACTED]');
+    const out: Record<string, unknown> = {};
+    for (const key of Object.keys(cookies as Record<string, unknown>)) {
+      out[key] = '[REDACTED]';
+    }
+    return out;
+  }
+  return cookies;
+}
+
+/**
  * Sentry beforeSend callback that strips sensitive data from events.
  */
 // eslint-disable-next-line @typescript-eslint/no-unused-vars
@@ -102,6 +131,12 @@ export function scrubSentryEvent(event: ErrorEvent, _hint: EventHint): ErrorEven
   // Scrub request headers (denylist, case-insensitive)
   if (event.request?.headers) {
     scrubHeaders(event.request.headers as Record<string, unknown>);
+  }
+
+  // Scrub cookies (a distinct field from headers — collected by default)
+  const request = event.request;
+  if (request && request.cookies !== undefined && request.cookies !== null) {
+    request.cookies = scrubCookies(request.cookies) as typeof request.cookies;
   }
 
   // Scrub request query string

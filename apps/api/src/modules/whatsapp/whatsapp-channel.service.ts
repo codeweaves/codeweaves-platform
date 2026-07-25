@@ -211,13 +211,34 @@ export class WhatsappChannelService {
       );
     }
 
+    // A 5xx is Meta being unavailable/overloaded, not a permission problem —
+    // surface it as retryable rather than telling the user their token is wrong.
+    if (res.status >= 500) {
+      this.logger.warn(
+        `WhatsApp phone-number ownership check got HTTP ${res.status} from Meta for phoneNumberId=${phoneNumberId}`,
+      );
+      throw new ServiceUnavailableException(
+        'Could not verify this WhatsApp number with Meta. Please try again.',
+      );
+    }
+
     if (!res.ok) {
       throw new ForbiddenException(
         'The provided access token does not have permission to manage this WhatsApp number.',
       );
     }
 
-    const body = (await res.json().catch(() => null)) as { id?: string } | null;
+    // An unparseable body on a 2xx is a response-format problem on Meta's side,
+    // not caller misuse — also retryable. A well-formed body with a mismatched id
+    // IS a real authorization failure.
+    const body = (await res.json().catch(() => undefined)) as
+      | { id?: string }
+      | undefined;
+    if (body === undefined) {
+      throw new ServiceUnavailableException(
+        'Could not verify this WhatsApp number with Meta. Please try again.',
+      );
+    }
     if (!body || body.id !== phoneNumberId) {
       throw new ForbiddenException(
         'The provided access token does not match this WhatsApp number.',

@@ -172,6 +172,25 @@ describe('N8nStreamingService', () => {
         expect(global.fetch).not.toHaveBeenCalled();
       });
 
+      it.each([
+        ['fully-expanded loopback', 'http://[0:0:0:0:0:0:0:1]/webhook'],
+        ['zero-compressed loopback', 'http://[0::1]/webhook'],
+        ['zero-padded loopback', 'http://[::0001]/webhook'],
+        ['link-local outside fe80 prefix', 'http://[fe90::1]/webhook'],
+        ['link-local upper bound', 'http://[febf::1]/webhook'],
+        ['unique-local', 'http://[fd12:3456::1]/webhook'],
+        ['IPv4-compatible private', 'http://[::10.0.0.1]/webhook'],
+        ['NAT64-embedded loopback', 'http://[64:ff9b::7f00:1]/webhook'],
+        ['6to4-embedded loopback', 'http://[2002:7f00:1::1]/webhook'],
+        ['Teredo', 'http://[2001:0:4136:e378:8000:63bf:3fff:fdd2]/webhook'],
+      ])('blocks canonical-equivalent IPv6 form: %s', async (_label, url) => {
+        global.fetch = jest.fn();
+        await expect(
+          collectChunks(service.streamFromWebhookUrl(url, MESSAGE, SESSION_ID)),
+        ).rejects.toThrow('disallowed address');
+        expect(global.fetch).not.toHaveBeenCalled();
+      });
+
       it('rejects a non-http(s) scheme', async () => {
         global.fetch = jest.fn();
         await expect(
