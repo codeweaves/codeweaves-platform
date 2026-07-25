@@ -2,7 +2,9 @@ import {
   Injectable,
   Logger,
   ConflictException,
+  ForbiddenException,
   NotFoundException,
+  ServiceUnavailableException,
 } from '@nestjs/common';
 import { Prisma, type WhatsappChannel } from '@prisma/client';
 
@@ -11,6 +13,8 @@ import { TracerService } from '../../common/tracer/tracer.service';
 import { CurrentUserData } from '../../decorators/current-user.decorator';
 import { AgentsService } from '../../services/agents.service';
 import { PrismaService } from '../../services/prisma.service';
+
+import { WhatsappConfigService } from './whatsapp-config.service';
 
 import {
   ConnectWhatsappChannelDto,
@@ -36,6 +40,7 @@ export class WhatsappChannelService {
     private readonly crypto: CryptoService,
     private readonly agentsService: AgentsService,
     private readonly tracer: TracerService,
+    private readonly whatsappConfig: WhatsappConfigService,
   ) {}
 
   async getByAgent(
@@ -57,6 +62,13 @@ export class WhatsappChannelService {
     user: CurrentUserData,
   ): Promise<WhatsappChannelView> {
     await this.agentsService.findById(agentId, user);
+
+    // Verify the caller actually controls this phone number before binding it.
+    // Inbound routing (whatsapp-inbound.service) resolves the owning agent SOLELY
+    // by phoneNumberId, so without this check a user could claim another tenant's
+    // number (by id) and silently intercept its inbound messages. A token that
+    // can't read the phone-number node on the Graph API doesn't manage it.
+    await this.verifyPhoneNumberOwnership(dto.phoneNumberId, dto.accessToken);
 
     const accessTokenEnc = this.crypto.encrypt(dto.accessToken);
     const tokenExpiresAt = dto.tokenExpiresAt
@@ -161,6 +173,76 @@ export class WhatsappChannelService {
         );
       }
       throw err;
+    }
+  }
+
+  /**
+   * Confirm the supplied access token actually manages `phoneNumberId` by
+   * reading the phone-number node on the Graph API. Meta returns the node's id
+   * only when the token has access; an attacker supplying a victim's id with a
+   * foreign/invalid token gets a 4xx and is rejected. Throws:
+   *  - ForbiddenException — token can't manage the number, or id mismatch.
+   *  - ServiceUnavailableException — Meta unreachable (fail closed, don't bind).
+   */
+  private async verifyPhoneNumberOwnership(
+    phoneNumberId: string,
+    accessToken: string,
+  ): Promise<void> {
+    const url = `${this.whatsappConfig.graphBaseUrl}/${encodeURIComponent(
+      phoneNumberId,
+    )}?fields=id`;
+
+    let res: Response;
+    try {
+      res = await fetch(url, {
+        // Token in the Authorization header, never the URL (avoids query-string
+        // logging of the secret).
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: AbortSignal.timeout(10_000),
+      });
+    } catch (err) {
+      this.logger.warn(
+        `WhatsApp phone-number ownership check could not reach Meta for phoneNumberId=${phoneNumberId}: ${
+          err instanceof Error ? err.message : 'unknown'
+        }`,
+      );
+      throw new ServiceUnavailableException(
+        'Could not verify this WhatsApp number with Meta. Please try again.',
+      );
+    }
+
+    // A 5xx is Meta being unavailable/overloaded, not a permission problem —
+    // surface it as retryable rather than telling the user their token is wrong.
+    if (res.status >= 500) {
+      this.logger.warn(
+        `WhatsApp phone-number ownership check got HTTP ${res.status} from Meta for phoneNumberId=${phoneNumberId}`,
+      );
+      throw new ServiceUnavailableException(
+        'Could not verify this WhatsApp number with Meta. Please try again.',
+      );
+    }
+
+    if (!res.ok) {
+      throw new ForbiddenException(
+        'The provided access token does not have permission to manage this WhatsApp number.',
+      );
+    }
+
+    // An unparseable body on a 2xx is a response-format problem on Meta's side,
+    // not caller misuse — also retryable. A well-formed body with a mismatched id
+    // IS a real authorization failure.
+    const body = (await res.json().catch(() => undefined)) as
+      | { id?: string }
+      | undefined;
+    if (body === undefined) {
+      throw new ServiceUnavailableException(
+        'Could not verify this WhatsApp number with Meta. Please try again.',
+      );
+    }
+    if (!body || body.id !== phoneNumberId) {
+      throw new ForbiddenException(
+        'The provided access token does not match this WhatsApp number.',
+      );
     }
   }
 

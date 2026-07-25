@@ -63,7 +63,12 @@ describe('FilesService', () => {
     originalname: 'test-image.png',
     encoding: '7bit',
     mimetype: 'image/png',
-    buffer: Buffer.from('fake-image-data'),
+    // Valid PNG magic bytes so content-sniffing (detectImageMime) accepts it —
+    // the service no longer trusts the declared mimetype.
+    buffer: Buffer.from([
+      0x89, 0x50, 0x4e, 0x47, 0x0d, 0x0a, 0x1a, 0x0a, 0x00, 0x00, 0x00, 0x0d,
+      0x49, 0x48, 0x44, 0x52,
+    ]),
     size: 1024,
     stream: null as unknown as import('stream').Readable,
     destination: '',
@@ -196,7 +201,17 @@ describe('FilesService', () => {
     });
 
     it('should reject unsupported mime type', async () => {
-      const pdfFile = { ...mockFile, mimetype: 'application/pdf' };
+      // Real PDF magic bytes ("%PDF-1.") — content sniffing, not the declared
+      // mimetype, is what the service now trusts, so the fixture must carry
+      // genuinely non-image bytes to exercise rejection.
+      const pdfFile = {
+        ...mockFile,
+        mimetype: 'application/pdf',
+        buffer: Buffer.from([
+          0x25, 0x50, 0x44, 0x46, 0x2d, 0x31, 0x2e, 0x37, 0x0a, 0x25, 0x00,
+          0x00,
+        ]),
+      };
 
       mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
 

@@ -17,7 +17,7 @@ const MAX_BYTES = (() => {
 })();
 
 // Header names we NEVER persist (lowercased). Auth + signature headers.
-const SENSITIVE_HEADERS = new Set([
+export const SENSITIVE_HEADERS = new Set([
   'authorization',
   'cookie',
   'set-cookie',

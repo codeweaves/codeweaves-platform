@@ -131,9 +131,11 @@ export class VoiceController {
     });
 
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const clientIp = this.messageRateLimitService.getClientIp(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
       resolvedAgentId,
+      clientIp,
     );
     if (!rateLimitResult.allowed) {
       this.log.warn('voiceConversation', 'rate limited', {
@@ -342,9 +344,11 @@ export class VoiceController {
     const resolvedAgentId = agent.id;
 
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const clientIp = this.messageRateLimitService.getClientIp(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
       resolvedAgentId,
+      clientIp,
     );
     if (!rateLimitResult.allowed) {
       res.status(HttpStatus.TOO_MANY_REQUESTS);
@@ -411,9 +415,11 @@ export class VoiceController {
     const resolvedAgentId = agent.id;
 
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const clientIp = this.messageRateLimitService.getClientIp(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
       resolvedAgentId,
+      clientIp,
     );
     if (!rateLimitResult.allowed) {
       res.status(HttpStatus.TOO_MANY_REQUESTS);

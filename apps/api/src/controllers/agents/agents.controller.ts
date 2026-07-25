@@ -155,7 +155,7 @@ export class AgentsController {
           ? this.agentsService.getWebhookUrl(id, user)
           : Promise.resolve(null),
         this.themesService.getTheme(id, user),
-        this.knowledgeService.get(id),
+        this.knowledgeService.get(id, user),
         isAdmin ? this.dataFieldsService.list(id, user) : Promise.resolve([]),
       ]);
 

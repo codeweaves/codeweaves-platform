@@ -91,6 +91,7 @@ describe('VoiceController', () => {
   const mockMessageRateLimitService = {
     checkMessageRateLimit: jest.fn(),
     getDeviceIdentifier: jest.fn(),
+    getClientIp: jest.fn(),
   };
 
   const mockVoiceEventLogger = {
@@ -196,6 +197,7 @@ describe('VoiceController', () => {
 
     // Default: rate limit allowed
     mockMessageRateLimitService.getDeviceIdentifier.mockReturnValue('test-device');
+    mockMessageRateLimitService.getClientIp.mockReturnValue('203.0.113.1');
     mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({ allowed: true });
 
     // Default: webhook URL configured (streaming is the only path now).

@@ -11,9 +11,67 @@ import { TracerService } from '../common/tracer/tracer.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 const BUCKET = 'agent_assets';
-const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
-const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp', 'image/svg+xml'];
+export const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
+// Raster image types only. SVG is deliberately excluded: it is an active
+// document (can carry <script>) and, served inline from the public bucket,
+// yields stored XSS in the storage origin on direct navigation.
+const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
 const ALLOWED_PURPOSES = ['header-logo', 'bot-avatar', 'user-avatar', 'icon-image', 'brand-logo'];
+
+/**
+ * Detect an image's true type from its magic bytes. The client-supplied
+ * Content-Type is attacker-controlled and must never be trusted on its own —
+ * a `.svg`/`.html` payload can be uploaded under an `image/png` label. Returns
+ * the sniffed MIME type, or null if the bytes match no supported raster format.
+ */
+function detectImageMime(buffer: Buffer): string | null {
+  if (!buffer || buffer.length < 12) return null;
+
+  // PNG: 89 50 4E 47 0D 0A 1A 0A
+  if (
+    buffer[0] === 0x89 &&
+    buffer[1] === 0x50 &&
+    buffer[2] === 0x4e &&
+    buffer[3] === 0x47 &&
+    buffer[4] === 0x0d &&
+    buffer[5] === 0x0a &&
+    buffer[6] === 0x1a &&
+    buffer[7] === 0x0a
+  ) {
+    return 'image/png';
+  }
+
+  // JPEG: FF D8 FF
+  if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
+    return 'image/jpeg';
+  }
+
+  // GIF: "GIF87a" / "GIF89a"
+  if (
+    buffer[0] === 0x47 &&
+    buffer[1] === 0x49 &&
+    buffer[2] === 0x46 &&
+    buffer[3] === 0x38
+  ) {
+    return 'image/gif';
+  }
+
+  // WEBP: "RIFF" .... "WEBP"
+  if (
+    buffer[0] === 0x52 &&
+    buffer[1] === 0x49 &&
+    buffer[2] === 0x46 &&
+    buffer[3] === 0x46 &&
+    buffer[8] === 0x57 &&
+    buffer[9] === 0x45 &&
+    buffer[10] === 0x42 &&
+    buffer[11] === 0x50
+  ) {
+    return 'image/webp';
+  }
+
+  return null;
+}
 
 export interface UploadAgentAssetParams {
   agentId: string;
@@ -55,9 +113,14 @@ export class FilesService {
     if (file.size > MAX_FILE_SIZE) {
       throw new BadRequestException('File size exceeds 2MB limit');
     }
-    if (!ALLOWED_MIME_TYPES.includes(file.mimetype)) {
+    // Sniff the real content type from magic bytes rather than trusting the
+    // client-supplied Content-Type. The detected type becomes authoritative for
+    // both storage and the DB record, so a spoofed label can't smuggle an
+    // active document (e.g. SVG/HTML) past the allowlist.
+    const detectedMime = detectImageMime(file.buffer);
+    if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
       throw new BadRequestException(
-        `Unsupported file type: ${file.mimetype}. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`,
+        `Unsupported or unverifiable file type. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`,
       );
     }
 
@@ -84,14 +147,14 @@ export class FilesService {
       BUCKET,
       storageKey,
       file.buffer,
-      file.mimetype,
+      detectedMime,
     );
 
     // Create File record
     const fileRecord = await this.prisma.file.create({
       data: {
         fileName: file.originalname,
-        mimeType: file.mimetype,
+        mimeType: detectedMime,
         sizeBytes: file.size,
         storageKey,
         publicUrl,

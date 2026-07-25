@@ -4,6 +4,7 @@ import { Prisma } from '@prisma/client';
 import type { CryptoService } from '../../../src/common/crypto/crypto.service';
 import type { TracerService } from '../../../src/common/tracer/tracer.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
+import type { WhatsappConfigService } from '../../../src/modules/whatsapp/whatsapp-config.service';
 import { WhatsappChannelService } from '../../../src/modules/whatsapp/whatsapp-channel.service';
 import type { AgentsService } from '../../../src/services/agents.service';
 import type { PrismaService } from '../../../src/services/prisma.service';
@@ -20,6 +21,7 @@ describe('WhatsappChannelService', () => {
   let crypto: { encrypt: jest.Mock };
   let agents: { findById: jest.Mock };
   let tracer: { logAuditEvent: jest.Mock };
+  let whatsappConfig: { graphBaseUrl: string };
   let service: WhatsappChannelService;
 
   const user = { id: 'u', organizationId: 'org' } as unknown as CurrentUserData;
@@ -51,11 +53,19 @@ describe('WhatsappChannelService', () => {
     crypto = { encrypt: jest.fn().mockReturnValue('enc') };
     agents = { findById: jest.fn().mockResolvedValue({ id: 'a1' }) };
     tracer = { logAuditEvent: jest.fn().mockResolvedValue(undefined) };
+    whatsappConfig = { graphBaseUrl: 'https://graph.facebook.com/v21.0' };
+    // Graph API ownership check passes by default: the token can read the
+    // phone-number node and Meta returns the matching id.
+    global.fetch = jest.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ id: 'p1' }),
+    }) as unknown as typeof fetch;
     service = new WhatsappChannelService(
       prisma as unknown as PrismaService,
       crypto as unknown as CryptoService,
       agents as unknown as AgentsService,
       tracer as unknown as TracerService,
+      whatsappConfig as unknown as WhatsappConfigService,
     );
   });
 
