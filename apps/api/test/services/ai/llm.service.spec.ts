@@ -30,6 +30,7 @@ describe('LlmService', () => {
   };
   const env = new Map<string, string | undefined>();
   const mockConfig = { get: jest.fn() };
+  const mockProviderLog = { log: jest.fn(), traced: jest.fn() };
 
   beforeEach(async () => {
     env.clear();
@@ -42,10 +43,7 @@ describe('LlmService', () => {
         LlmService,
         { provide: AiSdkService, useValue: mockAiSdk },
         { provide: ConfigService, useValue: mockConfig },
-        {
-          provide: ProviderEventLogger,
-          useValue: { log: jest.fn(), traced: jest.fn() },
-        },
+        { provide: ProviderEventLogger, useValue: mockProviderLog },
       ],
     }).compile();
     service = moduleRef.get(LlmService);
@@ -369,6 +367,15 @@ describe('LlmService', () => {
       expect(finishChunk.usage.totalTokens).toBe(22);
       expect(finishChunk.ttftMs).not.toBeNull();
       expect(finishChunk.totalMs).toBeGreaterThanOrEqual(0);
+
+      // The streaming path must emit its OUTBOUND completion event_log (the busy
+      // path that was previously unlogged).
+      expect(mockProviderLog.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventName: 'LLM_COMPLETION_COMPLETED',
+          direction: 'OUTBOUND',
+        }),
+      );
     });
 
     it('skips empty deltas', async () => {

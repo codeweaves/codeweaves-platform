@@ -1112,6 +1112,8 @@ export class AnalyticsService {
         userId: user.id,
         clerkId: user.clerkId,
         contextId: user.organizationId ?? user.id,
+        // Typed org scope so exports are queryable + erasable by org.
+        organizationId: user.organizationId ?? null,
         event: 'ANALYTICS_EXPORT',
         data: {
           format: body.format,

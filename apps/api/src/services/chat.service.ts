@@ -4,6 +4,7 @@ import { AgentsService } from './agents.service';
 import { HmacService } from '../common/security/hmac.service';
 import { CryptoService } from '../common/crypto/crypto.service';
 import { TracerService } from '../common/tracer/tracer.service';
+import { WidgetEventLogger } from '../common/events/widget.logger';
 import { AppLogger } from '../common/logger/app-logger';
 import { DirectChatService } from '../modules/ai/direct-chat.service';
 import { PiiDetectionService } from '../modules/pii/pii-detection.service';
@@ -33,6 +34,7 @@ export class ChatService {
     private readonly messageMetricsService: MessageMetricsService,
     private readonly handoverService: HandoverService,
     private readonly piiDetection: PiiDetectionService,
+    private readonly widgetLog: WidgetEventLogger,
   ) {}
 
   /**
@@ -220,14 +222,7 @@ export class ChatService {
           where: { id: existing.id },
           data: { status: 'EXPIRED' },
         });
-        return this.prisma.chatSession.create({
-          data: {
-            agentId,
-            sessionId: randomUUID(),
-            source,
-            visitorId: visitorId ?? null,
-          },
-        });
+        return this.createWidgetAwareSession(agentId, source, visitorId);
       }
 
       // Backfill visitorId on an existing session when missing, OR when the
@@ -260,7 +255,21 @@ export class ChatService {
       }
       return existing;
     }
-    return this.prisma.chatSession.create({
+    return this.createWidgetAwareSession(agentId, source, visitorId);
+  }
+
+  /**
+   * Create a new chat session, emitting WIDGET_SESSION_STARTED for widget
+   * sessions (the first-contact observability signal). DEMO is preview-only and
+   * WhatsApp session starts are covered by its own inbound-message event, so
+   * only WIDGET emits here.
+   */
+  private async createWidgetAwareSession(
+    agentId: string,
+    source: 'DEMO' | 'WIDGET' | 'WHATSAPP',
+    visitorId?: string,
+  ): Promise<ChatSession> {
+    const session = await this.prisma.chatSession.create({
       data: {
         agentId,
         sessionId: randomUUID(),
@@ -268,6 +277,14 @@ export class ChatService {
         visitorId: visitorId ?? null,
       },
     });
+    if (source === 'WIDGET') {
+      this.widgetLog.logSessionStarted({
+        agentId,
+        sessionId: session.sessionId,
+        visitorId: visitorId ?? undefined,
+      });
+    }
+    return session;
   }
 
   /**
@@ -746,18 +763,22 @@ export class ChatService {
     }
 
     if (!signature) {
-      await this.tracerService.logAuditEvent(agentId, 'HMAC_VERIFICATION_FAILED', {
-        sessionId,
-        reason: 'missing_signature_header',
-      });
+      await this.tracerService.logAuditEvent(
+        agentId,
+        'HMAC_VERIFICATION_FAILED',
+        { sessionId, reason: 'missing_signature_header' },
+        { agentId },
+      );
       throw new BadGatewayException('Response verification failed');
     }
 
     if (!this.hmacService.verifySignature(responseText, signature, secret)) {
-      await this.tracerService.logAuditEvent(agentId, 'HMAC_VERIFICATION_FAILED', {
-        sessionId,
-        reason: 'invalid_signature',
-      });
+      await this.tracerService.logAuditEvent(
+        agentId,
+        'HMAC_VERIFICATION_FAILED',
+        { sessionId, reason: 'invalid_signature' },
+        { agentId },
+      );
       throw new BadGatewayException('Response verification failed');
     }
   }

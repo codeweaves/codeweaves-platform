@@ -7,6 +7,7 @@ import { Role } from '@prisma/client';
 import { PrismaService } from './prisma.service';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { AppLogger } from '../common/logger/app-logger';
+import { TracerService } from '../common/tracer/tracer.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 const BUCKET = 'agent_assets';
@@ -27,6 +28,7 @@ export class FilesService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly storage: SupabaseStorageService,
+    private readonly tracer: TracerService,
   ) {}
 
   async uploadAgentAsset(
@@ -107,6 +109,20 @@ export class FilesService {
       agentId,
       purpose,
     });
+    await this.tracer.logAuditEvent(
+      agentId,
+      'AGENT_FILE_UPLOADED',
+      {
+        response: {
+          fileId: fileRecord.id,
+          purpose,
+          fileName: fileRecord.fileName,
+          sizeBytes: fileRecord.sizeBytes,
+          userId: user.id,
+        },
+      },
+      { organizationId: agent.organizationId, agentId },
+    );
 
     return {
       id: fileRecord.id,
@@ -138,6 +154,19 @@ export class FilesService {
     await this.prisma.file.delete({ where: { id: fileId } });
 
     this.log.info('deleteFile', 'file deleted', { fileId, agentId });
+    await this.tracer.logAuditEvent(
+      agentId,
+      'AGENT_FILE_DELETED',
+      {
+        response: {
+          fileId,
+          fileName: file.fileName,
+          purpose: file.purpose,
+          userId: user.id,
+        },
+      },
+      { organizationId: agent.organizationId, agentId },
+    );
   }
 
   private async deletePreviousFile(entityId: string, purpose: string) {

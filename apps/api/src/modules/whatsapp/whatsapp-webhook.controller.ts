@@ -92,12 +92,14 @@ export class WhatsappWebhookController {
         'receive',
         'WhatsApp not configured (WHATSAPP_APP_SECRET / WHATSAPP_WEBHOOK_VERIFY_TOKEN missing)',
       );
+      this.whatsappLog.logWebhookRejected('not_configured');
       return res.status(503).send();
     }
 
     const raw = req.rawBody;
     if (!raw || !this.verifySignature(raw, req.headers['x-hub-signature-256'])) {
       this.log.warn('receive', 'signature verification failed');
+      this.whatsappLog.logWebhookRejected('signature_verification_failed');
       return res.status(401).send();
     }
 
@@ -107,6 +109,7 @@ export class WhatsappWebhookController {
     } catch {
       // Unparseable — ACK 200 so Meta doesn't retry a body we can never accept.
       this.log.warn('receive', 'unparseable webhook body');
+      this.whatsappLog.logWebhookRejected('unparseable_body');
       return res.status(200).send();
     }
 

@@ -281,6 +281,15 @@ export class LlmService {
     // Same trick for the diagnostics logger — inner generator can't reach
     // `this` without the lint warning, so we hand it a bound logger.
     const diagnosticsLogger = this.logger;
+    // Bound refs so the inner generator can emit the OUTBOUND event_logs row
+    // for this streaming call (mirrors generateCompletion's block above — the
+    // streaming path is the busiest provider call, so it must be logged too).
+    const providerLog = this.providerLog;
+    const streamEventChannel = this.eventChannel(request);
+    const streamRequestPayload = this.describeRequest(request);
+    const streamProvider = parseModelId(request.modelId).provider.toUpperCase();
+    const streamAgentId = request.agentId;
+    const streamSessionId = request.sessionId;
 
     async function* streamChunks(): AsyncIterable<LlmStreamChunk> {
       try {
@@ -318,6 +327,27 @@ export class LlmService {
           requestedModel,
         );
 
+        providerLog.log({
+          channel: streamEventChannel,
+          eventName: 'LLM_COMPLETION_COMPLETED',
+          direction: 'OUTBOUND',
+          provider: streamProvider,
+          agentId: streamAgentId,
+          sessionId: streamSessionId,
+          requestPayload: streamRequestPayload,
+          latencyMs: totalMs,
+          metadata: {
+            model: actualModel,
+            finishReason,
+            cost,
+            inputTokens: normalisedUsage.inputTokens,
+            outputTokens: normalisedUsage.outputTokens,
+            totalTokens: normalisedUsage.totalTokens,
+            ttftMs,
+            streaming: true,
+          },
+        });
+
         yield {
           type: 'finish',
           usage: normalisedUsage,
@@ -342,6 +372,18 @@ export class LlmService {
         });
       } catch (err) {
         const wrapped = wrapError(err);
+        providerLog.log({
+          channel: streamEventChannel,
+          eventName: 'LLM_COMPLETION_FAILED',
+          direction: 'OUTBOUND',
+          provider: streamProvider,
+          agentId: streamAgentId,
+          sessionId: streamSessionId,
+          requestPayload: streamRequestPayload,
+          latencyMs: Math.round(performance.now() - startedAt),
+          success: false,
+          errorMessage: wrapped.message,
+        });
         // Emit an error chunk so SSE subscribers see the failure, then reject
         // the completion promise so awaiters unblock.
         yield {

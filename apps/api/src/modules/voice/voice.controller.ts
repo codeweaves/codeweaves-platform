@@ -19,6 +19,7 @@ import { VoiceEventLogger } from '../../common/events/voice.logger';
 import { Public } from '../../decorators/public.decorator';
 import { VoiceService } from './voice.service';
 import { ChatService } from '../../services/chat.service';
+import { CryptoService } from '../../common/crypto/crypto.service';
 import { MessageMetricsService } from '../../services/message-metrics.service';
 import { detectFallback } from '../../utils/fallback-detection';
 import { N8nStreamingService } from '../../services/n8n-streaming.service';
@@ -76,6 +77,7 @@ export class VoiceController {
     private readonly directChatService: DirectChatService,
     private readonly messageMetricsService: MessageMetricsService,
     private readonly voiceLog: VoiceEventLogger,
+    private readonly crypto: CryptoService,
   ) {}
 
   @Post('conversation')
@@ -102,7 +104,11 @@ export class VoiceController {
     // Resolve publicId → internal UUID (widget sends publicId, not UUID)
     const agent = await this.chatService.resolveAgent(dto.agentId);
     const resolvedAgentId = agent.id;
-    const visitorIp = ChatService.extractVisitorIp(req);
+    // S1 (DPDP): store only a keyed hash of the visitor IP — raw IP never
+    // travels past this line (loopback → undefined; backfilled later).
+    const visitorIp = this.crypto.hashVisitorIp(
+      ChatService.extractVisitorIp(req),
+    );
 
     this.log.debug('voiceConversation', 'conversation received', {
       agentId: resolvedAgentId,

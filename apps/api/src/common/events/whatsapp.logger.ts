@@ -18,6 +18,16 @@ export class WhatsappEventLogger {
     });
   }
 
+  logWebhookRejected(reason: string): void {
+    void this.tracer.logEvent({
+      channel: 'WHATSAPP',
+      eventName: 'WHATSAPP_WEBHOOK_REJECTED',
+      direction: 'INBOUND',
+      success: false,
+      errorMessage: reason,
+    });
+  }
+
   logMessageReceived(d: {
     agentId?: string;
     sessionId?: string;

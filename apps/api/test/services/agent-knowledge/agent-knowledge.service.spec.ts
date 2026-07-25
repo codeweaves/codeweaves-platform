@@ -9,6 +9,7 @@ import { AgentKnowledgeService } from '../../../src/services/agent-knowledge.ser
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
 import { TokenCounterService } from '../../../src/modules/ai/token-counter.service';
+import { TracerService } from '../../../src/common/tracer/tracer.service';
 
 describe('AgentKnowledgeService', () => {
   let service: AgentKnowledgeService;
@@ -23,6 +24,7 @@ describe('AgentKnowledgeService', () => {
   };
   const mockCache = { invalidate: jest.fn() };
   const mockTokenCounter = { countTokens: jest.fn() };
+  const mockTracer = { logAuditEvent: jest.fn() };
 
   const agentId = 'agent-uuid';
 
@@ -34,6 +36,7 @@ describe('AgentKnowledgeService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: AgentCacheService, useValue: mockCache },
         { provide: TokenCounterService, useValue: mockTokenCounter },
+        { provide: TracerService, useValue: mockTracer },
       ],
     }).compile();
     service = moduleRef.get(AgentKnowledgeService);
@@ -107,6 +110,12 @@ describe('AgentKnowledgeService', () => {
       );
       expect(mockCache.invalidate).toHaveBeenCalledWith(agentId);
       expect(result).toMatchObject({ content: 'Hello' });
+      expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
+        agentId,
+        'AGENT_KNOWLEDGE_UPDATED',
+        expect.anything(),
+        { agentId },
+      );
     });
 
     it('defaults sourceFileName + sourceMimeType to null when omitted', async () => {
@@ -270,6 +279,12 @@ describe('AgentKnowledgeService', () => {
         where: { agentId },
       });
       expect(mockCache.invalidate).toHaveBeenCalledWith(agentId);
+      expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
+        agentId,
+        'AGENT_KNOWLEDGE_DELETED',
+        expect.anything(),
+        { agentId },
+      );
     });
 
     it('is idempotent — swallows missing-record errors', async () => {

@@ -624,6 +624,12 @@ model AuditLog {
   userId        String?
   clerkId       String?
   contextId     String
+  // Typed tenancy scope (contextId is polymorphic — agentId/userId/invitationId
+  // depending on the caller — so it can't be queried by scope). These give a
+  // reliable "what happened where" and let erasure delete an org's audit trail
+  // by organizationId. Nullable: system/global events have neither.
+  organizationId String?
+  agentId        String?
   event         String
   data          Json
   createdAt     DateTime @default(now())
@@ -634,6 +640,8 @@ model AuditLog {
   @@index([clerkId])
   @@index([correlationId])
   @@index([createdAt])
+  @@index([organizationId])
+  @@index([agentId])
   @@map("audit_logs")
 }
 

@@ -61,7 +61,7 @@ function buildPayload(messageId = 'wamid.in') {
 describe('WhatsappWebhookController', () => {
   let config: { isConfigured: boolean; appSecret: string; verifyToken: string };
   let inbound: { handleInbound: jest.Mock };
-  let whatsappLog: { logWebhookVerified: jest.Mock };
+  let whatsappLog: { logWebhookVerified: jest.Mock; logWebhookRejected: jest.Mock };
   let controller: WhatsappWebhookController;
 
   beforeEach(() => {
@@ -71,7 +71,7 @@ describe('WhatsappWebhookController', () => {
       verifyToken: VERIFY_TOKEN,
     };
     inbound = { handleInbound: jest.fn().mockResolvedValue(undefined) };
-    whatsappLog = { logWebhookVerified: jest.fn() };
+    whatsappLog = { logWebhookVerified: jest.fn(), logWebhookRejected: jest.fn() };
     controller = new WhatsappWebhookController(
       config as unknown as WhatsappConfigService,
       inbound as unknown as WhatsappInboundService,

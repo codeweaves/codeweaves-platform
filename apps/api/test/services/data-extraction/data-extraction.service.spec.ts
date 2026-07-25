@@ -4,6 +4,7 @@ import { DataExtractionService } from '../../../src/services/data-extraction.ser
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AiClassifierService } from '../../../src/common/ai/ai-classifier.service';
 import { InternalEventLogger } from '../../../src/common/events/internal.logger';
+import { CryptoService } from '../../../src/common/crypto/crypto.service';
 
 describe('DataExtractionService', () => {
   let service: DataExtractionService;
@@ -19,11 +20,24 @@ describe('DataExtractionService', () => {
   };
   const mockAi = { extractFields: jest.fn() };
   const mockConfig = { get: jest.fn() };
+  // Passthrough crypto: tests assert on plaintext; encryption is unit-tested
+  // separately in crypto.service.spec.ts. Implementations are (re)applied in
+  // beforeEach because jest.config has resetMocks: true.
+  const mockCrypto = {
+    encryptFieldValues: jest.fn(),
+    decryptFieldValues: jest.fn(),
+  };
 
   const sessionId = 'sess-1';
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockCrypto.encryptFieldValues.mockImplementation(
+      (d: Record<string, unknown>) => d,
+    );
+    mockCrypto.decryptFieldValues.mockImplementation(
+      (d: Record<string, unknown> | null | undefined) => d ?? {},
+    );
     mockConfig.get.mockReturnValue(undefined); // use defaults; timer not started (.compile doesn't call onModuleInit)
     const moduleRef = await Test.createTestingModule({
       providers: [
@@ -35,6 +49,7 @@ describe('DataExtractionService', () => {
           provide: InternalEventLogger,
           useValue: { logStarted: jest.fn(), logCompleted: jest.fn(), logFailed: jest.fn() },
         },
+        { provide: CryptoService, useValue: mockCrypto },
       ],
     }).compile();
     service = moduleRef.get(DataExtractionService);

@@ -88,7 +88,15 @@ export class ClerkManagementService {
    * we never provision role/org on an unconfirmed email.
    */
   async isEmailVerified(clerkUserId: string, email: string): Promise<boolean> {
-    const user = await this.clerk.users.getUser(clerkUserId);
+    const user = await this.providerLog.traced(
+      {
+        channel: 'DASHBOARD',
+        provider: 'CLERK',
+        eventBase: 'CLERK_USER_GET',
+        requestPayload: { clerkUserId },
+      },
+      () => this.clerk.users.getUser(clerkUserId),
+    );
     const target = email.trim().toLowerCase();
     return user.emailAddresses.some(
       (e) =>
@@ -121,6 +129,15 @@ export class ClerkManagementService {
         );
         return;
       }
+      this.providerLog.log({
+        channel: 'DASHBOARD',
+        eventName: 'CLERK_INVITATION_REVOKE_FAILED',
+        direction: 'OUTBOUND',
+        provider: 'CLERK',
+        requestPayload: { invitationId },
+        success: false,
+        errorMessage: error instanceof Error ? error.message : String(error),
+      });
       await this.clerkLogger.logClerkInvitationRevocationFailed(
         invitationId,
         error,

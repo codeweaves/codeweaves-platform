@@ -183,4 +183,97 @@ describe('CryptoService', () => {
       });
     });
   });
+
+  // ── S1 (DPDP): visitor-IP hashing ────────────────────────────────────────
+  describe('hashVisitorIp', () => {
+    it('returns a deterministic vh_-prefixed hash for the same IP', () => {
+      const a = service.hashVisitorIp('203.0.113.9');
+      const b = service.hashVisitorIp('203.0.113.9');
+      expect(a).toBe(b);
+      expect(a).toMatch(/^vh_[0-9a-f]{32}$/);
+    });
+
+    it('never returns the raw IP', () => {
+      const hashed = service.hashVisitorIp('203.0.113.9');
+      expect(hashed).not.toContain('203.0.113.9');
+    });
+
+    it('produces different hashes for different IPs', () => {
+      expect(service.hashVisitorIp('203.0.113.9')).not.toBe(
+        service.hashVisitorIp('203.0.113.10'),
+      );
+    });
+
+    it('returns undefined for missing / empty input', () => {
+      expect(service.hashVisitorIp(undefined)).toBeUndefined();
+      expect(service.hashVisitorIp(null)).toBeUndefined();
+      expect(service.hashVisitorIp('')).toBeUndefined();
+      expect(service.hashVisitorIp('   ')).toBeUndefined();
+    });
+
+    it('returns undefined for loopback addresses (local dev noise)', () => {
+      expect(service.hashVisitorIp('::1')).toBeUndefined();
+      expect(service.hashVisitorIp('127.0.0.1')).toBeUndefined();
+      expect(service.hashVisitorIp('::ffff:127.0.0.1')).toBeUndefined();
+    });
+
+    it('passes an already-hashed value through unchanged (no double-hash)', () => {
+      const hashed = service.hashVisitorIp('203.0.113.9')!;
+      expect(service.hashVisitorIp(hashed)).toBe(hashed);
+    });
+
+    it('differs across keys (keyed hash, not a plain digest)', async () => {
+      const otherService = await createService(randomBytes(32).toString('hex'));
+      otherService.onModuleInit();
+      expect(service.hashVisitorIp('203.0.113.9')).not.toBe(
+        otherService.hashVisitorIp('203.0.113.9'),
+      );
+    });
+  });
+
+  // ── S1 (DPDP): collected-data field-value encryption ─────────────────────
+  describe('encryptFieldValues / decryptFieldValues', () => {
+    it('roundtrips string, number, boolean and null values', () => {
+      const data = {
+        email: 'a@b.com',
+        age: 42,
+        subscribed: true,
+        note: null,
+      };
+      const encrypted = service.encryptFieldValues(data);
+      expect(service.decryptFieldValues(encrypted)).toEqual(data);
+    });
+
+    it('keeps keys plaintext but hides every value', () => {
+      const encrypted = service.encryptFieldValues({ email: 'a@b.com' });
+      expect(Object.keys(encrypted)).toEqual(['email']);
+      expect(encrypted.email).toMatch(/^enc:v1:/);
+      expect(encrypted.email).not.toContain('a@b.com');
+    });
+
+    it('does not double-encrypt already-encrypted values (idempotent merge)', () => {
+      const once = service.encryptFieldValues({ email: 'a@b.com' });
+      const twice = service.encryptFieldValues(once);
+      expect(twice.email).toBe(once.email);
+      expect(service.decryptFieldValues(twice)).toEqual({ email: 'a@b.com' });
+    });
+
+    it('passes legacy plaintext values through decryption unchanged', () => {
+      expect(
+        service.decryptFieldValues({ email: 'legacy@plain.com', age: 30 }),
+      ).toEqual({ email: 'legacy@plain.com', age: 30 });
+    });
+
+    it('returns {} for null/undefined input', () => {
+      expect(service.decryptFieldValues(null)).toEqual({});
+      expect(service.decryptFieldValues(undefined)).toEqual({});
+    });
+
+    it('surfaces a corrupt value as null instead of throwing', () => {
+      const encrypted = service.encryptFieldValues({ email: 'a@b.com' });
+      const corrupted = { ...encrypted, email: 'enc:v1:not:really:valid' };
+      const result = service.decryptFieldValues(corrupted);
+      expect(result.email).toBeNull();
+    });
+  });
 });

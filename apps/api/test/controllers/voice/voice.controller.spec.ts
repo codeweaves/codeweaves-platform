@@ -14,6 +14,7 @@ import { PrismaService } from '../../../src/services/prisma.service';
 import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 import { MessageRateLimitService } from '../../../src/services/message-rate-limit.service';
 import { VoiceEventLogger } from '../../../src/common/events/voice.logger';
+import { CryptoService } from '../../../src/common/crypto/crypto.service';
 import {
   UnsupportedLanguageError,
   VoiceProviderError,
@@ -98,6 +99,14 @@ describe('VoiceController', () => {
     logException: jest.fn(),
   };
 
+  // Mirrors real behaviour: loopback → undefined, real IP → vh_ hash.
+  // Implementation applied in beforeEach (jest resetMocks: true).
+  const mockCrypto = { hashVisitorIp: jest.fn() };
+  const hashVisitorIpImpl = (ip?: string | null) =>
+    !ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('::ffff:127.')
+      ? undefined
+      : `vh_${ip}`;
+
   function createMockRequest(headers?: Record<string, string>): Request {
     return {
       headers: { 'x-device-id': 'test-device', ...headers },
@@ -162,6 +171,7 @@ describe('VoiceController', () => {
 
   beforeEach(async () => {
     jest.clearAllMocks();
+    mockCrypto.hashVisitorIp.mockImplementation(hashVisitorIpImpl);
 
     const module: TestingModule = await Test.createTestingModule({
       controllers: [VoiceController],
@@ -175,6 +185,7 @@ describe('VoiceController', () => {
         { provide: DirectChatService, useValue: { send: jest.fn(), stream: jest.fn() } },
         { provide: MessageMetricsService, useValue: { record: jest.fn(), recordFromMetadata: jest.fn() } },
         { provide: VoiceEventLogger, useValue: mockVoiceEventLogger },
+        { provide: CryptoService, useValue: mockCrypto },
       ],
     }).compile();
 

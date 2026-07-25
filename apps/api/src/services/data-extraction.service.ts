@@ -13,6 +13,7 @@ import {
 } from '../common/ai/ai-classifier.service';
 
 import { PrismaService } from './prisma.service';
+import { CryptoService } from '../common/crypto/crypto.service';
 import { InternalEventLogger } from '../common/events/internal.logger';
 
 /** Outcome of one extraction attempt. `retry` leaves the session due. */
@@ -58,6 +59,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     private readonly ai: AiClassifierService,
     private readonly config: ConfigService,
     private readonly internalLog: InternalEventLogger,
+    private readonly crypto: CryptoService,
   ) {
     // Both default to sensible values; override in .env to watch it run fast
     // while testing (e.g. DATA_EXTRACT_DEBOUNCE_MS=5000, DATA_EXTRACT_POLL_MS=5000).
@@ -250,9 +252,12 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
 
     // Merge over anything captured earlier (latest value wins, e.g. a corrected
     // email), so re-extraction on a resumed conversation never drops fields.
-    const existing =
-      (session.collectedData?.data as Record<string, unknown> | null) ?? {};
-    const merged = { ...existing, ...values };
+    // Stored values are encrypted (S1) — decrypt before merging so the merge
+    // compares plaintext, then re-encrypt the whole record on write.
+    const existing = this.crypto.decryptFieldValues(
+      session.collectedData?.data as Record<string, unknown> | null,
+    );
+    const merged = this.crypto.encryptFieldValues({ ...existing, ...values });
 
     const now = new Date();
     await this.prisma.collectedData.upsert({

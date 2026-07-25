@@ -120,30 +120,42 @@ export class WhatsappSendService {
   ): Promise<string> {
     // Normalize the MIME to one WhatsApp accepts (e.g. audio/mp3 -> audio/mpeg).
     const mime = toWhatsappAudioMime(mimeType);
-    const form = new FormData();
-    form.append('messaging_product', 'whatsapp');
-    form.append('type', mime);
-    form.append(
-      'file',
-      // Wrap in Uint8Array: Node's Buffer isn't directly a DOM BlobPart in TS's
-      // lib types, but a Uint8Array view over the same bytes is.
-      new Blob([new Uint8Array(data)], { type: mime }),
-      `audio.${audioExtension(mime)}`,
-    );
+    return this.providerLog.traced(
+      {
+        channel: 'WHATSAPP',
+        provider: 'META_WHATSAPP',
+        eventBase: 'META_WHATSAPP_UPLOAD_MEDIA',
+        requestUrl: `${this.config.graphBaseUrl}/${phoneNumberId}/media`,
+        requestPayload: { type: mime, bytes: data.length },
+        extract: (mediaId: string) => ({ responsePayload: { mediaId } }),
+      },
+      async () => {
+        const form = new FormData();
+        form.append('messaging_product', 'whatsapp');
+        form.append('type', mime);
+        form.append(
+          'file',
+          // Wrap in Uint8Array: Node's Buffer isn't directly a DOM BlobPart in TS's
+          // lib types, but a Uint8Array view over the same bytes is.
+          new Blob([new Uint8Array(data)], { type: mime }),
+          `audio.${audioExtension(mime)}`,
+        );
 
-    const res = await fetch(`${this.config.graphBaseUrl}/${phoneNumberId}/media`, {
-      method: 'POST',
-      headers: { Authorization: `Bearer ${accessToken}` },
-      body: form,
-    });
-    if (!res.ok) {
-      const errBody = await res.text().catch(() => '');
-      this.logger.error(`media upload failed (${res.status}): ${errBody}`);
-      throw new Error(`WhatsApp media upload failed: ${res.status}`);
-    }
-    const json = (await res.json().catch(() => null)) as { id?: string } | null;
-    if (!json?.id) throw new Error('WhatsApp media upload returned no id');
-    return json.id;
+        const res = await fetch(`${this.config.graphBaseUrl}/${phoneNumberId}/media`, {
+          method: 'POST',
+          headers: { Authorization: `Bearer ${accessToken}` },
+          body: form,
+        });
+        if (!res.ok) {
+          const errBody = await res.text().catch(() => '');
+          this.logger.error(`media upload failed (${res.status}): ${errBody}`);
+          throw new Error(`WhatsApp media upload failed: ${res.status}`);
+        }
+        const json = (await res.json().catch(() => null)) as { id?: string } | null;
+        if (!json?.id) throw new Error('WhatsApp media upload returned no id');
+        return json.id;
+      },
+    );
   }
 
   /** Send a previously-uploaded audio clip as a voice message. Returns the wamid. */
@@ -203,32 +215,46 @@ export class WhatsappSendService {
     mediaId: string,
     accessToken: string,
   ): Promise<{ buffer: Buffer; mimeType: string }> {
-    const metaRes = await fetch(`${this.config.graphBaseUrl}/${mediaId}`, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!metaRes.ok) {
-      const errBody = await metaRes.text().catch(() => '');
-      this.logger.error(`media lookup failed (${metaRes.status}) for ${mediaId}: ${errBody}`);
-      throw new Error(`WhatsApp media lookup failed: ${metaRes.status}`);
-    }
-    const meta = (await metaRes.json().catch(() => null)) as {
-      url?: string;
-      mime_type?: string;
-    } | null;
-    if (!meta?.url) {
-      throw new Error('WhatsApp media lookup returned no URL');
-    }
+    return this.providerLog.traced(
+      {
+        channel: 'WHATSAPP',
+        provider: 'META_WHATSAPP',
+        eventBase: 'META_WHATSAPP_DOWNLOAD_MEDIA',
+        requestUrl: `${this.config.graphBaseUrl}/${mediaId}`,
+        requestPayload: { mediaId },
+        extract: (r: { buffer: Buffer; mimeType: string }) => ({
+          responsePayload: { mimeType: r.mimeType, bytes: r.buffer.length },
+        }),
+      },
+      async () => {
+        const metaRes = await fetch(`${this.config.graphBaseUrl}/${mediaId}`, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!metaRes.ok) {
+          const errBody = await metaRes.text().catch(() => '');
+          this.logger.error(`media lookup failed (${metaRes.status}) for ${mediaId}: ${errBody}`);
+          throw new Error(`WhatsApp media lookup failed: ${metaRes.status}`);
+        }
+        const meta = (await metaRes.json().catch(() => null)) as {
+          url?: string;
+          mime_type?: string;
+        } | null;
+        if (!meta?.url) {
+          throw new Error('WhatsApp media lookup returned no URL');
+        }
 
-    const binRes = await fetch(meta.url, {
-      headers: { Authorization: `Bearer ${accessToken}` },
-    });
-    if (!binRes.ok) {
-      const errBody = await binRes.text().catch(() => '');
-      this.logger.error(`media download failed (${binRes.status}) for ${mediaId}: ${errBody}`);
-      throw new Error(`WhatsApp media download failed: ${binRes.status}`);
-    }
-    const bytes = Buffer.from(await binRes.arrayBuffer());
-    return { buffer: bytes, mimeType: meta.mime_type ?? 'audio/ogg' };
+        const binRes = await fetch(meta.url, {
+          headers: { Authorization: `Bearer ${accessToken}` },
+        });
+        if (!binRes.ok) {
+          const errBody = await binRes.text().catch(() => '');
+          this.logger.error(`media download failed (${binRes.status}) for ${mediaId}: ${errBody}`);
+          throw new Error(`WhatsApp media download failed: ${binRes.status}`);
+        }
+        const bytes = Buffer.from(await binRes.arrayBuffer());
+        return { buffer: bytes, mimeType: meta.mime_type ?? 'audio/ogg' };
+      },
+    );
   }
 
   /**

@@ -10,6 +10,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_CREATED',
       this.tracer.mergeJsonResponse({ response: data }),
+      { agentId },
     );
   }
 
@@ -25,6 +26,7 @@ export class AgentLoggerService {
         { error: { message: String(error) } },
         data,
       ),
+      { agentId: contextId },
     );
   }
 
@@ -33,6 +35,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_UPDATED',
       this.tracer.mergeJsonResponse({ response: data }),
+      { agentId },
     );
   }
 
@@ -48,6 +51,7 @@ export class AgentLoggerService {
         { error: { message: String(error) } },
         data,
       ),
+      { agentId },
     );
   }
 
@@ -56,6 +60,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_DELETED',
       this.tracer.mergeJsonResponse({ response: data }),
+      { agentId },
     );
   }
 
@@ -64,6 +69,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_DOMAINS_UPDATED',
       this.tracer.mergeJsonResponse({ response: data }),
+      { agentId },
     );
   }
 
@@ -75,6 +81,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_STATUS_CHANGED',
       this.tracer.mergeJsonResponse({ response: data }),
+      { agentId },
     );
   }
 
@@ -83,6 +90,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_SECRET_CREATED',
       this.tracer.mergeJsonResponse({ response: { userId } }),
+      { agentId },
     );
   }
 
@@ -91,6 +99,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_SECRET_UPDATED',
       this.tracer.mergeJsonResponse({ response: { userId } }),
+      { agentId },
     );
   }
 
@@ -99,6 +108,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_WEBHOOK_UPDATED',
       this.tracer.mergeJsonResponse({ response: { userId } }),
+      { agentId },
     );
   }
 
@@ -107,6 +117,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_THEME_UPDATED',
       this.tracer.mergeJsonResponse({ response: { userId } }),
+      { agentId },
     );
   }
 
@@ -115,6 +126,7 @@ export class AgentLoggerService {
       agentId,
       'AGENT_THEME_RESET',
       this.tracer.mergeJsonResponse({ response: { userId } }),
+      { agentId },
     );
   }
 }
