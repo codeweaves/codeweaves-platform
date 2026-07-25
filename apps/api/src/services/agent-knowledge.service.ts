@@ -6,7 +6,7 @@ import {
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
-import type { AgentKnowledge } from '@prisma/client';
+import { Role, type AgentKnowledge } from '@prisma/client';
 import {
   KNOWLEDGE_UPLOAD_EXTENSIONS,
   MAX_KNOWLEDGE_TEXT_BYTES,
@@ -19,6 +19,7 @@ import {
 import { AgentCacheService } from '../common/cache/agent-cache.service';
 import { AppLogger } from '../common/logger/app-logger';
 import { TracerService } from '../common/tracer/tracer.service';
+import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { TokenCounterService } from '../modules/ai/token-counter.service';
 
 import { PrismaService } from './prisma.service';
@@ -66,7 +67,11 @@ export class AgentKnowledgeService {
   ) {}
 
   /** Fetch the knowledge record for an agent, or null if none. */
-  async get(agentId: string): Promise<AgentKnowledge | null> {
+  async get(
+    agentId: string,
+    user: CurrentUserData,
+  ): Promise<AgentKnowledge | null> {
+    await this.assertAgentAccess(agentId, user);
     return this.prisma.agentKnowledge.findUnique({ where: { agentId } });
   }
 
@@ -80,8 +85,9 @@ export class AgentKnowledgeService {
   async set(
     agentId: string,
     dto: UpdateKnowledgeDto,
+    user: CurrentUserData,
   ): Promise<AgentKnowledge> {
-    await this.assertAgentExists(agentId);
+    await this.assertAgentAccess(agentId, user);
     const contentBytes = Buffer.byteLength(dto.content, 'utf-8');
     if (contentBytes > MAX_KNOWLEDGE_TEXT_BYTES) {
       throw new PayloadTooLargeException(
@@ -148,8 +154,9 @@ export class AgentKnowledgeService {
   async extractFile(
     agentId: string,
     file: Express.Multer.File,
+    user: CurrentUserData,
   ): Promise<ExtractedText> {
-    await this.assertAgentExists(agentId);
+    await this.assertAgentAccess(agentId, user);
     this.log.debug('extractFile', 'extracting knowledge from upload', {
       agentId,
       mimeType: file?.mimetype,
@@ -226,7 +233,8 @@ export class AgentKnowledgeService {
   }
 
   /** Remove the knowledge record for an agent. Idempotent. */
-  async remove(agentId: string): Promise<void> {
+  async remove(agentId: string, user: CurrentUserData): Promise<void> {
+    await this.assertAgentAccess(agentId, user);
     await this.prisma.agentKnowledge
       .delete({ where: { agentId } })
       .catch(() => {
@@ -242,14 +250,30 @@ export class AgentKnowledgeService {
     );
   }
 
-  private async assertAgentExists(agentId: string): Promise<void> {
+  /**
+   * Verify the agent exists and the caller may access it. CLIENT users are
+   * scoped to their own organisation; ADMIN/SUPER_ADMIN (platform staff) may
+   * reach any org. Throws 404 (not 403) on a miss so we don't leak which agent
+   * IDs exist across tenants. Mirrors AgentDataFieldsService.assertAgentAccess.
+   */
+  private async assertAgentAccess(
+    agentId: string,
+    user: CurrentUserData,
+  ): Promise<{ id: string; organizationId: string }> {
     const agent = await this.prisma.agent.findFirst({
-      where: { id: agentId, deletedAt: null },
-      select: { id: true },
+      where: {
+        id: agentId,
+        deletedAt: null,
+        ...(user.role === Role.CLIENT && {
+          organizationId: user.organizationId!,
+        }),
+      },
+      select: { id: true, organizationId: true },
     });
     if (!agent) {
       throw new NotFoundException(`Agent ${agentId} not found or inactive.`);
     }
+    return agent;
   }
 }
 

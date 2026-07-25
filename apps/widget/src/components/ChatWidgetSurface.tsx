@@ -768,7 +768,7 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                 <img src={str(branding, 'logo')} alt="Brand" class="cw-branding-logo inline-block h-4 align-[-2px]" />
               ) : (
                 <a
-                  href={str(branding, 'linkUrl', '#')}
+                  href={isSafeUrl(str(branding, 'linkUrl', '')) ? str(branding, 'linkUrl') : '#'}
                   target="_blank"
                   rel="noopener noreferrer"
                   class="cw-branding-link font-medium"

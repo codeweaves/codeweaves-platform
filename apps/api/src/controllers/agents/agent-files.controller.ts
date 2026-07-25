@@ -13,7 +13,7 @@ import {
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiConsumes } from '@nestjs/swagger';
 import { Role } from '@prisma/client';
-import { FilesService } from '../../services/files.service';
+import { FilesService, MAX_FILE_SIZE } from '../../services/files.service';
 import { Roles } from '../../decorators/roles.decorator';
 import { RolesGuard } from '../../guards/roles.guard';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
@@ -27,7 +27,12 @@ export class AgentFilesController {
 
   @Post('upload')
   @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
-  @UseInterceptors(FileInterceptor('file'))
+  @UseInterceptors(
+    // Cap the upload at the handler boundary so multer stops buffering once the
+    // limit is hit, instead of reading an unbounded multipart body into memory
+    // before the in-service size check runs (heap-exhaustion DoS).
+    FileInterceptor('file', { limits: { fileSize: MAX_FILE_SIZE } }),
+  )
   @ApiConsumes('multipart/form-data')
   @ApiOperation({ summary: 'Upload a file for an agent' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })

@@ -1,9 +1,60 @@
+import { lookup } from 'node:dns/promises';
+import { isIP } from 'node:net';
+
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { N8nStreamChunk, VALID_CHUNK_TYPES } from './n8n-stream.interface';
 
 const DEFAULT_STREAM_TIMEOUT_MS = 30_000;
 const MAX_BUFFER_SIZE = 1_048_576; // 1 MB
+
+/**
+ * True if an IP literal falls in a range we must never let the server dial:
+ * loopback, RFC1918 private, link-local, CGNAT, ULA, multicast/reserved. Used
+ * to block SSRF where a tenant points their agent webhook at an internal host.
+ */
+function isBlockedAddress(ip: string): boolean {
+  const family = isIP(ip);
+  if (family === 4) {
+    const octets = ip.split('.').map(Number);
+    const a = octets[0]!;
+    const b = octets[1]!;
+    if (a === 0 || a === 10 || a === 127) return true; // this-network, private, loopback
+    if (a === 169 && b === 254) return true; // link-local
+    if (a === 172 && b >= 16 && b <= 31) return true; // private
+    if (a === 192 && b === 168) return true; // private
+    if (a === 100 && b >= 64 && b <= 127) return true; // CGNAT
+    if (a >= 224) return true; // multicast + reserved
+    return false;
+  }
+  if (family === 6) {
+    const lower = ip.toLowerCase();
+    if (lower === '::1' || lower === '::') return true; // loopback / unspecified
+    if (lower.startsWith('fe80')) return true; // link-local
+    if (lower.startsWith('fc') || lower.startsWith('fd')) return true; // unique-local
+    if (lower.startsWith('64:ff9b:')) return true; // NAT64 — embeds an IPv4 target
+
+    // IPv4-mapped IPv6 embeds an IPv4 address that must be range-checked, in ALL
+    // its textual forms: dotted (::ffff:127.0.0.1), hex (::ffff:7f00:1), and the
+    // fully-expanded 0:0:0:0:0:ffff:7f00:1. Extract the embedded IPv4 and recurse.
+    const mappedTail = lower.match(/(?:^::ffff:|^(?:0+:){5}ffff:)(.+)$/);
+    if (mappedTail) {
+      const tail = mappedTail[1]!;
+      const dotted = tail.match(/^\d+\.\d+\.\d+\.\d+$/);
+      if (dotted) return isBlockedAddress(tail);
+      const hex = tail.match(/^([0-9a-f]{1,4}):([0-9a-f]{1,4})$/);
+      if (hex) {
+        const hi = parseInt(hex[1]!, 16);
+        const lo = parseInt(hex[2]!, 16);
+        const ipv4 = `${(hi >> 8) & 0xff}.${hi & 0xff}.${(lo >> 8) & 0xff}.${lo & 0xff}`;
+        return isBlockedAddress(ipv4);
+      }
+      return true; // unrecognized mapped form → block to be safe
+    }
+    return false;
+  }
+  return true; // not a valid IP literal → block
+}
 
 @Injectable()
 export class N8nStreamingService {
@@ -38,6 +89,8 @@ export class N8nStreamingService {
       ? AbortSignal.any([timeoutSignal, abortSignal])
       : timeoutSignal;
 
+    await this.assertPublicWebhookHost(webhookUrl);
+
     let response: Response;
     try {
       response = await fetch(webhookUrl, {
@@ -45,6 +98,9 @@ export class N8nStreamingService {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ chatInput: message, sessionId }),
         signal: combinedSignal,
+        // Never auto-follow redirects: a 30x to an internal address would bypass
+        // the pre-flight host check below (SSRF via redirect).
+        redirect: 'error',
       });
     } catch (error) {
       if (error instanceof DOMException && error.name === 'TimeoutError') {
@@ -123,6 +179,61 @@ export class N8nStreamingService {
     } finally {
       combinedSignal.removeEventListener('abort', onAbort);
       reader.releaseLock();
+    }
+  }
+
+  /**
+   * Reject a webhook URL that would make the server dial an internal address.
+   * Requires http(s), and resolves the host, blocking if the literal — or ANY
+   * resolved A/AAAA record — falls in a private/loopback/link-local range.
+   * Throws before any request is issued. (DNS can still rebind between this
+   * check and connect; an egress allowlist/proxy is the defense-in-depth layer.)
+   */
+  private async assertPublicWebhookHost(webhookUrl: string): Promise<void> {
+    let url: URL;
+    try {
+      url = new URL(webhookUrl);
+    } catch {
+      throw new Error('Invalid webhook URL');
+    }
+
+    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
+      throw new Error('Webhook URL must use http or https');
+    }
+
+    // Enforce SSRF host-blocking in PRODUCTION only. Local dev/test rigs
+    // legitimately point the webhook at localhost / 127.0.0.1 / ::1 (a dev n8n
+    // instance), so blocking is skipped outside production — no env setup needed
+    // to develop locally. `N8N_ALLOW_PRIVATE_WEBHOOK_HOSTS=true` is an escape
+    // hatch to disable it even in production (e.g. a private-network n8n reached
+    // over a VPC); it never forces blocking on elsewhere.
+    const enforceBlock =
+      process.env.NODE_ENV === 'production' &&
+      process.env.N8N_ALLOW_PRIVATE_WEBHOOK_HOSTS !== 'true';
+    if (!enforceBlock) return;
+
+    // `URL.hostname` wraps IPv6 literals in brackets ("[::1]"); strip them so
+    // isIP/range-checking sees the bare address.
+    const host = url.hostname.replace(/^\[|\]$/g, '');
+
+    if (isIP(host)) {
+      if (isBlockedAddress(host)) {
+        throw new Error('Webhook URL resolves to a disallowed address');
+      }
+      return;
+    }
+
+    let addresses: { address: string }[];
+    try {
+      addresses = await lookup(host, { all: true });
+    } catch {
+      throw new Error('Webhook host could not be resolved');
+    }
+
+    for (const { address } of addresses) {
+      if (isBlockedAddress(address)) {
+        throw new Error('Webhook URL resolves to a disallowed address');
+      }
     }
   }
 

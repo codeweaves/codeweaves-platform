@@ -10,16 +10,24 @@ import {
   Post,
   Put,
   UploadedFile,
+  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
+import { Role } from '@prisma/client';
 import {
   MAX_KNOWLEDGE_UPLOAD_BYTES,
   updateKnowledgeSchema,
   type UpdateKnowledgeDto,
 } from '@repo/validation';
 
+import {
+  CurrentUser,
+  type CurrentUserData,
+} from '../../decorators/current-user.decorator';
+import { Roles } from '../../decorators/roles.decorator';
+import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { AgentKnowledgeService } from '../../services/agent-knowledge.service';
 
@@ -28,24 +36,30 @@ import { AgentKnowledgeService } from '../../services/agent-knowledge.service';
  * prompt). Full RAG pipeline (with chunking + embeddings) ships in Phase 3
  * under a different endpoint family.
  *
- * Endpoints are admin-only — the global JwtAuthGuard + RolesGuard from
- * AppModule handle auth. No @Public() marker here.
+ * Auth: ADMIN / SUPER_ADMIN / CLIENT. RolesGuard gates the route; the service
+ * org-scopes every method via assertAgentAccess, so a CLIENT only ever reaches
+ * their own organisation's agents (a foreign agent 404s) — mirrors
+ * AgentThemesController / AgentDataFieldsController.
  */
 @ApiTags('Agents')
+@UseGuards(RolesGuard)
 @Controller('agents/:agentId/knowledge')
 export class AgentKnowledgeController {
   constructor(private readonly knowledgeService: AgentKnowledgeService) {}
 
   @Get()
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
   @ApiOperation({ summary: 'Fetch the agent\'s current knowledge content.' })
   @ApiResponse({ status: 200, description: 'Knowledge record or null.' })
   async get(
     @Param('agentId', new ParseUUIDPipe({ version: '4' })) agentId: string,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.knowledgeService.get(agentId);
+    return this.knowledgeService.get(agentId, user);
   }
 
   @Put()
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -60,11 +74,13 @@ export class AgentKnowledgeController {
     @Param('agentId', new ParseUUIDPipe({ version: '4' })) agentId: string,
     @Body(new ZodValidationPipe(updateKnowledgeSchema))
     dto: UpdateKnowledgeDto,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.knowledgeService.set(agentId, dto);
+    return this.knowledgeService.set(agentId, dto, user);
   }
 
   @Post('extract')
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -88,17 +104,20 @@ export class AgentKnowledgeController {
   async extract(
     @Param('agentId', new ParseUUIDPipe({ version: '4' })) agentId: string,
     @UploadedFile() file: Express.Multer.File,
+    @CurrentUser() user: CurrentUserData,
   ) {
-    return this.knowledgeService.extractFile(agentId, file);
+    return this.knowledgeService.extractFile(agentId, file, user);
   }
 
   @Delete()
+  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove the agent\'s knowledge content.' })
   @ApiResponse({ status: 204, description: 'Knowledge removed (or never existed).' })
   async remove(
     @Param('agentId', new ParseUUIDPipe({ version: '4' })) agentId: string,
+    @CurrentUser() user: CurrentUserData,
   ): Promise<void> {
-    await this.knowledgeService.remove(agentId);
+    await this.knowledgeService.remove(agentId, user);
   }
 }

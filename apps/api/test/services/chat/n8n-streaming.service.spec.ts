@@ -1,7 +1,19 @@
+import { lookup } from 'node:dns/promises';
+
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { N8nStreamingService } from '../../../src/services/n8n-streaming.service';
 import { N8nStreamChunk } from '../../../src/services/n8n-stream.interface';
+
+// The service now resolves the webhook host and blocks private/loopback ranges
+// (SSRF guard). In tests the fixture host has no real DNS record, so mock the
+// resolver to a public address — the guard passes and fetch (mocked) drives the
+// actual test behavior. SSRF-blocking behavior is covered by dedicated cases.
+jest.mock('node:dns/promises', () => ({
+  lookup: jest.fn(),
+}));
+const mockLookup = lookup as jest.Mock;
+const PUBLIC_DNS_RESULT = [{ address: '93.184.216.34', family: 4 }];
 
 describe('N8nStreamingService', () => {
   let service: N8nStreamingService;
@@ -83,6 +95,9 @@ describe('N8nStreamingService', () => {
 
     service = module.get<N8nStreamingService>(N8nStreamingService);
     jest.clearAllMocks();
+    // Re-establish after clearAllMocks so the SSRF host check resolves to a
+    // public address for the normal streaming cases.
+    mockLookup.mockResolvedValue(PUBLIC_DNS_RESULT);
   });
 
   afterEach(() => {
@@ -90,6 +105,88 @@ describe('N8nStreamingService', () => {
   });
 
   describe('streamFromWebhookUrl', () => {
+    describe('SSRF guard', () => {
+      // Host-blocking is production-only (local dev points at localhost), so
+      // force production mode to exercise it.
+      const prevNodeEnv = process.env.NODE_ENV;
+      beforeAll(() => {
+        process.env.NODE_ENV = 'production';
+      });
+      afterAll(() => {
+        process.env.NODE_ENV = prevNodeEnv;
+      });
+
+      it('rejects a loopback IP literal without issuing a request', async () => {
+        global.fetch = jest.fn();
+        await expect(
+          collectChunks(
+            service.streamFromWebhookUrl(
+              'http://127.0.0.1/webhook',
+              MESSAGE,
+              SESSION_ID,
+            ),
+          ),
+        ).rejects.toThrow('disallowed address');
+        expect(global.fetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects a private RFC1918 IP literal', async () => {
+        global.fetch = jest.fn();
+        await expect(
+          collectChunks(
+            service.streamFromWebhookUrl(
+              'http://10.0.0.5/webhook',
+              MESSAGE,
+              SESSION_ID,
+            ),
+          ),
+        ).rejects.toThrow('disallowed address');
+        expect(global.fetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects a loopback IPv4-mapped IPv6 literal (hex form)', async () => {
+        global.fetch = jest.fn();
+        await expect(
+          collectChunks(
+            service.streamFromWebhookUrl(
+              'http://[::ffff:7f00:1]/webhook', // ::ffff:127.0.0.1 in hex
+              MESSAGE,
+              SESSION_ID,
+            ),
+          ),
+        ).rejects.toThrow('disallowed address');
+        expect(global.fetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects a loopback IPv4-mapped IPv6 literal (dotted form)', async () => {
+        global.fetch = jest.fn();
+        await expect(
+          collectChunks(
+            service.streamFromWebhookUrl(
+              'http://[::ffff:127.0.0.1]/webhook',
+              MESSAGE,
+              SESSION_ID,
+            ),
+          ),
+        ).rejects.toThrow('disallowed address');
+        expect(global.fetch).not.toHaveBeenCalled();
+      });
+
+      it('rejects a non-http(s) scheme', async () => {
+        global.fetch = jest.fn();
+        await expect(
+          collectChunks(
+            service.streamFromWebhookUrl(
+              'file:///etc/passwd',
+              MESSAGE,
+              SESSION_ID,
+            ),
+          ),
+        ).rejects.toThrow('http or https');
+        expect(global.fetch).not.toHaveBeenCalled();
+      });
+    });
+
     it('should stream a normal multi-chunk response', async () => {
       const lines = [
         '{"type":"begin","metadata":{"nodeId":"n1","timestamp":1000}}\n',

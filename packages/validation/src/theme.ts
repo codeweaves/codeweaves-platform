@@ -11,6 +11,18 @@ import { z } from 'zod';
 const colorString = z.string().min(1, 'Color cannot be empty').max(50, 'Color string too long');
 const cssValueString = z.string().min(1).max(200);
 
+// URL that must use https. Zod's `.url()` alone accepts `javascript:` and
+// `data:` URIs, which — when rendered into an <a href> — become stored XSS.
+// https-only matches the widget's runtime `isSafeUrl` gate, so a value that
+// validates here is one the widget will actually render (an http link would
+// pass a laxer check but be dropped to `#` at render time — a silent no-op).
+const httpsUrlString = z
+  .string()
+  .url()
+  .refine((v) => /^https:\/\//i.test(v), {
+    message: 'URL must use https://',
+  });
+
 // ============================================
 // Sub-Schemas
 // ============================================
@@ -119,8 +131,8 @@ export const brandingConfigSchema = z.object({
   textPrefix: z.string(),
   useLogo: z.boolean(),
   linkText: z.string(),
-  linkUrl: z.string().url(),
-  logo: z.string().url().optional(),
+  linkUrl: httpsUrlString,
+  logo: httpsUrlString.optional(),
   textColor: colorString,
   linkColor: colorString,
 });

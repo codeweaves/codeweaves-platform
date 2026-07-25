@@ -87,9 +87,11 @@ export class PublicChatController {
     @Req() req: Request,
   ): Promise<void> {
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const clientIp = this.messageRateLimitService.getClientIp(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
       dto.agentId,
+      clientIp,
     );
     // Silently skip if rate-limited — warmup is a perf hint, not a real action.
     if (!rateLimitResult.allowed) return;
@@ -151,9 +153,11 @@ export class PublicChatController {
     @Req() req: Request,
   ) {
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const clientIp = this.messageRateLimitService.getClientIp(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
       dto.agentId,
+      clientIp,
     );
 
     if (!rateLimitResult.allowed) {
@@ -198,9 +202,11 @@ export class PublicChatController {
     @Req() req: Request,
   ) {
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const clientIp = this.messageRateLimitService.getClientIp(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
       dto.agentId,
+      clientIp,
     );
     if (!rateLimitResult.allowed) {
       return { error: true, message: rateLimitResult.message, retryAfterSeconds: rateLimitResult.retryAfterSeconds };
@@ -257,9 +263,11 @@ export class PublicChatController {
     res.flushHeaders?.();
 
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
+    const clientIp = this.messageRateLimitService.getClientIp(req);
     const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
       deviceId,
       dto.agentId,
+      clientIp,
     );
 
     if (!rateLimitResult.allowed) {
@@ -502,9 +510,19 @@ export class PublicChatController {
               historyTruncated: chunk.result.historyTruncated,
             };
           } else if (chunk.type === 'error') {
-            // DirectChatService already logged + ended the trace. Surface to
-            // client as an SSE error and stop — the outer catch will clean up.
-            throw new HttpException(chunk.error, 502);
+            // DirectChatService already logged + ended the trace. Keep the raw
+            // upstream provider error server-side only (it reveals model/provider
+            // identity and routing internals) and surface a generic message to
+            // the unauthenticated widget via the outer catch.
+            this.log.error(
+              'stream',
+              `direct chat provider error agent=${agent.id}`,
+              { providerError: chunk.error },
+            );
+            throw new HttpException(
+              'The assistant is temporarily unavailable. Please try again.',
+              502,
+            );
           }
           // 'trace' chunks are orchestration metadata — not forwarded to widgets.
         }
@@ -605,11 +623,29 @@ export class PublicChatController {
         // trip), which was the dominant tail in wall-clock time per turn.
         const assistantMessageId = randomUUID();
 
+        // Strip internal operational fields before sending to the unauthenticated
+        // widget: model name, per-message USD cost, internal traceId and token
+        // counts leak cost/margin and backend internals. They stay in `metadata`
+        // below for server-side logging/tracing only.
+        const publicMetadata = { ...(metadata as Record<string, unknown>) };
+        for (const internalField of [
+          'traceId',
+          'cost',
+          'model',
+          'inputTokens',
+          'outputTokens',
+          'totalTokens',
+          'cachedInputTokens',
+          'reasoningTokens',
+        ]) {
+          delete publicMetadata[internalField];
+        }
+
         res.write(`data: ${JSON.stringify({
           type: 'done',
           sessionId: session.sessionId,
           messageId: assistantMessageId,
-          metadata,
+          metadata: publicMetadata,
           handoverState: clientHandoverState,
         })}\n\n`);
 

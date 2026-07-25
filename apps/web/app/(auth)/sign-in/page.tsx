@@ -12,6 +12,30 @@ import { clerkErrorMessage } from '@/lib/clerk-errors';
 import { AuthShell, AuthNotice } from '@/components/features/auth/auth-shell';
 
 /**
+ * Coerce an attacker-influenced `redirect_url` into a safe same-origin path.
+ * Only a single-leading-slash relative path is allowed; anything with a scheme
+ * (`https:`, `javascript:`) or a scheme-relative/backslash host (`//evil`,
+ * `/\evil`) falls back to `/dashboard`. This closes the open-redirect where the
+ * value flowed unchecked into `router.replace` and `window.location.href`.
+ *
+ * Control characters are stripped FIRST: browsers remove raw TAB/LF/CR from a
+ * URL before resolving it, so `"/%0A/evil.com"` (decoded to `"/\n/evil.com"`)
+ * would otherwise slip the `//` check and resolve to a scheme-relative host.
+ */
+function safeInternalPath(raw: string | null): string {
+  if (!raw) return '/dashboard';
+  // Browsers strip TAB/LF/CR from a URL before resolving it, so remove every
+  // control character FIRST — otherwise "/%0A/evil.com" (decoded to a newline)
+  // slips the "//" check and resolves to a scheme-relative host.
+  const cleaned = Array.from(raw)
+    .filter((ch) => ch.charCodeAt(0) > 0x1f)
+    .join('');
+  if (!cleaned.startsWith('/')) return '/dashboard';
+  if (cleaned.startsWith('//') || cleaned.startsWith('/\\')) return '/dashboard';
+  return cleaned;
+}
+
+/**
  * Custom password sign-in on Clerk Core 3 hooks (`useSignIn`). Invitation-only:
  * no sign-up link (new users arrive via the invitation ticket on /sign-up).
  */
@@ -26,7 +50,7 @@ export default function SignInPage() {
   const [error, setError] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
 
-  const redirectUrl = searchParams.get('redirect_url') || '/dashboard';
+  const redirectUrl = safeInternalPath(searchParams.get('redirect_url'));
   const justReset = searchParams.get('reset') === '1';
   const justSignedUp = searchParams.get('welcome') === '1';
 

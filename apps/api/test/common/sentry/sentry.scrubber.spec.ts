@@ -200,11 +200,34 @@ describe('scrubSentryEvent', () => {
       expect(result.request!.data).toBeNull();
     });
 
-    it('should handle event with string request data', () => {
+    it('drops a non-JSON string request body (cannot scrub per-key)', () => {
       const result = scrub({
         request: { data: 'raw-body-string' },
       });
-      expect(result.request!.data).toBe('raw-body-string');
+      expect(result.request!.data).toBe('[REDACTED]');
+    });
+
+    it('scrubs sensitive keys inside a JSON string request body', () => {
+      const result = scrub({
+        request: { data: JSON.stringify({ accessToken: 'secret', keep: 'ok' }) },
+      });
+      expect(JSON.parse(result.request!.data as string)).toEqual({
+        accessToken: '[REDACTED]',
+        keep: 'ok',
+      });
+    });
+
+    it('redacts x-internal-secret and other secret headers', () => {
+      const result = scrub({
+        request: {
+          headers: {
+            'x-internal-secret': 'topsecret',
+            'content-type': 'application/json',
+          },
+        },
+      });
+      expect(result.request!.headers!['x-internal-secret']).toBe('[REDACTED]');
+      expect(result.request!.headers!['content-type']).toBe('application/json');
     });
   });
 });

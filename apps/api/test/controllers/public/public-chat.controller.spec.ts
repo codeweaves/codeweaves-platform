@@ -36,6 +36,7 @@ describe('PublicChatController', () => {
   const mockMessageRateLimitService = {
     checkMessageRateLimit: jest.fn(),
     getDeviceIdentifier: jest.fn(),
+    getClientIp: jest.fn(),
   };
 
   const mockDirectChatService = { send: jest.fn(), stream: jest.fn() };
@@ -98,6 +99,7 @@ describe('PublicChatController', () => {
     jest.clearAllMocks();
     mockCrypto.hashVisitorIp.mockImplementation(hashVisitorIpImpl);
     mockMessageRateLimitService.getDeviceIdentifier.mockReturnValue('test-device');
+    mockMessageRateLimitService.getClientIp.mockReturnValue('203.0.113.1');
     mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({ allowed: true });
   });
 
@@ -225,9 +227,11 @@ describe('PublicChatController', () => {
       await controller.sendMessage(dto, req);
 
       expect(mockMessageRateLimitService.getDeviceIdentifier).toHaveBeenCalledWith(req);
+      expect(mockMessageRateLimitService.getClientIp).toHaveBeenCalledWith(req);
       expect(mockMessageRateLimitService.checkMessageRateLimit).toHaveBeenCalledWith(
         'test-device',
         dto.agentId,
+        '203.0.113.1',
       );
     });
   });
