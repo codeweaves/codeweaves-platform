@@ -20,11 +20,31 @@ import {
   useEmailTemplate,
   useEmailTemplates,
   useUpdateEmailTemplate,
+  type EmailTemplateDetail,
   type EmailTemplateVariable,
 } from '@/hooks/use-email-templates';
 
 /** Debounce on the preview so typing stays smooth on a large body. */
 const PREVIEW_DEBOUNCE_MS = 300;
+
+/**
+ * A copy of `value` that settles `delayMs` after it stops changing.
+ *
+ * State-from-a-prop is usually a smell, but a debounce is the case where it is
+ * the point: the returned value must deliberately lag the input, so it can be
+ * neither computed inline during render nor reset via `key` (both would make the
+ * preview re-render on every keystroke, which is exactly what this avoids).
+ */
+function useDebouncedValue<T>(value: T, delayMs: number): T {
+  const [settled, setSettled] = useState(value);
+
+  useEffect(() => {
+    const timer = setTimeout(() => setSettled(value), delayMs);
+    return () => clearTimeout(timer);
+  }, [value, delayMs]);
+
+  return settled;
+}
 
 /**
  * Utilities → Email. Master–detail, mirroring the Inbox: template list on the
@@ -35,14 +55,13 @@ const PREVIEW_DEBOUNCE_MS = 300;
  */
 export function EmailTemplateEditor() {
   const { data: templates, isLoading: listLoading } = useEmailTemplates();
-  const [selectedKey, setSelectedKey] = useState<string | null>(null);
+  const [pickedKey, setPickedKey] = useState<string | null>(null);
 
-  // Land on the first template so the pane is never blank on arrival.
-  useEffect(() => {
-    if (!selectedKey && templates && templates.length > 0) {
-      setSelectedKey(templates[0]!.key);
-    }
-  }, [templates, selectedKey]);
+  // Derived during render, not synced in an effect: until the user picks a
+  // template we simply fall back to the first one, so the pane is never blank on
+  // arrival. Doing this in a useEffect would set state in response to state and
+  // cost an extra render pass for no benefit.
+  const selectedKey = pickedKey ?? templates?.[0]?.key ?? null;
 
   return (
     <div className="flex h-[calc(100vh-11rem)] gap-4">
@@ -58,7 +77,7 @@ export function EmailTemplateEditor() {
               <li key={t.key}>
                 <button
                   type="button"
-                  onClick={() => setSelectedKey(t.key)}
+                  onClick={() => setPickedKey(t.key)}
                   className={cn(
                     'flex w-full items-start gap-2.5 px-3 py-3 text-left transition-colors',
                     selectedKey === t.key ? 'bg-accent' : 'hover:bg-accent/50',
@@ -94,37 +113,52 @@ export function EmailTemplateEditor() {
   );
 }
 
+/**
+ * Waits for the row, then hands it to the form as a prop.
+ *
+ * The split exists so TemplateForm can initialise its state DIRECTLY from the
+ * loaded template rather than starting empty and back-filling in an effect. That
+ * removes a frame where `dirty` compared the real subject against '' (making a
+ * freshly-opened template look edited), and removes the effect entirely.
+ */
 function TemplateDetail({ templateKey }: { templateKey: string }) {
   const { data, isLoading } = useEmailTemplate(templateKey);
+
+  if (isLoading || !data) {
+    return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
+  }
+  return <TemplateForm template={data} />;
+}
+
+function TemplateForm({ template }: { template: EmailTemplateDetail }) {
   const update = useUpdateEmailTemplate();
 
-  const [subject, setSubject] = useState('');
-  const [html, setHtml] = useState('');
+  // useState-from-a-prop is intentional here and should NOT be "fixed" to a
+  // derived value: this is an editable form, so the local copy has to be able to
+  // diverge from the server row — that divergence IS `dirty` below. Seeded once
+  // on mount, and the parent keys on the template so switching templates
+  // remounts with fresh initial state (React's documented alternative to
+  // resetting state in an effect).
+  const [subject, setSubject] = useState(template.subject);
+  const [html, setHtml] = useState(template.html);
   const htmlRef = useRef<HTMLTextAreaElement>(null);
 
-  // Seed the editor once the row arrives. Keyed remount (see parent) means this
-  // never has to reconcile a switch between templates.
-  useEffect(() => {
-    if (data) {
-      setSubject(data.subject);
-      setHtml(data.html);
-    }
-  }, [data]);
-
-  const dirty = !!data && (subject !== data.subject || html !== data.html);
+  // After a successful save the query refetches, `template` updates, and this
+  // flips back to false without any extra bookkeeping.
+  const dirty = subject !== template.subject || html !== template.html;
   useUnsavedChangesWarning(dirty);
 
   const onSave = useCallback(() => {
     if (!dirty) return;
     update.mutate(
-      { key: templateKey, subject, html },
+      { key: template.key, subject, html },
       {
         onSuccess: () => toast.success('Template saved'),
         onError: (err: unknown) =>
           toast.error(err instanceof Error ? err.message : 'Could not save template'),
       },
     );
-  }, [dirty, update, templateKey, subject, html]);
+  }, [dirty, update, template.key, subject, html]);
 
   /** Insert a `{{variable}}` at the cursor so nobody has to type the braces. */
   const insertVariable = useCallback(
@@ -147,10 +181,6 @@ function TemplateDetail({ templateKey }: { templateKey: string }) {
     },
     [html],
   );
-
-  if (isLoading || !data) {
-    return <div className="p-6 text-sm text-muted-foreground">Loading…</div>;
-  }
 
   return (
     <div className="flex h-full flex-col">
@@ -182,7 +212,7 @@ function TemplateDetail({ templateKey }: { templateKey: string }) {
         <TooltipProvider delayDuration={150}>
           <div className="flex flex-wrap items-center gap-1.5">
             <span className="text-xs text-muted-foreground">Variables:</span>
-            {data.variables.map((v) => (
+            {template.variables.map((v) => (
               <Tooltip key={v.key}>
                 <TooltipTrigger asChild>
                   <button
@@ -194,7 +224,7 @@ function TemplateDetail({ templateKey }: { templateKey: string }) {
                   </button>
                 </TooltipTrigger>
                 <TooltipContent>
-                  {v.label} — e.g. &ldquo;{v.sample}&rdquo;. Click to insert.
+                  {v.label}. Example: &ldquo;{v.sample}&rdquo;. Click to insert.
                 </TooltipContent>
               </Tooltip>
             ))}
@@ -211,6 +241,7 @@ function TemplateDetail({ templateKey }: { templateKey: string }) {
         <TabsContent value="html" className="min-h-0 flex-1 p-4 pt-3">
           <textarea
             ref={htmlRef}
+            aria-label={`HTML body for the ${template.name} email`}
             value={html}
             onChange={(e) => setHtml(e.target.value)}
             spellCheck={false}
@@ -219,7 +250,7 @@ function TemplateDetail({ templateKey }: { templateKey: string }) {
         </TabsContent>
 
         <TabsContent value="preview" className="min-h-0 flex-1 p-4 pt-3">
-          <TemplatePreview html={html} variables={data.variables} />
+          <TemplatePreview html={html} variables={template.variables} />
         </TabsContent>
       </Tabs>
     </div>
@@ -242,12 +273,10 @@ function TemplatePreview({
   html: string;
   variables: EmailTemplateVariable[];
 }) {
-  const [debounced, setDebounced] = useState(html);
-
-  useEffect(() => {
-    const t = setTimeout(() => setDebounced(html), PREVIEW_DEBOUNCE_MS);
-    return () => clearTimeout(t);
-  }, [html]);
+  // Intentionally LAGS the prop — see useDebouncedValue. This is not derived
+  // state that should be computed inline: re-rendering the iframe on every
+  // keystroke of a ~1KB body is what we're avoiding.
+  const debounced = useDebouncedValue(html, PREVIEW_DEBOUNCE_MS);
 
   const rendered = useMemo(
     () => renderTemplatePreview(debounced, variables),
