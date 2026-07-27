@@ -1,11 +1,18 @@
 'use client';
 
+import { useState } from 'react';
+import { X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAgentEditor } from '../agent-editor-context';
 import { FormSection } from '../form-section';
 import { ColorPicker } from '../color-picker';
+
+/** Mirrors the backend cap in `handoverEmailRecipientsSchema`. */
+const MAX_RECIPIENTS = 20;
+const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 function ToggleRow({
   id,
@@ -37,6 +44,7 @@ export function HumanHandoverSettings() {
   const { formData, updateFormData, themeData, updateThemeData } = useAgentEditor();
   const enabled = formData.humanTakeoverEnabled;
   const showButton = formData.showTalkToHumanButton;
+  const emailEnabled = formData.handoverEmailEnabled;
   const handover = themeData.handover;
 
   return (
@@ -173,8 +181,122 @@ export function HumanHandoverSettings() {
               </div>
             )}
           </div>
+
+          {/* Email notification */}
+          <div className="space-y-4 border-t pt-6">
+            <ToggleRow
+              id="handoverEmailEnabled"
+              label="Email the team when a visitor asks for a human"
+              description="Sent immediately. The in-app alert, sound and browser popup always fire — this is the email on top."
+              checked={emailEnabled}
+              onChange={(v) => updateFormData('handoverEmailEnabled', v)}
+            />
+
+            {emailEnabled && (
+              <EmailRecipientsField
+                recipients={formData.handoverEmailRecipients}
+                onChange={(next) => updateFormData('handoverEmailRecipients', next)}
+              />
+            )}
+          </div>
         </>
       )}
     </FormSection>
+  );
+}
+
+/**
+ * Recipient list for the handover email.
+ *
+ * Empty is a meaningful, documented state (everyone in the org), so the empty
+ * case gets explicit helper text rather than reading as "not configured yet".
+ */
+function EmailRecipientsField({
+  recipients,
+  onChange,
+}: {
+  recipients: string[];
+  onChange: (next: string[]) => void;
+}) {
+  const [draft, setDraft] = useState('');
+  const [error, setError] = useState<string | null>(null);
+
+  const add = () => {
+    const email = draft.trim().toLowerCase();
+    if (!email) return;
+    if (!EMAIL_RE.test(email)) {
+      setError('Enter a valid email address');
+      return;
+    }
+    if (recipients.includes(email)) {
+      setError('That address is already on the list');
+      return;
+    }
+    if (recipients.length >= MAX_RECIPIENTS) {
+      setError(`At most ${MAX_RECIPIENTS} addresses`);
+      return;
+    }
+    onChange([...recipients, email]);
+    setDraft('');
+    setError(null);
+  };
+
+  return (
+    <div className="space-y-2">
+      <Label htmlFor="handoverEmailRecipients" className="text-sm font-medium text-foreground">
+        Send to
+      </Label>
+      <p className="text-sm text-muted-foreground">
+        Leave empty to email everyone in your organization. Add addresses to send
+        to a shared inbox instead — useful for people without a dashboard login.
+      </p>
+
+      {recipients.length > 0 && (
+        <div className="flex flex-wrap gap-1.5 pb-1">
+          {recipients.map((email) => (
+            <span
+              key={email}
+              className="inline-flex items-center gap-1 rounded-md bg-muted px-2 py-1 text-xs text-foreground"
+            >
+              {email}
+              <button
+                type="button"
+                onClick={() => onChange(recipients.filter((e) => e !== email))}
+                aria-label={`Remove ${email}`}
+                className="text-muted-foreground transition-colors hover:text-destructive"
+              >
+                <X className="size-3" />
+              </button>
+            </span>
+          ))}
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <Input
+          id="handoverEmailRecipients"
+          type="email"
+          value={draft}
+          onChange={(e) => {
+            setDraft(e.target.value);
+            setError(null);
+          }}
+          onKeyDown={(e) => {
+            // Enter must not bubble into a form submit — this is an
+            // add-to-list action, not a save.
+            if (e.key === 'Enter' || e.key === ',') {
+              e.preventDefault();
+              add();
+            }
+          }}
+          placeholder="support@yourcompany.com"
+          maxLength={200}
+        />
+        <Button type="button" variant="outline" onClick={add} disabled={!draft.trim()}>
+          Add
+        </Button>
+      </div>
+      {error && <p className="text-sm text-destructive">{error}</p>}
+    </div>
   );
 }

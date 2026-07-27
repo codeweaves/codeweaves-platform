@@ -8,6 +8,7 @@ import { ConfigService } from '@nestjs/config';
 import { randomUUID } from 'crypto';
 import { PrismaService } from './prisma.service';
 import { EmailService } from './email.service';
+import { EmailTemplateService } from './email-template.service';
 import { ClerkManagementService } from './clerk-management.service';
 import { InvitationStatus, Prisma } from '@prisma/client';
 import { CreateInvitationDto, InvitationListQuery } from '../models/invitation.dto';
@@ -24,6 +25,7 @@ export class InvitationsService {
   constructor(
     private prisma: PrismaService,
     private emailService: EmailService,
+    private readonly emailTemplates: EmailTemplateService,
     private configService: ConfigService,
     private clerkManagement: ClerkManagementService,
     private readonly invitationLogger: InvitationLoggerService,
@@ -367,11 +369,17 @@ export class InvitationsService {
     }
   }
 
+  /**
+   * Send the invite using the DB-backed TEAM_INVITATION template, so the copy
+   * can be changed from Utilities → Email without a deploy. Rendering (and the
+   * escaping of every substituted value) lives in EmailTemplateService.
+   */
   private async sendInvitationEmail(
     invitation: {
       email: string;
       token: string;
       reissueToken: string;
+      organizationId?: string | null;
     },
     passwordSetupUrl: string | null,
   ) {
@@ -388,16 +396,43 @@ export class InvitationsService {
       ? 'Set Your Password'
       : 'Create Your Account';
 
-    await this.emailService.send({
-      to: invitation.email,
-      subject: 'You have been invited to Klivo',
-      html: `
-        <h1>Welcome to Klivo!</h1>
-        <p>You have been invited to join the platform.</p>
-        <p>Click the link below to ${actionLabel.toLowerCase()}:</p>
-        <a href="${actionUrl}">${actionLabel}</a>
-        <p>This link expires in ${INVITATION_EXPIRY_DAYS} days.</p>
-      `,
-    });
+    // Platform-level invites have no organization; the template reads naturally
+    // with the product name in that slot.
+    let orgName = 'Klivo';
+    if (invitation.organizationId) {
+      const org = await this.prisma.organization.findUnique({
+        where: { id: invitation.organizationId },
+        select: { name: true },
+      });
+      if (org?.name) orgName = org.name;
+    }
+
+    try {
+      const { subject, html, text } = await this.emailTemplates.render(
+        'TEAM_INVITATION',
+        {
+          orgName,
+          actionUrl,
+          actionLabel,
+          expiresIn: `${INVITATION_EXPIRY_DAYS} days`,
+        },
+      );
+
+      await this.emailService.send({
+        to: invitation.email,
+        subject,
+        html,
+        text,
+        tags: { type: 'TEAM_INVITATION' },
+      });
+    } catch (error) {
+      // Matches EmailService's own contract: a mail problem must not roll back
+      // an invitation that is already created in the DB (and in Clerk).
+      this.log.error(
+        'sendInvitationEmail',
+        'failed to render or send the invitation email',
+        error,
+      );
+    }
   }
 }

@@ -17,6 +17,7 @@ import { AgentCacheModule } from '../common/cache/agent-cache.module';
 import { WidgetCorsCacheModule } from '../common/cache/widget-cors-cache.module';
 import { ConversationsModule } from './conversations.module';
 import { HandoverModule } from './handover.module';
+import { NotificationsModule } from './notifications.module';
 import { ConversationClassifierModule } from './conversation-classifier.module';
 import { DataExtractionModule } from './data-extraction.module';
 import { EventLogRetentionModule } from './event-log-retention.module';
@@ -63,6 +64,7 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     WidgetCorsCacheModule,
     ConversationsModule,
     HandoverModule,
+    NotificationsModule,
     ConversationClassifierModule,
     DataExtractionModule,
     EventLogRetentionModule,

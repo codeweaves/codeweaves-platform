@@ -4,6 +4,7 @@ import { ConfigService } from '@nestjs/config';
 import { InvitationsService } from '../../../src/services/invitations.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { EmailService } from '../../../src/services/email.service';
+import { EmailTemplateService } from '../../../src/services/email-template.service';
 import { ClerkManagementService } from '../../../src/services/clerk-management.service';
 import { InvitationLoggerService } from '../../../src/common/logger/invitation.logger';
 import { InvitationStatus, Prisma, Role } from '@prisma/client';
@@ -24,11 +25,18 @@ describe('InvitationsService', () => {
       delete: jest.fn(),
       count: jest.fn(),
     },
+    // The invite template greets the inviting organization by name.
+    organization: {
+      findUnique: jest.fn(),
+    },
   };
 
   const mockEmailService = {
     send: jest.fn(),
   };
+
+  // The invite body now comes from the DB-backed TEAM_INVITATION template.
+  const mockEmailTemplates = { render: jest.fn() };
 
   const mockConfigService = {
     get: (key: string, defaultValue?: string) => {
@@ -60,11 +68,21 @@ describe('InvitationsService', () => {
   };
 
   beforeEach(async () => {
+    // jest.config sets resetMocks: true, so implementations are (re)established
+    // here rather than at declaration.
+    mockEmailTemplates.render.mockResolvedValue({
+      subject: 'You have been invited to Klivo',
+      html: '<p>invite</p>',
+      text: 'invite',
+    });
+    mockPrisma.organization.findUnique.mockResolvedValue({ name: 'Test Org' });
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InvitationsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EmailService, useValue: mockEmailService },
+        { provide: EmailTemplateService, useValue: mockEmailTemplates },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ClerkManagementService, useValue: mockClerkManagement },
         {
@@ -204,11 +222,55 @@ describe('InvitationsService', () => {
 
       await service.create(createDto, 'user-uuid-1');
 
+      // The body now comes from the DB-backed TEAM_INVITATION template, so the
+      // assertion is on the variables handed to the renderer rather than on
+      // inline HTML (which the founders can now edit at will).
+      expect(mockEmailTemplates.render).toHaveBeenCalledWith(
+        'TEAM_INVITATION',
+        expect.objectContaining({
+          orgName: 'Test Org',
+          actionLabel: 'Set Your Password',
+          expiresIn: '7 days',
+        }),
+      );
       expect(mockEmailService.send).toHaveBeenCalledWith({
         to: mockInvitation.email,
         subject: 'You have been invited to Klivo',
-        html: expect.stringContaining('Set Your Password'),
+        html: '<p>invite</p>',
+        text: 'invite',
+        tags: { type: 'TEAM_INVITATION' },
       });
+    });
+
+    it('falls back to the product name when the invite has no organization', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
+      mockPrisma.userInvitation.create.mockResolvedValue({
+        ...mockInvitation,
+        organizationId: null,
+      });
+
+      await service.create(createDto, 'user-uuid-1');
+
+      expect(mockPrisma.organization.findUnique).not.toHaveBeenCalled();
+      expect(mockEmailTemplates.render).toHaveBeenCalledWith(
+        'TEAM_INVITATION',
+        expect.objectContaining({ orgName: 'Klivo' }),
+      );
+    });
+
+    // An invitation is already persisted (and created in Clerk) by this point —
+    // a template/mail problem must not roll it back.
+    it('still creates the invitation when the email render fails', async () => {
+      mockPrisma.user.findUnique.mockResolvedValue(null);
+      mockPrisma.userInvitation.findFirst.mockResolvedValue(null);
+      mockPrisma.userInvitation.create.mockResolvedValue(mockInvitation);
+      mockEmailTemplates.render.mockRejectedValue(new Error('template missing'));
+
+      const result = await service.create(createDto, 'user-uuid-1');
+
+      expect(result).toEqual(mockInvitation);
+      expect(mockEmailService.send).not.toHaveBeenCalled();
     });
 
     it('should create a Clerk invitation and store its id on create', async () => {
@@ -244,12 +306,17 @@ describe('InvitationsService', () => {
       const result = await service.create(createDto, 'user-uuid-1');
 
       expect(result).toEqual(mockInvitation);
-      // Email still sent with fallback signup URL
-      expect(mockEmailService.send).toHaveBeenCalledWith({
-        to: mockInvitation.email,
-        subject: 'You have been invited to Klivo',
-        html: expect.stringContaining('Create Your Account'),
-      });
+      // Email still sent, with the fallback signup URL + label.
+      expect(mockEmailTemplates.render).toHaveBeenCalledWith(
+        'TEAM_INVITATION',
+        expect.objectContaining({
+          actionLabel: 'Create Your Account',
+          actionUrl: expect.stringContaining('/signup?token='),
+        }),
+      );
+      expect(mockEmailService.send).toHaveBeenCalledWith(
+        expect.objectContaining({ to: mockInvitation.email }),
+      );
     });
   });
 
@@ -431,11 +498,11 @@ describe('InvitationsService', () => {
         'clerk_inv_old',
       );
       expect(mockClerkManagement.createInvitation).toHaveBeenCalled();
-      expect(mockEmailService.send).toHaveBeenCalledWith(
-        expect.objectContaining({
-          html: expect.stringContaining('Set Your Password'),
-        }),
+      expect(mockEmailTemplates.render).toHaveBeenCalledWith(
+        'TEAM_INVITATION',
+        expect.objectContaining({ actionLabel: 'Set Your Password' }),
       );
+      expect(mockEmailService.send).toHaveBeenCalled();
     });
   });
 

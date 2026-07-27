@@ -9,6 +9,7 @@ import { WhatsappOutboundService } from '../../../src/modules/whatsapp/whatsapp-
 import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
 import { InternalEventLogger } from '../../../src/common/events/internal.logger';
 import { TracerService } from '../../../src/common/tracer/tracer.service';
+import { NotificationService } from '../../../src/services/notification.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('HandoverService', () => {
@@ -19,6 +20,7 @@ describe('HandoverService', () => {
   const mockPrisma = {
     chatSession: {
       findFirst: jest.fn(),
+      findUnique: jest.fn(),
       findMany: jest.fn(),
       update: jest.fn(),
       updateMany: jest.fn(),
@@ -46,6 +48,8 @@ describe('HandoverService', () => {
   };
 
   const mockTracer = { logAuditEvent: jest.fn().mockResolvedValue(undefined) };
+
+  const mockNotifications = { emit: jest.fn().mockResolvedValue(undefined) };
 
   const clientUser: CurrentUserData = {
     clerkId: 'user_client',
@@ -90,6 +94,7 @@ describe('HandoverService', () => {
         { provide: WhatsappOutboundService, useValue: mockWhatsappOutbound },
         { provide: InternalEventLogger, useValue: mockEvents },
         { provide: TracerService, useValue: mockTracer },
+        { provide: NotificationService, useValue: mockNotifications },
         PiiDetectionService,
       ],
     }).compile();
@@ -188,6 +193,147 @@ describe('HandoverService', () => {
     it('never throws (fail-open) when the DB write fails', async () => {
       mockPrisma.chatSession.updateMany.mockRejectedValue(new Error('db down'));
       await expect(service.raiseRequested(ctx, 'USER_REQUESTED')).resolves.toBeUndefined();
+    });
+  });
+
+  // The dashboard notification is fired off the hot path (`void`), so these
+  // assertions flush the microtask queue before checking.
+  describe('handover-requested notification', () => {
+    const flush = () => new Promise((resolve) => setImmediate(resolve));
+
+    const agentRow = (overrides: Record<string, unknown> = {}) => ({
+      agent: {
+        id: 'agent-1',
+        name: 'Support Bot',
+        handoverEmailEnabled: false,
+        handoverEmailRecipients: [],
+        organization: { name: 'Acme Corp' },
+        ...overrides,
+      },
+    });
+
+    beforeEach(() => {
+      mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.chatSession.findUnique.mockResolvedValue(agentRow());
+    });
+
+    it('raises an URGENT notification naming the agent', async () => {
+      await service.raiseRequested(ctx, 'USER_REQUESTED');
+      await flush();
+
+      expect(mockNotifications.emit).toHaveBeenCalledWith(
+        expect.objectContaining({
+          organizationId: orgId,
+          agentId: 'agent-1',
+          type: 'HANDOVER_REQUESTED',
+          severity: 'URGENT',
+          title: 'A visitor asked for a human on Support Bot',
+          entityType: 'conversation',
+          entityId: 'sess-pub',
+        }),
+      );
+    });
+
+    // The title rides the socket into a toast and an OS popup — it must carry
+    // no visitor message content.
+    it('puts no visitor content in the title', async () => {
+      await service.raiseRequested(ctx, 'USER_REQUESTED');
+      await flush();
+
+      const input = mockNotifications.emit.mock.calls[0][0] as { title: string };
+      expect(input.title).toBe('A visitor asked for a human on Support Bot');
+    });
+
+    it('passes email off when the agent has the toggle off', async () => {
+      await service.raiseRequested(ctx, 'USER_REQUESTED');
+      await flush();
+
+      const input = mockNotifications.emit.mock.calls[0][0] as {
+        email: { enabled: boolean };
+      };
+      expect(input.email.enabled).toBe(false);
+    });
+
+    it('passes the agent recipients through when the toggle is on', async () => {
+      mockPrisma.chatSession.findUnique.mockResolvedValue(
+        agentRow({
+          handoverEmailEnabled: true,
+          handoverEmailRecipients: ['ops@acme.com'],
+        }),
+      );
+
+      await service.raiseRequested(ctx, 'USER_REQUESTED');
+      await flush();
+
+      const input = mockNotifications.emit.mock.calls[0][0] as {
+        email: {
+          enabled: boolean;
+          recipients: string[];
+          templateKey: string;
+          vars: Record<string, string>;
+        };
+      };
+      expect(input.email.enabled).toBe(true);
+      expect(input.email.recipients).toEqual(['ops@acme.com']);
+      expect(input.email.templateKey).toBe('HANDOVER_REQUESTED');
+      expect(input.email.vars).toMatchObject({
+        orgName: 'Acme Corp',
+        agentName: 'Support Bot',
+      });
+    });
+
+    // A publicSessionId is a bearer credential for the unauthenticated public
+    // chat endpoints, so it must never be handed to the email layer. The link is
+    // built from the notification id instead (NotificationService.deepLink).
+    it('never puts the session id in the email variables', async () => {
+      mockPrisma.chatSession.findUnique.mockResolvedValue(
+        agentRow({
+          handoverEmailEnabled: true,
+          handoverEmailRecipients: ['ops@acme.com'],
+        }),
+      );
+
+      await service.raiseRequested(ctx, 'USER_REQUESTED');
+      await flush();
+
+      const input = mockNotifications.emit.mock.calls[0][0] as {
+        email: { vars: Record<string, string> };
+      };
+      expect(JSON.stringify(input.email.vars)).not.toContain('sess-pub');
+      expect(input.email.vars).not.toHaveProperty('conversationUrl');
+    });
+
+    it('does not notify when the flip was a no-op', async () => {
+      mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 0 });
+      await service.raiseRequested(ctx, 'USER_REQUESTED');
+      await flush();
+      expect(mockNotifications.emit).not.toHaveBeenCalled();
+    });
+
+    it('skips the notification when the session has no agent', async () => {
+      mockPrisma.chatSession.findUnique.mockResolvedValue(null);
+      await service.raiseRequested(ctx, 'USER_REQUESTED');
+      await flush();
+      expect(mockNotifications.emit).not.toHaveBeenCalled();
+    });
+
+    it('never lets a notification failure break the escalation', async () => {
+      mockNotifications.emit.mockRejectedValueOnce(new Error('notify down'));
+      await expect(
+        service.raiseRequested(ctx, 'USER_REQUESTED'),
+      ).resolves.toBeUndefined();
+      await flush();
+      // The escalation itself still happened.
+      expect(mockRealtime.emitHandover).toHaveBeenCalled();
+    });
+
+    it('never lets an agent lookup failure break the escalation', async () => {
+      mockPrisma.chatSession.findUnique.mockRejectedValueOnce(new Error('db down'));
+      await expect(
+        service.raiseRequested(ctx, 'USER_REQUESTED'),
+      ).resolves.toBeUndefined();
+      await flush();
+      expect(mockRealtime.emitHandover).toHaveBeenCalled();
     });
   });
 

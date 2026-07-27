@@ -105,32 +105,40 @@ enum WhatsappTemplateStatus {
 }
 
 model Organization {
-  id        String    @id @default(uuid())
-  name      String
-  slug      String    @unique
-  users     User[]
-  agents    Agent[]
-  createdAt DateTime  @default(now())
-  updatedAt DateTime  @updatedAt
-  deletedAt DateTime?
+  id            String         @id @default(uuid())
+  name          String
+  slug          String         @unique
+  users         User[]
+  agents        Agent[]
+  notifications Notification[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+  deletedAt     DateTime?
 
   @@index([slug])
   @@map("organizations")
 }
 
 model User {
-  id                String        @id @default(uuid())
-  email             String        @unique
-  name              String?
-  role              Role          @default(CLIENT)
-  clerkId           String?       @unique
-  organizationId    String?
-  organization      Organization? @relation(fields: [organizationId], references: [id])
+  id                  String             @id @default(uuid())
+  email               String             @unique
+  name                String?
+  role                Role               @default(CLIENT)
+  clerkId             String?            @unique
+  organizationId      String?
+  organization        Organization?      @relation(fields: [organizationId], references: [id])
   // Chat sessions this user has taken over in the live-handover Inbox.
-  takenOverSessions ChatSession[] @relation("SessionTakenOverBy")
-  deletedAt         DateTime?
-  createdAt         DateTime      @default(now())
-  updatedAt         DateTime      @updatedAt
+  takenOverSessions   ChatSession[]      @relation("SessionTakenOverBy")
+  // Cursor powering the notification-bell BADGE: set to now() when the panel is
+  // opened. Unread count = notifications in my org created after this — a single
+  // indexed count with no join, cheap enough to hit on every page load. Per-item
+  // "which ones are bold" lives in NotificationRead and is only read when the
+  // panel is actually open.
+  notificationsSeenAt DateTime?
+  notificationReads   NotificationRead[]
+  deletedAt           DateTime?
+  createdAt           DateTime           @default(now())
+  updatedAt           DateTime           @updatedAt
 
   @@index([organizationId])
   @@index([clerkId])
@@ -160,61 +168,69 @@ model UserInvitation {
 }
 
 model Agent {
-  id                    String             @id @default(uuid())
-  publicId              String             @unique @db.VarChar(8)
-  name                  String
-  status                AgentStatus        @default(ACTIVE)
-  organizationId        String
-  organization          Organization       @relation(fields: [organizationId], references: [id])
-  allowedDomains        String[]
-  hmacEnabled           Boolean            @default(false)
-  voiceEnabled          Boolean            @default(false)
-  voiceConfig           Json?              @db.JsonB
+  id                      String             @id @default(uuid())
+  publicId                String             @unique @db.VarChar(8)
+  name                    String
+  status                  AgentStatus        @default(ACTIVE)
+  organizationId          String
+  organization            Organization       @relation(fields: [organizationId], references: [id])
+  allowedDomains          String[]
+  hmacEnabled             Boolean            @default(false)
+  voiceEnabled            Boolean            @default(false)
+  voiceConfig             Json?              @db.JsonB
   // Per-agent AI orchestration config: routing mode (n8n | direct), model,
   // temperature, context strategy, fallback models, RAG settings.
   // Null/absent = defaults to 'n8n' routing for backwards compatibility.
-  aiConfig              Json?              @db.JsonB
+  aiConfig                Json?              @db.JsonB
   // Category names this agent's conversations get classified into by the
   // post-session AI classifier (e.g. ["Pricing", "Support", "Refunds"]).
   // Empty array disables categorisation for the agent.
-  categoryKeywords      String[]           @default([])
+  categoryKeywords        String[]           @default([])
   // How long a single chat session can live (from createdAt) before the
   // backend rotates the visitor to a new sessionId. Tighter values produce
   // more "distinct conversations" in analytics; looser values let one visit
   // stay continuous longer. Range 1-168 (1h to 1 week), default 6h.
-  sessionLifetimeHours  Int                @default(6)
+  sessionLifetimeHours    Int                @default(6)
   // Languages this agent's conversations get classified against by the same
   // post-session classifier. Codes are mostly ISO 639-1 (en, hi, mr, …) plus
   // one non-standard value: `hinglish` (code-mixed Hindi-English, Latin script).
   // Empty array disables language detection for the agent.
-  supportedLanguages    String[]           @default([])
+  supportedLanguages      String[]           @default([])
   // Up to 3 phrases the agent replies with when it can't answer from its
   // knowledge. Injected into the system prompt; replies are fuzzy-matched
   // against these to flag "couldn't answer" in analytics. Empty = feature off.
-  fallbackPhrases       String[]           @default([])
+  fallbackPhrases         String[]           @default([])
   // --- Human handover (live agent takeover) ---
   // Master switch: when false the whole takeover feature is off for this bot
   // (no triggers, no flag, no Inbox entries).
-  humanTakeoverEnabled  Boolean            @default(false)
+  humanTakeoverEnabled    Boolean            @default(false)
   // Optional: render a "Talk to a human" button in the widget. Only meaningful
   // when humanTakeoverEnabled is true.
-  showTalkToHumanButton Boolean            @default(false)
+  showTalkToHumanButton   Boolean            @default(false)
   // What the visitor sees in the widget when a teammate connects, e.g.
   // "You're now chatting with our team". Null = a sensible built-in default.
-  humanConnectedLabel   String?            @db.VarChar(160)
-  systemPrompt          String?            @db.Text
-  welcomeMessage        String?
-  secret                AgentSecret?
-  theme                 AgentTheme?
-  knowledge             AgentKnowledge?
-  whatsappChannel       WhatsappChannel?
-  whatsappTemplates     WhatsappTemplate[]
-  dataFields            AgentDataField[]
-  collectedData         CollectedData[]
-  chatSessions          ChatSession[]
-  createdAt             DateTime           @default(now())
-  updatedAt             DateTime           @updatedAt
-  deletedAt             DateTime?
+  humanConnectedLabel     String?            @db.VarChar(160)
+  // Email the team the moment a visitor asks for a human. Only meaningful when
+  // humanTakeoverEnabled is true (the master switch gates the whole feature).
+  handoverEmailEnabled    Boolean            @default(false)
+  // Who to email. EMPTY = every member of the owning organization, at their
+  // login email. Non-empty = exactly these addresses (e.g. a shared support
+  // inbox that has no dashboard login). Capped at 20 by the DTO.
+  handoverEmailRecipients String[]           @default([])
+  systemPrompt            String?            @db.Text
+  welcomeMessage          String?
+  secret                  AgentSecret?
+  theme                   AgentTheme?
+  knowledge               AgentKnowledge?
+  whatsappChannel         WhatsappChannel?
+  whatsappTemplates       WhatsappTemplate[]
+  dataFields              AgentDataField[]
+  collectedData           CollectedData[]
+  chatSessions            ChatSession[]
+  notifications           Notification[]
+  createdAt               DateTime           @default(now())
+  updatedAt               DateTime           @updatedAt
+  deletedAt               DateTime?
 
   @@index([publicId])
   @@index([organizationId])
@@ -619,20 +635,20 @@ model File {
 }
 
 model AuditLog {
-  id            String   @id @default(uuid())
-  correlationId String?
-  userId        String?
-  clerkId       String?
-  contextId     String
+  id             String   @id @default(uuid())
+  correlationId  String?
+  userId         String?
+  clerkId        String?
+  contextId      String
   // Typed tenancy scope (contextId is polymorphic — agentId/userId/invitationId
   // depending on the caller — so it can't be queried by scope). These give a
   // reliable "what happened where" and let erasure delete an org's audit trail
   // by organizationId. Nullable: system/global events have neither.
   organizationId String?
   agentId        String?
-  event         String
-  data          Json
-  createdAt     DateTime @default(now())
+  event          String
+  data           Json
+  createdAt      DateTime @default(now())
 
   @@index([event])
   @@index([contextId])
@@ -800,4 +816,84 @@ model PiiToken {
   @@unique([chatSessionId, valueHash])
   @@index([organizationId])
   @@map("pii_tokens")
+}
+
+// ---------------------------------------------------------------------------
+// Dashboard notifications
+// ---------------------------------------------------------------------------
+
+enum NotificationType {
+  HANDOVER_REQUESTED
+}
+
+enum NotificationSeverity {
+  INFO
+  URGENT
+}
+
+// One row per EVENT (not per recipient) — a five-person team seeing the same
+// handover request is one row, not five. Read state is fanned out on read via
+// NotificationRead, which keeps write amplification flat as orgs grow.
+//
+// `title` is composed server-side from a fixed format string and is safe to
+// render in a toast: it NEVER contains visitor message text, matching the
+// realtime gateway's "no chat content on the wire" invariant.
+model Notification {
+  id             String               @id @default(uuid())
+  organizationId String
+  organization   Organization         @relation(fields: [organizationId], references: [id])
+  agentId        String?
+  agent          Agent?               @relation(fields: [agentId], references: [id])
+  type           NotificationType
+  severity       NotificationSeverity @default(INFO)
+  title          String               @db.VarChar(300)
+  body           String?              @db.VarChar(1000)
+  // Deep-link target — e.g. entityType 'conversation', entityId = publicSessionId
+  entityType     String?              @db.VarChar(40)
+  entityId       String?
+  createdAt      DateTime             @default(now())
+
+  reads NotificationRead[]
+
+  // Org-scoped bell list + badge count (the common case).
+  @@index([organizationId, createdAt(sort: Desc)])
+  // Platform staff (ADMIN/SUPER_ADMIN with no org) read ACROSS orgs, so their
+  // list/count filters on createdAt alone and can't use the composite above.
+  @@index([createdAt(sort: Desc)])
+  @@map("notifications")
+}
+
+// Per-user read state. Written only when a user actually opens/clicks an item,
+// so it stays small relative to `notifications`.
+model NotificationRead {
+  notificationId String
+  notification   Notification @relation(fields: [notificationId], references: [id], onDelete: Cascade)
+  userId         String
+  user           User         @relation(fields: [userId], references: [id], onDelete: Cascade)
+  readAt         DateTime     @default(now())
+
+  @@id([notificationId, userId])
+  @@index([userId])
+  @@map("notification_reads")
+}
+
+// Transactional email bodies, editable from the dashboard (Utilities → Email)
+// so copy changes never need a deploy. Rows are SEEDED BY MIGRATION and the API
+// exposes read + update only — never create/delete. The row set is therefore
+// always exactly what the code sends, so a template can't be orphaned and a
+// send can't reference a deleted key.
+//
+// Change history is the audit_logs trail (EMAIL_TEMPLATE_UPDATED), not a
+// versioning table.
+model EmailTemplate {
+  // Machine key the code calls — e.g. 'HANDOVER_REQUESTED', 'TEAM_INVITATION'.
+  key         String   @id @db.VarChar(60)
+  name        String   @db.VarChar(120)
+  description String?  @db.VarChar(300)
+  subject     String   @db.VarChar(300)
+  html        String   @db.Text
+  updatedAt   DateTime @updatedAt
+  updatedBy   String?
+
+  @@map("email_templates")
 }

@@ -20,6 +20,7 @@ import { OrganizationsService } from '../../src/services/organizations.service';
 import { InvitationsService } from '../../src/services/invitations.service';
 import { PrismaService } from '../../src/services/prisma.service';
 import { EmailService } from '../../src/services/email.service';
+import { EmailTemplateService } from '../../src/services/email-template.service';
 import { ClerkManagementService } from '../../src/services/clerk-management.service';
 import { OrganizationLoggerService } from '../../src/common/logger/organization.logger';
 import { InvitationLoggerService } from '../../src/common/logger/invitation.logger';
@@ -79,6 +80,8 @@ describe('Tenant Isolation — Evil Twin', () => {
   };
 
   const mockEmailService = { send: jest.fn() };
+  // Invite bodies come from the DB-backed TEAM_INVITATION template.
+  const mockEmailTemplates = { render: jest.fn() };
   const mockConfigService = {
     get: (key: string, defaultValue?: string) => {
       const config: Record<string, string> = {
@@ -107,6 +110,7 @@ describe('Tenant Isolation — Evil Twin', () => {
         InvitationsService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EmailService, useValue: mockEmailService },
+        { provide: EmailTemplateService, useValue: mockEmailTemplates },
         { provide: ConfigService, useValue: mockConfigService },
         { provide: ClerkManagementService, useValue: mockClerkManagement },
         { provide: OrganizationLoggerService, useValue: { logOrganizationCreated: jest.fn(), logOrganizationCreationException: jest.fn(), logOrganizationUpdated: jest.fn(), logOrganizationUpdateException: jest.fn(), logOrganizationCreationFailed: jest.fn() } },
@@ -123,6 +127,11 @@ describe('Tenant Isolation — Evil Twin', () => {
 
     jest.clearAllMocks();
     mockEmailService.send.mockResolvedValue({ id: 'email-id' });
+    mockEmailTemplates.render.mockResolvedValue({
+      subject: 'You have been invited to Klivo',
+      html: '<p>invite</p>',
+      text: 'invite',
+    });
     mockClerkManagement.createInvitation.mockResolvedValue({
       id: 'clerk_inv_new',
       url: 'https://accounts.klivo.app/accept?__clerk_ticket=abc123',

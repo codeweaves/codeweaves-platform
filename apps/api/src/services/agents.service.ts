@@ -281,6 +281,12 @@ export class AgentsService {
           ...(dto.humanConnectedLabel !== undefined && {
             humanConnectedLabel: dto.humanConnectedLabel,
           }),
+          ...(dto.handoverEmailEnabled !== undefined && {
+            handoverEmailEnabled: dto.handoverEmailEnabled,
+          }),
+          ...(dto.handoverEmailRecipients !== undefined && {
+            handoverEmailRecipients: dto.handoverEmailRecipients,
+          }),
         },
         include: { organization: { select: { id: true, name: true } } },
       });

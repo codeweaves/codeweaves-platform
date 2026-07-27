@@ -173,4 +173,36 @@ export class HandoverGateway implements OnGatewayInit, OnGatewayConnection {
     this.server.to(orgRoom(orgId)).emit('message', payload);
     this.server.to(PLATFORM_ROOM).emit('message', payload);
   }
+
+  /**
+   * A dashboard notification (bell + toast + sound + browser popup).
+   *
+   * Org room + platform room, matching {@link emitHandover} and the Inbox
+   * itself: platform staff (ADMIN/SUPER_ADMIN with no org of their own) already
+   * see EVERY organization's handovers in the Inbox, so notifying only the org
+   * left them able to see a waiting conversation but never be told about it.
+   *
+   * The volume concern for platform staff is real but belongs in their own
+   * hands, not here: sound and browser popups are per-device toggles they
+   * control, and the bell is a list they choose to open.
+   *
+   * `title` is composed server-side from a fixed format string and never
+   * carries visitor message text, so this stays inside the gateway's
+   * content-free contract while still giving the toast something to render.
+   */
+  emitNotification(
+    orgId: string,
+    payload: {
+      id: string;
+      type: string;
+      severity: string;
+      title: string;
+      entityType?: string;
+      entityId?: string;
+      createdAt: string;
+    },
+  ): void {
+    this.server.to(orgRoom(orgId)).emit('notification', payload);
+    this.server.to(PLATFORM_ROOM).emit('notification', payload);
+  }
 }

@@ -257,6 +257,20 @@ export const sessionLifetimeHoursSchema = z
   .min(6, 'Session lifetime must be at least 6 hours')
   .max(24, 'Session lifetime must be at most 24 hours');
 
+/**
+ * Extra addresses to notify when a visitor asks for a human. Empty = fall back
+ * to every member of the owning organization.
+ *
+ * Capped at 20 and normalised to lowercase here so the cap and the shape are
+ * enforced at the edge, not just defensively in the mailer. Note this list is
+ * NOT ownership-verified — see the plan's note on why that matters if these
+ * ever become self-serve at scale.
+ */
+export const handoverEmailRecipientsSchema = z
+  .array(z.string().trim().toLowerCase().email('Enter a valid email address'))
+  .max(20, 'At most 20 recipients')
+  .transform((emails) => [...new Set(emails)]);
+
 export const updateAgentSchema = z
   .object({
     name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters').optional(),
@@ -278,6 +292,8 @@ export const updateAgentSchema = z
     humanTakeoverEnabled: z.boolean().optional(),
     showTalkToHumanButton: z.boolean().optional(),
     humanConnectedLabel: z.string().max(160).nullable().optional(),
+    handoverEmailEnabled: z.boolean().optional(),
+    handoverEmailRecipients: handoverEmailRecipientsSchema.optional(),
   })
   .refine(
     (data) =>
@@ -295,7 +311,9 @@ export const updateAgentSchema = z
       data.fallbackPhrases !== undefined ||
       data.humanTakeoverEnabled !== undefined ||
       data.showTalkToHumanButton !== undefined ||
-      data.humanConnectedLabel !== undefined,
+      data.humanConnectedLabel !== undefined ||
+      data.handoverEmailEnabled !== undefined ||
+      data.handoverEmailRecipients !== undefined,
     { message: 'At least one field must be provided' },
   );
 

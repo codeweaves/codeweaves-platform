@@ -35,6 +35,9 @@ export interface Agent {
   humanTakeoverEnabled: boolean;
   showTalkToHumanButton: boolean;
   humanConnectedLabel: string | null;
+  /** Email the team on a handover request. Recipients empty = whole org. */
+  handoverEmailEnabled: boolean;
+  handoverEmailRecipients: string[];
   createdAt: string;
   updatedAt: string;
 }
