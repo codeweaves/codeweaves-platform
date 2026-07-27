@@ -96,6 +96,12 @@ export interface AgentFormData {
   humanTakeoverEnabled: boolean;
   showTalkToHumanButton: boolean;
   humanConnectedLabel: string;
+  /**
+   * Email the team when a visitor asks for a human. `handoverEmailRecipients`
+   * empty = every member of the organization gets it at their login email.
+   */
+  handoverEmailEnabled: boolean;
+  handoverEmailRecipients: string[];
 }
 
 interface AgentEditorContextType {
@@ -459,6 +465,8 @@ export function agentToFormData(
     humanTakeoverEnabled: agent.humanTakeoverEnabled ?? false,
     showTalkToHumanButton: agent.showTalkToHumanButton ?? false,
     humanConnectedLabel: agent.humanConnectedLabel ?? '',
+    handoverEmailEnabled: agent.handoverEmailEnabled ?? false,
+    handoverEmailRecipients: agent.handoverEmailRecipients ?? [],
   };
 }
 

@@ -1,13 +1,10 @@
 'use client';
 
-import Link from 'next/link';
 import { useRouter } from 'next/navigation';
-import { Bell, LogOut, Settings } from 'lucide-react';
+import { LogOut, Settings } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useProfile } from '@/hooks/use-profile';
-import { useInboxCount } from '@/hooks/use-handover';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
-import { Button } from '@/components/ui/button';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -17,38 +14,6 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from '@/components/ui/dropdown-menu';
-
-/**
- * Notifications bell in the top bar. Surfaces the live "waiting for a human"
- * inbox count and links straight to the Inbox. Hidden count at zero.
- */
-export function HeaderNotifications() {
-  const count = useInboxCount();
-  return (
-    <Button
-      asChild
-      variant="ghost"
-      size="icon"
-      className="relative text-foreground [&_svg]:size-4.5"
-    >
-      <Link
-        href="/dashboard/inbox"
-        aria-label={
-          count
-            ? `Inbox: ${count} conversation${count === 1 ? '' : 's'} waiting for a human`
-            : 'Inbox'
-        }
-      >
-        <Bell />
-        {count > 0 && (
-          <span className="absolute right-1 top-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-destructive px-1 text-[10px] font-semibold leading-none text-destructive-foreground tabular-nums ring-2 ring-background">
-            {count > 9 ? '9+' : count}
-          </span>
-        )}
-      </Link>
-    </Button>
-  );
-}
 
 /**
  * Account avatar + dropdown, moved out of the sidebar and into the top bar so

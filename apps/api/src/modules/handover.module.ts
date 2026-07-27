@@ -1,4 +1,4 @@
-import { Module } from '@nestjs/common';
+import { Module, forwardRef } from '@nestjs/common';
 import { HandoverService } from '../services/handover.service';
 import { RealtimeService } from '../services/realtime.service';
 import { HandoverController } from '../controllers/handover/handover.controller';
@@ -7,6 +7,7 @@ import { HandoverGateway } from '../gateways/handover.gateway';
 import { WsAuthService } from '../common/ws/ws-auth.service';
 import { PrismaModule } from './prisma.module';
 import { WhatsappSendModule } from './whatsapp/whatsapp-send.module';
+import { NotificationsModule } from './notifications.module';
 
 /**
  * Live human-handover: the authenticated Inbox controller + the service that
@@ -15,7 +16,7 @@ import { WhatsappSendModule } from './whatsapp/whatsapp-send.module';
  * keyword-trigger / stall hooks on the hot path.
  */
 @Module({
-  imports: [PrismaModule, WhatsappSendModule],
+  imports: [PrismaModule, WhatsappSendModule, forwardRef(() => NotificationsModule)],
   controllers: [HandoverController, HandoverSweepController],
   providers: [HandoverService, RealtimeService, HandoverGateway, WsAuthService],
   exports: [HandoverService, RealtimeService],

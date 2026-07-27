@@ -12,6 +12,7 @@ import {
   Inbox,
   Database,
   Users,
+  Wrench,
   ChevronRight,
   Sparkles,
 } from 'lucide-react';
@@ -45,6 +46,8 @@ const navigation: NavItem[] = [
   { name: 'Collected Data', href: '/dashboard/collected-data', icon: Database, roles: 'all' },
   { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: 'all' },
   { name: 'Team', href: '/dashboard/team', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN'] },
+  // Platform-owner tooling (email template copy, etc.) — not customer-facing.
+  { name: 'Utilities', href: '/dashboard/utilities/email', icon: Wrench, roles: ['SUPER_ADMIN'] },
 ];
 
 /**

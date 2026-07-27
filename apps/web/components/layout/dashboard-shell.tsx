@@ -7,6 +7,7 @@ import { PageHeaderProvider } from './page-header';
 import { SidebarInset, SidebarProvider, useSidebar } from '@/components/ui/sidebar';
 import { useProfile } from '@/hooks/use-profile';
 import { useHandoverRealtime } from '@/hooks/use-handover';
+import { useNotificationRealtime } from '@/hooks/use-notifications';
 
 interface DashboardShellProps {
   children: React.ReactNode;
@@ -39,6 +40,10 @@ export function DashboardShell({ children }: DashboardShellProps) {
   // just the Inbox. The React Query poll is only a backstop now.
   const { profile } = useProfile();
   useHandoverRealtime(profile);
+  // Notification delivery (bell cache + toast + sound + browser popup) shares
+  // the same singleton socket — mounted here so a notification reaches the user
+  // on any dashboard page, not just the Inbox.
+  useNotificationRealtime(profile);
 
   return (
     <PageHeaderProvider>

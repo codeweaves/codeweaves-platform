@@ -300,6 +300,8 @@ function AgentEditorContent() {
         humanTakeoverEnabled: formData.humanTakeoverEnabled,
         showTalkToHumanButton: formData.showTalkToHumanButton,
         humanConnectedLabel: formData.humanConnectedLabel.trim() || null,
+        handoverEmailEnabled: formData.handoverEmailEnabled,
+        handoverEmailRecipients: formData.handoverEmailRecipients,
       };
 
       // Save agent config, webhook, and theme in parallel
@@ -389,6 +391,8 @@ function AgentEditorContent() {
             humanTakeoverEnabled: formData.humanTakeoverEnabled,
             showTalkToHumanButton: formData.showTalkToHumanButton,
             humanConnectedLabel: formData.humanConnectedLabel.trim() || null,
+            handoverEmailEnabled: formData.handoverEmailEnabled,
+            handoverEmailRecipients: formData.handoverEmailRecipients,
           };
 
           const newKnowledge = formData.knowledgeContent.trim()

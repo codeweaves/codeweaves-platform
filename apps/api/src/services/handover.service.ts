@@ -9,6 +9,7 @@ import { Prisma, Role, type HandoverReason, type HandoverState } from '@prisma/c
 import { tool, jsonSchema } from 'ai';
 import { PrismaService } from './prisma.service';
 import { RealtimeService } from './realtime.service';
+import { NotificationService } from './notification.service';
 import { PiiDetectionService } from '../modules/pii/pii-detection.service';
 import { WhatsappOutboundService } from '../modules/whatsapp/whatsapp-outbound.service';
 import { AppLogger } from '../common/logger/app-logger';
@@ -53,6 +54,7 @@ export class HandoverService {
     private readonly piiDetection: PiiDetectionService,
     private readonly events: InternalEventLogger,
     private readonly tracer: TracerService,
+    private readonly notifications: NotificationService,
   ) {}
 
   /**
@@ -207,8 +209,75 @@ export class HandoverService {
 
       await this.realtime.emitHandover(ctx, 'REQUESTED');
       await this.realtime.emitMessage(ctx);
+
+      // Dashboard notification (bell + toast + sound + browser popup, and email
+      // if the agent has it on). Deliberately NOT awaited: this runs on the chat
+      // hot path, and telling the team must never add latency to the visitor's
+      // reply. notifyHandoverRequested swallows everything it can throw.
+      void this.notifyHandoverRequested(ctx);
     } catch (err) {
       this.log.warn('raiseRequested', 'flip failed (fail-open)', {
+        sessionId: ctx.sessionDbId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Raise the "a visitor wants a human" notification.
+   *
+   * Fetches the agent/org names it needs itself rather than widening
+   * {@link HandoverCtx}, because it runs off the hot path (fire-and-forget) and
+   * every other caller of that ctx would otherwise have to carry fields it does
+   * not use.
+   */
+  private async notifyHandoverRequested(ctx: HandoverCtx): Promise<void> {
+    try {
+      const session = await this.prisma.chatSession.findUnique({
+        where: { id: ctx.sessionDbId },
+        select: {
+          agent: {
+            select: {
+              id: true,
+              name: true,
+              handoverEmailEnabled: true,
+              handoverEmailRecipients: true,
+              organization: { select: { name: true } },
+            },
+          },
+        },
+      });
+      const agent = session?.agent;
+      if (!agent) return;
+
+      await this.notifications.emit({
+        organizationId: ctx.organizationId,
+        agentId: agent.id,
+        type: 'HANDOVER_REQUESTED',
+        severity: 'URGENT',
+        // Agent name only — never the visitor's message. This string goes over
+        // the socket and into a browser popup.
+        title: `A visitor asked for a human on ${agent.name}`,
+        // publicSessionId is fine HERE: the notification row and the socket
+        // payload are only ever read by an authenticated member of this org.
+        // It must NOT go into the email — see NotificationService.deepLink,
+        // which builds the email link from the notification id instead.
+        entityType: 'conversation',
+        entityId: ctx.publicSessionId,
+        email: {
+          enabled: agent.handoverEmailEnabled,
+          recipients: agent.handoverEmailRecipients,
+          templateKey: 'HANDOVER_REQUESTED',
+          // `conversationUrl` is deliberately absent — NotificationService fills
+          // it, because only it knows the notification id the link points at.
+          vars: {
+            orgName: agent.organization?.name ?? 'your organization',
+            agentName: agent.name,
+          },
+        },
+      });
+    } catch (err) {
+      this.log.warn('notifyHandoverRequested', 'notification failed (ignored)', {
         sessionId: ctx.sessionDbId,
         err: err instanceof Error ? err.message : String(err),
       });

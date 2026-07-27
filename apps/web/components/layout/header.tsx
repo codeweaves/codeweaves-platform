@@ -3,7 +3,8 @@
 import { Separator } from '@/components/ui/separator';
 import { SidebarTrigger } from '@/components/ui/sidebar';
 import { usePageHeader } from './page-header';
-import { HeaderNotifications, HeaderUser } from './header-user';
+import { HeaderUser } from './header-user';
+import { NotificationBell } from '@/components/features/notifications/notification-bell';
 
 export function Header() {
   const { title, actions } = usePageHeader();
@@ -17,7 +18,7 @@ export function Header() {
       </div>
       {actions && <div className="flex shrink-0 items-center gap-2">{actions}</div>}
       <Separator orientation="vertical" className="mx-1 h-4" />
-      <HeaderNotifications />
+      <NotificationBell />
       <HeaderUser />
     </header>
   );

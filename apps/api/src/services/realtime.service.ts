@@ -67,4 +67,35 @@ export class RealtimeService {
       });
     }
   }
+
+  /**
+   * A dashboard notification for one organization — drives the bell badge, the
+   * toast, the sound and the browser popup. Org room only (see
+   * {@link HandoverGateway.emitNotification}).
+   *
+   * Same fail-open contract as the other emitters: the notification row is
+   * already durable and the bell reconciles on its next fetch, so a socket
+   * problem must never surface to the caller.
+   */
+  async emitNotification(
+    organizationId: string,
+    payload: {
+      id: string;
+      type: string;
+      severity: string;
+      title: string;
+      entityType?: string;
+      entityId?: string;
+      createdAt: string;
+    },
+  ): Promise<void> {
+    try {
+      this.gateway.emitNotification(organizationId, payload);
+    } catch (err) {
+      this.log.warn('emitNotification', 'notification emit failed (ignored)', {
+        organizationId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
 }
