@@ -9,6 +9,7 @@ import { Button } from '@/components/ui/button';
 import { cn } from '@/lib/utils';
 import { useAgentEditor } from '../agent-editor-context';
 import { FormSection } from '../form-section';
+import { FieldLabel } from '../field-label';
 
 /**
  * After removing item `removedIndex` from a list, shift its inline field-error
@@ -126,19 +127,24 @@ export function BehaviorSettings() {
 
           <div className="space-y-2 rounded-lg border p-4">
             <div className="flex items-center justify-between gap-4">
-              <div>
-                <Label
-                  htmlFor="session-lifetime-hours"
-                  className="text-sm font-medium"
-                >
-                  Session lifetime (hours)
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Max length of a single chat session, measured from when it
-                  started. After this, the visitor&apos;s next message begins a new
-                  session (the old one closes). Range 6–24.
-                </p>
-              </div>
+              <FieldLabel
+                htmlFor="session-lifetime-hours"
+                label="Session lifetime (hours)"
+                description="Range 6&ndash;24."
+                info={
+                  <>
+                    <p>
+                      Max length of a single chat session, measured from when it
+                      started.
+                    </p>
+                    <p>
+                      After this the old session closes and the visitor&apos;s next
+                      message begins a new one. Tighter values produce more
+                      &ldquo;distinct conversations&rdquo; in analytics.
+                    </p>
+                  </>
+                }
+              />
               <Input
                 id="session-lifetime-hours"
                 type="number"
@@ -218,7 +224,20 @@ export function BehaviorSettings() {
 
       <FormSection
         title="Fallback Phrases"
-        description="What the agent says when it can't answer from its knowledge. Replies matching these are tracked as the 'couldn't answer' rate in analytics (max 3)."
+        description="What the agent says when it can't answer (max 3)."
+        info={
+          <>
+            <p>
+              Phrases the agent falls back to when it can&apos;t answer from its
+              knowledge.
+            </p>
+            <p>
+              Replies that match these are tracked as the{' '}
+              <strong>&ldquo;couldn&apos;t answer&rdquo; rate</strong> in analytics, so
+              you can see what your knowledge base is missing.
+            </p>
+          </>
+        }
       >
         <div className="space-y-4">
           {fallbackPhrases.map((phrase, index) => {

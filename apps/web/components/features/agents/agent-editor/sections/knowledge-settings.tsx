@@ -6,6 +6,7 @@ import { Upload, FileText, Trash2, Loader2, RefreshCw } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import {
   KNOWLEDGE_UPLOAD_EXTENSIONS,
   MAX_KNOWLEDGE_TEXT_BYTES,
@@ -97,13 +98,28 @@ export function KnowledgeSettings() {
 
   return (
     <div className="space-y-3">
-      <div className="space-y-1">
+      <div className="flex items-center gap-1.5">
         <Label className="text-sm font-medium">Knowledge Base</Label>
-        <p className="text-xs text-muted-foreground">
-          Paste text or upload a file (PDF, DOCX, TXT, Markdown). Prepended to
-          the system prompt on every direct-mode chat turn. Max{' '}
-          {formatBytes(MAX_KNOWLEDGE_TEXT_BYTES)}.
-        </p>
+        <InfoTooltip
+          label="Knowledge Base"
+          content={
+            <>
+              <p>
+                Factual reference material the agent answers from — FAQs, product
+                specs, policies. Prepended to the system prompt on every direct-mode
+                chat turn.
+              </p>
+              <p>
+                Paste text, or upload {KNOWLEDGE_UPLOAD_EXTENSIONS.join(', ')}. Only
+                the extracted text is stored, not the file.
+              </p>
+              <p>
+                Max {formatBytes(MAX_KNOWLEDGE_TEXT_BYTES)} of text, and{' '}
+                {formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)} per upload.
+              </p>
+            </>
+          }
+        />
       </div>
 
       {/* Editable content textarea --------------------------------------- */}
@@ -146,9 +162,8 @@ export function KnowledgeSettings() {
       {/* Actions below the textarea: upload/replace + clear --------------- */}
       <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between">
         <p className="text-xs text-muted-foreground">
-          Supported: {KNOWLEDGE_UPLOAD_EXTENSIONS.join(', ')}. Max upload{' '}
-          {formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)}. Only the extracted text
-          is stored.
+          {KNOWLEDGE_UPLOAD_EXTENSIONS.join(', ')} &middot; max{' '}
+          {formatBytes(MAX_KNOWLEDGE_UPLOAD_BYTES)}
         </p>
         <div className="flex items-center gap-2">
           <input

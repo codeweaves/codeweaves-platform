@@ -13,7 +13,6 @@ import {
   SelectValue,
 } from '@/components/ui/select';
 import { Slider } from '@/components/ui/slider';
-import { Switch } from '@/components/ui/switch';
 import {
   Accordion,
   AccordionContent,
@@ -21,6 +20,8 @@ import {
   AccordionTrigger,
 } from '@/components/ui/accordion';
 import { X, Plus, Zap, Webhook } from 'lucide-react';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { ToggleRow } from '../toggle-row';
 import { useAgentEditor } from '../agent-editor-context';
 import { useProfile } from '@/hooks/use-profile';
 import type { AgentAiConfigDto } from '@repo/validation';
@@ -47,7 +48,10 @@ function isValidDomain(s: string) {
 interface ModelOption {
   value: string;
   label: string;
+  /** One-line summary, shown inline under the select. Keep it scannable. */
   hint: string;
+  /** The caveats and numbers, behind the ⓘ — cost, limits, benchmark figures. */
+  detail: string;
 }
 
 // Curated model shortlist — the five we've benchmarked and proven for
@@ -64,11 +68,41 @@ interface ModelOption {
 //   - Claude Haiku 4.5: fastest TTFT in published benchmarks (~597ms median).
 //     New addition pending integration testing.
 const CURATED_MODELS: ModelOption[] = [
-  { value: 'openai:gpt-4.1', label: 'GPT-4.1 (OpenAI)', hint: 'Best instruction-following — obeys strict rules like character-limit caps reliably. Auto prompt-caching with 24h retention configured. Higher cost per token but premium quality.' },
-  { value: 'openai:gpt-4.1-mini', label: 'GPT-4.1 mini (OpenAI)', hint: 'Balanced quality/speed, auto prompt-caching (24h retention). 10× cheaper than gpt-4.1 with comparable quality. Recommended default.' },
-  { value: 'gemini:gemini-2.5-flash', label: 'Gemini 2.5 Flash (Google)', hint: '1M context window, thinking disabled for low latency. Free tier covers 1500 req/day. Strong multilingual + cheapest paid tier among quality models.' },
-  { value: 'groq:qwen/qwen3-32b', label: 'Qwen 3 32B (Groq)', hint: 'Strong multilingual (29+ languages). Measured ~156ms TTFT from India. Free tier: 60 RPM / 500K TPD — production-ready once on paid plan. Currently free during preview.' },
-  { value: 'anthropic/claude-haiku-4-5', label: 'Claude Haiku 4.5 (Anthropic)', hint: 'Fastest published TTFT in 2026 benchmarks (~597ms median). New addition — pending production testing in this codebase.' },
+  {
+    value: 'openai:gpt-4.1',
+    label: 'GPT-4.1 (OpenAI)',
+    hint: 'Best instruction-following. Premium quality, higher cost.',
+    detail:
+      'Obeys strict rules — like character-limit caps — more reliably than the others. Auto prompt-caching with 24h retention is configured. Costs more per token, so pick it when precision matters more than price.',
+  },
+  {
+    value: 'openai:gpt-4.1-mini',
+    label: 'GPT-4.1 mini (OpenAI)',
+    hint: 'Balanced quality and speed. Recommended default.',
+    detail:
+      '10× cheaper than GPT-4.1 with comparable quality for most agents. Auto prompt-caching with 24h retention. Start here unless you have a reason not to.',
+  },
+  {
+    value: 'gemini:gemini-2.5-flash',
+    label: 'Gemini 2.5 Flash (Google)',
+    hint: 'Huge 1M context. Cheapest quality option.',
+    detail:
+      '1M-token context window with thinking disabled for low latency. Free tier covers 1500 requests/day. Strong multilingual, and the cheapest paid tier among the quality models — good for long-document agents.',
+  },
+  {
+    value: 'groq:qwen/qwen3-32b',
+    label: 'Qwen 3 32B (Groq)',
+    hint: 'Fastest from India. Strong multilingual.',
+    detail:
+      'Measured ~156ms time-to-first-token from India, and handles 29+ languages well. Free tier is capped at 60 requests/min and 500K tokens/day — production-ready once on a paid plan. Currently free during preview.',
+  },
+  {
+    value: 'anthropic/claude-haiku-4-5',
+    label: 'Claude Haiku 4.5 (Anthropic)',
+    hint: 'Fastest published benchmarks. Not yet battle-tested here.',
+    detail:
+      'Fastest published time-to-first-token in 2026 benchmarks (~597ms median). A recent addition — still pending production testing in this codebase, so prefer it for experiments over critical agents.',
+  },
 ];
 
 export function IntegrationSettings() {
@@ -114,11 +148,21 @@ export function IntegrationSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold">Integration</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-lg font-semibold">Integration</h3>
+          <InfoTooltip
+            label="Integration"
+            content={
+              <p>
+                Choose how this agent handles chat: the legacy n8n webhook, or our
+                native AI orchestrator with built-in streaming, caching and
+                observability.
+              </p>
+            }
+          />
+        </div>
         <p className="text-sm text-muted-foreground">
-          Choose how this agent handles chat: the legacy n8n webhook, or our
-          native AI orchestrator with built-in streaming, caching, and
-          observability.
+          How this agent handles chat.
         </p>
       </div>
 
@@ -128,11 +172,31 @@ export function IntegrationSettings() {
           n8n or direct. Placed ABOVE the routing radio so the UX makes clear
           it isn't gated by that choice. Empty list = no CORS restrictions. */}
       <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
-        <Label className="text-sm font-medium">Allowed Domains</Label>
+        <div className="flex items-center gap-1.5">
+          <Label className="text-sm font-medium">Allowed Domains</Label>
+          <InfoTooltip
+            label="Allowed Domains"
+            content={
+              <>
+                <p>
+                  Whitelist of domains where this agent&apos;s widget is allowed to
+                  load. Leave empty to allow any origin, which is useful while
+                  developing.
+                </p>
+                <p>
+                  Applies to both n8n and direct routing modes — it is not gated by
+                  that choice.
+                </p>
+                <p>
+                  Press Enter or comma after each domain. Ports are supported, e.g.{' '}
+                  <code>localhost:5000</code>.
+                </p>
+              </>
+            }
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
-          Whitelist of domains where this agent&apos;s widget is allowed to load.
-          Leave empty to allow any origin (useful while developing). Applies
-          to both n8n and direct routing modes.
+          Where this agent&apos;s widget may load. Empty = any origin.
         </p>
         <div className="flex gap-2">
           <Input
@@ -170,10 +234,6 @@ export function IntegrationSettings() {
             ))}
           </div>
         )}
-        <p className="text-xs text-muted-foreground">
-          Press Enter or comma after typing each domain. Ports are supported
-          (e.g. <code className="text-[10px]">localhost:5000</code>).
-        </p>
       </div>
 
       {/* Routing mode radio ------------------------------------------------ */}
@@ -279,7 +339,15 @@ function DirectModeConfig({
     <div className="space-y-5 rounded-lg border bg-muted/20 p-4">
       {/* Model ---------------------------------------------------------- */}
       <div className="space-y-2">
-        <Label className="text-sm font-medium">Model</Label>
+        <div className="flex items-center gap-1.5">
+          <Label className="text-sm font-medium">Model</Label>
+          {/* Tooltip follows the SELECTED model, so the caveats you get are the
+              caveats for what you actually picked. */}
+          <InfoTooltip
+            label={selectedCurated ? selectedCurated.label : 'Model'}
+            content={selectedCurated ? <p>{selectedCurated.detail}</p> : null}
+          />
+        </div>
         <Select
           value={modelSelectValue}
           onValueChange={(value) => patch({ modelId: value })}
@@ -322,7 +390,18 @@ function DirectModeConfig({
 
       {/* Max output tokens ---------------------------------------------- */}
       <div className="space-y-2">
-        <Label className="text-sm font-medium">Max response length (tokens)</Label>
+        <div className="flex items-center gap-1.5">
+          <Label className="text-sm font-medium">Max response length (tokens)</Label>
+          <InfoTooltip
+            label="Max response length"
+            content={
+              <p>
+                Upper cap on how much the model can emit per reply. Roughly 4
+                characters per token in English.
+              </p>
+            }
+          />
+        </div>
         <Input
           type="number"
           // No `min`/`max` HTML attrs — let users type freely (including
@@ -337,8 +416,7 @@ function DirectModeConfig({
           }}
         />
         <p className="text-xs text-muted-foreground">
-          Upper cap on how much the model can emit per reply. Range 1-32000.
-          ~4 chars per token in English. Default 4096.
+          Range 1&ndash;32000. Default 4096.
         </p>
         {(aiConfig.maxTokens ?? 0) < 1 || (aiConfig.maxTokens ?? 0) > 32000 ? (
           <p className="text-xs text-destructive">
@@ -385,7 +463,25 @@ function DirectModeConfig({
 
             {/* Max input tokens */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Input token budget</Label>
+              <div className="flex items-center gap-1.5">
+                <Label className="text-sm font-medium">Input token budget</Label>
+                <InfoTooltip
+                  label="Input token budget"
+                  content={
+                    <>
+                      <p>
+                        Total budget for the system prompt, knowledge, history and the
+                        new message combined. The context assembler drops the oldest
+                        messages to fit.
+                      </p>
+                      <p>
+                        Range 500–1,000,000. <strong>8000</strong> fits every model;
+                        raise to 200,000+ for long-document agents, or 1M for Gemini.
+                      </p>
+                    </>
+                  }
+                />
+              </div>
               <Input
                 type="number"
                 value={aiConfig.maxInputTokens ?? ''}
@@ -396,10 +492,7 @@ function DirectModeConfig({
                 }}
               />
               <p className="text-xs text-muted-foreground">
-                Total budget for system prompt + knowledge + history + new
-                message. Context assembler drops oldest messages to fit. Range
-                500-1,000,000. 8000 fits every model; raise to 200000+ for
-                long-doc agents or 1M for Gemini.
+                Range 500&ndash;1,000,000. Default 8000.
               </p>
               {(aiConfig.maxInputTokens ?? 0) < 500 ||
               (aiConfig.maxInputTokens ?? 0) > 1_000_000 ? (
@@ -411,7 +504,23 @@ function DirectModeConfig({
 
             {/* Context strategy */}
             <div className="space-y-2">
-              <Label className="text-sm font-medium">Context strategy</Label>
+              <div className="flex items-center gap-1.5">
+                <Label className="text-sm font-medium">Context strategy</Label>
+                <InfoTooltip
+                  label="Context strategy"
+                  content={
+                    <>
+                      <p>
+                        <strong>Hybrid</strong> keeps recent messages verbatim and
+                        summarizes older ones in the background — no added reply time,
+                        and the bot keeps early details (like a name given at the
+                        start).
+                      </p>
+                      <p>Costs nothing until a conversation actually gets long.</p>
+                    </>
+                  }
+                />
+              </div>
               <Select
                 value={aiConfig.contextStrategy ?? 'hybrid'}
                 onValueChange={(v) =>
@@ -428,33 +537,35 @@ function DirectModeConfig({
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
-                How the agent remembers long conversations. Hybrid keeps recent
-                messages verbatim and summarizes older ones in the background —
-                no added reply time, and the bot keeps early details (like a
-                name given at the start). Costs nothing until a conversation
-                gets long.
+                How the agent remembers long conversations.
               </p>
             </div>
 
             {/* PII redaction */}
-            <div className="space-y-2">
-              <div className="flex items-center justify-between">
-                <Label className="text-sm font-medium">PII protection</Label>
-                <Switch
-                  checked={aiConfig.piiRedactionEnabled ?? false}
-                  onCheckedChange={(v) => patch({ piiRedactionEnabled: v })}
-                />
-              </div>
-              <p className="text-xs text-muted-foreground">
-                Replaces sensitive details (bank/account numbers, dates of
-                birth, IFSC codes) with placeholders before they reach the AI
-                model and stored logs. Your team still sees real values in the
-                Inbox. Detects identifiers in any language; name and address
-                detection is not included yet. Government IDs and card numbers
-                (Aadhaar, PAN, passport, cards) are always blocked, even with
-                this off.
-              </p>
-            </div>
+            <ToggleRow
+              id="piiRedactionEnabled"
+              label="PII protection"
+              description="Hide sensitive details from the AI model and logs."
+              info={
+                <>
+                  <p>
+                    Replaces bank/account numbers, dates of birth and IFSC codes with
+                    placeholders before they reach the AI model or stored logs. Your
+                    team still sees the real values in the Inbox.
+                  </p>
+                  <p>
+                    Detects identifiers in any language. Name and address detection is
+                    not included yet.
+                  </p>
+                  <p>
+                    <strong>Always blocked regardless of this setting:</strong>{' '}
+                    government IDs and card numbers (Aadhaar, PAN, passport, cards).
+                  </p>
+                </>
+              }
+              checked={aiConfig.piiRedactionEnabled ?? false}
+              onChange={(v) => patch({ piiRedactionEnabled: v })}
+            />
           </AccordionContent>
         </AccordionItem>
       </Accordion>

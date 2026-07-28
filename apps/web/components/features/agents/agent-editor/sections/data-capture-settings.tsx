@@ -8,8 +8,8 @@ import {
 } from '@repo/validation';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { Button } from '@/components/ui/button';
+import { ToggleRow } from '../toggle-row';
 import {
   Select,
   SelectContent,
@@ -106,7 +106,20 @@ export function DataCaptureSettings() {
     <div className="space-y-6">
       <FormSection
         title="Data Capture"
-        description="Define what this agent should collect from a conversation — e.g. name, email, phone for a sales bot, or an employee ID for HR. Capture happens automatically in the background after a conversation ends, so it never slows down replies. Leave empty to collect nothing."
+        description="What this agent should collect from a conversation."
+        info={
+          <>
+            <p>
+              Define the fields to pull out of a chat — e.g. name, email and phone for
+              a sales bot, or an employee ID for HR.
+            </p>
+            <p>
+              Capture runs automatically in the background <strong>after</strong> a
+              conversation ends, so it never slows down replies.
+            </p>
+            <p>Leave empty to collect nothing.</p>
+          </>
+        }
       >
         <div className="space-y-4">
           {fields.length === 0 && (
@@ -206,19 +219,18 @@ export function DataCaptureSettings() {
                   />
                 </div>
 
-                <div className="flex items-center justify-between rounded-md border p-3">
-                  <div>
-                    <Label className="text-sm font-medium">Required</Label>
-                    <p className="text-xs text-muted-foreground">
-                      The agent will politely ask for this if the user
-                      doesn&apos;t provide it.
-                    </p>
-                  </div>
-                  <Switch
-                    checked={field.required}
-                    onCheckedChange={(checked) =>
-                      updateField(index, 'required', checked)
+                <div className="rounded-md border p-3">
+                  <ToggleRow
+                    id={`dataFieldRequired-${index}`}
+                    label="Required"
+                    info={
+                      <p>
+                        The agent will politely ask for this if the visitor doesn&apos;t
+                        provide it on their own.
+                      </p>
                     }
+                    checked={field.required}
+                    onChange={(checked) => updateField(index, 'required', checked)}
                   />
                 </div>
               </div>

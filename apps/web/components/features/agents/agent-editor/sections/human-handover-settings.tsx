@@ -4,41 +4,15 @@ import { useState } from 'react';
 import { X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
 import { useAgentEditor } from '../agent-editor-context';
 import { FormSection } from '../form-section';
 import { ColorPicker } from '../color-picker';
+import { FieldLabel } from '../field-label';
+import { ToggleRow } from '../toggle-row';
 
 /** Mirrors the backend cap in `handoverEmailRecipientsSchema`. */
 const MAX_RECIPIENTS = 20;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
-
-function ToggleRow({
-  id,
-  label,
-  description,
-  checked,
-  onChange,
-}: {
-  id: string;
-  label: string;
-  description?: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}) {
-  return (
-    <div className="flex items-start justify-between gap-4">
-      <div className="space-y-0.5">
-        <Label htmlFor={id} className="text-sm font-medium text-foreground">
-          {label}
-        </Label>
-        {description && <p className="text-sm text-muted-foreground">{description}</p>}
-      </div>
-      <Switch id={id} checked={checked} onCheckedChange={onChange} />
-    </div>
-  );
-}
 
 export function HumanHandoverSettings() {
   const { formData, updateFormData, themeData, updateThemeData } = useAgentEditor();
@@ -50,12 +24,29 @@ export function HumanHandoverSettings() {
   return (
     <FormSection
       title="Human Handover"
-      description="Let a teammate take over a live chat from the AI when a visitor needs a human. The AI pauses while a person is replying, then resumes when the chat is resolved."
+      description="Let a teammate take over a live chat from the AI."
+      info={
+        <>
+          <p>
+            When a visitor needs a person, a teammate can take the conversation over
+            from the AI.
+          </p>
+          <p>
+            The AI <strong>pauses</strong> while a human is replying, then resumes once
+            the chat is resolved.
+          </p>
+        </>
+      }
     >
       <ToggleRow
         id="humanTakeoverEnabled"
         label="Enable human takeover"
-        description="Flag chats that need a human in your Inbox, and let teammates take over."
+        info={
+          <p>
+            Flags chats that need a human in your Inbox, and lets teammates take them
+            over. This is the master switch for the whole feature.
+          </p>
+        }
         checked={enabled}
         onChange={(v) => updateFormData('humanTakeoverEnabled', v)}
       />
@@ -65,13 +56,16 @@ export function HumanHandoverSettings() {
           {/* Connected notice */}
           <div className="space-y-4 border-t pt-6">
             <div className="space-y-2">
-              <Label htmlFor="humanConnectedLabel" className="text-sm font-medium text-foreground">
-                Connected message
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                Shown to the visitor on the divider line when a teammate joins. Leave blank for a
-                sensible default.
-              </p>
+              <FieldLabel
+                htmlFor="humanConnectedLabel"
+                label="Connected message"
+                info={
+                  <p>
+                    Shown to the visitor on the divider line when a teammate joins.
+                    Leave blank for a sensible default.
+                  </p>
+                }
+              />
               <Input
                 id="humanConnectedLabel"
                 value={formData.humanConnectedLabel}
@@ -91,12 +85,16 @@ export function HumanHandoverSettings() {
           {/* Connecting notice (while a teammate is being connected) */}
           <div className="space-y-4 border-t pt-6">
             <div className="space-y-2">
-              <Label htmlFor="handoverRequestedLabel" className="text-sm font-medium text-foreground">
-                Connecting message
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                Shown to the visitor while a teammate is being connected — before anyone takes over.
-              </p>
+              <FieldLabel
+                htmlFor="handoverRequestedLabel"
+                label="Connecting message"
+                info={
+                  <p>
+                    Shown to the visitor while a teammate is being connected — before
+                    anyone has actually taken over.
+                  </p>
+                }
+              />
               <Input
                 id="handoverRequestedLabel"
                 value={handover.requestedLabel}
@@ -116,12 +114,16 @@ export function HumanHandoverSettings() {
           {/* Handed-back notice (teammate resolved/left, AI resumes) */}
           <div className="space-y-4 border-t pt-6">
             <div className="space-y-2">
-              <Label htmlFor="handoverEndedLabel" className="text-sm font-medium text-foreground">
-                Handed-back message
-              </Label>
-              <p className="text-sm text-muted-foreground">
-                Shown to the visitor when the teammate resolves the chat and the AI takes back over.
-              </p>
+              <FieldLabel
+                htmlFor="handoverEndedLabel"
+                label="Handed-back message"
+                info={
+                  <p>
+                    Shown to the visitor when the teammate resolves the chat and the AI
+                    takes back over.
+                  </p>
+                }
+              />
               <Input
                 id="handoverEndedLabel"
                 value={handover.endedLabel}
@@ -143,7 +145,12 @@ export function HumanHandoverSettings() {
             <ToggleRow
               id="showTalkToHumanButton"
               label='Show "Talk to a human" button'
-              description="Adds a button in the chat header so visitors can ask for a person directly."
+              info={
+                <p>
+                  Adds a headset button next to send, so visitors can ask for a person
+                  directly instead of waiting for the bot to offer.
+                </p>
+              }
               checked={showButton}
               onChange={(v) => updateFormData('showTalkToHumanButton', v)}
             />
@@ -151,13 +158,16 @@ export function HumanHandoverSettings() {
             {showButton && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label htmlFor="handoverButtonLabel" className="text-sm font-medium text-foreground">
-                    Button tooltip
-                  </Label>
-                  <p className="text-sm text-muted-foreground">
-                    The button is a headset icon next to send; this text shows when the visitor
-                    hovers it.
-                  </p>
+                  <FieldLabel
+                    htmlFor="handoverButtonLabel"
+                    label="Button tooltip"
+                    info={
+                      <p>
+                        The button is a headset icon next to send; this text shows when
+                        the visitor hovers it.
+                      </p>
+                    }
+                  />
                   <Input
                     id="handoverButtonLabel"
                     value={handover.buttonLabel}
@@ -187,7 +197,14 @@ export function HumanHandoverSettings() {
             <ToggleRow
               id="handoverEmailEnabled"
               label="Email the team when a visitor asks for a human"
-              description="Sent immediately. The in-app alert, sound and browser popup always fire — this is the email on top."
+              description="Sent immediately."
+              info={
+                <p>
+                  The in-app alert, sound and browser popup <strong>always</strong>
+                  fire when a visitor asks for a human — this toggle only controls the
+                  email on top of that.
+                </p>
+              }
               checked={emailEnabled}
               onChange={(v) => updateFormData('handoverEmailEnabled', v)}
             />
@@ -243,13 +260,24 @@ function EmailRecipientsField({
 
   return (
     <div className="space-y-2">
-      <Label htmlFor="handoverEmailRecipients" className="text-sm font-medium text-foreground">
-        Send to
-      </Label>
-      <p className="text-sm text-muted-foreground">
-        Leave empty to email everyone in your organization. Add addresses to send
-        to a shared inbox instead — useful for people without a dashboard login.
-      </p>
+      <FieldLabel
+        htmlFor="handoverEmailRecipients"
+        label="Send to"
+        description="Leave empty to email everyone in your organization."
+        info={
+          <>
+            <p>
+              Empty means every member of your organization gets it at their login
+              email.
+            </p>
+            <p>
+              Adding addresses sends to <strong>those only, instead</strong> — useful
+              for a shared support inbox, or people without a dashboard login. Add your
+              own address too if you still want it.
+            </p>
+          </>
+        }
+      />
 
       {recipients.length > 0 && (
         <div className="flex flex-wrap gap-1.5 pb-1">

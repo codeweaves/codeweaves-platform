@@ -16,7 +16,7 @@ import { Label } from '@/components/ui/label';
 import { Button } from '@/components/ui/button';
 import { Badge } from '@/components/ui/badge';
 import { Skeleton } from '@/components/ui/skeleton';
-import { Switch } from '@/components/ui/switch';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import {
   AlertDialog,
   AlertDialogTrigger,
@@ -38,6 +38,7 @@ import {
   type WhatsappChannel,
 } from '@/hooks/use-whatsapp-channel';
 import { useAgentEditor } from '../agent-editor-context';
+import { ToggleRow } from '../toggle-row';
 
 const STATUS_BADGE: Record<
   WhatsappChannel['status'],
@@ -146,20 +147,44 @@ export function WhatsappSettings() {
   return (
     <div className="space-y-6">
       <div>
-        <h3 className="text-lg font-semibold">WhatsApp</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-lg font-semibold">WhatsApp</h3>
+          <InfoTooltip
+            label="WhatsApp"
+            content={
+              <p>
+                The agent answers on WhatsApp with the{' '}
+                <strong>same prompt and knowledge</strong> it uses in the website
+                widget — there is nothing separate to configure.
+              </p>
+            }
+          />
+        </div>
         <p className="text-sm text-muted-foreground">
-          Let customers chat with this agent on WhatsApp. The agent answers with
-          the same prompt and knowledge it uses in the website widget.
+          Let customers chat with this agent on WhatsApp.
         </p>
       </div>
 
       {/* Meta webhook callback URL — paste this into the Meta dashboard when
           configuring the WhatsApp webhook for your app. */}
       <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
-        <Label className="text-sm font-medium">Webhook callback URL</Label>
+        <div className="flex items-center gap-1.5">
+          <Label className="text-sm font-medium">Webhook callback URL</Label>
+          <InfoTooltip
+            label="Webhook callback URL"
+            content={
+              <>
+                <p>
+                  In the Meta dashboard, go to <strong>App → WhatsApp →
+                  Configuration</strong> and set this as the Callback URL.
+                </p>
+                <p>The verify token is configured on the server, not here.</p>
+              </>
+            }
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
-          In the Meta dashboard (App → WhatsApp → Configuration), set this as the
-          Callback URL. The verify token is configured on the server.
+          Paste this into the Meta dashboard.
         </p>
         <div className="flex gap-2">
           <Input readOnly value={webhookUrl} className="font-mono text-xs" />
@@ -190,12 +215,26 @@ export function WhatsappSettings() {
         />
       ) : (
         <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
-          <div className="flex items-start gap-2">
-            <Plug className="mt-0.5 h-4 w-4 text-muted-foreground" />
+          <div className="flex items-center gap-2">
+            <Plug className="h-4 w-4 shrink-0 text-muted-foreground" />
             <p className="text-xs text-muted-foreground">
-              Paste these from the Meta dashboard (App → WhatsApp → API Setup).
-              Self-serve onboarding via Embedded Signup is coming later.
+              Paste these from the Meta dashboard.
             </p>
+            <InfoTooltip
+              label="WhatsApp credentials"
+              content={
+                <>
+                  <p>
+                    Find these in the Meta dashboard under{' '}
+                    <strong>App → WhatsApp → API Setup</strong>.
+                  </p>
+                  <p>
+                    Self-serve onboarding via Embedded Signup is coming later — for now
+                    these are entered by hand.
+                  </p>
+                </>
+              }
+            />
           </div>
 
           <div className="space-y-2">
@@ -333,19 +372,19 @@ function ConnectedCard({
 
       {/* Voice-reply toggle: when on, the agent answers an inbound voice note with
           a voice note (TTS). Text messages always get a text reply. */}
-      <div className="flex items-center justify-between gap-4 rounded-md border p-3">
-        <div className="space-y-0.5">
-          <p className="text-sm font-medium">Reply with a voice note</p>
-          <p className="text-xs text-muted-foreground">
-            When a customer sends a voice note, answer with a voice note instead of
-            text. Typed messages still get text replies.
-          </p>
-        </div>
-        <Switch
+      <div className="rounded-md border p-3">
+        <ToggleRow
+          id="whatsappVoiceReply"
+          label="Reply with a voice note"
+          info={
+            <p>
+              When a customer sends a voice note, answer with a voice note instead of
+              text. Typed messages still get text replies either way.
+            </p>
+          }
           checked={channel.voiceReplyEnabled}
           disabled={voiceToggling}
-          onCheckedChange={onToggleVoiceReply}
-          aria-label="Reply with a voice note"
+          onChange={onToggleVoiceReply}
         />
       </div>
 

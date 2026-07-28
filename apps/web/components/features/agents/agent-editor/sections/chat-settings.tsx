@@ -107,7 +107,7 @@ export function ChatSettings() {
             agentId={agent.id}
             purpose="header-logo"
             previewShape="circle"
-            hint="Upload an image file. Recommended size: 40x40px or larger. The logo will be displayed as a circle."
+            hint="40x40px or larger · shown as a circle"
           />
         </div>
       </div>
@@ -210,7 +210,7 @@ export function ChatSettings() {
                   agentId={agent.id}
                   purpose="bot-avatar"
                   previewShape="circle"
-                  hint="Upload an image file. Recommended size: 32x32px or larger. The image will be displayed as a circle."
+                  hint="32x32px or larger · shown as a circle"
                 />
               </div>
             )}
@@ -296,7 +296,7 @@ export function ChatSettings() {
                   agentId={agent.id}
                   purpose="user-avatar"
                   previewShape="circle"
-                  hint="Upload an image file. Recommended size: 32x32px or larger. The image will be displayed as a circle."
+                  hint="32x32px or larger · shown as a circle"
                 />
               </div>
             )}
