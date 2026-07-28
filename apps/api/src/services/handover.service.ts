@@ -198,9 +198,10 @@ export class HandoverService {
       });
       if (res.count === 0) return; // already requested or being handled
 
-      // History: open a fresh handover cycle in the append-only log (best-effort;
-      // the ChatSession columns above remain the live source of truth).
-      await this.recordHandoverRequested(ctx.sessionDbId, ctx.organizationId, reason);
+      // History: open a fresh handover cycle in the append-only log. Fire-and-
+      // forget (like notifyHandoverRequested below) so it never adds latency to
+      // the visitor's reply; the ChatSession columns above are the live truth.
+      void this.recordHandoverRequested(ctx.sessionDbId, ctx.organizationId, reason);
 
       // Semantic event: the session actually flipped NONE → REQUESTED. Fire-and-forget.
       this.events.logCompleted('HANDOVER_REQUESTED', {
@@ -623,6 +624,11 @@ export class HandoverService {
     const name = await this.resolveUserName(user.id);
 
     if (session.handoverState !== 'NONE') {
+      // Close the history cycle FIRST, while the session is still non-NONE, so a
+      // concurrent re-escalation (which needs NONE) can't open a new cycle that
+      // this close would grab by mistake and orphan the real one. Best-effort.
+      await this.recordHandoverResolved(session.id, 'HUMAN');
+
       await this.prisma.chatSession.update({
         where: { id: session.id },
         data: { handoverState: 'NONE', handoverResolvedAt: new Date() },
@@ -642,9 +648,6 @@ export class HandoverService {
         { response: { resolvedBy: user.id, sessionId: session.sessionId } },
         { organizationId: session.agent.organizationId, agentId: session.agent.id },
       );
-
-      // History: close the open cycle as human-resolved. Best-effort.
-      await this.recordHandoverResolved(session.id, 'HUMAN');
 
       const ctx = this.ctxOf(session);
       await this.insertSystemMessage(session.id, `Resolved by ${name} — AI resumed`);
@@ -687,12 +690,13 @@ export class HandoverService {
     let resolved = 0;
     for (const s of stale) {
       try {
+        // Close the history cycle FIRST (while still non-NONE) so a concurrent
+        // re-escalation can't open a cycle this close would grab. Best-effort.
+        await this.recordHandoverResolved(s.id, 'AUTO_INACTIVE');
         await this.prisma.chatSession.update({
           where: { id: s.id },
           data: { handoverState: 'NONE', handoverResolvedAt: new Date() },
         });
-        // History: close the open cycle as auto-resolved (timed out). Best-effort.
-        await this.recordHandoverResolved(s.id, 'AUTO_INACTIVE');
         await this.insertSystemMessage(s.id, 'Auto-resolved (inactive) — AI resumed');
         const ctx = {
           sessionDbId: s.id,

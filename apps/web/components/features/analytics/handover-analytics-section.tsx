@@ -1,14 +1,16 @@
 'use client';
 
-import { Headset } from 'lucide-react';
+import { Headset, ArrowLeftRight, UserCheck, Clock, Timer, CircleCheck } from 'lucide-react';
 import { Card, CardContent } from '@/components/ui/card';
 import { Skeleton } from '@/components/ui/skeleton';
+import { KpiCard } from './kpi-card';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
+import { BreakdownBars, type BreakdownItem } from './breakdown-bars';
 import {
   useHandoverAnalytics,
   type AnalyticsParams,
   type AnalyticsQueryOptions,
 } from '@/hooks/use-analytics';
-import { BreakdownBars, type BreakdownItem } from './breakdown-bars';
 import { formatNumber, formatDuration } from '@/lib/format-utils';
 
 const REASON_LABELS: Record<string, string> = {
@@ -23,39 +25,16 @@ interface HandoverAnalyticsSectionProps {
   pollingOptions?: AnalyticsQueryOptions;
 }
 
-function Kpi({ label, value, hint }: { label: string; value: string; hint?: string }) {
-  return (
-    <Card>
-      <CardContent className="p-5">
-        <div className="text-sm font-medium text-muted-foreground">{label}</div>
-        <div className="mt-2 text-2xl font-semibold tracking-tight tabular-nums text-foreground">
-          {value}
-        </div>
-        {hint && <div className="mt-1 text-xs text-muted-foreground">{hint}</div>}
-      </CardContent>
-    </Card>
-  );
-}
-
 /**
  * Human-handover analytics tab. Reads the append-only handover_events log via
  * /analytics/handover, so every handover cycle counts (not just a chat's last
- * one). Empty state when no handovers were raised in the period.
+ * one). KPI tiles carry the distinct headline numbers; the two breakdowns own
+ * the "why raised" and "how ended" distributions (no number is shown twice).
  */
 export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAnalyticsSectionProps) {
   const { data, isLoading } = useHandoverAnalytics(params, pollingOptions);
 
-  if (isLoading) {
-    return (
-      <div className="grid grid-cols-4 gap-4">
-        {Array.from({ length: 8 }).map((_, i) => (
-          <Skeleton key={i} className="h-28 rounded-xl" />
-        ))}
-      </div>
-    );
-  }
-
-  if (!data || data.totalHandovers === 0) {
+  if (!isLoading && (!data || data.totalHandovers === 0)) {
     return (
       <Card>
         <CardContent className="flex flex-col items-center justify-center py-16 text-center">
@@ -69,80 +48,158 @@ export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAna
     );
   }
 
-  const fmtMs = (ms: number | null) => (ms == null ? '—' : formatDuration(ms));
+  const fmtMs = (ms: number | null | undefined) =>
+    ms == null ? '—' : formatDuration(ms);
   const pct = (n: number) =>
-    data.totalHandovers > 0 ? Math.round((n / data.totalHandovers) * 1000) / 10 : 0;
+    data && data.totalHandovers > 0 ? Math.round((n / data.totalHandovers) * 1000) / 10 : 0;
 
-  const reasonItems: BreakdownItem[] = data.reasons.map((r) => ({
+  const reasonItems: BreakdownItem[] = (data?.reasons ?? []).map((r) => ({
     label: REASON_LABELS[r.reason] ?? r.reason,
     count: r.count,
     percentage: r.percentage,
   }));
 
-  const outcomeItems: BreakdownItem[] = [
-    { label: 'Resolved by a human', count: data.resolvedByHuman, percentage: pct(data.resolvedByHuman) },
-    { label: 'Left open, auto-resolved', count: data.sweptAfterTakeover, percentage: pct(data.sweptAfterTakeover) },
-    { label: 'Abandoned (never picked up)', count: data.abandoned, percentage: pct(data.abandoned) },
-  ].filter((i) => i.count > 0);
+  const outcomeItems: BreakdownItem[] = data
+    ? [
+        { label: 'Resolved by a human', count: data.resolvedByHuman, percentage: pct(data.resolvedByHuman) },
+        { label: 'Left open (auto-resolved)', count: data.sweptAfterTakeover, percentage: pct(data.sweptAfterTakeover) },
+        { label: 'Abandoned (never picked up)', count: data.abandoned, percentage: pct(data.abandoned) },
+      ].filter((i) => i.count > 0)
+    : [];
 
   return (
     <div className="space-y-4">
-      <div className="grid grid-cols-4 gap-4">
-        <Kpi
-          label="Handover rate"
-          value={`${data.handoverRate}%`}
-          hint={`of ${formatNumber(data.totalConversations)} conversations`}
+      <div className="grid gap-4 grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
+        <KpiCard
+          isLoading={isLoading}
+          icon={ArrowLeftRight}
+          title="Handover rate"
+          value={`${data?.handoverRate ?? 0}%`}
+          info={
+            <>
+              Share of conversations that were escalated to a human. Calculated as{' '}
+              <strong>handovers ÷ conversations</strong> ({formatNumber(data?.totalHandovers ?? 0)}{' '}
+              ÷ {formatNumber(data?.totalConversations ?? 0)}) for this period.
+            </>
+          }
         />
-        <Kpi label="Total handovers" value={formatNumber(data.totalHandovers)} />
-        <Kpi
-          label="Taken over by a human"
-          value={formatNumber(data.takenOver)}
-          hint={`${data.takenOverRate}% of requests`}
+        <KpiCard
+          isLoading={isLoading}
+          icon={Headset}
+          title="Total handovers"
+          value={formatNumber(data?.totalHandovers ?? 0)}
+          info={
+            <>
+              Number of times a conversation was escalated to a human this period. Each
+              request counts separately, so a chat escalated more than once is counted
+              more than once.
+            </>
+          }
         />
-        <Kpi
-          label="Avg wait for a human"
-          value={fmtMs(data.avgWaitMs)}
-          hint="request → takeover"
+        <KpiCard
+          isLoading={isLoading}
+          icon={UserCheck}
+          title="Picked up by a human"
+          value={formatNumber(data?.takenOver ?? 0)}
+          info={
+            <>
+              Handovers a teammate actually took over: <strong>{data?.takenOverRate ?? 0}%</strong>{' '}
+              of requests. The rest were auto-resolved by the idle sweep before anyone joined.
+            </>
+          }
         />
-        <Kpi label="Resolved by a human" value={formatNumber(data.resolvedByHuman)} />
-        <Kpi
-          label="Avg handling time"
-          value={fmtMs(data.avgHandleMs)}
-          hint="takeover → resolve"
+        <KpiCard
+          isLoading={isLoading}
+          icon={Clock}
+          title="Avg wait for a human"
+          value={fmtMs(data?.avgWaitMs)}
+          info={
+            <>
+              Average time from a handover request until a teammate takes over. Counts only
+              handovers that were picked up.
+            </>
+          }
         />
-        <Kpi
-          label="Abandoned"
-          value={formatNumber(data.abandoned)}
-          hint="requested, never picked up"
+        <KpiCard
+          isLoading={isLoading}
+          icon={Timer}
+          title="Avg handling time"
+          value={fmtMs(data?.avgHandleMs)}
+          info={
+            <>
+              Average time a teammate spends on a chat, from taking over to resolving. Counts
+              only handovers a human resolved.
+            </>
+          }
         />
-        <Kpi
-          label="Left open"
-          value={formatNumber(data.sweptAfterTakeover)}
-          hint="taken over, then auto-resolved"
+        <KpiCard
+          isLoading={isLoading}
+          icon={CircleCheck}
+          title="Resolved by a human"
+          value={formatNumber(data?.resolvedByHuman ?? 0)}
+          info={
+            <>
+              Handovers a teammate explicitly closed by clicking Resolve —{' '}
+              <strong>{pct(data?.resolvedByHuman ?? 0)}%</strong> of all handovers this period.
+              The full split (incl. abandoned / left-open) is in &ldquo;How handovers ended&rdquo; below.
+            </>
+          }
         />
       </div>
 
       <div className="grid grid-cols-2 gap-4">
         <Card>
           <CardContent className="p-6">
-            <h3 className="text-base font-semibold tracking-tight">Why handovers were raised</h3>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              What triggered the escalation to a human
-            </p>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-base font-semibold tracking-tight">Why handovers were raised</h3>
+              <InfoTooltip
+                label="handover reasons"
+                content={
+                  <>
+                    What triggered each escalation: the visitor asked for a human, the bot
+                    couldn&apos;t answer, frustration was detected, or a teammate flagged it.
+                  </>
+                }
+              />
+            </div>
             <div className="mt-6">
-              <BreakdownBars items={reasonItems} />
+              {isLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-8 w-full rounded-md" />
+                  ))}
+                </div>
+              ) : (
+                <BreakdownBars items={reasonItems} />
+              )}
             </div>
           </CardContent>
         </Card>
 
         <Card>
           <CardContent className="p-6">
-            <h3 className="text-base font-semibold tracking-tight">How handovers ended</h3>
-            <p className="mt-0.5 text-sm text-muted-foreground">
-              Resolved by a teammate vs auto-resolved by the idle sweep
-            </p>
+            <div className="flex items-center gap-1.5">
+              <h3 className="text-base font-semibold tracking-tight">How handovers ended</h3>
+              <InfoTooltip
+                label="handover outcomes"
+                content={
+                  <>
+                    <strong>Resolved by a human</strong>: a teammate clicked Resolve.{' '}
+                    <strong>Left open</strong>: a teammate took over but the chat went idle and
+                    was auto-resolved. <strong>Abandoned</strong>: nobody picked it up before it
+                    timed out.
+                  </>
+                }
+              />
+            </div>
             <div className="mt-6">
-              {outcomeItems.length > 0 ? (
+              {isLoading ? (
+                <div className="space-y-3">
+                  {Array.from({ length: 3 }).map((_, i) => (
+                    <Skeleton key={i} className="h-8 w-full rounded-md" />
+                  ))}
+                </div>
+              ) : outcomeItems.length > 0 ? (
                 <BreakdownBars items={outcomeItems} />
               ) : (
                 <p className="text-sm text-muted-foreground">

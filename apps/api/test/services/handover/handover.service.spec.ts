@@ -869,6 +869,8 @@ describe('HandoverService', () => {
       mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
       mockPrisma.chatSession.findUnique.mockResolvedValue({ agentId: 'agent-1' });
       await service.raiseRequested(ctx, 'USER_REQUESTED');
+      // recordHandoverRequested is fire-and-forget; let its microtasks settle.
+      await new Promise((r) => setImmediate(r));
       expect(mockPrisma.handoverEvent.create).toHaveBeenCalledWith({
         data: {
           chatSessionId: 'sess-db',

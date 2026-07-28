@@ -423,6 +423,10 @@ export class AnalyticsService {
     };
     if (agentIds.length === 0) return empty;
 
+    // Respect the shared channel filter, like every other analytics method.
+    // handover_events has no source column, so filter through the joined session.
+    const sf = this.getSourceFilter(query.source, query.sources);
+
     const rows = await this.prisma.$queryRaw<
       {
         total: bigint;
@@ -441,29 +445,31 @@ export class AnalyticsService {
     >`
       SELECT
         COUNT(*) AS total,
-        COUNT(*) FILTER (WHERE "startedAt" IS NOT NULL) AS taken_over,
-        COUNT(*) FILTER (WHERE resolution = 'HUMAN') AS resolved_human,
-        COUNT(*) FILTER (WHERE resolution = 'AUTO_INACTIVE') AS auto_resolved,
-        COUNT(*) FILTER (WHERE resolution = 'AUTO_INACTIVE' AND "startedAt" IS NULL) AS abandoned,
-        COUNT(*) FILTER (WHERE resolution = 'AUTO_INACTIVE' AND "startedAt" IS NOT NULL) AS swept_after_takeover,
-        COUNT(*) FILTER (WHERE reason = 'USER_REQUESTED') AS r_user,
-        COUNT(*) FILTER (WHERE reason = 'BOT_FALLBACK') AS r_fallback,
-        COUNT(*) FILTER (WHERE reason = 'FRUSTRATION') AS r_frustration,
-        COUNT(*) FILTER (WHERE reason = 'MANUAL') AS r_manual,
-        AVG(EXTRACT(EPOCH FROM ("startedAt" - "requestedAt")) * 1000)
-          FILTER (WHERE "startedAt" IS NOT NULL) AS avg_wait_ms,
-        AVG(EXTRACT(EPOCH FROM ("resolvedAt" - "startedAt")) * 1000)
-          FILTER (WHERE "startedAt" IS NOT NULL AND "resolvedAt" IS NOT NULL) AS avg_handle_ms
-      FROM handover_events
-      WHERE "agentId" = ANY(${agentIds}::text[])
-        AND "requestedAt" >= ${startUtc}
-        AND "requestedAt" < ${endUtc}
+        COUNT(*) FILTER (WHERE he."startedAt" IS NOT NULL) AS taken_over,
+        COUNT(*) FILTER (WHERE he.resolution = 'HUMAN') AS resolved_human,
+        COUNT(*) FILTER (WHERE he.resolution = 'AUTO_INACTIVE') AS auto_resolved,
+        COUNT(*) FILTER (WHERE he.resolution = 'AUTO_INACTIVE' AND he."startedAt" IS NULL) AS abandoned,
+        COUNT(*) FILTER (WHERE he.resolution = 'AUTO_INACTIVE' AND he."startedAt" IS NOT NULL) AS swept_after_takeover,
+        COUNT(*) FILTER (WHERE he.reason = 'USER_REQUESTED') AS r_user,
+        COUNT(*) FILTER (WHERE he.reason = 'BOT_FALLBACK') AS r_fallback,
+        COUNT(*) FILTER (WHERE he.reason = 'FRUSTRATION') AS r_frustration,
+        COUNT(*) FILTER (WHERE he.reason = 'MANUAL') AS r_manual,
+        AVG(EXTRACT(EPOCH FROM (he."startedAt" - he."requestedAt")) * 1000)
+          FILTER (WHERE he."startedAt" IS NOT NULL) AS avg_wait_ms,
+        AVG(EXTRACT(EPOCH FROM (he."resolvedAt" - he."startedAt")) * 1000)
+          FILTER (WHERE he."startedAt" IS NOT NULL AND he."resolvedAt" IS NOT NULL) AS avg_handle_ms
+      FROM handover_events he
+      JOIN chat_sessions cs ON cs."id" = he."chatSessionId"
+      WHERE he."agentId" = ANY(${agentIds}::text[])
+        AND he."requestedAt" >= ${startUtc}
+        AND he."requestedAt" < ${endUtc}
+        ${sf}
     `;
 
     const row = rows[0];
     const total = Number(row?.total ?? 0);
     const takenOver = Number(row?.taken_over ?? 0);
-    const { totalConversations } = await this.getSessionMetrics(agentIds, startUtc, endUtc);
+    const { totalConversations } = await this.getSessionMetrics(agentIds, startUtc, endUtc, sf);
     const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
     const ms = (v: number | null | undefined) =>
       v == null ? null : Math.round(Number(v));
