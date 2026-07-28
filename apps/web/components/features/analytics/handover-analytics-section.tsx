@@ -74,6 +74,8 @@ export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAna
           isLoading={isLoading}
           icon={ArrowLeftRight}
           title="Handover rate"
+          trend={data?.handoverRateTrend}
+          trendInverted
           value={`${data?.handoverRate ?? 0}%`}
           info={
             <>
@@ -87,6 +89,7 @@ export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAna
           isLoading={isLoading}
           icon={Headset}
           title="Total handovers"
+          trend={data?.totalHandoversTrend}
           value={formatNumber(data?.totalHandovers ?? 0)}
           info={
             <>
@@ -100,6 +103,7 @@ export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAna
           isLoading={isLoading}
           icon={UserCheck}
           title="Picked up by a human"
+          trend={data?.takenOverTrend}
           value={formatNumber(data?.takenOver ?? 0)}
           info={
             <>
@@ -112,6 +116,8 @@ export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAna
           isLoading={isLoading}
           icon={Clock}
           title="Avg wait for a human"
+          trend={data?.avgWaitTrend ?? undefined}
+          trendInverted
           value={fmtMs(data?.avgWaitMs)}
           info={
             <>
@@ -124,6 +130,8 @@ export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAna
           isLoading={isLoading}
           icon={Timer}
           title="Avg handling time"
+          trend={data?.avgHandleTrend ?? undefined}
+          trendInverted
           value={fmtMs(data?.avgHandleMs)}
           info={
             <>
@@ -136,6 +144,7 @@ export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAna
           isLoading={isLoading}
           icon={CircleCheck}
           title="Resolved by a human"
+          trend={data?.resolvedByHumanTrend}
           value={formatNumber(data?.resolvedByHuman ?? 0)}
           info={
             <>

@@ -983,7 +983,7 @@ describe('AnalyticsService', () => {
     it('computes rates, resolution split, reasons and timings', async () => {
       mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
       mockPrismaService.$queryRaw
-        // 1) handover aggregation
+        // 1) current handover aggregation
         .mockResolvedValueOnce([
           {
             total: BigInt(10),
@@ -1000,24 +1000,51 @@ describe('AnalyticsService', () => {
             avg_handle_ms: 300000,
           },
         ])
-        // 2) getSessionMetrics (for the handover rate denominator)
+        // 2) previous-period handover aggregation (for trends)
+        .mockResolvedValueOnce([
+          {
+            total: BigInt(8),
+            taken_over: BigInt(4),
+            resolved_human: BigInt(5),
+            auto_resolved: BigInt(2),
+            abandoned: BigInt(1),
+            swept_after_takeover: BigInt(1),
+            r_user: BigInt(6),
+            r_fallback: BigInt(1),
+            r_frustration: BigInt(1),
+            r_manual: BigInt(0),
+            avg_wait_ms: 10000,
+            avg_handle_ms: null,
+          },
+        ])
+        // 3) current session metrics (handover-rate denominator)
         .mockResolvedValueOnce([
           { total_conversations: BigInt(100), total_users: BigInt(50), returning_users: BigInt(10) },
+        ])
+        // 4) previous session metrics
+        .mockResolvedValueOnce([
+          { total_conversations: BigInt(80), total_users: BigInt(40), returning_users: BigInt(8) },
         ]);
 
       const res = await service.getHandoverMetrics(baseQuery, clientUser);
 
       expect(res.totalHandovers).toBe(10);
+      expect(res.totalHandoversTrend).toBe(25); // (10-8)/8
       expect(res.totalConversations).toBe(100);
       expect(res.handoverRate).toBe(10); // 10 / 100
+      expect(res.handoverRateTrend).toBe(0); // 10% vs 10%
       expect(res.takenOver).toBe(6);
+      expect(res.takenOverTrend).toBe(50); // (6-4)/4
       expect(res.takenOverRate).toBe(60); // 6 / 10
       expect(res.resolvedByHuman).toBe(5);
+      expect(res.resolvedByHumanTrend).toBe(0);
       expect(res.autoResolved).toBe(3);
       expect(res.abandoned).toBe(2);
       expect(res.sweptAfterTakeover).toBe(1);
       expect(res.avgWaitMs).toBe(12000);
+      expect(res.avgWaitTrend).toBe(20); // (12000-10000)/10000
       expect(res.avgHandleMs).toBe(300000);
+      expect(res.avgHandleTrend).toBeNull(); // prev period had no handling time
       // MANUAL (count 0) is dropped; the rest carry their share of the total.
       expect(res.reasons).toEqual([
         { reason: 'USER_REQUESTED', count: 7, percentage: 70 },

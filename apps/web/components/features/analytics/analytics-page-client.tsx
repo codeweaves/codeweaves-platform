@@ -13,6 +13,7 @@ import {
   useVoiceSummary,
   useVoiceLatency,
   useLanguageDistribution,
+  useHandoverAnalytics,
   type AnalyticsParams,
 } from '@/hooks/use-analytics';
 import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
@@ -194,6 +195,7 @@ export function AnalyticsPageClient() {
   const exportVoiceSummaryQuery = useVoiceSummary(analyticsParams, { enabled: exportRequested });
   const exportVoiceLatencyQuery = useVoiceLatency(analyticsParams, { enabled: exportRequested });
   const exportVoiceLanguagesQuery = useLanguageDistribution(analyticsParams, { enabled: exportRequested });
+  const exportHandoverQuery = useHandoverAnalytics(analyticsParams, { enabled: exportRequested });
   const handleExportOpenChange = useCallback((open: boolean) => {
     if (open) setExportRequested(true);
   }, []);
@@ -322,6 +324,7 @@ export function AnalyticsPageClient() {
               voiceSummary={exportVoiceSummaryQuery.data}
               voiceLatency={exportVoiceLatencyQuery.data}
               voiceLanguages={exportVoiceLanguagesQuery.data}
+              handover={exportHandoverQuery.data}
               startDate={analyticsParams.startDate}
               endDate={analyticsParams.endDate}
               orgName={profile?.organization?.name ?? 'all'}

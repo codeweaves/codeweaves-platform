@@ -325,16 +325,20 @@ export interface HandoverAnalyticsResponse {
   period: { start: string; end: string };
   /** Handover cycles requested in the period (one per request). */
   totalHandovers: number;
+  totalHandoversTrend: number;
   /** Conversations in the period — the denominator for handoverRate. */
   totalConversations: number;
   /** % of conversations that raised a handover. */
   handoverRate: number;
+  handoverRateTrend: number;
   /** Cycles a human actually took over. */
   takenOver: number;
+  takenOverTrend: number;
   /** % of requested handovers a human took over. */
   takenOverRate: number;
   /** Cycles a teammate explicitly resolved. */
   resolvedByHuman: number;
+  resolvedByHumanTrend: number;
   /** Cycles auto-resolved by the idle sweep (total). */
   autoResolved: number;
   /** Requested but never taken over, then swept (true abandonment). */
@@ -343,8 +347,10 @@ export interface HandoverAnalyticsResponse {
   sweptAfterTakeover: number;
   /** Avg ms from request → human takeover. Null when nothing was taken over. */
   avgWaitMs: number | null;
+  avgWaitTrend: number | null;
   /** Avg ms from takeover → resolve. Null when nothing was human-resolved. */
   avgHandleMs: number | null;
+  avgHandleTrend: number | null;
   reasons: HandoverReasonEntry[];
 }
 
