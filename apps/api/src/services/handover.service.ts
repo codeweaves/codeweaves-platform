@@ -5,7 +5,13 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Prisma, Role, type HandoverReason, type HandoverState } from '@prisma/client';
+import {
+  Prisma,
+  Role,
+  type HandoverReason,
+  type HandoverResolution,
+  type HandoverState,
+} from '@prisma/client';
 import { tool, jsonSchema } from 'ai';
 import { PrismaService } from './prisma.service';
 import { RealtimeService } from './realtime.service';
@@ -191,6 +197,10 @@ export class HandoverService {
         },
       });
       if (res.count === 0) return; // already requested or being handled
+
+      // History: open a fresh handover cycle in the append-only log (best-effort;
+      // the ChatSession columns above remain the live source of truth).
+      await this.recordHandoverRequested(ctx.sessionDbId, ctx.organizationId, reason);
 
       // Semantic event: the session actually flipped NONE → REQUESTED. Fire-and-forget.
       this.events.logCompleted('HANDOVER_REQUESTED', {
@@ -539,6 +549,16 @@ export class HandoverService {
       { organizationId: session.agent.organizationId, agentId: session.agent.id },
     );
 
+    // History: mark the open cycle as taken over, or open one for a direct
+    // manual takeover of a bot chat (no prior request). Best-effort.
+    await this.recordHandoverTakenOver(
+      session.id,
+      session.agent.organizationId,
+      session.agent.id,
+      user.id,
+      session.handoverReason ?? 'MANUAL',
+    );
+
     const ctx = this.ctxOf(session);
     await this.insertSystemMessage(session.id, `${name} took over — AI paused`);
     await this.realtime.emitHandover(ctx, 'ACTIVE_HUMAN');
@@ -623,6 +643,9 @@ export class HandoverService {
         { organizationId: session.agent.organizationId, agentId: session.agent.id },
       );
 
+      // History: close the open cycle as human-resolved. Best-effort.
+      await this.recordHandoverResolved(session.id, 'HUMAN');
+
       const ctx = this.ctxOf(session);
       await this.insertSystemMessage(session.id, `Resolved by ${name} — AI resumed`);
       await this.realtime.emitHandover(ctx, 'NONE');
@@ -668,6 +691,8 @@ export class HandoverService {
           where: { id: s.id },
           data: { handoverState: 'NONE', handoverResolvedAt: new Date() },
         });
+        // History: close the open cycle as auto-resolved (timed out). Best-effort.
+        await this.recordHandoverResolved(s.id, 'AUTO_INACTIVE');
         await this.insertSystemMessage(s.id, 'Auto-resolved (inactive) — AI resumed');
         const ctx = {
           sessionDbId: s.id,
@@ -768,5 +793,106 @@ export class HandoverService {
   private async resolveUserName(userId: string): Promise<string> {
     const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
     return u?.name?.trim() || 'A teammate';
+  }
+
+  // ---------------------------------------------------------------------------
+  // Handover history (append-only HandoverEvent log)
+  //
+  // Written ALONGSIDE the ChatSession handover columns, never in their place:
+  // the session columns stay the live source of truth for the Inbox + state
+  // machine, and nothing in the chat/voice/AI request path ever reads this
+  // table. Every method here is best-effort — a failure is logged and swallowed
+  // so it can never break an escalation, takeover, or resolve. Each handover
+  // REQUEST is its own row, so re-escalating a chat no longer overwrites history.
+  // ---------------------------------------------------------------------------
+
+  /** Open a fresh handover cycle (one row per request; nothing is overwritten). */
+  private async recordHandoverRequested(
+    sessionDbId: string,
+    organizationId: string,
+    reason: HandoverReason,
+  ): Promise<void> {
+    try {
+      const s = await this.prisma.chatSession.findUnique({
+        where: { id: sessionDbId },
+        select: { agentId: true },
+      });
+      if (!s) return;
+      await this.prisma.handoverEvent.create({
+        data: { chatSessionId: sessionDbId, organizationId, agentId: s.agentId, reason },
+      });
+    } catch (err) {
+      this.log.warn('recordHandoverRequested', 'history write failed (ignored)', {
+        sessionDbId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /**
+   * Mark the open cycle as taken over. If there is no open cycle — a teammate
+   * grabbed a bot chat directly, with no prior request — open one now.
+   */
+  private async recordHandoverTakenOver(
+    sessionDbId: string,
+    organizationId: string,
+    agentId: string,
+    userId: string,
+    fallbackReason: HandoverReason,
+  ): Promise<void> {
+    try {
+      const open = await this.prisma.handoverEvent.findFirst({
+        where: { chatSessionId: sessionDbId, resolvedAt: null },
+        orderBy: { requestedAt: 'desc' },
+        select: { id: true },
+      });
+      const now = new Date();
+      if (open) {
+        await this.prisma.handoverEvent.update({
+          where: { id: open.id },
+          data: { startedAt: now, takenOverById: userId },
+        });
+      } else {
+        await this.prisma.handoverEvent.create({
+          data: {
+            chatSessionId: sessionDbId,
+            organizationId,
+            agentId,
+            reason: fallbackReason,
+            startedAt: now,
+            takenOverById: userId,
+          },
+        });
+      }
+    } catch (err) {
+      this.log.warn('recordHandoverTakenOver', 'history write failed (ignored)', {
+        sessionDbId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
+  }
+
+  /** Close the open cycle, tagging how it ended (human resolve vs idle sweep). */
+  private async recordHandoverResolved(
+    sessionDbId: string,
+    resolution: HandoverResolution,
+  ): Promise<void> {
+    try {
+      const open = await this.prisma.handoverEvent.findFirst({
+        where: { chatSessionId: sessionDbId, resolvedAt: null },
+        orderBy: { requestedAt: 'desc' },
+        select: { id: true },
+      });
+      if (!open) return;
+      await this.prisma.handoverEvent.update({
+        where: { id: open.id },
+        data: { resolvedAt: new Date(), resolution },
+      });
+    } catch (err) {
+      this.log.warn('recordHandoverResolved', 'history write failed (ignored)', {
+        sessionDbId,
+        err: err instanceof Error ? err.message : String(err),
+      });
+    }
   }
 }

@@ -397,6 +397,103 @@ export class AnalyticsService {
     };
   }
 
+  /**
+   * Human-handover metrics for the period, read from the append-only
+   * handover_events log (one row per handover request). Scoped by agent + the
+   * cycle's requestedAt. All aggregation runs in SQL.
+   */
+  async getHandoverMetrics(query: AnalyticsQuery, user: CurrentUserData) {
+    const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc } = this.resolveRange(query);
+
+    const empty = {
+      period: { start: startUtc.toISOString(), end: endUtc.toISOString() },
+      totalHandovers: 0,
+      totalConversations: 0,
+      handoverRate: 0,
+      takenOver: 0,
+      takenOverRate: 0,
+      resolvedByHuman: 0,
+      autoResolved: 0,
+      abandoned: 0,
+      sweptAfterTakeover: 0,
+      avgWaitMs: null as number | null,
+      avgHandleMs: null as number | null,
+      reasons: [] as { reason: string; count: number; percentage: number }[],
+    };
+    if (agentIds.length === 0) return empty;
+
+    const rows = await this.prisma.$queryRaw<
+      {
+        total: bigint;
+        taken_over: bigint;
+        resolved_human: bigint;
+        auto_resolved: bigint;
+        abandoned: bigint;
+        swept_after_takeover: bigint;
+        r_user: bigint;
+        r_fallback: bigint;
+        r_frustration: bigint;
+        r_manual: bigint;
+        avg_wait_ms: number | null;
+        avg_handle_ms: number | null;
+      }[]
+    >`
+      SELECT
+        COUNT(*) AS total,
+        COUNT(*) FILTER (WHERE "startedAt" IS NOT NULL) AS taken_over,
+        COUNT(*) FILTER (WHERE resolution = 'HUMAN') AS resolved_human,
+        COUNT(*) FILTER (WHERE resolution = 'AUTO_INACTIVE') AS auto_resolved,
+        COUNT(*) FILTER (WHERE resolution = 'AUTO_INACTIVE' AND "startedAt" IS NULL) AS abandoned,
+        COUNT(*) FILTER (WHERE resolution = 'AUTO_INACTIVE' AND "startedAt" IS NOT NULL) AS swept_after_takeover,
+        COUNT(*) FILTER (WHERE reason = 'USER_REQUESTED') AS r_user,
+        COUNT(*) FILTER (WHERE reason = 'BOT_FALLBACK') AS r_fallback,
+        COUNT(*) FILTER (WHERE reason = 'FRUSTRATION') AS r_frustration,
+        COUNT(*) FILTER (WHERE reason = 'MANUAL') AS r_manual,
+        AVG(EXTRACT(EPOCH FROM ("startedAt" - "requestedAt")) * 1000)
+          FILTER (WHERE "startedAt" IS NOT NULL) AS avg_wait_ms,
+        AVG(EXTRACT(EPOCH FROM ("resolvedAt" - "startedAt")) * 1000)
+          FILTER (WHERE "startedAt" IS NOT NULL AND "resolvedAt" IS NOT NULL) AS avg_handle_ms
+      FROM handover_events
+      WHERE "agentId" = ANY(${agentIds}::text[])
+        AND "requestedAt" >= ${startUtc}
+        AND "requestedAt" < ${endUtc}
+    `;
+
+    const row = rows[0];
+    const total = Number(row?.total ?? 0);
+    const takenOver = Number(row?.taken_over ?? 0);
+    const { totalConversations } = await this.getSessionMetrics(agentIds, startUtc, endUtc);
+    const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
+    const ms = (v: number | null | undefined) =>
+      v == null ? null : Math.round(Number(v));
+
+    const reasons = [
+      { reason: 'USER_REQUESTED', count: Number(row?.r_user ?? 0) },
+      { reason: 'BOT_FALLBACK', count: Number(row?.r_fallback ?? 0) },
+      { reason: 'FRUSTRATION', count: Number(row?.r_frustration ?? 0) },
+      { reason: 'MANUAL', count: Number(row?.r_manual ?? 0) },
+    ]
+      .filter((r) => r.count > 0)
+      .map((r) => ({ ...r, percentage: pct(r.count, total) }));
+
+    return {
+      period: { start: startUtc.toISOString(), end: endUtc.toISOString() },
+      totalHandovers: total,
+      totalConversations,
+      handoverRate: pct(total, totalConversations),
+      takenOver,
+      takenOverRate: pct(takenOver, total),
+      resolvedByHuman: Number(row?.resolved_human ?? 0),
+      autoResolved: Number(row?.auto_resolved ?? 0),
+      abandoned: Number(row?.abandoned ?? 0),
+      sweptAfterTakeover: Number(row?.swept_after_takeover ?? 0),
+      avgWaitMs: ms(row?.avg_wait_ms),
+      avgHandleMs: ms(row?.avg_handle_ms),
+      reasons,
+    };
+  }
+
   async getConversationsChart(query: AnalyticsQuery, user: CurrentUserData) {
     const agentIds = await this.getAgentIds(query, user);
     const { startUtc, endUtc, timezone } = this.resolveRange(query);

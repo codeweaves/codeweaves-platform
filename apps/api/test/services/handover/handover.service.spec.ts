@@ -30,6 +30,11 @@ describe('HandoverService', () => {
       findMany: jest.fn(),
     },
     user: { findUnique: jest.fn() },
+    handoverEvent: {
+      create: jest.fn(),
+      findFirst: jest.fn(),
+      update: jest.fn(),
+    },
   };
 
   const mockRealtime = {
@@ -137,6 +142,12 @@ describe('HandoverService', () => {
       content: 'x',
       createdAt: new Date('2026-06-24T10:01:00Z'),
     });
+    // Handover history log — best-effort writes. Default them to succeed so the
+    // primary-flow tests exercise them harmlessly without asserting.
+    mockPrisma.handoverEvent.create.mockResolvedValue({ id: 'he-default' });
+    mockPrisma.handoverEvent.findFirst.mockResolvedValue({ id: 'he-default' });
+    mockPrisma.handoverEvent.update.mockResolvedValue({ id: 'he-default' });
+    mockPrisma.chatMessage.findMany.mockResolvedValue([]);
   });
 
   describe('detectKeyword', () => {
@@ -850,6 +861,90 @@ describe('HandoverService', () => {
       const res = await service.sweepIdleHandovers(20);
       expect(res.resolved).toBe(0);
       expect(mockPrisma.chatSession.update).not.toHaveBeenCalled();
+    });
+  });
+
+  describe('HandoverEvent history (append-only log)', () => {
+    it('opens a new event when the flag is raised', async () => {
+      mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.chatSession.findUnique.mockResolvedValue({ agentId: 'agent-1' });
+      await service.raiseRequested(ctx, 'USER_REQUESTED');
+      expect(mockPrisma.handoverEvent.create).toHaveBeenCalledWith({
+        data: {
+          chatSessionId: 'sess-db',
+          organizationId: orgId,
+          agentId: 'agent-1',
+          reason: 'USER_REQUESTED',
+        },
+      });
+    });
+
+    it('does not open an event when the flag was already raised', async () => {
+      mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 0 });
+      await service.raiseRequested(ctx, 'USER_REQUESTED');
+      expect(mockPrisma.handoverEvent.create).not.toHaveBeenCalled();
+    });
+
+    it('marks the open event as taken over on takeover', async () => {
+      mockPrisma.chatSession.findFirst.mockResolvedValue(sessionRow());
+      mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.handoverEvent.findFirst.mockResolvedValue({ id: 'he-2' });
+      await service.takeover('sess-pub', clientUser);
+      expect(mockPrisma.handoverEvent.update).toHaveBeenCalledWith({
+        where: { id: 'he-2' },
+        data: expect.objectContaining({
+          takenOverById: 'client-user-id',
+          startedAt: expect.any(Date),
+        }),
+      });
+    });
+
+    it('opens an event for a direct manual takeover (no prior request)', async () => {
+      mockPrisma.chatSession.findFirst.mockResolvedValue(
+        sessionRow({ handoverState: 'NONE', handoverReason: null }),
+      );
+      mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.handoverEvent.findFirst.mockResolvedValue(null);
+      await service.takeover('sess-pub', clientUser);
+      expect(mockPrisma.handoverEvent.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          reason: 'MANUAL',
+          takenOverById: 'client-user-id',
+          startedAt: expect.any(Date),
+        }),
+      });
+    });
+
+    it('closes the open event as HUMAN on resolve', async () => {
+      mockPrisma.chatSession.findFirst.mockResolvedValue(heldBy('client-user-id', 'Me'));
+      mockPrisma.handoverEvent.findFirst.mockResolvedValue({ id: 'he-3' });
+      await service.resolve('sess-pub', clientUser);
+      expect(mockPrisma.handoverEvent.update).toHaveBeenCalledWith({
+        where: { id: 'he-3' },
+        data: expect.objectContaining({
+          resolution: 'HUMAN',
+          resolvedAt: expect.any(Date),
+        }),
+      });
+    });
+
+    it('closes swept sessions as AUTO_INACTIVE', async () => {
+      mockPrisma.chatSession.findMany.mockResolvedValue([
+        { id: 's1', sessionId: 'p1', agent: { organizationId: orgId } },
+      ]);
+      mockPrisma.chatSession.update.mockResolvedValue({});
+      mockPrisma.handoverEvent.findFirst.mockResolvedValue({ id: 'he-9' });
+      await service.sweepIdleHandovers(20);
+      expect(mockPrisma.handoverEvent.update).toHaveBeenCalledWith({
+        where: { id: 'he-9' },
+        data: expect.objectContaining({ resolution: 'AUTO_INACTIVE' }),
+      });
+    });
+
+    it('never breaks resolve when the history write fails', async () => {
+      mockPrisma.chatSession.findFirst.mockResolvedValue(heldBy('client-user-id', 'Me'));
+      mockPrisma.handoverEvent.findFirst.mockRejectedValue(new Error('db down'));
+      await expect(service.resolve('sess-pub', clientUser)).resolves.toBeDefined();
     });
   });
 });

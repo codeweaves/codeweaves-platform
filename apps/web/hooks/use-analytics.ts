@@ -311,6 +311,58 @@ export function useConversationChannels(params: AnalyticsParams, options?: Analy
 }
 
 // ==========================================
+// Handover Analytics Types & Hook
+// ==========================================
+
+// Matches API: analytics.service.ts → getHandoverMetrics()
+export interface HandoverReasonEntry {
+  reason: string;
+  count: number;
+  percentage: number;
+}
+
+export interface HandoverAnalyticsResponse {
+  period: { start: string; end: string };
+  /** Handover cycles requested in the period (one per request). */
+  totalHandovers: number;
+  /** Conversations in the period — the denominator for handoverRate. */
+  totalConversations: number;
+  /** % of conversations that raised a handover. */
+  handoverRate: number;
+  /** Cycles a human actually took over. */
+  takenOver: number;
+  /** % of requested handovers a human took over. */
+  takenOverRate: number;
+  /** Cycles a teammate explicitly resolved. */
+  resolvedByHuman: number;
+  /** Cycles auto-resolved by the idle sweep (total). */
+  autoResolved: number;
+  /** Requested but never taken over, then swept (true abandonment). */
+  abandoned: number;
+  /** Taken over by a human, then swept idle (walked away without resolving). */
+  sweptAfterTakeover: number;
+  /** Avg ms from request → human takeover. Null when nothing was taken over. */
+  avgWaitMs: number | null;
+  /** Avg ms from takeover → resolve. Null when nothing was human-resolved. */
+  avgHandleMs: number | null;
+  reasons: HandoverReasonEntry[];
+}
+
+export function useHandoverAnalytics(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<HandoverAnalyticsResponse>({
+    queryKey: ['analytics', 'handover', params],
+    queryFn: () => api.get(`/analytics/handover?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+  });
+}
+
+// ==========================================
 // Voice Analytics Types & Hooks (Story 10-14)
 // ==========================================
 

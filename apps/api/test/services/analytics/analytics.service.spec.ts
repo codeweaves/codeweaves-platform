@@ -969,4 +969,61 @@ describe('AnalyticsService', () => {
       )).rejects.toThrow(ForbiddenException);
     });
   });
+
+  describe('getHandoverMetrics', () => {
+    it('returns zeros and skips SQL when the user has no agents', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([]);
+      const res = await service.getHandoverMetrics(baseQuery, clientUser);
+      expect(res.totalHandovers).toBe(0);
+      expect(res.handoverRate).toBe(0);
+      expect(res.reasons).toEqual([]);
+      expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+
+    it('computes rates, resolution split, reasons and timings', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+      mockPrismaService.$queryRaw
+        // 1) handover aggregation
+        .mockResolvedValueOnce([
+          {
+            total: BigInt(10),
+            taken_over: BigInt(6),
+            resolved_human: BigInt(5),
+            auto_resolved: BigInt(3),
+            abandoned: BigInt(2),
+            swept_after_takeover: BigInt(1),
+            r_user: BigInt(7),
+            r_fallback: BigInt(1),
+            r_frustration: BigInt(2),
+            r_manual: BigInt(0),
+            avg_wait_ms: 12000,
+            avg_handle_ms: 300000,
+          },
+        ])
+        // 2) getSessionMetrics (for the handover rate denominator)
+        .mockResolvedValueOnce([
+          { total_conversations: BigInt(100), total_users: BigInt(50), returning_users: BigInt(10) },
+        ]);
+
+      const res = await service.getHandoverMetrics(baseQuery, clientUser);
+
+      expect(res.totalHandovers).toBe(10);
+      expect(res.totalConversations).toBe(100);
+      expect(res.handoverRate).toBe(10); // 10 / 100
+      expect(res.takenOver).toBe(6);
+      expect(res.takenOverRate).toBe(60); // 6 / 10
+      expect(res.resolvedByHuman).toBe(5);
+      expect(res.autoResolved).toBe(3);
+      expect(res.abandoned).toBe(2);
+      expect(res.sweptAfterTakeover).toBe(1);
+      expect(res.avgWaitMs).toBe(12000);
+      expect(res.avgHandleMs).toBe(300000);
+      // MANUAL (count 0) is dropped; the rest carry their share of the total.
+      expect(res.reasons).toEqual([
+        { reason: 'USER_REQUESTED', count: 7, percentage: 70 },
+        { reason: 'BOT_FALLBACK', count: 1, percentage: 10 },
+        { reason: 'FRUSTRATION', count: 2, percentage: 20 },
+      ]);
+    });
+  });
 });
