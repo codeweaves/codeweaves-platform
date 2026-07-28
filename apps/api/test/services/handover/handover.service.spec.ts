@@ -917,6 +917,19 @@ describe('HandoverService', () => {
       });
     });
 
+    it('keeps the original startedAt when a SUPER_ADMIN seizes a held chat', async () => {
+      const originalStart = new Date('2026-06-24T10:05:00Z');
+      mockPrisma.chatSession.findFirst.mockResolvedValue(heldBy('other-user-id', 'Priya'));
+      mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
+      mockPrisma.handoverEvent.findFirst.mockResolvedValue({ id: 'he-5', startedAt: originalStart });
+      await service.takeover('sess-pub', superAdminUser);
+      // Ownership changes to the seizer, but the first-response time is preserved.
+      expect(mockPrisma.handoverEvent.update).toHaveBeenCalledWith({
+        where: { id: 'he-5' },
+        data: { startedAt: originalStart, takenOverById: superAdminUser.id },
+      });
+    });
+
     it('closes the open event as HUMAN on resolve', async () => {
       mockPrisma.chatSession.findFirst.mockResolvedValue(heldBy('client-user-id', 'Me'));
       mockPrisma.handoverEvent.findFirst.mockResolvedValue({ id: 'he-3' });

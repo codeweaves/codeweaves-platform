@@ -848,13 +848,16 @@ export class HandoverService {
       const open = await this.prisma.handoverEvent.findFirst({
         where: { chatSessionId: sessionDbId, resolvedAt: null },
         orderBy: { requestedAt: 'desc' },
-        select: { id: true },
+        select: { id: true, startedAt: true },
       });
       const now = new Date();
       if (open) {
+        // Ownership can legitimately change (a SUPER_ADMIN seizing a held chat),
+        // but keep the ORIGINAL startedAt so the wait-for-a-human metric isn't
+        // reset by the seize — only stamp it on the first takeover.
         await this.prisma.handoverEvent.update({
           where: { id: open.id },
-          data: { startedAt: now, takenOverById: userId },
+          data: { startedAt: open.startedAt ?? now, takenOverById: userId },
         });
       } else {
         await this.prisma.handoverEvent.create({

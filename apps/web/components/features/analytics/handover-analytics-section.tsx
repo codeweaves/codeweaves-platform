@@ -32,7 +32,23 @@ interface HandoverAnalyticsSectionProps {
  * the "why raised" and "how ended" distributions (no number is shown twice).
  */
 export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAnalyticsSectionProps) {
-  const { data, isLoading } = useHandoverAnalytics(params, pollingOptions);
+  const { data, isLoading, isError } = useHandoverAnalytics(params, pollingOptions);
+
+  // Distinct from the empty state: a failed request must not read as "zero
+  // activity" (it's unavailable, not empty).
+  if (isError) {
+    return (
+      <Card>
+        <CardContent className="flex flex-col items-center justify-center py-16 text-center">
+          <Headset className="mb-4 size-12 text-muted-foreground/40" />
+          <h3 className="text-lg font-medium">Couldn&apos;t load handover analytics</h3>
+          <p className="mt-1 max-w-sm text-sm text-muted-foreground">
+            Something went wrong fetching this data. Try refreshing the page.
+          </p>
+        </CardContent>
+      </Card>
+    );
+  }
 
   if (!isLoading && (!data || data.totalHandovers === 0)) {
     return (
