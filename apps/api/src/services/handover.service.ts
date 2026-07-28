@@ -446,15 +446,72 @@ export class HandoverService {
     };
   }
 
+  /**
+   * One teammate owns a live conversation at a time.
+   *
+   * Without this, a second person could reply into a chat someone else is
+   * handling — two staff answering the same visitor as the same brand, with the
+   * visitor seeing interleaved replies and neither agent aware of the other.
+   *
+   * Rules:
+   *  - not ACTIVE_HUMAN → nobody owns it, anything goes.
+   *  - owned by ME → fine (idempotent re-click, or my own reply).
+   *  - owned by SOMEONE ELSE → 409, naming them so the UI can say who.
+   *
+   * SUPER_ADMIN — and ONLY SUPER_ADMIN — bypasses this, as the escape hatch for
+   * a chat left open by someone who has gone home. ADMIN is deliberately NOT
+   * included: an org admin is a peer of the person handling the chat, so letting
+   * them seize it is the same hijack this guard exists to prevent. The
+   * 20-minute idle sweep is the automatic release for everyone else.
+   */
+  private assertNotHeldByAnother(
+    session: {
+      handoverState: HandoverState;
+      takenOverById: string | null;
+      takenOverBy: { id: string; name: string | null } | null;
+    },
+    user: CurrentUserData,
+    action: string,
+  ): void {
+    if (session.handoverState !== 'ACTIVE_HUMAN') return;
+    if (!session.takenOverById || session.takenOverById === user.id) return;
+    if (user.role === Role.SUPER_ADMIN) return;
+
+    const who = session.takenOverBy?.name?.trim() || 'another teammate';
+    throw new ConflictException(
+      `${who} is already handling this conversation. Ask them to resolve it before you ${action}.`,
+    );
+  }
+
   async takeover(publicSessionId: string, user: CurrentUserData) {
     const session = await this.loadScopedSession(publicSessionId, user);
+    // Fail loudly rather than silently returning the thread: a no-op looked
+    // identical to success in the UI, so the second teammate believed they had
+    // the chat and started typing.
+    this.assertNotHeldByAnother(session, user, 'take over');
     const name = await this.resolveUserName(user.id);
 
-    // Guarded so two teammates clicking "Take over" at once can't both win: only
-    // the update that flips it away from ACTIVE_HUMAN claims it. A second click
-    // no-ops and just returns the current thread (showing who already has it).
+    // Is this a SUPER_ADMIN seizing a chat someone else holds? The guard above
+    // lets that through, but the normal claim below filters on
+    // `handoverState != ACTIVE_HUMAN` — which by definition can NEVER match a
+    // held chat. Without this branch the override silently claimed nothing and
+    // returned the unchanged thread, i.e. exactly the false-success the guard
+    // was added to eliminate.
+    const isSeizingFromHolder =
+      session.handoverState === 'ACTIVE_HUMAN' &&
+      !!session.takenOverById &&
+      session.takenOverById !== user.id;
+
+    // Guarded so two teammates clicking "Take over" at once can't both win.
+    // Normal path: only the update that flips it away from ACTIVE_HUMAN claims
+    // it, so a simultaneous loser falls through to returning the claimed thread.
+    // Seize path: match on the holder we just observed, which keeps the same
+    // optimistic-concurrency property — if they resolved or someone else seized
+    // in the meantime, this matches nothing rather than clobbering blindly.
     const claimed = await this.prisma.chatSession.updateMany({
-      where: { id: session.id, handoverState: { not: 'ACTIVE_HUMAN' } },
+      where: isSeizingFromHolder
+        ? { id: session.id, takenOverById: session.takenOverById }
+        : { id: session.id, handoverState: { not: 'ACTIVE_HUMAN' } },
       data: {
         handoverState: 'ACTIVE_HUMAN',
         takenOverById: user.id,
@@ -494,6 +551,10 @@ export class HandoverService {
     if (session.handoverState !== 'ACTIVE_HUMAN') {
       throw new ConflictException('Take over the conversation before replying');
     }
+    // The state check above is not enough on its own — it only proves SOMEONE
+    // took over, not that it was the caller. Without this, a teammate could
+    // reply into a conversation another teammate is handling.
+    this.assertNotHeldByAnother(session, user, 'reply');
     const name = await this.resolveUserName(user.id);
     // Same compliance floor as visitor messages: a human agent pasting a
     // card/Aadhaar number must not persist it either. WhatsApp outbound below
@@ -536,6 +597,9 @@ export class HandoverService {
 
   async resolve(publicSessionId: string, user: CurrentUserData) {
     const session = await this.loadScopedSession(publicSessionId, user);
+    // Resolving someone else's active chat hands the visitor back to the bot
+    // mid-conversation, from under the teammate who was mid-reply.
+    this.assertNotHeldByAnother(session, user, 'resolve it');
     const name = await this.resolveUserName(user.id);
 
     if (session.handoverState !== 'NONE') {

@@ -14,6 +14,7 @@ import {
 } from 'lucide-react';
 import { toast } from 'sonner';
 import { cn } from '@/lib/utils';
+import { visitorLabel } from '@/lib/visitor-label';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
 import {
@@ -199,6 +200,12 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
   const state = thread.handoverState;
   const handledByMe = state === 'ACTIVE_HUMAN' && thread.takenOverBy?.id === currentUserId;
   const handledByOther = state === 'ACTIVE_HUMAN' && !handledByMe;
+  const holderName = thread.takenOverBy?.name?.trim() || 'A teammate';
+  // Mirrors the API's guard: SUPER_ADMIN only. An ADMIN is a peer of whoever is
+  // handling the chat, so they get no override — the 20-minute idle sweep is
+  // their release. Cosmetic only; the server decides. This just avoids offering
+  // a button that would 409.
+  const canOverride = profile?.role === 'SUPER_ADMIN';
 
   const doTakeover = () =>
     takeover.mutate(thread.sessionId, {
@@ -233,8 +240,10 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
           <User className="size-4" />
         </div>
         <div className="min-w-0 flex-1">
+          {/* A hashed IP is hidden; a WhatsApp phone number is shown — it's who
+              the reply is actually addressed to. See visitorLabel. */}
           <div className="truncate text-sm font-semibold">
-            Visitor{thread.visitorId ? ` · ${thread.visitorId}` : ''}
+            {visitorLabel(thread.source, thread.visitorId)}
           </div>
           <div className="flex flex-wrap items-center gap-x-3 text-[11px] text-muted-foreground">
             <span className="inline-flex items-center gap-1">
@@ -254,9 +263,21 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
             <Button variant="outline" size="sm" onClick={doResolve} disabled={resolve.isPending}>
               <CheckCircle2 className="size-4" /> Resolve
             </Button>
+          ) : handledByOther && !canOverride ? (
+            // Someone else owns this chat. Offering a button that the API will
+            // reject is worse than not offering it — say who has it instead, so
+            // the reader knows who to go to.
+            <span className="inline-flex shrink-0 items-center gap-1.5 text-xs text-muted-foreground">
+              <Headset className="size-3.5" />
+              {holderName} is handling this
+            </span>
           ) : (
             <Button size="sm" onClick={doTakeover} disabled={takeover.isPending}>
-              <Headset className="size-4" /> {handledByOther ? 'Take over' : 'Take over'}
+              <Headset className="size-4" />
+              {/* Only a SUPER_ADMIN reaches this branch while someone else holds
+                  the chat (see canOverride) — "anyway" makes clear they are
+                  seizing it, not claiming a free one. */}
+              {handledByOther ? 'Take over anyway' : 'Take over'}
             </Button>
           ))}
       </div>
@@ -306,7 +327,10 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
         ) : handledByOther ? (
           <div className="flex items-center gap-2 px-1 py-2 text-xs text-muted-foreground">
             <Lock className="size-3.5" />
-            {thread.takenOverBy?.name ?? 'A teammate'} is handling this chat. Take over to reply yourself.
+            {/* Previously said "Take over to reply yourself" — which the API now
+                refuses. Don't invite an action that will be rejected. */}
+            {holderName} is handling this chat.
+            {canOverride && ' You can take it over anyway.'}
           </div>
         ) : state === 'REQUESTED' ? (
           <div className="flex items-center gap-3 rounded-lg bg-destructive/10 px-3 py-2.5">

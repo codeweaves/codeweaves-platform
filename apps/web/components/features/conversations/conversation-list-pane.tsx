@@ -26,6 +26,7 @@ import {
 } from '@/hooks/use-conversations';
 import type { ConversationFilters } from './conversations-filters-bar';
 import { cn } from '@/lib/utils';
+import { visitorLabel } from '@/lib/visitor-label';
 
 interface ConversationListPaneProps {
   selectedSessionId: string | null;
@@ -86,7 +87,10 @@ function ConversationRow({
   selected: boolean;
   onSelect: (sessionId: string) => void;
 }) {
-  const visitor = conversation.visitorId ?? 'Anonymous';
+  // Empty string for non-WhatsApp, so the row shows just the message count
+  // rather than a redundant literal "Visitor" next to the source badge.
+  const label = visitorLabel(conversation.source, conversation.visitorId);
+  const visitor = label === 'Visitor' ? '' : label;
   const initial = (conversation.agent.name[0] ?? '?').toUpperCase();
 
   return (
@@ -125,7 +129,10 @@ function ConversationRow({
             {SOURCE_LABEL[conversation.source]}
           </Badge>
           <span className="truncate text-[11px] text-muted-foreground">
-            {visitor} · {conversation.messageCount} msg
+            {/* Only WhatsApp yields a readable label (a phone number); for the
+                widget this collapses to nothing rather than a hashed IP. */}
+            {visitor && `${visitor} · `}
+            {conversation.messageCount} msg
             {conversation.messageCount === 1 ? '' : 's'}
           </span>
         </div>
