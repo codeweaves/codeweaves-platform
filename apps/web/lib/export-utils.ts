@@ -4,6 +4,7 @@ import type {
   VoiceSummaryResponse,
   VoiceLatencyResponse,
   LanguageDistributionResponse,
+  HandoverAnalyticsResponse,
 } from '@/hooks/use-analytics';
 
 export interface AnalyticsExportData {
@@ -13,7 +14,16 @@ export interface AnalyticsExportData {
   voiceSummary?: VoiceSummaryResponse;
   voiceLatency?: VoiceLatencyResponse;
   voiceLanguages?: LanguageDistributionResponse;
+  /** Handover data — only present/exported when there were handovers. */
+  handover?: HandoverAnalyticsResponse;
 }
+
+const HANDOVER_REASON_LABELS: Record<string, string> = {
+  USER_REQUESTED: 'Asked for a human',
+  BOT_FALLBACK: "Bot couldn't answer",
+  FRUSTRATION: 'Frustration detected',
+  MANUAL: 'Manually flagged',
+};
 
 // Curated, human-labeled KPI list for export — mirrors the current dashboard
 // cards instead of dumping every raw response key (which surfaced removed
@@ -100,6 +110,38 @@ export function exportToCsv(data: AnalyticsExportData, filename: string) {
       for (const l of langs) {
         lines.push(
           `${escapeCsvField(l.language)},${escapeCsvField(l.count)},${escapeCsvField(l.percentage)}`,
+        );
+      }
+    }
+  }
+
+  // Handover section — only when there were handovers in the period.
+  const ho = data.handover;
+  if (ho && ho.totalHandovers > 0) {
+    lines.push('');
+    lines.push('Human Handover');
+    lines.push('Metric,Value');
+    lines.push(`Handover Rate (%),${escapeCsvField(ho.handoverRate)}`);
+    lines.push(`Total Handovers,${escapeCsvField(ho.totalHandovers)}`);
+    lines.push(`Picked Up by a Human,${escapeCsvField(ho.takenOver)}`);
+    lines.push(`Taken-over Rate (%),${escapeCsvField(ho.takenOverRate)}`);
+    lines.push(`Resolved by a Human,${escapeCsvField(ho.resolvedByHuman)}`);
+    lines.push(`Left Open (auto-resolved),${escapeCsvField(ho.sweptAfterTakeover)}`);
+    lines.push(`Abandoned (never picked up),${escapeCsvField(ho.abandoned)}`);
+    if (ho.avgWaitMs != null) {
+      lines.push(`Avg Wait for a Human (ms),${escapeCsvField(ho.avgWaitMs)}`);
+    }
+    if (ho.avgHandleMs != null) {
+      lines.push(`Avg Handling Time (ms),${escapeCsvField(ho.avgHandleMs)}`);
+    }
+
+    if (ho.reasons.length > 0) {
+      lines.push('');
+      lines.push('Handover Reasons');
+      lines.push('Reason,Count,Percentage (%)');
+      for (const r of ho.reasons) {
+        lines.push(
+          `${escapeCsvField(HANDOVER_REASON_LABELS[r.reason] ?? r.reason)},${escapeCsvField(r.count)},${escapeCsvField(r.percentage)}`,
         );
       }
     }

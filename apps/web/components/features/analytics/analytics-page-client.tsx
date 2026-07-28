@@ -13,6 +13,7 @@ import {
   useVoiceSummary,
   useVoiceLatency,
   useLanguageDistribution,
+  useHandoverAnalytics,
   type AnalyticsParams,
 } from '@/hooks/use-analytics';
 import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
@@ -29,9 +30,10 @@ import { AnalyticsConversationsTab } from './analytics-conversations-tab';
 import { AnalyticsEmptyState } from './analytics-empty-state';
 import { AnalyticsExportButton } from './analytics-export-button';
 import { VoiceAnalyticsSection } from './voice-analytics-section';
+import { HandoverAnalyticsSection } from './handover-analytics-section';
 import { resolveTimezone, TimezoneToggle, type TzMode } from './timezone-toggle';
 
-const TABS = ['overview', 'conversations', 'voice'] as const;
+const TABS = ['overview', 'conversations', 'voice', 'handover'] as const;
 type AnalyticsTab = (typeof TABS)[number];
 
 const SOURCE_LABELS: Record<string, string> = {
@@ -193,6 +195,7 @@ export function AnalyticsPageClient() {
   const exportVoiceSummaryQuery = useVoiceSummary(analyticsParams, { enabled: exportRequested });
   const exportVoiceLatencyQuery = useVoiceLatency(analyticsParams, { enabled: exportRequested });
   const exportVoiceLanguagesQuery = useLanguageDistribution(analyticsParams, { enabled: exportRequested });
+  const exportHandoverQuery = useHandoverAnalytics(analyticsParams, { enabled: exportRequested });
   const handleExportOpenChange = useCallback((open: boolean) => {
     if (open) setExportRequested(true);
   }, []);
@@ -321,6 +324,7 @@ export function AnalyticsPageClient() {
               voiceSummary={exportVoiceSummaryQuery.data}
               voiceLatency={exportVoiceLatencyQuery.data}
               voiceLanguages={exportVoiceLanguagesQuery.data}
+              handover={exportHandoverQuery.data}
               startDate={analyticsParams.startDate}
               endDate={analyticsParams.endDate}
               orgName={profile?.organization?.name ?? 'all'}
@@ -376,6 +380,7 @@ export function AnalyticsPageClient() {
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="conversations">Conversations</TabsTrigger>
             <TabsTrigger value="voice">Voice</TabsTrigger>
+            <TabsTrigger value="handover">Handover</TabsTrigger>
           </TabsList>
 
           <TabsContent value="overview">
@@ -388,6 +393,10 @@ export function AnalyticsPageClient() {
 
           <TabsContent value="voice">
             <VoiceAnalyticsSection params={analyticsParams} pollingOptions={pollingOptions} />
+          </TabsContent>
+
+          <TabsContent value="handover">
+            <HandoverAnalyticsSection params={analyticsParams} pollingOptions={pollingOptions} />
           </TabsContent>
         </Tabs>
       )}

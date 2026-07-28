@@ -67,6 +67,55 @@ enum HandoverReason {
   MANUAL // a teammate flagged it from the dashboard
 }
 
+/// How a single handover cycle ended. Null while the cycle is still open.
+/// HUMAN = a teammate clicked Resolve; AUTO_INACTIVE = the idle sweep handed the
+/// chat back to the bot. Splits "resolved by a human" from "timed out" — which
+/// the ChatSession columns alone can't, since both stamp handoverResolvedAt.
+enum HandoverResolution {
+  HUMAN
+  AUTO_INACTIVE
+}
+
+/// Append-only history of every human-handover cycle. ONE row per handover
+/// REQUEST — a chat handed off three times has three rows — so analytics reflect
+/// real events instead of only the chat's latest cycle (the ChatSession handover
+/// columns are overwritten on re-escalation and keep just the newest one).
+///
+/// This table is the source of truth for handover HISTORY + METRICS only. The
+/// live Inbox and the takeover/resolve state machine still run entirely off the
+/// denormalized ChatSession.handoverState columns — this is written ALONGSIDE
+/// them (best-effort), never in their place.
+model HandoverEvent {
+  id             String              @id @default(uuid())
+  chatSessionId  String
+  chatSession    ChatSession         @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  // Denormalized from the session's agent so org/agent-scoped analytics scans
+  // never have to join back through ChatSession.
+  organizationId String
+  agentId        String
+  reason         HandoverReason
+  // Lifecycle timestamps for THIS cycle only (never overwritten by a later one).
+  requestedAt    DateTime            @default(now())
+  // Set when a teammate takes over. Null = requested but never picked up.
+  startedAt      DateTime?
+  // Set when the cycle ends (Resolve click or idle sweep). Null = still open.
+  resolvedAt     DateTime?
+  resolution     HandoverResolution?
+  // The teammate who took it over (null if never taken over / a bot cycle).
+  takenOverById  String?
+  takenOverBy    User?               @relation("HandoverEventTakenOverBy", fields: [takenOverById], references: [id], onDelete: SetNull)
+  createdAt      DateTime            @default(now())
+  updatedAt      DateTime            @updatedAt
+
+  // Cheaply find the current OPEN cycle for a session (takeover/resolve/sweep).
+  @@index([chatSessionId, resolvedAt])
+  // Org + time-range analytics scans.
+  @@index([organizationId, requestedAt])
+  // Per-agent analytics scans.
+  @@index([agentId, requestedAt])
+  @@map("handover_events")
+}
+
 enum ChatSource {
   DEMO
   WIDGET
@@ -129,6 +178,8 @@ model User {
   organization        Organization?      @relation(fields: [organizationId], references: [id])
   // Chat sessions this user has taken over in the live-handover Inbox.
   takenOverSessions   ChatSession[]      @relation("SessionTakenOverBy")
+  // Handover cycles this user took over (history/analytics; see HandoverEvent).
+  handoverEventsTakenOver HandoverEvent[] @relation("HandoverEventTakenOverBy")
   // Cursor powering the notification-bell BADGE: set to now() when the panel is
   // opened. Unread count = notifications in my org created after this — a single
   // indexed count with no join, cheap enough to hit on every page load. Per-item
@@ -505,6 +556,8 @@ model ChatSession {
   handoverResolvedAt  DateTime?
   messages            ChatMessage[]
   collectedData       CollectedData?
+  // Append-only history of every handover cycle on this chat (see HandoverEvent).
+  handoverEvents      HandoverEvent[]
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
   lastMessageAt       DateTime?
