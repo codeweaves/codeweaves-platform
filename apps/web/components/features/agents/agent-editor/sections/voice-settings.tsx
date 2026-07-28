@@ -16,6 +16,7 @@ import {
 } from '@/components/ui/select';
 import { useAgentEditor } from '../agent-editor-context';
 import { FormSection } from '../form-section';
+import { ToggleRow } from '../toggle-row';
 import { useVoices, usePreviewVoice } from '@/hooks/use-voices';
 import type {
   VoiceConfigDto,
@@ -435,18 +436,26 @@ export function VoiceSettings() {
                     still benefits from outer sentence-level streaming (chunks
                     delivered per sentence as each completes). */}
                 {config.ttsProvider === 'sarvam' && (
-                  <div className="flex items-center justify-between pt-2 border-t">
-                    <div className="pr-4">
-                      <Label className="text-sm font-medium">Streaming TTS (experimental)</Label>
-                      <p className="text-xs text-muted-foreground">
-                        Use Sarvam&apos;s WebSocket endpoint for within-sentence audio
-                        streaming (first audio ~200ms vs ~600ms for batch). Sentence-level
-                        streaming works either way. Off by default — flip on once tested.
-                      </p>
-                    </div>
-                    <Switch
+                  <div className="pt-2 border-t">
+                    <ToggleRow
+                      id="ttsStreaming"
+                      label="Streaming TTS (experimental)"
+                      description="Off by default — flip on once tested."
+                      info={
+                        <>
+                          <p>
+                            Uses Sarvam&apos;s WebSocket endpoint for{' '}
+                            <strong>within-sentence</strong> audio streaming: first audio
+                            in ~200ms versus ~600ms for batch.
+                          </p>
+                          <p>
+                            Sentence-level streaming works either way, so this only
+                            affects how quickly the first words start.
+                          </p>
+                        </>
+                      }
                       checked={config.ttsStreaming ?? false}
-                      onCheckedChange={(checked) => updateConfig({ ttsStreaming: checked })}
+                      onChange={(checked) => updateConfig({ ttsStreaming: checked })}
                     />
                   </div>
                 )}

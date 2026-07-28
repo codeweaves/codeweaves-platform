@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Badge } from '@/components/ui/badge';
 import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
+import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useAgentEditor } from '../agent-editor-context';
 
 // Mirror the validation schema (`categoryKeywordsSchema`) — must stay in sync.
@@ -93,21 +94,51 @@ export function ClassificationSettings() {
   return (
     <div className="space-y-8">
       <div>
-        <h3 className="text-lg font-semibold">Classification</h3>
+        <div className="flex items-center gap-1.5">
+          <h3 className="text-lg font-semibold">Classification</h3>
+          <InfoTooltip
+            label="Classification"
+            content={
+              <>
+                <p>
+                  After a conversation ends, an AI classifier tags it with one of your
+                  categories and detects its language.
+                </p>
+                <p>
+                  Both are optional — leave the relevant list empty to skip that
+                  dimension entirely. <strong>No LLM call, no spend.</strong>
+                </p>
+              </>
+            }
+          />
+        </div>
         <p className="text-sm text-muted-foreground">
-          After a conversation ends, an AI classifier tags it with one of your
-          categories and detects its language. Both are optional — leave the
-          relevant list empty to skip that dimension entirely (no LLM call,
-          no spend).
+          Tag finished conversations by topic and language.
         </p>
       </div>
 
       {/* ── Categories ─────────────────────────────────────────────── */}
       <div className="space-y-2">
-        <Label className="text-sm font-medium">Conversation categories</Label>
+        <div className="flex items-center gap-1.5">
+          <Label className="text-sm font-medium">Conversation categories</Label>
+          <InfoTooltip
+            label="Conversation categories"
+            content={
+              <>
+                <p>
+                  Topics this agent fields — e.g. <em>Pricing</em>, <em>Support</em>,{' '}
+                  <em>Refunds</em>. The classifier picks exactly one per conversation.
+                </p>
+                <p>
+                  Press <code>Enter</code> or <code>,</code> to add. Click the X on a
+                  chip to remove it.
+                </p>
+              </>
+            }
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
-          Topics this agent fields — e.g. <em>Pricing</em>, <em>Support</em>,{' '}
-          <em>Refunds</em>. The classifier picks one per conversation.
+          Topics this agent fields.
         </p>
         <div className="flex flex-wrap gap-2 rounded-md border bg-background p-2 min-h-12">
           {categories.map((category, index) => (
@@ -151,21 +182,31 @@ export function ClassificationSettings() {
           </span>
           {categoryError && <span className="text-destructive">{categoryError}</span>}
         </div>
-        <p className="text-xs text-muted-foreground">
-          Press <kbd className="rounded border px-1">Enter</kbd> or{' '}
-          <kbd className="rounded border px-1">,</kbd> to add. Click the X on
-          a chip to remove it.
-        </p>
       </div>
 
       {/* ── Languages ──────────────────────────────────────────────── */}
       <div className="space-y-2">
-        <Label className="text-sm font-medium">Supported languages</Label>
+        <div className="flex items-center gap-1.5">
+          <Label className="text-sm font-medium">Supported languages</Label>
+          <InfoTooltip
+            label="Supported languages"
+            content={
+              <>
+                <p>
+                  Conversations in languages outside this list are tagged{' '}
+                  <strong>Other</strong>, so you can spot unmet demand.
+                </p>
+                <p>
+                  <strong>Hinglish</strong> is code-mixed Hindi-English in Latin
+                  script — pick it alongside English and Hindi if your audience uses
+                  it.
+                </p>
+              </>
+            }
+          />
+        </div>
         <p className="text-xs text-muted-foreground">
-          Languages you want tracked. Conversations in languages outside this
-          list are tagged <strong>Other</strong> so you can see unmet demand.
-          <strong> Hinglish</strong> is code-mixed Hindi-English in Latin
-          script — pick it alongside English/Hindi if your audience uses it.
+          Languages you want tracked.
         </p>
         <SearchableMultiSelect
           triggerClassName="w-full max-w-md"
