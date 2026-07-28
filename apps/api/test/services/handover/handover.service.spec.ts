@@ -67,6 +67,18 @@ describe('HandoverService', () => {
     organization: null,
   };
 
+  const adminUser: CurrentUserData = {
+    ...clientUser,
+    id: 'admin-user-id',
+    role: Role.ADMIN,
+  };
+
+  const superAdminUser: CurrentUserData = {
+    ...clientUser,
+    id: 'super-admin-user-id',
+    role: Role.SUPER_ADMIN,
+  };
+
   const sessionRow = (overrides: Record<string, unknown> = {}) => ({
     id: 'sess-db',
     sessionId: 'sess-pub',
@@ -78,9 +90,24 @@ describe('HandoverService', () => {
     handoverStartedAt: null,
     handoverResolvedAt: null,
     agent: { id: 'agent-1', name: 'Bot', organizationId: orgId, humanConnectedLabel: null },
+    takenOverById: null,
     takenOverBy: null,
     ...overrides,
   });
+
+  /** A conversation already claimed by someone. Defaults to a DIFFERENT user. */
+  const heldBy = (
+    userId = 'other-user-id',
+    name: string | null = 'Priya',
+    overrides: Record<string, unknown> = {},
+  ) =>
+    sessionRow({
+      handoverState: 'ACTIVE_HUMAN',
+      handoverStartedAt: new Date('2026-06-24T10:05:00Z'),
+      takenOverById: userId,
+      takenOverBy: { id: userId, name },
+      ...overrides,
+    });
 
   const ctx = { sessionDbId: 'sess-db', publicSessionId: 'sess-pub', organizationId: orgId };
 
@@ -464,7 +491,9 @@ describe('HandoverService', () => {
       );
     });
 
-    it('no-ops (no emit) when another teammate already took over', async () => {
+    // Simultaneous clicks: both callers saw state REQUESTED, so the guard can't
+    // help — the DB claim decides, and the loser just gets the claimed thread.
+    it('no-ops (no emit) when a simultaneous click won the claim first', async () => {
       mockPrisma.chatSession.findFirst.mockResolvedValue(sessionRow());
       mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 0 });
       mockPrisma.chatMessage.findMany.mockResolvedValue([]);
@@ -477,6 +506,235 @@ describe('HandoverService', () => {
     it('throws NotFound when the session is not in the user scope', async () => {
       mockPrisma.chatSession.findFirst.mockResolvedValue(null);
       await expect(service.takeover('nope', clientUser)).rejects.toBeInstanceOf(NotFoundException);
+    });
+  });
+
+  /**
+   * One teammate owns a live conversation at a time. Before this guard existed,
+   * `takeover` silently returned the thread (so the second person believed they
+   * had it) and `postMessage`/`resolve` only checked that SOMEONE had taken over
+   * — not that it was the caller. Two staff could answer the same visitor as the
+   * same brand.
+   */
+  describe('single-owner guard', () => {
+    /**
+     * The session state these tests are running against, so the updateMany mock
+     * below can answer faithfully. Set by each test via `given()`.
+     */
+    let current: { handoverState: string; takenOverById: string | null };
+
+    const given = (row: ReturnType<typeof sessionRow>) => {
+      current = {
+        handoverState: row.handoverState as string,
+        takenOverById: row.takenOverById as string | null,
+      };
+      mockPrisma.chatSession.findFirst.mockResolvedValue(row);
+      return row;
+    };
+
+    beforeEach(() => {
+      current = { handoverState: 'REQUESTED', takenOverById: null };
+      mockPrisma.chatMessage.findMany.mockResolvedValue([]);
+
+      // A FAITHFUL mock, not a blanket `{ count: 1 }`. The previous version
+      // returned 1 for any where-clause, which hid a real bug: the SUPER_ADMIN
+      // override filtered on `handoverState != ACTIVE_HUMAN` against a session
+      // that WAS ACTIVE_HUMAN, so the real DB would have matched zero rows and
+      // the override silently did nothing. Evaluating the clause here means the
+      // test can actually fail on that.
+      mockPrisma.chatSession.updateMany.mockImplementation(
+        (args: {
+          where: {
+            handoverState?: { not?: string };
+            takenOverById?: string | null;
+          };
+        }) => {
+          const { where } = args;
+          if (where.handoverState?.not !== undefined) {
+            return Promise.resolve({
+              count: current.handoverState === where.handoverState.not ? 0 : 1,
+            });
+          }
+          if (where.takenOverById !== undefined) {
+            return Promise.resolve({
+              count: current.takenOverById === where.takenOverById ? 1 : 0,
+            });
+          }
+          return Promise.resolve({ count: 1 });
+        },
+      );
+
+      mockPrisma.chatMessage.create.mockResolvedValue({
+        id: 'msg-1',
+        role: 'HUMAN_AGENT',
+        content: 'hi',
+        createdAt: new Date(),
+      });
+      mockPrisma.user.findUnique.mockResolvedValue({ name: 'Me' });
+    });
+
+    describe('takeover', () => {
+      it('rejects with a 409 naming who holds it', async () => {
+        given(heldBy());
+
+        await expect(service.takeover('sess-pub', clientUser)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+        await expect(service.takeover('sess-pub', clientUser)).rejects.toThrow(/Priya/);
+      });
+
+      it('does not claim or emit when rejected', async () => {
+        given(heldBy());
+
+        await expect(service.takeover('sess-pub', clientUser)).rejects.toThrow();
+
+        expect(mockPrisma.chatSession.updateMany).not.toHaveBeenCalled();
+        expect(mockRealtime.emitHandover).not.toHaveBeenCalled();
+        expect(mockTracer.logAuditEvent).not.toHaveBeenCalled();
+      });
+
+      // Re-clicking your own active chat must stay harmless.
+      it('is idempotent for the holder', async () => {
+        given(heldBy(clientUser.id, 'Me'));
+
+        await expect(service.takeover('sess-pub', clientUser)).resolves.toBeDefined();
+      });
+
+      it('falls back to a generic name when the holder has none', async () => {
+        given(heldBy('other-user-id', null));
+
+        await expect(service.takeover('sess-pub', clientUser)).rejects.toThrow(
+          /another teammate/,
+        );
+      });
+
+      // An ADMIN is a peer of whoever is handling the chat, so seizing it would
+      // be the same hijack this guard prevents. Only SUPER_ADMIN overrides.
+      it('does NOT let an ADMIN override', async () => {
+        given(heldBy());
+
+        await expect(service.takeover('sess-pub', adminUser)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+        expect(mockPrisma.chatSession.updateMany).not.toHaveBeenCalled();
+      });
+
+      // The single escape hatch, for a chat left open by someone who went home.
+      // NOTE: `resolves` alone is NOT proof of success here — the pre-fix code
+      // also resolved, by silently returning the unchanged thread. These assert
+      // the claim actually landed.
+      it('lets a SUPER_ADMIN override, and the claim actually lands', async () => {
+        given(heldBy());
+
+        await expect(service.takeover('sess-pub', superAdminUser)).resolves.toBeDefined();
+
+        // Reassigned to the overriding user...
+        expect(mockPrisma.chatSession.updateMany).toHaveBeenCalledWith(
+          expect.objectContaining({
+            data: expect.objectContaining({ takenOverById: superAdminUser.id }),
+          }),
+        );
+        // ...and the side effects of a real takeover happened, which they do not
+        // when the update matches zero rows.
+        expect(mockRealtime.emitHandover).toHaveBeenCalled();
+        expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
+          'sess-pub',
+          'HANDOVER_TAKEN_OVER',
+          expect.anything(),
+          expect.anything(),
+        );
+      });
+
+      // The seize matches on the holder we observed, so it keeps the same
+      // optimistic-concurrency property as the normal path.
+      it('does not clobber when the holder changed under the SUPER_ADMIN', async () => {
+        given(heldBy('other-user-id'));
+        // Someone else seized it between our read and our write.
+        current.takenOverById = 'a-third-user';
+
+        await service.takeover('sess-pub', superAdminUser);
+
+        expect(mockRealtime.emitHandover).not.toHaveBeenCalled();
+      });
+    });
+
+    describe('postMessage', () => {
+      // The important one: a state-only check would have allowed this.
+      it('rejects a reply into a chat another teammate holds', async () => {
+        given(heldBy());
+
+        await expect(
+          service.postMessage('sess-pub', clientUser, 'hello'),
+        ).rejects.toBeInstanceOf(ConflictException);
+        expect(mockPrisma.chatMessage.create).not.toHaveBeenCalled();
+      });
+
+      it('allows the holder to reply', async () => {
+        given(heldBy(clientUser.id, 'Me'));
+
+        await expect(
+          service.postMessage('sess-pub', clientUser, 'hello'),
+        ).resolves.toBeDefined();
+        expect(mockPrisma.chatMessage.create).toHaveBeenCalled();
+      });
+
+      it('rejects an ADMIN replying into a chat someone else holds', async () => {
+        given(heldBy());
+
+        await expect(
+          service.postMessage('sess-pub', adminUser, 'hello'),
+        ).rejects.toBeInstanceOf(ConflictException);
+        expect(mockPrisma.chatMessage.create).not.toHaveBeenCalled();
+      });
+
+      it('allows a SUPER_ADMIN to reply', async () => {
+        given(heldBy());
+
+        await expect(
+          service.postMessage('sess-pub', superAdminUser, 'hello'),
+        ).resolves.toBeDefined();
+      });
+    });
+
+    describe('resolve', () => {
+      it("rejects resolving another teammate's active chat", async () => {
+        given(heldBy());
+
+        await expect(service.resolve('sess-pub', clientUser)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+        expect(mockPrisma.chatSession.update).not.toHaveBeenCalled();
+      });
+
+      it('allows the holder to resolve', async () => {
+        given(heldBy(clientUser.id, 'Me'));
+        mockPrisma.chatSession.update.mockResolvedValue({});
+
+        await expect(service.resolve('sess-pub', clientUser)).resolves.toBeDefined();
+      });
+
+      it("rejects an ADMIN resolving someone else's chat", async () => {
+        given(heldBy());
+
+        await expect(service.resolve('sess-pub', adminUser)).rejects.toBeInstanceOf(
+          ConflictException,
+        );
+        expect(mockPrisma.chatSession.update).not.toHaveBeenCalled();
+      });
+
+      it('allows a SUPER_ADMIN to resolve', async () => {
+        given(heldBy());
+        mockPrisma.chatSession.update.mockResolvedValue({});
+
+        await expect(service.resolve('sess-pub', superAdminUser)).resolves.toBeDefined();
+      });
+
+      // A bot-handled chat has no owner, so nothing to conflict with.
+      it('is unaffected when nobody holds the chat', async () => {
+        given(sessionRow({ handoverState: 'NONE' }));
+
+        await expect(service.resolve('sess-pub', clientUser)).resolves.toBeDefined();
+      });
     });
   });
 

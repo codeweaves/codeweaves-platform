@@ -23,6 +23,7 @@ import {
 import { useConversation } from '@/hooks/use-conversations';
 import { ConversationTranscript } from './conversation-transcript';
 import { cn } from '@/lib/utils';
+import { visitorLabel } from '@/lib/visitor-label';
 
 interface ConversationDetailPaneProps {
   sessionId: string | null;
@@ -172,12 +173,11 @@ export function ConversationDetailPane({
                   {conv.agent.name}
                 </Link>
               </HeaderStat>
+              {/* A hashed IP is hidden as noise; a WhatsApp phone number is
+                  shown — it's the identifier support and the DPDP erasure
+                  endpoints actually key on. See visitorLabel. */}
               <HeaderStat icon={User}>
-                {conv.visitorId ? (
-                  <span className="font-mono">{conv.visitorId}</span>
-                ) : (
-                  'Anonymous'
-                )}
+                {visitorLabel(conv.source, conv.visitorId)}
               </HeaderStat>
               <HeaderStat icon={Clock}>{duration}</HeaderStat>
               <HeaderStat icon={Clock}>Started {formatFull(conv.createdAt)}</HeaderStat>

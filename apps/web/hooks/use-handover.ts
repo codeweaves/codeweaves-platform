@@ -135,6 +135,13 @@ export function useTakeover() {
       qc.setQueryData(['handover', 'thread', sessionId], data);
       qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
     },
+    // A rejected takeover almost always means a teammate claimed it while this
+    // view was stale. Refetch so the pane immediately shows who holds it, rather
+    // than leaving a "Take over" button that keeps failing.
+    onError: (_err, sessionId) => {
+      qc.invalidateQueries({ queryKey: ['handover', 'thread', sessionId] });
+      qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
+    },
   });
 }
 
@@ -145,6 +152,12 @@ export function useResolveHandover() {
     mutationFn: (sessionId: string) => api.post(`/handover/${sessionId}/resolve`),
     onSuccess: (data: HandoverThread, sessionId) => {
       qc.setQueryData(['handover', 'thread', sessionId], data);
+      qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
+    },
+    // Same reasoning as useTakeover: a rejection means this view was stale about
+    // who owns the chat, so re-sync rather than leaving a failing button.
+    onError: (_err, sessionId) => {
+      qc.invalidateQueries({ queryKey: ['handover', 'thread', sessionId] });
       qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
     },
   });

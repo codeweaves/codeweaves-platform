@@ -3,6 +3,7 @@
 import { Loader2, Flag, Headset, Bot, Inbox as InboxIcon, AlertCircle } from 'lucide-react';
 import { formatDistanceToNowStrict } from 'date-fns';
 import { cn } from '@/lib/utils';
+import { visitorLabel } from '@/lib/visitor-label';
 import { Badge } from '@/components/ui/badge';
 import { Button } from '@/components/ui/button';
 import {
@@ -56,8 +57,21 @@ export function InboxListPane({
   className,
 }: InboxListPaneProps) {
   const { data, isLoading, isError, refetch, isFetching } = useInbox(filter);
-  const needs = useInbox('needs');
-  const needsCount = needs.data?.length ?? 0;
+
+  // Both badge counts come from the SINGLE 'all' query rather than one query
+  // each: 'all' is REQUESTED + ACTIVE_HUMAN, which is exactly the union the two
+  // badges partition, so they can be derived client-side. Two separate count
+  // queries would have meant up to three concurrent inbox requests (each with
+  // its own 30s poll when the socket is down); this caps it at two, and collapses
+  // to one when the 'All live' tab is active because the keys then match.
+  const allItems = useInbox('all').data;
+  const needsCount =
+    allItems?.filter((i) => i.handoverState === 'REQUESTED').length ?? 0;
+  const handlingCount =
+    allItems?.filter((i) => i.handoverState === 'ACTIVE_HUMAN').length ?? 0;
+
+  const tabCount = (key: HandoverFilter) =>
+    key === 'needs' ? needsCount : key === 'handling' ? handlingCount : 0;
 
   return (
     <div className={cn('flex flex-col', className)}>
@@ -65,6 +79,7 @@ export function InboxListPane({
       <div className="flex border-b px-1.5">
         {TABS.map((tab) => {
           const active = filter === tab.key;
+          const count = tabCount(tab.key);
           return (
             <button
               key={tab.key}
@@ -78,8 +93,18 @@ export function InboxListPane({
               )}
             >
               {tab.label}
-              {tab.key === 'needs' && needsCount > 0 && (
-                <span className="text-[11px] font-bold text-destructive tabular-nums">{needsCount}</span>
+              {count > 0 && (
+                <span
+                  className={cn(
+                    'text-[11px] font-bold tabular-nums',
+                    // Red for "needs you" — someone is waiting. Handling is
+                    // in-progress work, not an alarm, so it takes the calmer
+                    // primary colour.
+                    tab.key === 'needs' ? 'text-destructive' : 'text-primary',
+                  )}
+                >
+                  {count}
+                </span>
               )}
             </button>
           );
@@ -131,8 +156,11 @@ export function InboxListPane({
                 </div>
                 <div className="min-w-0 flex-1">
                   <div className="flex items-baseline justify-between gap-2">
+                    {/* A hashed IP is hidden; a WhatsApp phone number is shown.
+                        See visitorLabel — the field means different things per
+                        channel. */}
                     <span className="truncate text-sm font-medium">
-                      Visitor{item.visitorId ? ` · ${item.visitorId}` : ''}
+                      {visitorLabel(item.source, item.visitorId)}
                     </span>
                     {item.lastMessageAt && (
                       <span className="shrink-0 text-[11px] text-muted-foreground tabular-nums">
