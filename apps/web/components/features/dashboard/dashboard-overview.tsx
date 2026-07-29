@@ -112,7 +112,11 @@ function RangeToggle({ value, onChange }: { value: RangeDays; onChange: (v: Rang
 /* ── trend text ───────────────────────────────────────────────────────── */
 
 function TrendText({ value, positiveIsGood = true }: { value?: number | null; positiveIsGood?: boolean }) {
-  if (value == null || !Number.isFinite(value) || value === 0) {
+  // No data (loading / no prior period) reads as "—"; a genuine flat 0% stays "0%".
+  if (value == null || !Number.isFinite(value)) {
+    return <span className="text-xs font-medium text-muted-foreground">—</span>;
+  }
+  if (value === 0) {
     return <span className="text-xs font-medium text-muted-foreground">0%</span>;
   }
   const isUp = value > 0;
@@ -386,11 +390,15 @@ function HandoverHealth({
                 {containedPct == null ? '—' : `${pct}%`}
               </span>
             </div>
-            <p className="text-sm text-muted-foreground">
-              <span className="font-medium text-foreground">{pct}%</span> of conversations were resolved without a
-              human. The remaining <span className="font-medium text-foreground">{handoverRate}%</span> were handed
-              off.
-            </p>
+            {containedPct == null ? (
+              <p className="text-sm text-muted-foreground">No handovers in this period yet.</p>
+            ) : (
+              <p className="text-sm text-muted-foreground">
+                <span className="font-medium text-foreground">{pct}%</span> of conversations were resolved without a
+                human. The remaining <span className="font-medium text-foreground">{handoverRate}%</span> were handed
+                off.
+              </p>
+            )}
           </div>
 
           <div className="mt-5 space-y-2 border-t border-border pt-4 text-sm">
@@ -541,7 +549,7 @@ export function DashboardOverview() {
 
       {/* KPI row */}
       <Card className="gap-0 overflow-hidden p-0">
-        <div className="grid grid-cols-4 divide-x divide-border">
+        <div className="grid grid-cols-2 divide-x divide-y divide-border lg:grid-cols-4 lg:divide-y-0">
           {KPIS.map((k) => {
             const kpi =
               k.source === 'handover'
@@ -587,8 +595,8 @@ export function DashboardOverview() {
       </Card>
 
       {/* Command center: attention + agents (left), containment + activity (right) */}
-      <div className="grid grid-cols-3 items-start gap-4">
-        <div className="col-span-2 space-y-5">
+      <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
+        <div className="space-y-5 lg:col-span-2">
           <AttentionPanel
             waiting={waitingQuery.data ?? []}
             isLoading={waitingQuery.isLoading}
@@ -600,7 +608,7 @@ export function DashboardOverview() {
             isLoading={agentsQuery.isLoading}
           />
         </div>
-        <div className="col-span-1 space-y-5">
+        <div className="space-y-5 lg:col-span-1">
           <HandoverHealth
             containedPct={containedPct}
             resolvedByHuman={handoverQuery.data?.resolvedByHuman ?? 0}
