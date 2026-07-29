@@ -3,14 +3,6 @@
 import * as React from 'react';
 import Link from 'next/link';
 import {
-  Area,
-  AreaChart,
-  CartesianGrid,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-} from 'recharts';
-import {
   ArrowLeftRight,
   ArrowUpRight,
   BarChart3,
@@ -31,7 +23,6 @@ import { usePageHeader } from '@/components/layout/page-header';
 import {
   useAgentAnalytics,
   useAnalyticsSummary,
-  useConversationsChart,
   useHandoverAnalytics,
   useLeadsCaptured,
   type AnalyticsSummaryResponse,
@@ -170,23 +161,6 @@ const KPIS: Array<{
   { key: 'avgResponseTimeMs', label: 'Avg response', icon: Gauge, kind: 'duration', source: 'summary', positiveIsGood: false },
 ];
 
-/* ── chart tooltip ────────────────────────────────────────────────────── */
-
-interface ChartTooltipItem {
-  value: number;
-  payload: { label: string };
-}
-function ChartTooltip({ active, payload }: { active?: boolean; payload?: ChartTooltipItem[] }) {
-  if (!active || !payload?.length) return null;
-  const item = payload[0]!;
-  return (
-    <div className="rounded-lg border border-border bg-popover px-3 py-2 text-popover-foreground shadow-md">
-      <p className="text-xs text-muted-foreground">{item.payload.label}</p>
-      <p className="text-sm font-semibold tabular-nums">{item.value.toLocaleString()} conversations</p>
-    </div>
-  );
-}
-
 /* ── Needs attention ──────────────────────────────────────────────────── */
 
 function AttentionPanel({
@@ -210,7 +184,7 @@ function AttentionPanel({
       : 'bg-success text-success-foreground';
 
   return (
-    <Card className="gap-0 p-6">
+    <Card className="h-full gap-0 p-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           <span className={cn('flex size-9 items-center justify-center rounded-lg', iconTone)}>
@@ -374,7 +348,7 @@ function HandoverHealth({
   const pct = containedPct ?? 0;
   const dash = `${Math.max(0, Math.min(100, pct))} 100`;
   return (
-    <Card className="gap-0 p-6">
+    <Card className="h-full gap-0 p-6">
       <div className="flex items-center justify-between gap-4">
         <div>
           <h2 className="text-base font-semibold tracking-tight">Handover health</h2>
@@ -514,7 +488,6 @@ export function DashboardOverview() {
   const summaryQuery = useAnalyticsSummary(params);
   const handoverQuery = useHandoverAnalytics(params);
   const leadsQuery = useLeadsCaptured(params);
-  const chartQuery = useConversationsChart(params);
   const waitingQuery = useInbox('needs');
   const agentsQuery = useAgents({ limit: 6 });
   // Pull conversation counts for the whole agent set (not just a separate top-6
@@ -535,19 +508,6 @@ export function DashboardOverview() {
   });
 
   const firstName = (profile?.name?.trim() || profile?.email || 'there').split(' ')[0];
-
-  const chartData = React.useMemo(
-    () =>
-      (chartQuery.data?.data ?? []).map((p) => ({
-        label: new Date(p.date + 'T00:00:00').toLocaleDateString(undefined, {
-          month: 'short',
-          day: 'numeric',
-        }),
-        count: p.count,
-      })),
-    [chartQuery.data],
-  );
-  const hasChartData = chartData.some((d) => d.count > 0);
 
   const convByAgent = React.useMemo(() => {
     const m = new Map<string, number>();
@@ -626,23 +586,21 @@ export function DashboardOverview() {
         </div>
       </Card>
 
-      {/* Needs attention */}
-      <AttentionPanel
-        waiting={waitingQuery.data ?? []}
-        isLoading={waitingQuery.isLoading}
-        isError={waitingQuery.isError}
-      />
-
-      {/* Agents + handover health */}
-      <div className="grid grid-cols-3 gap-4">
-        <div className="col-span-2">
+      {/* Command center: attention + agents (left), containment + activity (right) */}
+      <div className="grid grid-cols-3 items-start gap-4">
+        <div className="col-span-2 space-y-5">
+          <AttentionPanel
+            waiting={waitingQuery.data ?? []}
+            isLoading={waitingQuery.isLoading}
+            isError={waitingQuery.isError}
+          />
           <AgentsPanel
             agents={agentsQuery.data?.data ?? []}
             convByAgent={convByAgent}
             isLoading={agentsQuery.isLoading}
           />
         </div>
-        <div className="col-span-1">
+        <div className="col-span-1 space-y-5">
           <HandoverHealth
             containedPct={containedPct}
             resolvedByHuman={handoverQuery.data?.resolvedByHuman ?? 0}
@@ -650,65 +608,6 @@ export function DashboardOverview() {
             waitingNow={waitingQuery.data?.length ?? 0}
             isLoading={handoverQuery.isLoading}
           />
-        </div>
-      </div>
-
-      {/* Conversations chart + recent conversations */}
-      <div className="grid grid-cols-3 gap-4">
-        <Card className="col-span-2 gap-0 p-6">
-          <div className="flex items-start justify-between gap-4">
-            <div>
-              <h2 className="text-base font-semibold tracking-tight">Conversations</h2>
-              <p className="mt-0.5 text-sm text-muted-foreground">Daily volume · last {rangeDays} days</p>
-            </div>
-            <SectionLink href="/dashboard/analytics">Details</SectionLink>
-          </div>
-          <div className="mt-6 h-56 w-full">
-            {chartQuery.isLoading ? (
-              <Skeleton className="h-full w-full rounded-lg" />
-            ) : hasChartData ? (
-              <ResponsiveContainer width="100%" height="100%">
-                <AreaChart data={chartData} margin={{ top: 4, right: 8, bottom: 0, left: 0 }}>
-                  <defs>
-                    <linearGradient id="conv-fill" x1="0" y1="0" x2="0" y2="1">
-                      <stop offset="0%" stopColor="var(--primary)" stopOpacity={0.18} />
-                      <stop offset="100%" stopColor="var(--primary)" stopOpacity={0} />
-                    </linearGradient>
-                  </defs>
-                  <CartesianGrid vertical={false} stroke="var(--border)" strokeDasharray="3 3" />
-                  <XAxis
-                    dataKey="label"
-                    tickLine={false}
-                    axisLine={false}
-                    minTickGap={28}
-                    tick={{ fill: 'var(--muted-foreground)', fontSize: 12 }}
-                    dy={8}
-                  />
-                  <Tooltip content={<ChartTooltip />} cursor={{ stroke: 'var(--primary)', strokeOpacity: 0.3 }} />
-                  <Area
-                    type="monotone"
-                    dataKey="count"
-                    stroke="var(--primary)"
-                    strokeWidth={2}
-                    fill="url(#conv-fill)"
-                    activeDot={{ r: 4, strokeWidth: 0 }}
-                    isAnimationActive={false}
-                  />
-                </AreaChart>
-              </ResponsiveContainer>
-            ) : (
-              <div className="flex h-full flex-col items-center justify-center gap-1 text-center">
-                <MessageSquare className="size-7 text-muted-foreground/50" />
-                <p className="text-sm font-medium">No conversations yet</p>
-                <p className="text-xs text-muted-foreground">
-                  Once your agents start chatting, daily volume shows up here.
-                </p>
-              </div>
-            )}
-          </div>
-        </Card>
-
-        <div className="col-span-1">
           <RecentConversations items={recentQuery.data?.data ?? []} isLoading={recentQuery.isLoading} />
         </div>
       </div>
