@@ -20,7 +20,7 @@ import {
  * the sidebar carries only navigation.
  */
 export function HeaderUser() {
-  const router = useRouter();
+  const { push } = useRouter();
   const { user: clerkUser, logout, isAuthenticated } = useAuth();
   const { profile } = useProfile();
 
@@ -78,14 +78,15 @@ export function HeaderUser() {
         <DropdownMenuSeparator />
         <DropdownMenuGroup>
           <DropdownMenuItem
-            onClick={() => router.push('/dashboard/profile-settings')}
+            className="cursor-pointer"
+            onClick={() => push('/dashboard/profile-settings')}
           >
             <Settings />
             Profile Settings
           </DropdownMenuItem>
         </DropdownMenuGroup>
         <DropdownMenuSeparator />
-        <DropdownMenuItem onClick={logout}>
+        <DropdownMenuItem className="cursor-pointer" onClick={logout}>
           <LogOut />
           Log Out
         </DropdownMenuItem>

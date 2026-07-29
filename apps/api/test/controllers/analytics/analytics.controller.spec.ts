@@ -27,6 +27,7 @@ describe('AnalyticsController', () => {
     getConversationLanguages: jest.fn(),
     getConversationChannels: jest.fn(),
     getHandoverMetrics: jest.fn(),
+    getLeadsCaptured: jest.fn(),
     logExport: jest.fn(),
   };
 
@@ -521,6 +522,17 @@ describe('AnalyticsController', () => {
       const result = await controller.getHandoverMetrics(query as never, adminUser);
       expect(result).toBe(mock);
       expect(mockAnalyticsService.getHandoverMetrics).toHaveBeenCalledWith(query, adminUser);
+    });
+  });
+
+  describe('getLeadsCaptured', () => {
+    it('delegates to the service with the query and user', async () => {
+      const query = { startDate: '2026-01-01', endDate: '2026-01-31', timezone: 'UTC' };
+      const mock = { totalLeads: 12, totalLeadsTrend: 8 };
+      mockAnalyticsService.getLeadsCaptured.mockResolvedValue(mock);
+      const result = await controller.getLeadsCaptured(query as never, adminUser);
+      expect(result).toBe(mock);
+      expect(mockAnalyticsService.getLeadsCaptured).toHaveBeenCalledWith(query, adminUser);
     });
   });
 });

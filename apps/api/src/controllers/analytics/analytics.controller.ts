@@ -228,6 +228,20 @@ export class AnalyticsController {
     return this.analyticsService.getHandoverMetrics(query, user);
   }
 
+  @Get('leads')
+  @ApiOperation({ summary: 'Get org-wide leads-captured count + trend (no PII)' })
+  @ApiQuery({ name: 'startDate', required: true, type: String, description: 'Start date (ISO 8601)' })
+  @ApiQuery({ name: 'endDate', required: true, type: String, description: 'End date (ISO 8601)' })
+  @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
+  @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
+  @ApiResponse({ status: 200, description: 'Leads captured count + trend' })
+  async getLeadsCaptured(
+    @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.analyticsService.getLeadsCaptured(query, user);
+  }
+
   @Post('export-log')
   @ApiOperation({ summary: 'Log an analytics data export action' })
   @ApiResponse({ status: 201, description: 'Export logged successfully' })

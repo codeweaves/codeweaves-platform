@@ -1053,4 +1053,24 @@ describe('AnalyticsService', () => {
       ]);
     });
   });
+
+  describe('getLeadsCaptured', () => {
+    it('counts org-wide leads with a period-over-period trend', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([{ id: agentId1 }]);
+      mockPrismaService.$queryRaw
+        .mockResolvedValueOnce([{ total: BigInt(30) }]) // current
+        .mockResolvedValueOnce([{ total: BigInt(24) }]); // previous
+      const res = await service.getLeadsCaptured(baseQuery, clientUser);
+      expect(res.totalLeads).toBe(30);
+      expect(res.totalLeadsTrend).toBe(25); // (30-24)/24
+    });
+
+    it('returns zero and skips SQL when the user has no agents', async () => {
+      mockPrismaService.agent.findMany.mockResolvedValue([]);
+      const res = await service.getLeadsCaptured(baseQuery, clientUser);
+      expect(res.totalLeads).toBe(0);
+      expect(res.totalLeadsTrend).toBe(0);
+      expect(mockPrismaService.$queryRaw).not.toHaveBeenCalled();
+    });
+  });
 });

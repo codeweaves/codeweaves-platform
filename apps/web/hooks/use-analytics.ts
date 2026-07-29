@@ -369,6 +369,31 @@ export function useHandoverAnalytics(params: AnalyticsParams, options?: Analytic
 }
 
 // ==========================================
+// Leads Analytics Hook
+// ==========================================
+
+// Matches API: analytics.service.ts → getLeadsCaptured(). Count only, no PII.
+export interface LeadsCapturedResponse {
+  period: { start: string; end: string };
+  totalLeads: number;
+  totalLeadsTrend: number;
+}
+
+export function useLeadsCaptured(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+
+  return useQuery<LeadsCapturedResponse>({
+    queryKey: ['analytics', 'leads', params],
+    queryFn: () => api.get(`/analytics/leads?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    refetchIntervalInBackground: false,
+  });
+}
+
+// ==========================================
 // Voice Analytics Types & Hooks (Story 10-14)
 // ==========================================
 

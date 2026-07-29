@@ -543,6 +543,43 @@ export class AnalyticsService {
     };
   }
 
+  private async countLeads(
+    agentIds: string[],
+    startUtc: Date,
+    endUtc: Date,
+    sourceFilter: Prisma.Sql,
+  ): Promise<number> {
+    const rows = await this.prisma.$queryRaw<{ total: bigint }[]>`
+      SELECT COUNT(*) AS total
+      FROM collected_data cd
+      JOIN chat_sessions cs ON cs."id" = cd."chatSessionId"
+      WHERE cd."agentId" = ANY(${agentIds}::text[])
+        AND cd."extractedAt" >= ${startUtc}
+        AND cd."extractedAt" < ${endUtc}
+        ${sourceFilter}
+    `;
+    return Number(rows[0]?.total ?? 0);
+  }
+
+  /**
+   * Org-wide leads captured (collected_data rows) in the period + trend vs the
+   * previous period. Count only — never returns lead contents (PII). Aggregated
+   * in SQL, scoped by agent + the shared channel filter.
+   */
+  async getLeadsCaptured(query: AnalyticsQuery, user: CurrentUserData) {
+    const agentIds = await this.getAgentIds(query, user);
+    const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
+    const period = { start: startUtc.toISOString(), end: endUtc.toISOString() };
+    if (agentIds.length === 0) return { period, totalLeads: 0, totalLeadsTrend: 0 };
+
+    const sf = this.getSourceFilter(query.source, query.sources);
+    const [cur, prev] = await Promise.all([
+      this.countLeads(agentIds, startUtc, endUtc, sf),
+      this.countLeads(agentIds, prevStartUtc, prevEndUtc, sf),
+    ]);
+    return { period, totalLeads: cur, totalLeadsTrend: this.calcTrend(cur, prev) };
+  }
+
   async getConversationsChart(query: AnalyticsQuery, user: CurrentUserData) {
     const agentIds = await this.getAgentIds(query, user);
     const { startUtc, endUtc, timezone } = this.resolveRange(query);
