@@ -170,10 +170,12 @@ export class VoiceController {
         agentId: resolvedAgentId,
         provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
       });
-      this.voiceLog.logException({
+      this.voiceLog.logSttFailed({
         agentId: resolvedAgentId,
         sessionId: dto.sessionId,
         visitorId: visitorIp,
+        provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
+        errorCode,
         error,
       });
       this.reportVoiceErrorToSentry(error, {
@@ -384,6 +386,12 @@ export class VoiceController {
       this.log.error('transcribe', 'STT failed', error, {
         agentId: resolvedAgentId,
         provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
+      });
+      this.voiceLog.logSttFailed({
+        agentId: resolvedAgentId,
+        provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
+        errorCode,
+        error,
       });
       this.reportVoiceErrorToSentry(error, {
         provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
@@ -679,31 +687,60 @@ export class VoiceController {
         if (closed) break;
 
         if (chunk.type === 'audio') {
-          // `timeToFirstChunkMs` = when the user first hears ANY audio. With
-          // per-chunk WS delivery this lands EARLIER than before (first audio
-          // bytes of the first sentence) — that's the perceptual win we're
-          // measuring.
-          if (timeToFirstChunkMs === null) {
-            timeToFirstChunkMs = Date.now() - startTime;
-          }
-          if (chunk.ttsProtocol) ttsProtocols.add(chunk.ttsProtocol);
-          if (chunk.ttsProvider) ttsProviders.add(chunk.ttsProvider);
-          // First-chunk + final-chunk markers carry the per-sentence WS
-          // diagnostics. Aggregate across the turn.
-          if (chunk.wsFirstChunkLatencyMs !== undefined) {
-            wsFirstChunkLatencies.push(chunk.wsFirstChunkLatencyMs);
-          }
-          if (chunk.isFinalChunk) {
-            // Per-sentence totals are only meaningful on the LAST chunk —
-            // that's when sentence-level latency is settled.
-            ttsLatencies.push(chunk.ttsLatencyMs);
-            if (chunk.wsChunkCount !== undefined) wsChunkCounts.push(chunk.wsChunkCount);
-            if (chunk.wsTotalBytes !== undefined) wsTotalBytes += chunk.wsTotalBytes;
+          // Emoji-only chunks carry display text but no audio (stripped from TTS,
+          // ttsLatencyMs 0). Forward them for the transcript, but EXCLUDE from
+          // audio metrics so they don't skew first-audio timing / latency /
+          // protocol. Distinct from real per-sentence final markers, which have
+          // EMPTY text but carry genuine ws totals and must still aggregate.
+          const isTextOnly = !chunk.audio && !!chunk.text;
+          if (!isTextOnly) {
+            // `timeToFirstChunkMs` = when the user first hears ANY audio. With
+            // per-chunk WS delivery this lands EARLIER than before (first audio
+            // bytes of the first sentence) — that's the perceptual win we're
+            // measuring.
+            if (timeToFirstChunkMs === null) {
+              timeToFirstChunkMs = Date.now() - startTime;
+            }
+            if (chunk.ttsProtocol) ttsProtocols.add(chunk.ttsProtocol);
+            if (chunk.ttsProvider) ttsProviders.add(chunk.ttsProvider);
+            // First-chunk + final-chunk markers carry the per-sentence WS
+            // diagnostics. Aggregate across the turn.
+            if (chunk.wsFirstChunkLatencyMs !== undefined) {
+              wsFirstChunkLatencies.push(chunk.wsFirstChunkLatencyMs);
+            }
+            if (chunk.isFinalChunk) {
+              // Per-sentence totals are only meaningful on the LAST chunk —
+              // that's when sentence-level latency is settled.
+              ttsLatencies.push(chunk.ttsLatencyMs);
+              if (chunk.wsChunkCount !== undefined) wsChunkCounts.push(chunk.wsChunkCount);
+              if (chunk.wsTotalBytes !== undefined) wsTotalBytes += chunk.wsTotalBytes;
+            }
           }
         }
         if (chunk.type === 'end') {
           fullText = chunk.fullText;
           totalSentences = chunk.totalSentences;
+        }
+        if (chunk.type === 'error') {
+          // A sentence failed TTS on every provider (e.g. provider outage) and
+          // is surfaced to the client below. Log it loudly to the console AND as
+          // a queryable event_logs row (VOICE_TTS_SENTENCE_FAILED) — the generic
+          // provider-level rows alone weren't enough to debug these. The specific
+          // reason is on the same-correlationId SARVAM_TTS_FAILED row.
+          this.log.error('handleStreamingVoice', 'TTS sentence failed', undefined, {
+            agentId: resolvedAgentId,
+            sessionId: session.sessionId,
+            sentenceIndex: chunk.sentenceIndex,
+            errorCode: chunk.errorCode,
+          });
+          this.voiceLog.logTtsSentenceFailed({
+            agentId: resolvedAgentId,
+            sessionId: session.sessionId,
+            visitorId: visitorIp,
+            sentenceIndex: chunk.sentenceIndex,
+            errorCode: chunk.errorCode,
+            message: chunk.message,
+          });
         }
         res.write(JSON.stringify(chunk) + '\n');
       }

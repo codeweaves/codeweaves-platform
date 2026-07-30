@@ -282,10 +282,18 @@ export function useVoice({
           },
           onAudioChunk: (chunk: VoiceAudioChunk) => {
             armIdleTimeout();
-            // Skip empty-audio chunks. The server's per-sentence final marker
-            // (isFinalChunk=true) carries no audio bytes — it only exists to
-            // settle metrics on the server side. Enqueuing an empty buffer
-            // would throw in createBuffer (requires ≥1 sample).
+            // Pure metrics marker (no text AND no audio) — the server's
+            // per-sentence final marker. Nothing to show or play.
+            if (!chunk.audio && !chunk.text) return;
+
+            // Surface the sentence text even when there's no audio: emoji/symbol-
+            // only chunks are stripped from TTS (nothing to speak) but still
+            // belong in the chat transcript.
+            if (chunk.text) {
+              onAudioSentenceRef.current?.(chunk.text, chunk.sentenceIndex);
+            }
+
+            // No audio to play (emoji-only chunk) — text already shown above.
             if (!chunk.audio) return;
 
             if (!receivedFirstAudio) {
@@ -293,10 +301,6 @@ export function useVoice({
               if (voiceAutoPlay) {
                 setVoiceStateSynced('playing');
               }
-            }
-            // Deliver sentence text in sync with audio so UI shows text as voice plays
-            if (chunk.text) {
-              onAudioSentenceRef.current?.(chunk.text, chunk.sentenceIndex);
             }
             if (voiceAutoPlay) {
               queue.enqueue(chunk.audio, chunk.audioFormat);
