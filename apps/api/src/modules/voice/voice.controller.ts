@@ -387,6 +387,12 @@ export class VoiceController {
         agentId: resolvedAgentId,
         provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
       });
+      this.voiceLog.logSttFailed({
+        agentId: resolvedAgentId,
+        provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
+        errorCode,
+        error,
+      });
       this.reportVoiceErrorToSentry(error, {
         provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
         language: dto.languageHint ?? 'unknown',
@@ -681,26 +687,34 @@ export class VoiceController {
         if (closed) break;
 
         if (chunk.type === 'audio') {
-          // `timeToFirstChunkMs` = when the user first hears ANY audio. With
-          // per-chunk WS delivery this lands EARLIER than before (first audio
-          // bytes of the first sentence) — that's the perceptual win we're
-          // measuring.
-          if (timeToFirstChunkMs === null) {
-            timeToFirstChunkMs = Date.now() - startTime;
-          }
-          if (chunk.ttsProtocol) ttsProtocols.add(chunk.ttsProtocol);
-          if (chunk.ttsProvider) ttsProviders.add(chunk.ttsProvider);
-          // First-chunk + final-chunk markers carry the per-sentence WS
-          // diagnostics. Aggregate across the turn.
-          if (chunk.wsFirstChunkLatencyMs !== undefined) {
-            wsFirstChunkLatencies.push(chunk.wsFirstChunkLatencyMs);
-          }
-          if (chunk.isFinalChunk) {
-            // Per-sentence totals are only meaningful on the LAST chunk —
-            // that's when sentence-level latency is settled.
-            ttsLatencies.push(chunk.ttsLatencyMs);
-            if (chunk.wsChunkCount !== undefined) wsChunkCounts.push(chunk.wsChunkCount);
-            if (chunk.wsTotalBytes !== undefined) wsTotalBytes += chunk.wsTotalBytes;
+          // Emoji-only chunks carry display text but no audio (stripped from TTS,
+          // ttsLatencyMs 0). Forward them for the transcript, but EXCLUDE from
+          // audio metrics so they don't skew first-audio timing / latency /
+          // protocol. Distinct from real per-sentence final markers, which have
+          // EMPTY text but carry genuine ws totals and must still aggregate.
+          const isTextOnly = !chunk.audio && !!chunk.text;
+          if (!isTextOnly) {
+            // `timeToFirstChunkMs` = when the user first hears ANY audio. With
+            // per-chunk WS delivery this lands EARLIER than before (first audio
+            // bytes of the first sentence) — that's the perceptual win we're
+            // measuring.
+            if (timeToFirstChunkMs === null) {
+              timeToFirstChunkMs = Date.now() - startTime;
+            }
+            if (chunk.ttsProtocol) ttsProtocols.add(chunk.ttsProtocol);
+            if (chunk.ttsProvider) ttsProviders.add(chunk.ttsProvider);
+            // First-chunk + final-chunk markers carry the per-sentence WS
+            // diagnostics. Aggregate across the turn.
+            if (chunk.wsFirstChunkLatencyMs !== undefined) {
+              wsFirstChunkLatencies.push(chunk.wsFirstChunkLatencyMs);
+            }
+            if (chunk.isFinalChunk) {
+              // Per-sentence totals are only meaningful on the LAST chunk —
+              // that's when sentence-level latency is settled.
+              ttsLatencies.push(chunk.ttsLatencyMs);
+              if (chunk.wsChunkCount !== undefined) wsChunkCounts.push(chunk.wsChunkCount);
+              if (chunk.wsTotalBytes !== undefined) wsTotalBytes += chunk.wsTotalBytes;
+            }
           }
         }
         if (chunk.type === 'end') {

@@ -51,7 +51,7 @@ const EMOJI_SYMBOL_RE =
   // keycap "glue" so compound emoji strip cleanly. The misleading-character-class
   // rule is about accidental combos; here it's deliberate.
   // eslint-disable-next-line no-misleading-character-class
-  /[\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\p{Extended_Pictographic}]/gu;
+  /[0-9#*]\u{FE0F}?\u{20E3}|[\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\p{Extended_Pictographic}]/gu;
 
 /** Text to SEND TO TTS: strip emoji/symbols and collapse the whitespace they
  *  leave behind. Callers keep the ORIGINAL text for the chat transcript.

@@ -881,6 +881,13 @@ describe('toSpeakableText / hasSpeakableContent (emoji stripping for TTS)', () =
     expect(toSpeakableText('flag 🇮🇳 done')).toBe('flag done');
   });
 
+  it('strips keycap sequences entirely (1️⃣ #️⃣ *️⃣)', () => {
+    expect(toSpeakableText('pick 1️⃣ or 2️⃣')).toBe('pick or');
+    expect(toSpeakableText('#️⃣')).toBe('');
+    expect(toSpeakableText('*️⃣')).toBe('');
+    expect(hasSpeakableContent(toSpeakableText('1️⃣'))).toBe(false);
+  });
+
   it('leaves normal punctuation and digits intact (Sarvam speaks those)', () => {
     expect(toSpeakableText('Call us at 1800-123-456.')).toBe(
       'Call us at 1800-123-456.',
