@@ -98,6 +98,8 @@ describe('VoiceController', () => {
     logConversationReceived: jest.fn(),
     logReplySent: jest.fn(),
     logException: jest.fn(),
+    logSttFailed: jest.fn(),
+    logTtsSentenceFailed: jest.fn(),
   };
 
   // Mirrors real behaviour: loopback → undefined, real IP → vh_ hash.

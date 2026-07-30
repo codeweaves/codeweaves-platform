@@ -170,10 +170,12 @@ export class VoiceController {
         agentId: resolvedAgentId,
         provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
       });
-      this.voiceLog.logException({
+      this.voiceLog.logSttFailed({
         agentId: resolvedAgentId,
         sessionId: dto.sessionId,
         visitorId: visitorIp,
+        provider: error instanceof VoiceProviderError ? error.provider : 'unknown',
+        errorCode,
         error,
       });
       this.reportVoiceErrorToSentry(error, {
@@ -704,6 +706,27 @@ export class VoiceController {
         if (chunk.type === 'end') {
           fullText = chunk.fullText;
           totalSentences = chunk.totalSentences;
+        }
+        if (chunk.type === 'error') {
+          // A sentence failed TTS on every provider (e.g. provider outage) and
+          // is surfaced to the client below. Log it loudly to the console AND as
+          // a queryable event_logs row (VOICE_TTS_SENTENCE_FAILED) — the generic
+          // provider-level rows alone weren't enough to debug these. The specific
+          // reason is on the same-correlationId SARVAM_TTS_FAILED row.
+          this.log.error('handleStreamingVoice', 'TTS sentence failed', undefined, {
+            agentId: resolvedAgentId,
+            sessionId: session.sessionId,
+            sentenceIndex: chunk.sentenceIndex,
+            errorCode: chunk.errorCode,
+          });
+          this.voiceLog.logTtsSentenceFailed({
+            agentId: resolvedAgentId,
+            sessionId: session.sessionId,
+            visitorId: visitorIp,
+            sentenceIndex: chunk.sentenceIndex,
+            errorCode: chunk.errorCode,
+            message: chunk.message,
+          });
         }
         res.write(JSON.stringify(chunk) + '\n');
       }
