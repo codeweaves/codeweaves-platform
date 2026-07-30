@@ -1,6 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, BadGatewayException } from '@nestjs/common';
-import { VoiceService } from '../../../src/modules/voice/voice.service';
+import {
+  VoiceService,
+  toSpeakableText,
+  hasSpeakableContent,
+} from '../../../src/modules/voice/voice.service';
 import {
   VOICE_PROVIDERS,
   type VoiceProvider,
@@ -853,5 +857,42 @@ describe('VoiceService', () => {
       await service.previewVoice('sarvam', 'priya', 'hi');
       expect(sarvamProvider.synthesize).toHaveBeenCalledTimes(1);
     });
+  });
+});
+
+describe('toSpeakableText / hasSpeakableContent (emoji stripping for TTS)', () => {
+  it('reduces a trailing emoji-only tail to nothing speakable (the prod trigger)', () => {
+    // "Want to see examples? 🔧🤖" split off a "🔧🤖" chunk → Sarvam 400'd on it.
+    expect(toSpeakableText('🔧🤖')).toBe('');
+    expect(hasSpeakableContent(toSpeakableText('🔧🤖'))).toBe(false);
+  });
+
+  it('keeps the words when an emoji is inline, dropping only the emoji', () => {
+    expect(toSpeakableText('Absolutely, emojis are my thing! 😎')).toBe(
+      'Absolutely, emojis are my thing!',
+    );
+    expect(toSpeakableText('Happy to help 😊')).toBe('Happy to help');
+    expect(hasSpeakableContent('Happy to help 😊')).toBe(true);
+  });
+
+  it('strips compound emoji (ZWJ, skin tone, flags) cleanly', () => {
+    expect(toSpeakableText('team 👨‍👩‍👧 here')).toBe('team here');
+    expect(toSpeakableText('thumbs 👍🏽 up')).toBe('thumbs up');
+    expect(toSpeakableText('flag 🇮🇳 done')).toBe('flag done');
+  });
+
+  it('leaves normal punctuation and digits intact (Sarvam speaks those)', () => {
+    expect(toSpeakableText('Call us at 1800-123-456.')).toBe(
+      'Call us at 1800-123-456.',
+    );
+    expect(hasSpeakableContent('100%')).toBe(true);
+    expect(hasSpeakableContent('Hello, world!')).toBe(true);
+  });
+
+  it('treats emoji-only / punctuation-only / empty as not speakable', () => {
+    expect(hasSpeakableContent('😎')).toBe(false);
+    expect(hasSpeakableContent('...')).toBe(false);
+    expect(hasSpeakableContent('   ')).toBe(false);
+    expect(hasSpeakableContent('')).toBe(false);
   });
 });

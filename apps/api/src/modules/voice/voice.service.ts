@@ -44,6 +44,30 @@ const VOICE_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
 /** Preview audio for a (provider, voiceId, language) is deterministic — cache for 1 day. */
 const VOICE_PREVIEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
+/** Emoji / pictographs / flags / skin-tone + variation modifiers / ZWJ / keycap.
+ *  Stripped from TTS INPUT only — the chat display keeps the original text. */
+const EMOJI_SYMBOL_RE =
+  // Intentionally matches emoji plus their ZWJ / variation-selector / skin-tone /
+  // keycap "glue" so compound emoji strip cleanly. The misleading-character-class
+  // rule is about accidental combos; here it's deliberate.
+  // eslint-disable-next-line no-misleading-character-class
+  /[\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\p{Extended_Pictographic}]/gu;
+
+/** Text to SEND TO TTS: strip emoji/symbols and collapse the whitespace they
+ *  leave behind. Callers keep the ORIGINAL text for the chat transcript.
+ *  Sarvam's TTS 400s on text with no language characters ("Text must contain at
+ *  least one character from the allowed languages") — a bare/trailing emoji like
+ *  "🔧🤖" is the classic trigger. */
+export function toSpeakableText(text: string): string {
+  return text.replace(EMOJI_SYMBOL_RE, '').replace(/\s+/g, ' ').trim();
+}
+
+/** True when there's something worth speaking (≥1 letter or digit). Emoji-only /
+ *  punctuation-only chunks return false → skip TTS entirely (still shown as text). */
+export function hasSpeakableContent(text: string): boolean {
+  return /[\p{L}\p{N}]/u.test(text);
+}
+
 /** Render a personalised preview line per language. Falls back to English when the language
  *  isn't templated, and to a generic sample when the voice name isn't known. */
 function renderPreviewSample(language: SupportedLanguage, voiceName?: string): string {
@@ -495,8 +519,34 @@ export class VoiceService {
         let firstChunkLatencyMs: number | null = null;
         let lastAudioFormat = 'audio/pcm; rate=24000';
 
+        // Strip emoji/symbols before TTS — Sarvam rejects text with no language
+        // characters. Keep the ORIGINAL `sentence` for the display `text` field
+        // so the chat still shows emojis. If nothing speakable remains (an
+        // emoji-only chunk like a trailing "🔧🤖"), emit a text-only chunk (shows
+        // in the transcript, no audio) and skip synthesis — this is what
+        // prevents the "voice synthesis unavailable for this sentence" error.
+        const speak = toSpeakableText(sentence);
+        if (!hasSpeakableContent(speak)) {
+          yield {
+            type: 'audio',
+            sentenceIndex: idx,
+            subChunkIndex: 0,
+            isFinalChunk: true,
+            text: sentence,
+            audio: '',
+            audioFormat: lastAudioFormat,
+            audioDurationMs: null,
+            ttsLatencyMs: 0,
+            ttsProtocol: 'websocket',
+          };
+          // Count it as a rendered sentence so totalSentences matches the
+          // per-sentence path (which also counts the emoji-only text chunk).
+          successCount++;
+          return;
+        }
+
         try {
-          for await (const chunk of session!.synthesize(sentence)) {
+          for await (const chunk of session!.synthesize(speak)) {
             if (firstChunkLatencyMs === null) {
               firstChunkLatencyMs = chunk.latencyMs;
             }
@@ -555,7 +605,7 @@ export class VoiceService {
           });
           try {
             const batchResult = await provider.synthesize({
-              text: sentence,
+              text: speak,
               language: lang,
               agentId,
               voiceId: config.ttsVoiceId,
@@ -776,8 +826,29 @@ export class VoiceService {
     primaryProvider: VoiceProvider,
     sentenceIndex: number,
   ): AsyncGenerator<VoiceStreamChunk, boolean> {
+    // Strip emoji/symbols before TTS (Sarvam rejects text with no language
+    // characters); keep the ORIGINAL `sentence` for the display `text` field so
+    // the chat still shows emojis. If nothing speakable remains (an emoji-only
+    // chunk), emit a text-only chunk and skip synthesis — no error banner.
+    const speak = toSpeakableText(sentence);
+    if (!hasSpeakableContent(speak)) {
+      yield {
+        type: 'audio',
+        sentenceIndex,
+        subChunkIndex: 0,
+        isFinalChunk: true,
+        text: sentence,
+        audio: '',
+        audioFormat: 'audio/mp3',
+        audioDurationMs: null,
+        ttsLatencyMs: 0,
+        ttsProtocol: 'http',
+      };
+      return true;
+    }
+
     const request: TTSRequest = {
-      text: sentence,
+      text: speak,
       language,
       agentId,
       voiceId: config.ttsVoiceId,
