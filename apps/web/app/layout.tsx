@@ -21,7 +21,17 @@ const geistMono = localFont({
 
 export const metadata: Metadata = {
   title: "Klivo",
-  description: "AI Chat Widget Platform - Dashboard",
+  description:
+    "Klivo is an enterprise agentic AI platform to build, deploy, and manage AI agents across voice, chat, and more.",
+  icons: {
+    icon: [
+      // Default (navy mark): light browser chrome + fallback for browsers that
+      // ignore the prefers-color-scheme media hint on favicons.
+      { url: "/klivo-logo-remove.png" },
+      // Dark browser chrome: the navy mark is low-contrast, so swap to white.
+      { url: "/klivo-logo-white.png", media: "(prefers-color-scheme: dark)" },
+    ],
+  },
 };
 
 export default function RootLayout({

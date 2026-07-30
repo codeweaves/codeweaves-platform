@@ -1,6 +1,7 @@
 'use client';
 
 import Link from 'next/link';
+import Image from 'next/image';
 import { usePathname } from 'next/navigation';
 import type { LucideIcon } from 'lucide-react';
 import {
@@ -14,7 +15,6 @@ import {
   Users,
   Wrench,
   ChevronRight,
-  Sparkles,
 } from 'lucide-react';
 import { useProfile } from '@/hooks/use-profile';
 import { useInboxCount } from '@/hooks/use-handover';
@@ -95,9 +95,14 @@ export function AppSidebar() {
     >
       <SidebarHeader className="px-3 py-4">
         <div className="flex items-center gap-2.5 px-1 group-data-[collapsible=icon]:px-0 group-data-[collapsible=icon]:justify-center">
-          <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-linear-to-br from-primary to-[#1c315f] text-primary-foreground shadow-sm shadow-primary/30 ring-1 ring-inset ring-white/10">
-            <Sparkles className="size-[1.05rem]" />
-          </div>
+          <Image
+            src="/klivo-logo-remove.png"
+            alt="Klivo"
+            width={32}
+            height={32}
+            priority
+            className="size-8 shrink-0 object-contain"
+          />
           <span className="truncate text-lg font-semibold tracking-tight group-data-[collapsible=icon]:hidden">
             Klivo
           </span>
