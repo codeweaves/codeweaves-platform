@@ -105,7 +105,7 @@ export function ClassificationSettings() {
                   categories and detects its language.
                 </p>
                 <p>
-                  Both are optional — leave the relevant list empty to skip that
+                  Both are optional. Leave the relevant list empty to skip that
                   dimension entirely. <strong>No LLM call, no spend.</strong>
                 </p>
               </>
@@ -126,7 +126,7 @@ export function ClassificationSettings() {
             content={
               <>
                 <p>
-                  Topics this agent fields — e.g. <em>Pricing</em>, <em>Support</em>,{' '}
+                  Topics this agent fields, e.g. <em>Pricing</em>, <em>Support</em>,{' '}
                   <em>Refunds</em>. The classifier picks exactly one per conversation.
                 </p>
                 <p>
@@ -198,7 +198,7 @@ export function ClassificationSettings() {
                 </p>
                 <p>
                   <strong>Hinglish</strong> is code-mixed Hindi-English in Latin
-                  script — pick it alongside English and Hindi if your audience uses
+                  script. Pick it alongside English and Hindi if your audience uses
                   it.
                 </p>
               </>
@@ -210,7 +210,7 @@ export function ClassificationSettings() {
         </p>
         <SearchableMultiSelect
           triggerClassName="w-full max-w-md"
-          placeholder="No languages selected — detection disabled"
+          placeholder="No languages selected, detection disabled"
           searchPlaceholder="Search languages..."
           emptyMessage="No matching language"
           values={languages}

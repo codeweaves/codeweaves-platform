@@ -132,7 +132,7 @@ function computeGroupPositions(msgs: ChatMessage[]): GroupPosition[] {
  */
 function systemDividerKind(content: string): 'connected' | 'ended' | null {
   if (/took over/i.test(content)) return 'connected';
-  if (/resumed/i.test(content)) return 'ended'; // "Resolved by … — AI resumed" / "Auto-resolved … — AI resumed"
+  if (/resumed/i.test(content)) return 'ended'; // "Resolved by …. AI resumed" / "Auto-resolved …. AI resumed"
   return null;
 }
 

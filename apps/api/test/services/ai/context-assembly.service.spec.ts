@@ -46,7 +46,7 @@ describe('ContextAssemblyService', () => {
 
     it('labels HUMAN_AGENT and SYSTEM turns so the model tells them apart from its own', async () => {
       mockPrisma.chatMessage.findMany.mockResolvedValue([
-        { role: 'SYSTEM', content: 'Resolved by Priya — AI resumed' },
+        { role: 'SYSTEM', content: 'Resolved by Priya. AI resumed' },
         { role: 'HUMAN_AGENT', content: 'This is Priya, happy to help.' },
         { role: 'ASSISTANT', content: 'Hi back' },
         { role: 'USER', content: 'Hi' },
@@ -69,7 +69,7 @@ describe('ContextAssemblyService', () => {
       );
       expect(systemTurn).toEqual({
         role: 'assistant',
-        content: '[System]: Resolved by Priya — AI resumed',
+        content: '[System]: Resolved by Priya. AI resumed',
       });
     });
 

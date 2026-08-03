@@ -131,7 +131,7 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
       ? [
           {
             id: 'organization',
-            accessorFn: (row: Agent) => row.organization?.name ?? '—',
+            accessorFn: (row: Agent) => row.organization?.name ?? '-',
             header: 'Organization',
             enableSorting: false,
           } satisfies ColumnDef<Agent, unknown>,

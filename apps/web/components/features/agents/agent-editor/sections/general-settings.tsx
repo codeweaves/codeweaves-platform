@@ -30,7 +30,7 @@ export function GeneralSettings() {
             <div className="grid grid-cols-3 items-center gap-4">
               <Label className="text-sm font-medium">Organization</Label>
               <Input
-                value={agent.organization?.name ?? '—'}
+                value={agent.organization?.name ?? '-'}
                 disabled
                 className="col-span-2 bg-muted"
               />

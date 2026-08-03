@@ -31,9 +31,9 @@ interface ConversationDetailPaneProps {
 }
 
 function formatDuration(startIso: string, endIso: string | null): string {
-  if (!endIso) return '—';
+  if (!endIso) return '-';
   const ms = new Date(endIso).getTime() - new Date(startIso).getTime();
-  if (!Number.isFinite(ms) || ms <= 0) return '—';
+  if (!Number.isFinite(ms) || ms <= 0) return '-';
   const sec = Math.round(ms / 1000);
   if (sec < 60) return `${sec}s`;
   const min = Math.floor(sec / 60);
@@ -45,9 +45,9 @@ function formatDuration(startIso: string, endIso: string | null): string {
 }
 
 function formatFull(iso: string | null): string {
-  if (!iso) return '—';
+  if (!iso) return '-';
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return '—';
+  if (Number.isNaN(d.getTime())) return '-';
   return d.toLocaleString('en-US', {
     year: 'numeric',
     month: 'short',

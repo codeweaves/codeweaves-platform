@@ -94,7 +94,7 @@ export default function SignUpPage() {
           .filter(Boolean)
           .join('; ');
         setError(
-          `Could not complete sign-up (${signUp.status}${detail ? ` — ${detail}` : ''}).`,
+          `Could not complete sign-up (${signUp.status}${detail ? `: ${detail}` : ''}).`,
         );
         setSubmitting(false);
       }

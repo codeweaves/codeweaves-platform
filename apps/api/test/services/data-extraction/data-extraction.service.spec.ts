@@ -178,7 +178,7 @@ describe('DataExtractionService', () => {
           messages: [
             { role: 'USER', content: 'hi my email is me@self.com' },
             { role: 'ASSISTANT', content: 'reach us at support@biz.com' },
-            { role: 'SYSTEM', content: 'Dhruv took over — AI paused' },
+            { role: 'SYSTEM', content: 'Dhruv took over. AI paused' },
             {
               role: 'HUMAN_AGENT',
               content: 'this is Dhruv, ping me at dhruv@biz.com',

@@ -110,7 +110,7 @@ export function DataCaptureSettings() {
         info={
           <>
             <p>
-              Define the fields to pull out of a chat — e.g. name, email and phone for
+              Define the fields to pull out of a chat, e.g. name, email and phone for
               a sales bot, or an employee ID for HR.
             </p>
             <p>

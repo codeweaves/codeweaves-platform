@@ -63,7 +63,7 @@ export function KpiSummaryCards({ data, isLoading }: KpiSummaryCardsProps) {
       value: kpis
         ? kpis.avgTimeToFirstTokenMs.value != null
           ? formatDuration(kpis.avgTimeToFirstTokenMs.value)
-          : '—'
+          : '-'
         : '-',
       trend: kpis?.avgTimeToFirstTokenMs.trend ?? undefined,
       trendInverted: true,
@@ -71,7 +71,7 @@ export function KpiSummaryCards({ data, isLoading }: KpiSummaryCardsProps) {
       info: (
         <>
           <p>
-            How quickly the bot <strong>starts replying</strong> — the moment the{' '}
+            How quickly the bot <strong>starts replying</strong>, the moment the{' '}
             <strong>first words appear</strong> on screen.
           </p>
           <p>
@@ -98,7 +98,7 @@ export function KpiSummaryCards({ data, isLoading }: KpiSummaryCardsProps) {
         <>
           <p>
             Of the people who chatted in this range, how many had{' '}
-            <strong>also chatted before</strong> it started — i.e. visitors{' '}
+            <strong>also chatted before</strong> it started, i.e. visitors{' '}
             <strong>coming back</strong>.
           </p>
           <p className="font-semibold">Formula</p>
@@ -107,7 +107,7 @@ export function KpiSummaryCards({ data, isLoading }: KpiSummaryCardsProps) {
           </p>
           <p>
             The % below is a <strong>relative change</strong> vs the period
-            before — <strong>+10% = 10% higher than last time</strong>, not 10
+            before. <strong>+10% = 10% higher than last time</strong>, not 10
             points higher.
           </p>
         </>

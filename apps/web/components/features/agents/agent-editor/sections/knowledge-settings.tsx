@@ -105,7 +105,7 @@ export function KnowledgeSettings() {
           content={
             <>
               <p>
-                Factual reference material the agent answers from — FAQs, product
+                Factual reference material the agent answers from: FAQs, product
                 specs, policies. Prepended to the system prompt on every direct-mode
                 chat turn.
               </p>

@@ -240,13 +240,13 @@ function AgentEditorContent() {
       themeData.starters.forEach((starter, index) => {
         if (starter.message.trim().length === 0) {
           errors[`starters.${index}`] =
-            "Conversation starter can't be empty — add text or remove it.";
+            "Conversation starter can't be empty. Add text or remove it.";
         }
       });
       formData.fallbackPhrases.forEach((phrase, index) => {
         if (phrase.trim().length === 0) {
           errors[`fallbackPhrases.${index}`] =
-            "Fallback phrase can't be empty — add text or remove it.";
+            "Fallback phrase can't be empty. Add text or remove it.";
         }
       });
       if (Object.keys(errors).length > 0) {
@@ -264,14 +264,14 @@ function AgentEditorContent() {
       formData.dataFields.forEach((field, index) => {
         if (field.label.trim().length === 0) {
           dataFieldErrors[`dataFields.${index}.label`] =
-            "Field label can't be empty — add a label or remove the field.";
+            "Field label can't be empty. Add a label or remove the field.";
         }
         if (!/^[a-z][a-z0-9_]*$/.test(field.key)) {
           dataFieldErrors[`dataFields.${index}.key`] =
             'Key must start with a lowercase letter and use only lowercase letters, digits, and underscores.';
         } else if (seenKeys.has(field.key)) {
           dataFieldErrors[`dataFields.${index}.key`] =
-            `Duplicate key "${field.key}" — each field needs a unique key.`;
+            `Duplicate key "${field.key}". Each field needs a unique key.`;
         }
         seenKeys.add(field.key);
       });
