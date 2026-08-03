@@ -548,6 +548,11 @@ export class DirectChatService {
     let finalFinishReason: string | null = null;
     let finalTtftMs: number | null = null;
     let finalTotalMs = 0;
+    // Terminal-state flag. If the consumer abandons the generator (client
+    // disconnected → the voice controller breaks its loop → .return()), the
+    // catch below is SKIPPED, so the `finally` uses this to still log + persist
+    // a trace instead of failing silently.
+    let settled = false;
 
     const modelId = config.modelId ?? this.aiSdk.getDefaultModel();
 
@@ -781,6 +786,7 @@ export class DirectChatService {
           : {}),
         model: finalModel ?? modelId,
       });
+      settled = true;
       if (piiCtx) void piiCtx.flush();
 
       // Debounced, off-hot-path data capture. Only when the agent actually
@@ -805,11 +811,12 @@ export class DirectChatService {
         trace.traceId,
       );
     } catch (err) {
+      settled = true;
       const isAbort = err instanceof Error && err.name === 'AbortError';
       const errorMsg = err instanceof Error ? err.message : String(err);
 
       if (isAbort) {
-        this.log.debug('stream', 'client aborted stream', {
+        this.log.warn('stream', 'client aborted stream', {
           agentId: req.agent.id,
           sessionId: req.externalSessionId,
           traceId: trace.traceId,
@@ -841,6 +848,31 @@ export class DirectChatService {
         response: finalTextBuffer || undefined,
         model: finalModel ?? undefined,
       });
+    } finally {
+      if (!settled) {
+        // The consumer abandoned the generator before it finished or errored —
+        // e.g. the client disconnected and the voice controller broke its loop,
+        // which calls .return() and SKIPS the catch above. Without this the turn
+        // fails completely silently (no log, no trace, no completion). Surface
+        // it and persist a trace so it's always debuggable.
+        this.log.warn(
+          'stream',
+          'stream abandoned before completion (client disconnected / consumer stopped)',
+          {
+            agentId: req.agent.id,
+            sessionId: req.externalSessionId,
+            traceId: trace.traceId,
+            feature: req.feature ?? 'chat-stream',
+          },
+        );
+        void trace.end({
+          success: false,
+          error:
+            'stream abandoned before completion (client disconnected / consumer stopped)',
+          response: finalTextBuffer || undefined,
+          model: finalModel ?? undefined,
+        });
+      }
     }
   }
 }

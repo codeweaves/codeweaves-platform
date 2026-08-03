@@ -119,4 +119,33 @@ export class VoiceEventLogger {
       metadata: { sentenceIndex: d.sentenceIndex, errorCode: d.errorCode },
     });
   }
+
+  /**
+   * The voice turn produced no usable reply (empty text / "[streaming failed]"),
+   * usually because the LLM stream failed or the client disconnected mid-turn.
+   * Previously this was invisible (the turn still logged VOICE_REPLY_SENT as a
+   * success). The paired DirectChatService trace (same session) carries the LLM
+   * -level reason. `clientAborted`/`reason` live in metadata.
+   */
+  logStreamFailed(d: {
+    agentId?: string;
+    sessionId?: string;
+    visitorId?: string;
+    clientAborted?: boolean;
+    latencyMs?: number;
+    reason?: string;
+  }): void {
+    void this.tracer.logEvent({
+      channel: 'VOICE',
+      eventName: 'VOICE_STREAM_FAILED',
+      direction: 'OUTBOUND',
+      agentId: d.agentId,
+      sessionId: d.sessionId,
+      visitorId: d.visitorId,
+      latencyMs: d.latencyMs,
+      success: false,
+      errorMessage: d.reason,
+      metadata: { clientAborted: d.clientAborted, reason: d.reason },
+    });
+  }
 }
