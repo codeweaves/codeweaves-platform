@@ -26,7 +26,7 @@ const HUMAN_AGENT_LABEL = '[Human teammate]: ';
 
 /**
  * Inline label for handover status lines (SYSTEM rows: "a teammate took over",
- * "resolved — AI resumed", "auto-resolved (inactive)", …) so the model reads
+ * "resolved, AI resumed", "auto-resolved (inactive)", …) so the model reads
  * them as automated events, not the assistant's own words. This is the handover
  * narrative — connected → what the human did → handed back. Keep in sync with
  * the widget's recentHistory builder (apps/widget useChat.ts).

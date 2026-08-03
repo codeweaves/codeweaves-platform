@@ -155,7 +155,7 @@ export function WhatsappSettings() {
               <p>
                 The agent answers on WhatsApp with the{' '}
                 <strong>same prompt and knowledge</strong> it uses in the website
-                widget — there is nothing separate to configure.
+                widget. There is nothing separate to configure.
               </p>
             }
           />
@@ -229,7 +229,7 @@ export function WhatsappSettings() {
                     <strong>App → WhatsApp → API Setup</strong>.
                   </p>
                   <p>
-                    Self-serve onboarding via Embedded Signup is coming later — for now
+                    Self-serve onboarding via Embedded Signup is coming later. For now
                     these are entered by hand.
                   </p>
                 </>

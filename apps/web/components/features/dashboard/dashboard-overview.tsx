@@ -58,11 +58,11 @@ function toIsoEndOfDay(d: string) {
   return new Date(`${d}T23:59:59.999`).toISOString();
 }
 function formatCount(n: number | undefined | null) {
-  if (n == null || Number.isNaN(n)) return '—';
+  if (n == null || Number.isNaN(n)) return '-';
   return Math.round(n).toLocaleString();
 }
 function formatDuration(ms: number | undefined | null) {
-  if (ms == null || Number.isNaN(ms) || ms <= 0) return '—';
+  if (ms == null || Number.isNaN(ms) || ms <= 0) return '-';
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`;
 }
@@ -112,9 +112,9 @@ function RangeToggle({ value, onChange }: { value: RangeDays; onChange: (v: Rang
 /* ── trend text ───────────────────────────────────────────────────────── */
 
 function TrendText({ value, positiveIsGood = true }: { value?: number | null; positiveIsGood?: boolean }) {
-  // No data (loading / no prior period) reads as "—"; a genuine flat 0% stays "0%".
+  // No data (loading / no prior period) reads as "-"; a genuine flat 0% stays "0%".
   if (value == null || !Number.isFinite(value)) {
-    return <span className="text-xs font-medium text-muted-foreground">—</span>;
+    return <span className="text-xs font-medium text-muted-foreground">-</span>;
   }
   if (value === 0) {
     return <span className="text-xs font-medium text-muted-foreground">0%</span>;
@@ -204,10 +204,10 @@ function AttentionPanel({
               {isLoading
                 ? 'Checking the inbox…'
                 : isError
-                  ? "Couldn't check the inbox — open it to see what's waiting."
+                  ? "Couldn't check the inbox. Open it to see what's waiting."
                   : count > 0
                     ? `${count} conversation${count === 1 ? '' : 's'} waiting for a human${oldest ? ` · oldest ${timeAgo(oldest)}` : ''}`
-                    : 'All clear — no conversations are waiting for a human.'}
+                    : 'All clear. No conversations are waiting for a human.'}
             </p>
           </div>
         </div>
@@ -387,7 +387,7 @@ function HandoverHealth({
                 />
               </svg>
               <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold tabular-nums">
-                {containedPct == null ? '—' : `${pct}%`}
+                {containedPct == null ? '-' : `${pct}%`}
               </span>
             </div>
             {containedPct == null ? (
@@ -568,7 +568,7 @@ export function DashboardOverview() {
                 ? formatDuration(kpi?.value ?? undefined)
                 : k.kind === 'rate'
                   ? kpi?.value == null
-                    ? '—'
+                    ? '-'
                     : `${kpi.value}%`
                   : formatCount(kpi?.value ?? undefined);
             return (

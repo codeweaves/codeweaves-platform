@@ -209,7 +209,7 @@ function VoiceLatencyCard({ data, isLoading }: { data?: VoiceLatencyResponse; is
                     label="P50 (ms)"
                     info={
                       <>
-                        The <strong>middle</strong> reply time — half of replies
+                        The <strong>middle</strong> reply time. Half of replies
                         were faster than this, half slower. A good read on the{' '}
                         <strong>typical</strong> speed.
                       </>
@@ -221,8 +221,8 @@ function VoiceLatencyCard({ data, isLoading }: { data?: VoiceLatencyResponse; is
                     label="P95 (ms)"
                     info={
                       <>
-                        <strong>95% of replies were faster</strong> than this —
-                        only the <strong>slowest 5%</strong> took longer. Good for
+                        <strong>95% of replies were faster</strong> than this.
+                        Only the <strong>slowest 5%</strong> took longer. Good for
                         spotting worst-case lag.
                       </>
                     }

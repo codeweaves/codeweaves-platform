@@ -65,7 +65,7 @@ export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAna
   }
 
   const fmtMs = (ms: number | null | undefined) =>
-    ms == null ? '—' : formatDuration(ms);
+    ms == null ? '-' : formatDuration(ms);
   const pct = (n: number) =>
     data && data.totalHandovers > 0 ? Math.round((n / data.totalHandovers) * 1000) / 10 : 0;
 
@@ -164,7 +164,7 @@ export function HandoverAnalyticsSection({ params, pollingOptions }: HandoverAna
           value={formatNumber(data?.resolvedByHuman ?? 0)}
           info={
             <>
-              Handovers a teammate explicitly closed by clicking Resolve —{' '}
+              Handovers a teammate explicitly closed by clicking Resolve,{' '}
               <strong>{pct(data?.resolvedByHuman ?? 0)}%</strong> of all handovers this period.
               The full split (incl. abandoned / left-open) is in &ldquo;How handovers ended&rdquo; below.
             </>

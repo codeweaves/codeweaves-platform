@@ -248,7 +248,7 @@ export function BehaviorSettings() {
                   <Input
                     value={phrase}
                     onChange={(e) => updateFallbackPhrase(index, e.target.value)}
-                    placeholder="e.g. I'm not sure about that — let me connect you with our team."
+                    placeholder="e.g. I'm not sure about that, let me connect you with our team."
                     maxLength={200}
                     aria-invalid={error ? true : undefined}
                     className={cn(

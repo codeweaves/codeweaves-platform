@@ -212,9 +212,9 @@ export class HandoverService {
 
       const text =
         reason === 'BOT_FALLBACK'
-          ? "Bot couldn't answer — escalated to a human"
+          ? "Bot couldn't answer, escalated to a human"
           : reason === 'FRUSTRATION'
-            ? 'Frustration detected — escalated to a human'
+            ? 'Frustration detected, escalated to a human'
             : 'Visitor asked for a human';
       await this.insertSystemMessage(ctx.sessionDbId, text);
 
@@ -561,7 +561,7 @@ export class HandoverService {
     );
 
     const ctx = this.ctxOf(session);
-    await this.insertSystemMessage(session.id, `${name} took over — AI paused`);
+    await this.insertSystemMessage(session.id, `${name} took over. AI paused`);
     await this.realtime.emitHandover(ctx, 'ACTIVE_HUMAN');
     await this.realtime.emitMessage(ctx);
     return this.getThread(publicSessionId, user);
@@ -650,7 +650,7 @@ export class HandoverService {
       );
 
       const ctx = this.ctxOf(session);
-      await this.insertSystemMessage(session.id, `Resolved by ${name} — AI resumed`);
+      await this.insertSystemMessage(session.id, `Resolved by ${name}. AI resumed`);
       await this.realtime.emitHandover(ctx, 'NONE');
       await this.realtime.emitMessage(ctx);
     }
@@ -697,7 +697,7 @@ export class HandoverService {
           where: { id: s.id },
           data: { handoverState: 'NONE', handoverResolvedAt: new Date() },
         });
-        await this.insertSystemMessage(s.id, 'Auto-resolved (inactive) — AI resumed');
+        await this.insertSystemMessage(s.id, 'Auto-resolved (inactive). AI resumed');
         const ctx = {
           sessionDbId: s.id,
           publicSessionId: s.sessionId,

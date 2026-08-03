@@ -100,7 +100,7 @@ export function DeleteOrganizationDialog({
               </div>
             ) : previewFailed ? (
               <p className="text-destructive">
-                Couldn&apos;t load impact summary — counts unavailable.
+                Couldn&apos;t load impact summary. Counts unavailable.
               </p>
             ) : previewQuery.data ? (
               <ul className="space-y-1.5">

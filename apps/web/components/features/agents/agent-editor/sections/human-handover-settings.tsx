@@ -90,7 +90,7 @@ export function HumanHandoverSettings() {
                 label="Connecting message"
                 info={
                   <p>
-                    Shown to the visitor while a teammate is being connected — before
+                    Shown to the visitor while a teammate is being connected, before
                     anyone has actually taken over.
                   </p>
                 }
@@ -201,7 +201,7 @@ export function HumanHandoverSettings() {
               info={
                 <p>
                   The in-app alert, sound and browser popup <strong>always</strong>
-                  fire when a visitor asks for a human — this toggle only controls the
+                  fire when a visitor asks for a human. This toggle only controls the
                   email on top of that.
                 </p>
               }
@@ -271,7 +271,7 @@ function EmailRecipientsField({
               email.
             </p>
             <p>
-              Adding addresses sends to <strong>those only, instead</strong> — useful
+              Adding addresses sends to <strong>those only, instead</strong>. Useful
               for a shared support inbox, or people without a dashboard login. Add your
               own address too if you still want it.
             </p>

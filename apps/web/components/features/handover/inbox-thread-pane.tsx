@@ -210,7 +210,7 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
   const doTakeover = () =>
     takeover.mutate(thread.sessionId, {
       onSuccess: () => {
-        toast.success('You\'re now handling this chat — the AI is paused.');
+        toast.success('You\'re now handling this chat. The AI is paused.');
         onTakenOver?.();
       },
       onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not take over'),
@@ -218,7 +218,7 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
 
   const doResolve = () =>
     resolve.mutate(thread.sessionId, {
-      onSuccess: () => toast.success('Resolved — the AI takes over again.'),
+      onSuccess: () => toast.success('Resolved. The AI takes over again.'),
       onError: (e) => toast.error(e instanceof Error ? e.message : 'Could not resolve'),
     });
 
@@ -338,7 +338,7 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
             <div className="min-w-0 flex-1">
               <p className="text-xs font-semibold text-destructive">This visitor asked for a human</p>
               <p className="text-[11px] text-muted-foreground">
-                The AI is keeping them engaged. Take over to reply — the AI will pause.
+                The AI is keeping them engaged. Take over to reply and the AI will pause.
               </p>
             </div>
             <Button size="sm" onClick={doTakeover} disabled={takeover.isPending}>

@@ -225,7 +225,7 @@ export function OrganizationsDataTable({
           organizationName={deleteTarget.name}
           onDeleted={(result) => {
             toast.success(
-              `Deleted "${result.name}" — ${result.cascadedAgents} agent${result.cascadedAgents === 1 ? '' : 's'} and ${result.cascadedUsers} member${result.cascadedUsers === 1 ? '' : 's'} affected.`,
+              `Deleted "${result.name}". ${result.cascadedAgents} agent${result.cascadedAgents === 1 ? '' : 's'} and ${result.cascadedUsers} member${result.cascadedUsers === 1 ? '' : 's'} affected.`,
             );
             setDeleteTarget(null);
           }}

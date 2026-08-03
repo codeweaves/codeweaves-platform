@@ -440,7 +440,7 @@ export function VoiceSettings() {
                     <ToggleRow
                       id="ttsStreaming"
                       label="Streaming TTS (experimental)"
-                      description="Off by default — flip on once tested."
+                      description="Off by default. Flip on once tested."
                       info={
                         <>
                           <p>

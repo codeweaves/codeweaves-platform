@@ -22,7 +22,7 @@ import { formatDate } from '@/lib/utils';
  * Collected-data viewer: pick an agent (required), then see one row per
  * conversation with a column per captured field. Agent list is role-scoped by
  * the backend (CLIENT → own org, ADMIN/SUPER_ADMIN → all). Columns are dynamic —
- * whatever distinct keys exist in that agent's data — with `—` for blanks.
+ * whatever distinct keys exist in that agent's data — with `-` for blanks.
  */
 export function CollectedDataView() {
   const [agentId, setAgentId] = useState<string | undefined>(undefined);
@@ -73,7 +73,7 @@ export function CollectedDataView() {
       cell: ({ row }) => {
         const value = row.original.data?.[col.key];
         if (value === null || value === undefined || value === '') {
-          return <span className="text-muted-foreground">—</span>;
+          return <span className="text-muted-foreground">-</span>;
         }
         return <span>{String(value)}</span>;
       },

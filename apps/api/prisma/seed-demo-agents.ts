@@ -423,7 +423,7 @@ async function main() {
     name: NORMAL_BOT_NAME,
     systemPrompt: NORMAL_BOT_PROMPT,
     welcomeMessage:
-      "Hi! I'm Normal Bot — your basic streaming chat demo. Ask me anything to see the AI orchestration flow in action.",
+      "Hi! I'm Normal Bot, your basic streaming chat demo. Ask me anything to see the AI orchestration flow in action.",
     aiConfig: makeAiConfig(NORMAL_BOT_MODEL, { ragEnabled: false }),
   });
 

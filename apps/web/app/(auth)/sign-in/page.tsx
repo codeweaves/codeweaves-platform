@@ -125,7 +125,7 @@ export default function SignInPage() {
 
       <form onSubmit={handleSubmit} className="mt-8 space-y-5">
         {justSignedUp && (
-          <AuthNotice>Your account is ready — please sign in.</AuthNotice>
+          <AuthNotice>Your account is ready. Please sign in.</AuthNotice>
         )}
         {justReset && (
           <AuthNotice>Your password was updated. Please sign in.</AuthNotice>

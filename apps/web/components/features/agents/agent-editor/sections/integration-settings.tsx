@@ -73,7 +73,7 @@ const CURATED_MODELS: ModelOption[] = [
     label: 'GPT-4.1 (OpenAI)',
     hint: 'Best instruction-following. Premium quality, higher cost.',
     detail:
-      'Obeys strict rules — like character-limit caps — more reliably than the others. Auto prompt-caching with 24h retention is configured. Costs more per token, so pick it when precision matters more than price.',
+      'Obeys strict rules, like character-limit caps, more reliably than the others. Auto prompt-caching with 24h retention is configured. Costs more per token, so pick it when precision matters more than price.',
   },
   {
     value: 'openai:gpt-4.1-mini',
@@ -87,21 +87,21 @@ const CURATED_MODELS: ModelOption[] = [
     label: 'Gemini 2.5 Flash (Google)',
     hint: 'Huge 1M context. Cheapest quality option.',
     detail:
-      '1M-token context window with thinking disabled for low latency. Free tier covers 1500 requests/day. Strong multilingual, and the cheapest paid tier among the quality models — good for long-document agents.',
+      '1M-token context window with thinking disabled for low latency. Free tier covers 1500 requests/day. Strong multilingual, and the cheapest paid tier among the quality models. Good for long-document agents.',
   },
   {
     value: 'groq:qwen/qwen3-32b',
     label: 'Qwen 3 32B (Groq)',
     hint: 'Fastest from India. Strong multilingual.',
     detail:
-      'Measured ~156ms time-to-first-token from India, and handles 29+ languages well. Free tier is capped at 60 requests/min and 500K tokens/day — production-ready once on a paid plan. Currently free during preview.',
+      'Measured ~156ms time-to-first-token from India, and handles 29+ languages well. Free tier is capped at 60 requests/min and 500K tokens/day, production-ready once on a paid plan. Currently free during preview.',
   },
   {
     value: 'anthropic/claude-haiku-4-5',
     label: 'Claude Haiku 4.5 (Anthropic)',
     hint: 'Fastest published benchmarks. Not yet battle-tested here.',
     detail:
-      'Fastest published time-to-first-token in 2026 benchmarks (~597ms median). A recent addition — still pending production testing in this codebase, so prefer it for experiments over critical agents.',
+      'Fastest published time-to-first-token in 2026 benchmarks (~597ms median). A recent addition, still pending production testing in this codebase, so prefer it for experiments over critical agents.',
   },
 ];
 
@@ -184,7 +184,7 @@ export function IntegrationSettings() {
                   developing.
                 </p>
                 <p>
-                  Applies to both n8n and direct routing modes — it is not gated by
+                  Applies to both n8n and direct routing modes. It is not gated by
                   that choice.
                 </p>
                 <p>
@@ -512,7 +512,7 @@ function DirectModeConfig({
                     <>
                       <p>
                         <strong>Hybrid</strong> keeps recent messages verbatim and
-                        summarizes older ones in the background — no added reply time,
+                        summarizes older ones in the background. No added reply time,
                         and the bot keeps early details (like a name given at the
                         start).
                       </p>
@@ -531,7 +531,7 @@ function DirectModeConfig({
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="hybrid">Hybrid — recent + summary (default)</SelectItem>
+                  <SelectItem value="hybrid">Hybrid: recent + summary (default)</SelectItem>
                   <SelectItem value="sliding-window">Sliding window only</SelectItem>
                   <SelectItem value="summarize">Summarize older messages</SelectItem>
                 </SelectContent>

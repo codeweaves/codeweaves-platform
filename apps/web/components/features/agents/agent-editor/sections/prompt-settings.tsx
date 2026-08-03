@@ -40,7 +40,7 @@ export function PromptSettings() {
             content={
               <>
                 <p>
-                  Who the agent is and how it should behave — its persona, tone and
+                  Who the agent is and how it should behave: its persona, tone and
                   rules.
                 </p>
                 <p>
