@@ -871,30 +871,55 @@ export class VoiceController {
       ...detectFallback(fullText, fullAgent.fallbackPhrases),
     };
 
-    this.log.info('handleStreamingVoice', 'voice reply streamed', {
-      agentId: resolvedAgentId,
-      sessionId: session.sessionId,
-      totalSentences,
-      replyChars: fullText.length,
-      totalLatencyMs: metadata.totalLatencyMs,
-    });
-    // VOICE channel event: the assistant's audio+text reply was streamed back.
-    // metadata carries the STT/TTS/LLM breakdown (no audio bytes / full text).
-    this.voiceLog.logReplySent({
-      agentId: resolvedAgentId,
-      sessionId: session.sessionId,
-      visitorId: visitorIp,
-      latencyMs: metadata.totalLatencyMs,
-      metadata: {
-        routingMode: mode,
-        sttProvider: metadata.sttProvider,
-        ttsProvider: metadata.ttsProvider,
-        ttsProtocol: metadata.ttsProtocol,
-        model: llmMetadata.model,
+    // A voice turn that produced NO reply text (saved as "[streaming failed]")
+    // is a FAILURE, not a reply — previously it still logged VOICE_REPLY_SENT as
+    // a success, hiding it. Log it loudly + as a queryable VOICE_STREAM_FAILED
+    // event instead. Handover turns legitimately produce no bot text, so exclude
+    // those. The LLM-level reason lives on the paired DirectChatService trace.
+    const producedReply = !!fullText;
+    const isHandoverTurn = toolEscalated || inRequested;
+    if (!producedReply && !isHandoverTurn) {
+      this.log.error('handleStreamingVoice', 'voice turn produced no reply', undefined, {
+        agentId: resolvedAgentId,
+        sessionId: session.sessionId,
+        clientAborted: closed,
+        totalSentences,
+        totalLatencyMs: metadata.totalLatencyMs,
+      });
+      this.voiceLog.logStreamFailed({
+        agentId: resolvedAgentId,
+        sessionId: session.sessionId,
+        visitorId: visitorIp,
+        clientAborted: closed,
+        latencyMs: metadata.totalLatencyMs,
+        reason: closed ? 'client_disconnected' : 'empty_reply',
+      });
+    } else {
+      this.log.info('handleStreamingVoice', 'voice reply streamed', {
+        agentId: resolvedAgentId,
+        sessionId: session.sessionId,
         totalSentences,
         replyChars: fullText.length,
-      },
-    });
+        totalLatencyMs: metadata.totalLatencyMs,
+      });
+      // VOICE channel event: the assistant's audio+text reply was streamed back.
+      // metadata carries the STT/TTS/LLM breakdown (no audio bytes / full text).
+      this.voiceLog.logReplySent({
+        agentId: resolvedAgentId,
+        sessionId: session.sessionId,
+        visitorId: visitorIp,
+        latencyMs: metadata.totalLatencyMs,
+        metadata: {
+          routingMode: mode,
+          sttProvider: metadata.sttProvider,
+          ttsProvider: metadata.ttsProvider,
+          ttsProtocol: metadata.ttsProtocol,
+          model: llmMetadata.model,
+          totalSentences,
+          replyChars: fullText.length,
+        },
+      });
+    }
 
     const userMetadata = {
       inputType: 'voice' as const,
