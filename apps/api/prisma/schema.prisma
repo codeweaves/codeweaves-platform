@@ -135,6 +135,9 @@ enum InvitationStatus {
   PENDING
   ACCEPTED
   EXPIRED
+  /// Declared but not used yet — cancelling still deletes the row. Present so the
+  /// enum shape matches across environments; see migration 20260810040000.
+  REVOKED
 }
 
 enum WhatsappChannelStatus {

@@ -1,0 +1,11 @@
+-- Adds a REVOKED value to InvitationStatus.
+--
+-- The value is declared but not yet used: cancelling an invitation still deletes
+-- the row. This exists so every environment has the same enum shape, because the
+-- value was already applied to dev and a database holding something no migration
+-- creates is exactly the drift that breaks fresh deploys.
+--
+-- The new value is deliberately not referenced here. Postgres allows
+-- ALTER TYPE ... ADD VALUE inside a transaction (which Prisma wraps every
+-- migration in) only if the value is not used in the same transaction.
+ALTER TYPE "InvitationStatus" ADD VALUE 'REVOKED';
