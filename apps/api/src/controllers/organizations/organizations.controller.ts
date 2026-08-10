@@ -8,17 +8,11 @@ import {
   Param,
   Query,
   ParseUUIDPipe,
-  UseGuards,
 } from '@nestjs/common';
 import { CurrentUser } from '../../decorators/current-user.decorator';
 import type { CurrentUserData } from '../../decorators/current-user.decorator';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { OrganizationsService } from '../../services/organizations.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RequirePermission } from '../../decorators/require-permission.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
-import { Resource, Action } from '../../common/rbac/rbac.types';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import {
   createOrganizationSchema,
@@ -30,12 +24,12 @@ import type {
   UpdateOrganizationDto,
   OrganizationListQuery,
 } from '../../models/organization.dto';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 @ApiTags('Organizations')
 @ApiBearerAuth()
 @Controller('organizations')
-@UseGuards(RolesGuard)
-@Roles(Role.SUPER_ADMIN)
 export class OrganizationsController {
   constructor(private readonly organizationsService: OrganizationsService) {}
 
@@ -45,6 +39,7 @@ export class OrganizationsController {
   @ApiResponse({ status: 400, description: 'Validation failed' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
+  @RequirePermission(Resource.Organization, Action.Create)
   async create(
     @Body(new ZodValidationPipe(createOrganizationSchema))
     dto: CreateOrganizationDto,
@@ -71,7 +66,7 @@ export class OrganizationsController {
   }
 
   @Get(':id')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
+  @RequirePermission(Resource.Organization, Action.Read)
   @ApiOperation({ summary: 'Get organization by ID' })
   @ApiParam({ name: 'id', description: 'Organization UUID' })
   @ApiResponse({ status: 200, description: 'Organization details' })
@@ -91,6 +86,7 @@ export class OrganizationsController {
   @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
   @ApiResponse({ status: 404, description: 'Organization not found' })
   @ApiResponse({ status: 409, description: 'Slug already in use' })
+  @RequirePermission(Resource.Organization, Action.Update)
   async update(
     @Param('id', ParseUUIDPipe) id: string,
     @Body(new ZodValidationPipe(updateOrganizationSchema))
@@ -106,6 +102,7 @@ export class OrganizationsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
   @ApiResponse({ status: 404, description: 'Organization not found' })
+  @RequirePermission(Resource.Organization, Action.Delete)
   async getDeletePreview(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: CurrentUserData,
@@ -120,6 +117,7 @@ export class OrganizationsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN only' })
   @ApiResponse({ status: 404, description: 'Organization not found' })
+  @RequirePermission(Resource.Organization, Action.Delete)
   async delete(
     @Param('id', ParseUUIDPipe) id: string,
     @CurrentUser() user: CurrentUserData,

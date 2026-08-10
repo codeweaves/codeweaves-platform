@@ -1,11 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
 import { NotFoundException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { EmailTemplatesController } from '../../../src/controllers/email-templates/email-templates.controller';
 import { EmailTemplateService } from '../../../src/services/email-template.service';
 import { TracerService } from '../../../src/common/tracer/tracer.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import {
   emailTemplateKeyParamsSchema,
   updateEmailTemplateSchema,
@@ -28,6 +28,10 @@ describe('EmailTemplatesController', () => {
     email: 'super@test.com',
     id: 'super-user-id',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -41,7 +45,7 @@ describe('EmailTemplatesController', () => {
         Reflector,
       ],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .compile();
 
@@ -54,10 +58,17 @@ describe('EmailTemplatesController', () => {
   });
 
   // Email copy goes to every customer — this must never widen past the founders.
-  it('is restricted to SUPER_ADMIN at the class level', () => {
-    const roles = Reflect.getMetadata('roles', EmailTemplatesController);
-    expect(roles).toEqual([Role.SUPER_ADMIN]);
-  });
+  it('declares a permission on every route', () => {
+      // Authorization moved from a class-level @Roles to a per-route
+      // @RequirePermission, so the check is that no route was left undeclared.
+      for (const method of ['list', 'get', 'update']) {
+        const permission = Reflect.getMetadata(
+          'permission',
+          (EmailTemplatesController.prototype as unknown as Record<string, unknown>)[method] as object,
+        );
+        expect(permission).toBeDefined();
+      }
+    });
 
   // Rows are seeded by migration; exposing create/delete would let the row set
   // drift from the keys the code actually sends.

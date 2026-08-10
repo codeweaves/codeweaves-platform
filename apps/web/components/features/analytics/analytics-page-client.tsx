@@ -3,6 +3,7 @@
 import { useState, useCallback, useEffect, useRef } from 'react';
 import { useSearchParams, useRouter } from 'next/navigation';
 import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { usePageHeader } from '@/components/layout/page-header';
 import { useTabVisible } from '@/hooks/use-tab-visible';
 import { useAgents, type Agent } from '@/hooks/use-agents';
@@ -73,9 +74,10 @@ export function AnalyticsPageClient() {
 
   const searchParams = useSearchParams();
   const { profile, isLoading: profileLoading } = useProfile();
+  const { isPlatform } = usePermissions();
 
   const { setTitle } = usePageHeader();
-  const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  const isAdmin = isPlatform;
 
   useEffect(() => {
     setTitle('Analytics');

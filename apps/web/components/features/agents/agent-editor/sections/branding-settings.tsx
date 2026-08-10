@@ -4,17 +4,16 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { useAgentEditor } from '../agent-editor-context';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { FormSection } from '../form-section';
 import { ColorPicker } from '../color-picker';
 import { ImageUpload } from '../image-upload';
 
 export function BrandingSettings() {
-  const { profile } = useProfile();
+  const { can } = usePermissions();
   const { agent, themeData, updateThemeData } = useAgentEditor();
 
-  const isAdmin =
-    profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  const isAdmin = can('AgentTheme:UpdateBranding');
 
   if (!isAdmin) return null;
 

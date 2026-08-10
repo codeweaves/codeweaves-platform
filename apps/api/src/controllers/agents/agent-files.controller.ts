@@ -4,7 +4,6 @@ import {
   Delete,
   Param,
   ParseUUIDPipe,
-  UseGuards,
   UseInterceptors,
   UploadedFile,
   Body,
@@ -12,21 +11,19 @@ import {
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiConsumes } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { FilesService, MAX_FILE_SIZE } from '../../services/files.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 @ApiTags('Agent Files')
 @ApiBearerAuth()
 @Controller('agents/:id/files')
-@UseGuards(RolesGuard)
 export class AgentFilesController {
   constructor(private readonly filesService: FilesService) {}
 
   @Post('upload')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.File, Action.Create)
   @UseInterceptors(
     // Cap the upload at the handler boundary so multer stops buffering once the
     // limit is hit, instead of reading an unbounded multipart body into memory
@@ -59,7 +56,7 @@ export class AgentFilesController {
   }
 
   @Delete(':fileId')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.File, Action.Delete)
   @ApiOperation({ summary: 'Delete an agent file' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiParam({ name: 'fileId', description: 'File UUID' })

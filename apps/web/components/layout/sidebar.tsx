@@ -14,9 +14,10 @@ import {
   Database,
   Users,
   Wrench,
+  UserCog,
   ChevronRight,
 } from 'lucide-react';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useInboxCount } from '@/hooks/use-handover';
 import {
   Sidebar,
@@ -34,20 +35,28 @@ interface NavItem {
   name: string;
   href: string;
   icon: LucideIcon;
-  roles: 'all' | string[];
+  /**
+   * Permission that unlocks this entry, or 'all' for anyone signed in.
+   *
+   * Gates on a permission rather than a role list so the nav follows the API
+   * automatically: change what a role grants and this needs no edit. Hiding an
+   * entry is UX only, since every page behind it is enforced server-side.
+   */
+  requires: 'all' | string;
 }
 
 const navigation: NavItem[] = [
-  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, roles: 'all' },
-  { name: 'Organizations', href: '/dashboard/organizations', icon: Building2, roles: ['SUPER_ADMIN', 'ADMIN'] },
-  { name: 'Agents', href: '/dashboard/agents', icon: Bot, roles: 'all' },
-  { name: 'Conversations', href: '/dashboard/conversations', icon: MessageSquare, roles: 'all' },
-  { name: 'Inbox', href: '/dashboard/inbox', icon: Inbox, roles: 'all' },
-  { name: 'Collected Data', href: '/dashboard/collected-data', icon: Database, roles: 'all' },
-  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, roles: 'all' },
-  { name: 'Team', href: '/dashboard/team', icon: Users, roles: ['SUPER_ADMIN', 'ADMIN'] },
+  { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, requires: 'all' },
+  { name: 'Organizations', href: '/dashboard/organizations', icon: Building2, requires: 'Organization:ReadAll' },
+  { name: 'Agents', href: '/dashboard/agents', icon: Bot, requires: 'Agent:Read' },
+  { name: 'Conversations', href: '/dashboard/conversations', icon: MessageSquare, requires: 'ChatSession:Read' },
+  { name: 'Inbox', href: '/dashboard/inbox', icon: Inbox, requires: 'Handover:Read' },
+  { name: 'Collected Data', href: '/dashboard/collected-data', icon: Database, requires: 'CollectedData:Read' },
+  { name: 'Analytics', href: '/dashboard/analytics', icon: BarChart3, requires: 'Analytics:Read' },
+  { name: 'Team', href: '/dashboard/team', icon: Users, requires: 'Member:Read' },
+  { name: 'Users', href: '/dashboard/users', icon: UserCog, requires: 'User:ReadAll' },
   // Platform-owner tooling (email template copy, etc.) — not customer-facing.
-  { name: 'Utilities', href: '/dashboard/utilities/email', icon: Wrench, roles: ['SUPER_ADMIN'] },
+  { name: 'Utilities', href: '/dashboard/utilities/email', icon: Wrench, requires: 'EmailTemplate:Read' },
 ];
 
 /**
@@ -76,16 +85,13 @@ function InboxNavBadge() {
 
 export function AppSidebar() {
   const pathname = usePathname();
-  const { profile } = useProfile();
-  const userRole = profile?.role;
+  const { can } = usePermissions();
 
   // Inbox is always present; if no bot has takeover on, the page itself shows
   // an empty state. (Conditionally hiding the nav left it stale until reload.)
-  const visibleNavigation = navigation.filter((item) => {
-    if (item.roles === 'all') return true;
-    if (!userRole) return false;
-    return item.roles.includes(userRole);
-  });
+  const visibleNavigation = navigation.filter(
+    (item) => item.requires === 'all' || can(item.requires),
+  );
 
   return (
     <Sidebar

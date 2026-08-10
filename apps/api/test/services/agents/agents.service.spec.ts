@@ -2,12 +2,13 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException, BadRequestException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { AgentsService } from '../../../src/services/agents.service';
+import { PermissionCatalogService } from '../../../src/common/rbac/permission-catalog.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentLoggerService } from '../../../src/common/logger/agent.logger';
 import { CryptoService } from '../../../src/common/crypto/crypto.service';
 import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
 import { WidgetCorsCacheService } from '../../../src/common/cache/widget-cors-cache.service';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma, Role, AccessScope } from '@prisma/client';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 import * as publicIdUtils from '../../../src/utils/public-id';
 
@@ -99,6 +100,10 @@ describe('AgentsService', () => {
     email: 'admin@test.com',
     id: 'admin-user-id',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -108,6 +113,10 @@ describe('AgentsService', () => {
     email: 'super@test.com',
     id: 'super-user-id',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
     organizationId: null,
     organization: null,
   };
@@ -117,6 +126,10 @@ describe('AgentsService', () => {
     email: 'client@test.com',
     id: 'client-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -126,6 +139,10 @@ describe('AgentsService', () => {
     email: 'client2@test.com',
     id: 'client2-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: otherOrgId,
     organization: { id: otherOrgId, name: 'Other Org', slug: 'other-org' },
   };
@@ -140,10 +157,29 @@ describe('AgentsService', () => {
     { code: 'P2025', clientVersion: '5.0.0' },
   );
 
+  /**
+   * Sections the caller may write. The agent editor's slices are separately
+   * grantable but share one row, so `update()` checks these per field.
+   */
+  const ALL_SECTIONS = [
+    'Agent:Update',
+    'Agent:UpdatePrompt',
+    'Agent:UpdateHandover',
+    'Agent:UpdateIntegration',
+  ];
+  let grantedPermissions = new Set<string>(ALL_SECTIONS);
+
   beforeEach(async () => {
+    grantedPermissions = new Set<string>(ALL_SECTIONS);
+
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentsService,
+        {
+          provide: PermissionCatalogService,
+          // Reads the mutable set below so a test can revoke one section.
+          useValue: { resolvePermissions: () => grantedPermissions },
+        },
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: AgentLoggerService, useValue: mockAgentLogger },
         { provide: CryptoService, useValue: mockCryptoService },
@@ -380,6 +416,74 @@ describe('AgentsService', () => {
       mockPrismaService.agent.findFirst.mockResolvedValue(null);
 
       await expect(service.findById(agentId, clientOtherOrg)).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  /**
+   * The agent editor's sections are separately grantable roles, but they all write
+   * the SAME agents row through one PATCH. So `Agent:Update` alone must not let a
+   * caller rewrite the system prompt or switch off human handover — those slices
+   * are checked field-by-field against their own permission.
+   *
+   * A field absent from the DTO is untouched and needs no permission, which is
+   * what lets the editor keep a single Save button: it only sends what changed.
+   */
+  describe('section-level write permissions', () => {
+    beforeEach(() => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agent.update.mockResolvedValue(mockAgent);
+    });
+
+    it('allows editing the everyday config with only Agent:Update', async () => {
+      grantedPermissions = new Set(['Agent:Update']);
+      await expect(
+        service.update(agentId, { name: 'Renamed' }, adminUser),
+      ).resolves.toBeDefined();
+    });
+
+    it('denies the system prompt without Agent:UpdatePrompt', async () => {
+      grantedPermissions = new Set(['Agent:Update']);
+      await expect(
+        service.update(agentId, { systemPrompt: 'You are evil' }, adminUser),
+      ).rejects.toThrow(/the system prompt/);
+      expect(mockPrismaService.agent.update).not.toHaveBeenCalled();
+    });
+
+    it('denies handover settings without Agent:UpdateHandover', async () => {
+      grantedPermissions = new Set(['Agent:Update']);
+      await expect(
+        service.update(agentId, { humanTakeoverEnabled: false }, adminUser),
+      ).rejects.toThrow(/human-handover settings/);
+    });
+
+    it('denies routing config without Agent:UpdateIntegration', async () => {
+      grantedPermissions = new Set(['Agent:Update']);
+      await expect(
+        service.update(agentId, { aiConfig: { mode: 'direct' } } as never, adminUser),
+      ).rejects.toThrow(/routing configuration/);
+    });
+
+    it('allows each section once its permission is held', async () => {
+      grantedPermissions = new Set(['Agent:Update', 'Agent:UpdatePrompt']);
+      await expect(
+        service.update(agentId, { systemPrompt: 'Be helpful' }, adminUser),
+      ).resolves.toBeDefined();
+    });
+
+    /** The property that keeps one Save button working for partial roles. */
+    it('ignores a gated field that is absent from the request', async () => {
+      grantedPermissions = new Set(['Agent:Update']);
+      await expect(
+        service.update(agentId, { name: 'Renamed' }, adminUser),
+      ).resolves.toBeDefined();
+    });
+
+    /** An explicit null is a change, not an omission. */
+    it('treats an explicit null on a gated field as a write', async () => {
+      grantedPermissions = new Set(['Agent:Update']);
+      await expect(
+        service.update(agentId, { systemPrompt: null }, adminUser),
+      ).rejects.toThrow(/the system prompt/);
     });
   });
 

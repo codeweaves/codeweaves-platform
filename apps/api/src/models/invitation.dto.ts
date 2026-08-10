@@ -2,25 +2,52 @@ import { z } from 'zod';
 import { InvitationStatus, Role } from '@prisma/client';
 import { paginationSchema } from '@repo/validation';
 
+/**
+ * Invitations carry the role set the account starts with, chosen when the invite
+ * is sent. Without this every invited client was provisioned as `org.owner`,
+ * because signup could only map the legacy three-value `role` enum — so
+ * "inbox agent only" was impossible to invite and had to be a demotion after
+ * the fact.
+ *
+ * `role` stays as the legacy tier for pending pre-RBAC invitations. Whether the
+ * invite is org- or platform-scoped is derived from the chosen roles in the
+ * service, so it needs no field of its own.
+ */
 export const createInvitationSchema = z
   .object({
     email: z.string().email(),
-    role: z.nativeEnum(Role),
+    role: z.nativeEnum(Role).optional(),
+    roleKeys: z
+      .array(z.string().min(1).max(60))
+      .min(1, 'Select at least one role')
+      .max(20)
+      .transform((keys) => [...new Set(keys)]),
     organizationId: z.string().uuid().optional(),
   })
   .refine(
-    (data) => {
-      if (data.role === Role.CLIENT) return !!data.organizationId;
-      return true;
+    (data) => data.roleKeys.every((k) => k.startsWith('org.')) || !data.organizationId,
+    {
+      message: 'Organization must not be provided when inviting to a platform role',
+      path: ['organizationId'],
     },
-    { message: 'Organization is required for client role', path: ['organizationId'] },
   )
   .refine(
-    (data) => {
-      if (data.role === Role.ADMIN || data.role === Role.SUPER_ADMIN) return !data.organizationId;
-      return true;
+    (data) => !data.roleKeys.every((k) => k.startsWith('org.')) || !!data.organizationId,
+    {
+      message: 'Organization is required when inviting to an organization role',
+      path: ['organizationId'],
     },
-    { message: 'Organization must not be provided for admin or super admin role', path: ['organizationId'] },
+  )
+  .refine(
+    // Mixing scopes would leave the account impossible to scope coherently: an
+    // ORG user cannot hold a platform role, and the assignment trigger rejects it.
+    (data) =>
+      data.roleKeys.every((k) => k.startsWith('org.')) ||
+      data.roleKeys.every((k) => !k.startsWith('org.')),
+    {
+      message: 'An invitation cannot mix organization and platform roles',
+      path: ['roleKeys'],
+    },
   );
 
 export type CreateInvitationDto = z.infer<typeof createInvitationSchema>;

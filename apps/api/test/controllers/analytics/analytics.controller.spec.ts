@@ -3,7 +3,7 @@ import { BadRequestException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AnalyticsController } from '../../../src/controllers/analytics/analytics.controller';
 import { AnalyticsService } from '../../../src/services/analytics.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import { ZodValidationPipe } from '../../../src/pipes/zod-validation.pipe';
 import {
   analyticsQuerySchema,
@@ -11,7 +11,7 @@ import {
   exportLogBodySchema,
 } from '../../../src/models/analytics.dto';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 
 describe('AnalyticsController', () => {
   let controller: AnalyticsController;
@@ -39,6 +39,10 @@ describe('AnalyticsController', () => {
     email: 'admin@test.com',
     id: 'admin-user-id',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -48,6 +52,10 @@ describe('AnalyticsController', () => {
     email: 'superadmin@test.com',
     id: 'superadmin-user-id',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
     organizationId: null,
     organization: null,
   };
@@ -60,7 +68,7 @@ describe('AnalyticsController', () => {
         Reflector,
       ],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .compile();
 
@@ -77,9 +85,16 @@ describe('AnalyticsController', () => {
   // ==========================================
 
   describe('role authorization', () => {
-    it('should have ADMIN, SUPER_ADMIN, CLIENT roles on controller class', () => {
-      const roles = Reflect.getMetadata('roles', AnalyticsController);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN', 'CLIENT']);
+    it('declares a permission on every route', () => {
+      // Authorization moved from a class-level @Roles to a per-route
+      // @RequirePermission, so the check is that no route was left undeclared.
+      for (const method of ['getSummary', 'getConversationsChart', 'getResponseTimeDistribution', 'getMessageVolumeHeatmap', 'getConversationsByWeekday', 'getAgentMetrics', 'getConversationCategories', 'getConversationLanguages', 'getConversationChannels', 'getVoiceSummary', 'getLanguageDistribution', 'getVoiceLatencyByProvider', 'getHandoverMetrics', 'getLeadsCaptured', 'logExport']) {
+        const permission = Reflect.getMetadata(
+          'permission',
+          (AnalyticsController.prototype as unknown as Record<string, unknown>)[method] as object,
+        );
+        expect(permission).toBeDefined();
+      }
     });
   });
 
@@ -328,6 +343,10 @@ describe('AnalyticsController', () => {
         email: 'client@test.com',
         id: 'client-user-id',
         role: Role.CLIENT,
+
+        accessScope: AccessScope.ORG,
+
+        roleKeys: ['org.owner'],
         organizationId: orgId,
         organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
       };

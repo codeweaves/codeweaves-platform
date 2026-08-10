@@ -29,7 +29,7 @@ import {
   AlertDialogAction,
 } from '@/components/ui/alert-dialog';
 import { apiUrl } from '@/config/api';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import {
   useWhatsappChannel,
   useConnectWhatsappChannel,
@@ -67,11 +67,10 @@ const EMPTY_FIELDS: ConnectFields = {
 };
 
 export function WhatsappSettings() {
-  const { profile } = useProfile();
+  const { can } = usePermissions();
   const { agent } = useAgentEditor();
 
-  const isAdmin =
-    profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  const isAdmin = can('WhatsappChannel:Read');
 
   const channelQuery = useWhatsappChannel(agent.id);
   const connect = useConnectWhatsappChannel(agent.id);

@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { NotificationsController } from '../../../src/controllers/notifications/notifications.controller';
 import { NotificationService } from '../../../src/services/notification.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import { notificationListQuerySchema } from '../../../src/models/notification.dto';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
@@ -24,6 +24,10 @@ describe('NotificationsController', () => {
     email: 'client@test.com',
     id: 'client-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -33,7 +37,7 @@ describe('NotificationsController', () => {
       controllers: [NotificationsController],
       providers: [{ provide: NotificationService, useValue: mockService }, Reflector],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

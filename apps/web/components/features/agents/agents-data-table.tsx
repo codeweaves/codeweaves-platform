@@ -30,7 +30,7 @@ import {
   AlertDialogTitle,
 } from '@/components/ui/alert-dialog';
 import { useAgents, useDeleteAgent, type Agent } from '@/hooks/use-agents';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useOrganizations } from '@/hooks/use-organizations';
 import { formatDate } from '@/lib/utils';
 import { EmbedCodeDialog } from './embed-code-dialog';
@@ -48,8 +48,8 @@ interface AgentsDataTableProps {
 
 export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
   const router = useRouter();
-  const { profile } = useProfile();
-  const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  const { can } = usePermissions();
+  const isAdmin = can('Agent:Delete');
 
   const [fetchParams, setFetchParams] = useState<DataTableFetchParams>({
     page: 0,

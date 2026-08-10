@@ -1,10 +1,11 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, NotFoundException, UnauthorizedException } from '@nestjs/common';
 import { UsersService } from '../../../src/services/users.service';
+import { PermissionCatalogService } from '../../../src/common/rbac/permission-catalog.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { UserLoggerService } from '../../../src/common/logger/user.logger';
 import { ClerkManagementService } from '../../../src/services/clerk-management.service';
-import { Role, InvitationStatus, Prisma } from '@prisma/client';
+import { Role, InvitationStatus, Prisma, AccessScope } from '@prisma/client';
 
 describe('UsersService', () => {
   let service: UsersService;
@@ -39,6 +40,8 @@ describe('UsersService', () => {
     email: 'test@example.com',
     name: 'Test User',
     role: Role.CLIENT,
+    accessScope: AccessScope.ORG,
+    roleAssignments: [{ roleKey: 'org.owner' }],
     clerkId: 'user_123456',
     organizationId: mockOrganization.id,
     organization: mockOrganization,
@@ -51,6 +54,8 @@ describe('UsersService', () => {
     email: 'admin@codeweaves.com',
     name: 'Super Admin',
     role: Role.SUPER_ADMIN,
+    accessScope: AccessScope.PLATFORM,
+    roleAssignments: [{ roleKey: 'platform.super_admin' }],
     clerkId: 'user_superadmin',
     organizationId: null,
     organization: null,
@@ -63,6 +68,10 @@ describe('UsersService', () => {
       organization: {
         select: { id: true, name: true, slug: true },
       },
+      roleAssignments: {
+        where: { deletedAt: null },
+        select: { roleKey: true },
+      },
     },
   };
 
@@ -70,6 +79,10 @@ describe('UsersService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
+        {
+          provide: PermissionCatalogService,
+          useValue: { resolvePermissions: () => new Set<string>() },
+        },
         {
           provide: PrismaService,
           useValue: mockPrismaService,
@@ -315,6 +328,9 @@ describe('UsersService', () => {
         email: mockUser.email,
         name: mockUser.name,
         role: mockUser.role,
+        accessScope: mockUser.accessScope,
+        roleKeys: mockUser.roleAssignments.map((a) => a.roleKey),
+        permissions: [],
         organization: mockOrganization,
         createdAt: mockUser.createdAt,
         updatedAt: mockUser.updatedAt,
@@ -355,6 +371,9 @@ describe('UsersService', () => {
         email: mockSuperAdmin.email,
         name: mockSuperAdmin.name,
         role: mockSuperAdmin.role,
+        accessScope: mockSuperAdmin.accessScope,
+        roleKeys: mockSuperAdmin.roleAssignments.map((a) => a.roleKey),
+        permissions: [],
         organization: null,
         createdAt: mockSuperAdmin.createdAt,
         updatedAt: mockSuperAdmin.updatedAt,
@@ -389,6 +408,9 @@ describe('UsersService', () => {
         email: mockUser.email,
         name: 'Updated Name',
         role: mockUser.role,
+        accessScope: mockUser.accessScope,
+        roleKeys: mockUser.roleAssignments.map((a) => a.roleKey),
+        permissions: [],
         organization: mockOrganization,
         createdAt: mockUser.createdAt,
         updatedAt: new Date('2026-01-02'),
@@ -558,7 +580,12 @@ describe('UsersService', () => {
       expect(result).toEqual(mockUser);
       expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
         where: { clerkId: 'user_123456' },
-        include: { organization: true },
+        // Role assignments ride along on this query so authorization costs no
+        // extra round trip per request.
+        include: {
+          organization: true,
+          roleAssignments: { where: { deletedAt: null }, select: { roleKey: true } },
+        },
       });
       expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
     });
@@ -814,6 +841,86 @@ describe('UsersService', () => {
       ).toBe(Role.ADMIN);
     });
 
+    /**
+     * Invitations now carry the exact role set the account starts with, so
+     * "inbox agent only" is invitable rather than a demotion after the fact.
+     * The legacy fallback is what lets that ship without a data migration.
+     */
+    describe('starting roles', () => {
+      type CreateArgs = { data: { accessScope: string; roleAssignments: { create: { roleKey: string }[] } } };
+
+      async function provisionFrom(invitation: Record<string, unknown>) {
+        let captured: unknown;
+        mockPrismaService.user.findUnique.mockResolvedValue(null);
+        mockPrismaService.userInvitation.findFirst.mockResolvedValue(invitation);
+        mockPrismaService.$transaction.mockImplementation(
+          async (fn: (tx: unknown) => Promise<unknown>) =>
+            fn({
+              user: {
+                create: jest.fn().mockImplementation((args) => {
+                  captured = args;
+                  return mockUser;
+                }),
+              },
+              userInvitation: { update: jest.fn().mockResolvedValue(invitation) },
+            }),
+        );
+
+        await service.syncOrCreateUser({
+          clerkId: 'user_new',
+          email: (invitation.email as string) ?? 'new@example.com',
+        });
+        return captured as CreateArgs;
+      }
+
+      it('provisions exactly the roles the invitation carries', async () => {
+        const args = await provisionFrom({
+          ...mockInvitation,
+          role: Role.CLIENT,
+          roleKeys: ['org.inbox_agent'],
+        });
+
+        expect(args.data.accessScope).toBe(AccessScope.ORG);
+        expect(args.data.roleAssignments.create.map((a) => a.roleKey)).toEqual([
+          'org.inbox_agent',
+        ]);
+      });
+
+      it('scopes a platform-role invitation to PLATFORM', async () => {
+        const args = await provisionFrom({
+          ...mockInvitation,
+          organizationId: null,
+          roleKeys: ['platform.support'],
+        });
+
+        expect(args.data.accessScope).toBe(AccessScope.PLATFORM);
+      });
+
+      /** Pending invitations created before roleKeys existed must still work. */
+      it('falls back to the legacy mapping when roleKeys is empty', async () => {
+        const args = await provisionFrom({
+          ...mockInvitation,
+          role: Role.CLIENT,
+          roleKeys: [],
+        });
+
+        expect(args.data.accessScope).toBe(AccessScope.ORG);
+        expect(args.data.roleAssignments.create.map((a) => a.roleKey)).toEqual([
+          'org.owner',
+        ]);
+      });
+
+      it('tolerates a row read without the roleKeys column', async () => {
+        const withoutColumn: Record<string, unknown> = { ...mockInvitation };
+        delete withoutColumn.roleKeys;
+        const args = await provisionFrom({ ...withoutColumn, role: Role.CLIENT });
+
+        expect(args.data.roleAssignments.create.map((a) => a.roleKey)).toEqual([
+          'org.owner',
+        ]);
+      });
+    });
+
     it('should block invitation acceptance when the email is not verified', async () => {
       mockPrismaService.user.findUnique.mockResolvedValue(null);
       mockPrismaService.userInvitation.findFirst.mockResolvedValue({
@@ -899,7 +1006,7 @@ describe('UsersService', () => {
       const users = [mockUser];
       mockPrismaService.user.findMany.mockResolvedValue(users);
 
-      const clientUser = { role: Role.CLIENT, organizationId: mockOrganization.id };
+      const clientUser = { accessScope: AccessScope.ORG, organizationId: mockOrganization.id };
       const result = await service.findAllForTenant(clientUser);
 
       expect(result).toEqual(users);
@@ -913,7 +1020,7 @@ describe('UsersService', () => {
       const allUsers = [mockUser, mockSuperAdmin];
       mockPrismaService.user.findMany.mockResolvedValue(allUsers);
 
-      const superAdmin = { role: Role.SUPER_ADMIN, organizationId: null };
+      const superAdmin = { accessScope: AccessScope.PLATFORM, organizationId: null };
       const result = await service.findAllForTenant(superAdmin);
 
       expect(result).toEqual(allUsers);
@@ -927,7 +1034,7 @@ describe('UsersService', () => {
       const allUsers = [mockUser];
       mockPrismaService.user.findMany.mockResolvedValue(allUsers);
 
-      const admin = { role: Role.ADMIN, organizationId: 'org-uuid' };
+      const admin = { accessScope: AccessScope.PLATFORM, organizationId: 'org-uuid' };
       const result = await service.findAllForTenant(admin);
 
       expect(result).toEqual(allUsers);
@@ -937,8 +1044,8 @@ describe('UsersService', () => {
       });
     });
 
-    it('should throw ForbiddenException for CLIENT without organizationId', async () => {
-      const clientUser = { role: Role.CLIENT, organizationId: null };
+    it('should throw ForbiddenException for an ORG-scoped user without organizationId', async () => {
+      const clientUser = { accessScope: AccessScope.ORG, organizationId: null };
 
       await expect(service.findAllForTenant(clientUser)).rejects.toThrow(
         ForbiddenException,

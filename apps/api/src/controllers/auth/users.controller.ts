@@ -1,6 +1,7 @@
 import { Controller, Get, Patch, Body } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse } from '@nestjs/swagger';
 import { UsersService } from '../../services/users.service';
+import { SelfOnly } from '../../decorators/self-only.decorator';
 import {
   CurrentUser,
   CurrentUserData,
@@ -11,6 +12,10 @@ import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 
 @ApiTags('Users')
 @ApiBearerAuth()
+// Both routes resolve solely from `user.id` and take no target identifier, so
+// they need no permission. @SelfOnly declares that deliberately, which is what
+// the boot-time route assertion checks for.
+@SelfOnly()
 @Controller('auth/users')
 export class UsersController {
   constructor(private readonly usersService: UsersService) {}

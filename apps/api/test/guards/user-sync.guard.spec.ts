@@ -3,7 +3,7 @@ import { ExecutionContext } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { UserSyncGuard } from '../../src/guards/user-sync.guard';
 import { UsersService } from '../../src/services/users.service';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 
 describe('UserSyncGuard', () => {
   let guard: UserSyncGuard;
@@ -21,6 +21,8 @@ describe('UserSyncGuard', () => {
     email: 'test@example.com',
     name: null,
     role: Role.CLIENT,
+    accessScope: AccessScope.ORG,
+    roleAssignments: ['org.owner'].map((roleKey) => ({ roleKey })),
     clerkId: 'user_123456',
     organizationId: mockOrganization.id,
     organization: mockOrganization,
@@ -137,6 +139,8 @@ describe('UserSyncGuard', () => {
         ...jwtUser,
         id: mockSyncedUser.id,
         role: mockSyncedUser.role,
+        accessScope: mockSyncedUser.accessScope,
+        roleKeys: mockSyncedUser.roleAssignments.map((a) => a.roleKey),
         organizationId: mockSyncedUser.organizationId,
         organization: mockSyncedUser.organization,
       });
@@ -152,6 +156,8 @@ describe('UserSyncGuard', () => {
         email: 'admin@codeweaves.com',
         name: 'Super Admin',
         role: Role.SUPER_ADMIN,
+        accessScope: AccessScope.PLATFORM,
+        roleAssignments: ['platform.super_admin'].map((roleKey) => ({ roleKey })),
         clerkId: 'user_superadmin',
         organizationId: null,
         organization: null,
@@ -167,6 +173,8 @@ describe('UserSyncGuard', () => {
         ...jwtUser,
         id: mockSuperAdminUser.id,
         role: mockSuperAdminUser.role,
+        accessScope: mockSuperAdminUser.accessScope,
+        roleKeys: mockSuperAdminUser.roleAssignments.map((a) => a.roleKey),
         organizationId: null,
         organization: null,
       });
@@ -211,6 +219,8 @@ describe('UserSyncGuard', () => {
       expect(req2.user).toMatchObject({
         id: mockSyncedUser.id,
         role: mockSyncedUser.role,
+        accessScope: mockSyncedUser.accessScope,
+        roleKeys: mockSyncedUser.roleAssignments.map((a) => a.roleKey),
         organizationId: mockSyncedUser.organizationId,
       });
     });

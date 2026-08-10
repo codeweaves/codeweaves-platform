@@ -8,20 +8,18 @@ import {
   ParseUUIDPipe,
   Put,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { updateDataFieldsSchema, type UpdateDataFieldsDto } from '@repo/validation';
 
 import {
   CurrentUser,
   type CurrentUserData,
 } from '../../decorators/current-user.decorator';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { AgentDataFieldsService } from '../../services/agent-data-fields.service';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 /**
  * Per-agent "data capture" configuration: the list of fields a bot should
@@ -33,13 +31,12 @@ import { AgentDataFieldsService } from '../../services/agent-data-fields.service
  * PII (emails/phones), so this stays platform-staff-only.
  */
 @ApiTags('Agents')
-@UseGuards(RolesGuard)
 @Controller('agents/:agentId/data-fields')
 export class AgentDataFieldsController {
   constructor(private readonly dataFieldsService: AgentDataFieldsService) {}
 
   @Get()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermission(Resource.AgentDataField, Action.Read)
   @ApiOperation({ summary: "List the agent's data-capture field definitions." })
   @ApiParam({ name: 'agentId', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Ordered list of field definitions.' })
@@ -52,7 +49,7 @@ export class AgentDataFieldsController {
   }
 
   @Put()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermission(Resource.AgentDataField, Action.Update)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -76,7 +73,7 @@ export class AgentDataFieldsController {
   @Get('collected')
   // Clients CAN read the captured data for their OWN agents (org-scoped in the
   // service). Defining the fields stays admin-only — this read does not.
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.CollectedData, Action.Read)
   @ApiOperation({
     summary:
       'Paginated captured-data view for the agent: dynamic columns + rows.',

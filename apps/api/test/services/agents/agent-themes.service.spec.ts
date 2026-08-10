@@ -1,9 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { AgentThemesService } from '../../../src/services/agent-themes.service';
+import { PermissionCatalogService } from '../../../src/common/rbac/permission-catalog.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentLoggerService } from '../../../src/common/logger/agent.logger';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 import { defaultWidgetTheme, widgetThemeSchema } from '../../../src/models/agent-theme.dto';
 import { ZodValidationPipe } from '../../../src/pipes/zod-validation.pipe';
@@ -43,6 +44,10 @@ describe('AgentThemesService', () => {
     email: 'admin@test.com',
     id: 'admin-user-id',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -52,6 +57,10 @@ describe('AgentThemesService', () => {
     email: 'superadmin@test.com',
     id: 'super-admin-user-id',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
     organizationId: null,
     organization: null,
   };
@@ -61,6 +70,10 @@ describe('AgentThemesService', () => {
     email: 'client@test.com',
     id: 'client-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -70,6 +83,10 @@ describe('AgentThemesService', () => {
     email: 'other@test.com',
     id: 'other-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: otherOrgId,
     organization: { id: otherOrgId, name: 'Other Org', slug: 'other-org' },
   };
@@ -79,7 +96,13 @@ describe('AgentThemesService', () => {
     header: { ...defaultWidgetTheme.header, title: 'Custom Title' },
   };
 
+  /** Permissions the caller holds. Reset each test; narrowed where relevant. */
+  const ALL_SECTIONS = ['AgentTheme:Update', 'AgentTheme:UpdateBranding'];
+  let granted = new Set<string>(ALL_SECTIONS);
+
   beforeEach(async () => {
+    granted = new Set<string>(ALL_SECTIONS);
+
     // Default: $transaction executes the callback with the mock prisma service itself
     mockPrismaService.$transaction.mockImplementation(
       (cb: (tx: typeof mockPrismaService) => Promise<unknown>) => cb(mockPrismaService),
@@ -88,6 +111,12 @@ describe('AgentThemesService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         AgentThemesService,
+        {
+          provide: PermissionCatalogService,
+          // Reads the mutable set below, so a test can revoke branding to
+          // exercise the withheld path.
+          useValue: { resolvePermissions: () => granted },
+        },
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: AgentLoggerService, useValue: mockAgentLogger },
       ],
@@ -311,6 +340,87 @@ describe('AgentThemesService', () => {
             }),
           );
         });
+    });
+  });
+
+  /**
+   * Branding is the "Powered by Klivo" footer. It shares the theme's single JSONB
+   * column with appearance and chat interface, so no permission can separate
+   * them — one endpoint writes the whole value. This is the field-level rule
+   * that stands in for that, and the reason it must be tested at the service
+   * rather than trusted to the editor hiding the section.
+   */
+  describe('branding is withheld without AgentTheme:UpdateBranding', () => {
+    // The permission is what decides now, not the access scope.
+    beforeEach(() => {
+      granted.delete('AgentTheme:UpdateBranding');
+    });
+
+    const storedBranding = { enabled: true, text: 'Powered by Klivo', logoUrl: null };
+
+    it('keeps the stored branding when the caller lacks the permission', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: { ...customTheme, branding: storedBranding },
+      });
+      mockPrismaService.agentTheme.upsert.mockResolvedValue({
+        agentId,
+        config: customTheme,
+        version: 2,
+      });
+
+      await service.updateTheme(
+        agentId,
+        { ...customTheme, branding: { enabled: false, text: 'Removed', logoUrl: null } } as never,
+        clientUser,
+      );
+
+      const written = mockPrismaService.agentTheme.upsert.mock.calls[0][0];
+      expect(written.update.config.branding).toEqual(storedBranding);
+      expect(written.create.config.branding).toEqual(storedBranding);
+    });
+
+    it('lets a holder of the permission change branding', async () => {
+      granted.add('AgentTheme:UpdateBranding');
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agentTheme.upsert.mockResolvedValue({
+        agentId,
+        config: customTheme,
+        version: 2,
+      });
+
+      const newBranding = { enabled: false, text: 'White label', logoUrl: null };
+      await service.updateTheme(
+        agentId,
+        { ...customTheme, branding: newBranding } as never,
+        adminUser,
+      );
+
+      const written = mockPrismaService.agentTheme.upsert.mock.calls[0][0];
+      expect(written.update.config.branding).toEqual(newBranding);
+      // No read-back is needed for a platform caller.
+      expect(mockPrismaService.agentTheme.findUnique).not.toHaveBeenCalled();
+    });
+
+    it('ignores a branding patch from a caller without the permission', async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: { ...customTheme, branding: storedBranding },
+      });
+      mockPrismaService.agentTheme.upsert.mockResolvedValue({
+        agentId,
+        config: customTheme,
+        version: 2,
+      });
+
+      await service.patchTheme(
+        agentId,
+        { branding: { enabled: false } } as never,
+        clientUser,
+      );
+
+      const written = mockPrismaService.agentTheme.upsert.mock.calls[0][0];
+      expect(written.update.config.branding).toEqual(storedBranding);
     });
   });
 

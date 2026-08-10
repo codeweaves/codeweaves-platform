@@ -4,13 +4,9 @@ import {
   Post,
   Body,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { AnalyticsService } from '../../services/analytics.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import {
@@ -23,12 +19,12 @@ import type {
   AgentAnalyticsQuery,
   ExportLogBody,
 } from '../../models/analytics.dto';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 @ApiTags('Analytics')
 @ApiBearerAuth()
 @Controller('analytics')
-@UseGuards(RolesGuard)
-@Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
 export class AnalyticsController {
   constructor(private readonly analyticsService: AnalyticsService) {}
 
@@ -41,6 +37,7 @@ export class AnalyticsController {
   @ApiResponse({ status: 200, description: 'KPI summary data' })
   @ApiResponse({ status: 400, description: 'Invalid query parameters' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getSummary(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -55,6 +52,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Daily conversation chart data' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getConversationsChart(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -69,6 +67,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Response time distribution data' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getResponseTimeDistribution(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -83,6 +82,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Message volume heatmap data' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getMessageVolumeHeatmap(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -97,6 +97,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Conversations grouped by weekday (0=Sun..6=Sat)' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getConversationsByWeekday(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -115,6 +116,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'sortBy', required: false, type: String, description: 'Sort field' })
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'], description: 'Sort order' })
   @ApiResponse({ status: 200, description: 'Paginated per-agent metrics' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getAgentMetrics(
     @Query(new ZodValidationPipe(agentAnalyticsQuerySchema)) query: AgentAnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -133,6 +135,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Category distribution with uncategorized count' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getConversationCategories(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -147,6 +150,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Language distribution data' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getConversationLanguages(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -161,6 +165,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Channel/source distribution data' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getConversationChannels(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -179,6 +184,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Voice analytics summary' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getVoiceSummary(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -193,6 +199,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Language distribution data' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getLanguageDistribution(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -207,6 +214,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Voice latency per provider' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getVoiceLatencyByProvider(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -221,6 +229,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Handover metrics for the period' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getHandoverMetrics(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -235,6 +244,7 @@ export class AnalyticsController {
   @ApiQuery({ name: 'agentId', required: false, type: String, description: 'Filter by agent ID' })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'Filter by organization (ADMIN/SUPER_ADMIN only)' })
   @ApiResponse({ status: 200, description: 'Leads captured count + trend' })
+  @RequirePermission(Resource.Analytics, Action.Read)
   async getLeadsCaptured(
     @Query(new ZodValidationPipe(analyticsQuerySchema)) query: AnalyticsQuery,
     @CurrentUser() user: CurrentUserData,
@@ -246,6 +256,7 @@ export class AnalyticsController {
   @ApiOperation({ summary: 'Log an analytics data export action' })
   @ApiResponse({ status: 201, description: 'Export logged successfully' })
   @ApiResponse({ status: 400, description: 'Invalid request body' })
+  @RequirePermission(Resource.Analytics, Action.Export)
   async logExport(
     @Body(new ZodValidationPipe(exportLogBodySchema)) body: ExportLogBody,
     @CurrentUser() user: CurrentUserData,

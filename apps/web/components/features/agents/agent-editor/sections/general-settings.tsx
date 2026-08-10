@@ -4,13 +4,13 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useAgentEditor } from '../agent-editor-context';
 import { FormSection } from '../form-section';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export function GeneralSettings() {
   const { agent, formData, updateFormData } = useAgentEditor();
-  const { profile } = useProfile();
-  const isAdmin =
-    profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  const { can } = usePermissions();
+  // Guards the organization mapping, which only cross-org callers can change.
+  const isAdmin = can('Organization:ReadAll');
 
   return (
     <div className="space-y-6">

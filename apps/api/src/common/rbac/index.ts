@@ -1,5 +1,8 @@
 export { Resource, Action } from './rbac.types';
-export type { PermissionKey, PermissionEntry } from './rbac.types';
-export { PERMISSION_MATRIX, hasPermission, getPermissionsForRole } from './permissions';
+export type { PermissionKey } from './rbac.types';
 export { RbacModule } from './rbac.module';
-export { RbacService } from './rbac.service';
+export { PermissionCatalogService } from './permission-catalog.service';
+export type {
+  RoleDefinition,
+  PermissionDefinition,
+} from './permission-catalog.service';

@@ -1,9 +1,6 @@
-import { Controller, Get, Post, Param, Query, HttpCode, UseGuards } from '@nestjs/common';
+import { Controller, Get, Post, Param, Query, HttpCode } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiQuery } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { NotificationService } from '../../services/notification.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import {
@@ -14,6 +11,8 @@ import type {
   NotificationListQuery,
   NotificationIdParams,
 } from '../../models/notification.dto';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 /**
  * The notification bell.
@@ -25,8 +24,6 @@ import type {
 @ApiTags('Notifications')
 @ApiBearerAuth()
 @Controller('notifications')
-@UseGuards(RolesGuard)
-@Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
 export class NotificationsController {
   constructor(private readonly notifications: NotificationService) {}
 
@@ -35,6 +32,7 @@ export class NotificationsController {
   @ApiQuery({ name: 'limit', required: false, type: Number })
   @ApiQuery({ name: 'cursor', required: false, type: String })
   @ApiResponse({ status: 200, description: 'Page of notifications' })
+  @RequirePermission(Resource.Notification, Action.Read)
   async list(
     @Query(new ZodValidationPipe(notificationListQuerySchema)) query: NotificationListQuery,
     @CurrentUser() user: CurrentUserData,
@@ -45,6 +43,7 @@ export class NotificationsController {
   @Get('unread-count')
   @ApiOperation({ summary: 'Badge count — notifications since I last opened the panel' })
   @ApiResponse({ status: 200, description: '{ count: number }' })
+  @RequirePermission(Resource.Notification, Action.Read)
   async unreadCount(@CurrentUser() user: CurrentUserData) {
     return this.notifications.unreadCount(user);
   }
@@ -53,6 +52,7 @@ export class NotificationsController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Clear the badge (called when the bell panel opens)' })
   @ApiResponse({ status: 200, description: '{ seenAt }' })
+  @RequirePermission(Resource.Notification, Action.Update)
   async markSeen(@CurrentUser() user: CurrentUserData) {
     return this.notifications.markSeen(user);
   }
@@ -63,6 +63,7 @@ export class NotificationsController {
   })
   @ApiResponse({ status: 200, description: 'Notification (org-scoped)' })
   @ApiResponse({ status: 404, description: 'Not found, or not in your org' })
+  @RequirePermission(Resource.Notification, Action.Read)
   async get(
     @Param(new ZodValidationPipe(notificationIdParamsSchema)) params: NotificationIdParams,
     @CurrentUser() user: CurrentUserData,
@@ -74,6 +75,7 @@ export class NotificationsController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Mark one notification read for me' })
   @ApiResponse({ status: 200, description: '{ ok: boolean }' })
+  @RequirePermission(Resource.Notification, Action.Update)
   async markRead(
     @Param(new ZodValidationPipe(notificationIdParamsSchema)) params: NotificationIdParams,
     @CurrentUser() user: CurrentUserData,

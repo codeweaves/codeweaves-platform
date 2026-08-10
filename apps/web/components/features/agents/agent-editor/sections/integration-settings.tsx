@@ -23,7 +23,7 @@ import { X, Plus, Zap, Webhook } from 'lucide-react';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { ToggleRow } from '../toggle-row';
 import { useAgentEditor } from '../agent-editor-context';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { AgentAiConfigDto } from '@repo/validation';
 
 function normalizeDomain(s: string) {
@@ -106,13 +106,13 @@ const CURATED_MODELS: ModelOption[] = [
 ];
 
 export function IntegrationSettings() {
-  const { profile } = useProfile();
+  const { can } = usePermissions();
   const { formData, updateFormData } = useAgentEditor();
   const [newDomain, setNewDomain] = useState('');
 
   const aiConfig = formData.aiConfig;
 
-  const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  const isAdmin = can('AgentSecret:Read');
   if (!isAdmin) return null;
 
   const routingMode = aiConfig.routingMode ?? 'n8n';

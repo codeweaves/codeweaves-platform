@@ -1,3 +1,4 @@
+import { AccessScope } from '@prisma/client';
 import { Test, TestingModule } from '@nestjs/testing';
 import { HttpStatus } from '@nestjs/common';
 import type { Response } from 'express';
@@ -41,6 +42,10 @@ describe('VoicesController', () => {
     clerkId: 'user_abc',
     email: 'u@example.com',
     role: 'CLIENT',
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: null,
     organization: null,
   } as unknown as Parameters<VoicesController['previewVoice']>[1];

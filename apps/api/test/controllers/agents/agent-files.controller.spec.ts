@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { AgentFilesController } from '../../../src/controllers/agents/agent-files.controller';
 import { FilesService } from '../../../src/services/files.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('AgentFilesController', () => {
@@ -24,6 +24,10 @@ describe('AgentFilesController', () => {
     email: 'admin@test.com',
     id: 'admin-user-id',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -44,7 +48,7 @@ describe('AgentFilesController', () => {
         Reflector,
       ],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

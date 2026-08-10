@@ -3,7 +3,6 @@ import {
   Get,
   Param,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -13,10 +12,7 @@ import {
   ApiQuery,
   ApiParam,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { ConversationsService } from '../../services/conversations.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import {
@@ -27,12 +23,12 @@ import type {
   ConversationsListQuery,
   ConversationDetailParams,
 } from '../../models/conversations.dto';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 @ApiTags('Conversations')
 @ApiBearerAuth()
 @Controller('conversations')
-@UseGuards(RolesGuard)
-@Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
 export class ConversationsController {
   constructor(private readonly conversationsService: ConversationsService) {}
 
@@ -55,6 +51,7 @@ export class ConversationsController {
   @ApiQuery({ name: 'sortBy', required: false, enum: ['lastMessageAt', 'createdAt', 'messageCount'] })
   @ApiQuery({ name: 'sortOrder', required: false, enum: ['asc', 'desc'] })
   @ApiResponse({ status: 200, description: 'Paginated list of chat sessions' })
+  @RequirePermission(Resource.ChatSession, Action.Read)
   async list(
     @Query(new ZodValidationPipe(conversationsListQuerySchema)) query: ConversationsListQuery,
     @CurrentUser() user: CurrentUserData,
@@ -67,6 +64,7 @@ export class ConversationsController {
   @ApiParam({ name: 'sessionId', type: String, description: 'Public session ID (ChatSession.sessionId)' })
   @ApiResponse({ status: 200, description: 'Session detail with messages and traces' })
   @ApiResponse({ status: 404, description: 'Conversation not found' })
+  @RequirePermission(Resource.ChatSession, Action.Read)
   async getOne(
     @Param(new ZodValidationPipe(conversationDetailParamsSchema)) params: ConversationDetailParams,
     @CurrentUser() user: CurrentUserData,

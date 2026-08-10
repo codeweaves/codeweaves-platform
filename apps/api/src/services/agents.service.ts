@@ -3,10 +3,11 @@ import {
   NotFoundException,
   ConflictException,
   BadRequestException,
+  ForbiddenException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { PrismaService } from './prisma.service';
-import { Prisma, Role, Agent } from '@prisma/client';
+import { Prisma, Agent } from '@prisma/client';
 import {
   agentAiConfigUpdateSchema,
   voiceConfigSchema,
@@ -20,7 +21,10 @@ import { AgentLoggerService } from '../common/logger/agent.logger';
 import { AgentCacheService } from '../common/cache/agent-cache.service';
 import { WidgetCorsCacheService } from '../common/cache/widget-cors-cache.service';
 import { CryptoService } from '../common/crypto/crypto.service';
+import { PermissionCatalogService } from '../common/rbac/permission-catalog.service';
+import type { PermissionKey } from '../common/rbac/rbac.types';
 import { AppLogger } from '../common/logger/app-logger';
+import { isOrgScoped } from '../utils/tenant-filter';
 
 const MAX_PUBLIC_ID_RETRIES = 3;
 const WEBHOOK_TEST_TIMEOUT = 10_000;
@@ -55,6 +59,7 @@ export class AgentsService {
     private readonly configService: ConfigService,
     private readonly agentCache: AgentCacheService,
     private readonly widgetCorsCache: WidgetCorsCacheService,
+    private readonly catalog: PermissionCatalogService,
   ) {}
 
   async create(dto: CreateAgentDto, user: CurrentUserData) {
@@ -115,8 +120,8 @@ export class AgentsService {
 
     const where: Prisma.AgentWhereInput = {
       deletedAt: null,
-      ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
-      ...(user.role !== Role.CLIENT && organizationId && { organizationId }),
+      ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
+      ...(!isOrgScoped(user) && organizationId && { organizationId }),
       ...(search && { name: { contains: search, mode: 'insensitive' as const } }),
       ...(status && { status }),
     };
@@ -150,7 +155,7 @@ export class AgentsService {
       where: {
         id,
         deletedAt: null,
-        ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
+        ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
       },
       include: { organization: { select: { id: true, name: true } } },
     });
@@ -165,6 +170,11 @@ export class AgentsService {
   async update(id: string, dto: UpdateAgentDto, user: CurrentUserData) {
     this.log.debug('update', 'updating agent', { agentId: id, fields: Object.keys(dto) });
     const existing = await this.findByIdRaw(id, user);
+
+    // The route only requires Agent:Update, which covers the everyday config.
+    // Prompt, handover and routing are separately grantable sections that happen
+    // to live on the same row, so they are checked here per field.
+    this.assertSectionAccess(dto, user);
 
     // Validate, normalize, and deduplicate domains before saving
     if (dto.allowedDomains !== undefined) {
@@ -634,7 +644,7 @@ export class AgentsService {
       where: {
         id,
         deletedAt: null,
-        ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
+        ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
       },
     });
 
@@ -649,11 +659,68 @@ export class AgentsService {
    * Strip sensitive fields from agent response for CLIENT users.
    * CLIENT users should not see allowedDomains.
    */
+  /**
+   * Agent-editor sections that are separately grantable but share the agents row.
+   *
+   * `PATCH /agents/:id` is one endpoint writing one row, so `Agent:Update` alone
+   * would let anyone who can rename an agent also rewrite its system prompt or
+   * turn off human handover. Each slice below therefore needs its own permission,
+   * checked against the fields actually present in the request.
+   */
+  private static readonly GATED_SECTIONS: ReadonlyArray<{
+    permission: PermissionKey;
+    label: string;
+    fields: readonly (keyof UpdateAgentDto)[];
+  }> = [
+    {
+      permission: 'Agent:UpdatePrompt',
+      label: 'the system prompt',
+      fields: ['systemPrompt'],
+    },
+    {
+      permission: 'Agent:UpdateHandover',
+      label: 'human-handover settings',
+      fields: [
+        'humanTakeoverEnabled',
+        'showTalkToHumanButton',
+        'humanConnectedLabel',
+        'handoverEmailEnabled',
+        'handoverEmailRecipients',
+      ],
+    },
+    {
+      permission: 'Agent:UpdateIntegration',
+      label: 'routing configuration',
+      fields: ['aiConfig'],
+    },
+  ];
+
+  private assertSectionAccess(dto: UpdateAgentDto, user: CurrentUserData): void {
+    const granted = this.catalog.resolvePermissions(user.roleKeys ?? []);
+
+    for (const section of AgentsService.GATED_SECTIONS) {
+      // `undefined` means "not in this PATCH". An explicit null IS a change.
+      const touched = section.fields.filter((f) => dto[f] !== undefined);
+      if (touched.length === 0) continue;
+
+      if (!granted.has(section.permission)) {
+        this.log.warn('assertSectionAccess', 'agent section write denied', {
+          userId: user.id,
+          permission: section.permission,
+          fields: touched,
+        });
+        throw new ForbiddenException(
+          `You do not have permission to change ${section.label}`,
+        );
+      }
+    }
+  }
+
   private stripSensitiveFields(
     agent: Agent,
     user: CurrentUserData,
   ): Omit<Agent, 'allowedDomains'> | Agent {
-    if (user.role === Role.CLIENT) {
+    if (isOrgScoped(user)) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { allowedDomains, ...safe } = agent;
       return safe;

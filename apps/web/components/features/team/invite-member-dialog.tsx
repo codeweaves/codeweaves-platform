@@ -12,19 +12,14 @@ import {
   DialogTitle,
   DialogTrigger,
 } from '@/components/ui/dialog';
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from '@/components/ui/select';
+import { Checkbox } from '@/components/ui/checkbox';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useInviteMember } from '@/hooks/use-team';
 import { useOrganizations } from '@/hooks/use-organizations';
+import { useAssignableRoles } from '@/hooks/use-rbac';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
@@ -33,11 +28,23 @@ export function InviteMemberDialog() {
 
   const [open, setOpen] = useState(false);
   const [email, setEmail] = useState('');
-  const [role, setRole] = useState('CLIENT');
+  const [roleKeys, setRoleKeys] = useState<string[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [error, setError] = useState('');
 
   const { data: orgsData } = useOrganizations({ limit: 100 });
+  // Already filtered to what the caller may grant, so the invite cannot hand out
+  // a role the same person could not assign afterwards.
+  const { data: roles, isLoading: rolesLoading } = useAssignableRoles(open);
+
+  // An org invite needs an organization; a platform invite must not have one.
+  const isOrgInvite = roleKeys.length > 0 && roleKeys.every((k) => k.startsWith('org.'));
+
+  const toggleRole = (key: string) => {
+    setRoleKeys((prev) =>
+      prev.includes(key) ? prev.filter((k) => k !== key) : [...prev, key],
+    );
+  };
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -55,16 +62,28 @@ export function InviteMemberDialog() {
       return;
     }
 
-    if (role === 'CLIENT' && !selectedOrgId) {
-      setError('Please select an organization for a client role');
+    if (roleKeys.length === 0) {
+      setError('Select at least one role');
+      return;
+    }
+
+    const allOrg = roleKeys.every((k) => k.startsWith('org.'));
+    const allPlatform = roleKeys.every((k) => !k.startsWith('org.'));
+    if (!allOrg && !allPlatform) {
+      setError('An invitation cannot mix organization and platform roles');
+      return;
+    }
+
+    if (allOrg && !selectedOrgId) {
+      setError('Select an organization for an organization role');
       return;
     }
 
     try {
       await inviteMember.mutateAsync({
         email: trimmedEmail,
-        role,
-        ...(role === 'CLIENT' && { organizationId: selectedOrgId }),
+        roleKeys,
+        ...(isOrgInvite && { organizationId: selectedOrgId }),
       });
       toast.success('Invitation sent');
       handleClose();
@@ -83,7 +102,7 @@ export function InviteMemberDialog() {
   const handleClose = () => {
     setOpen(false);
     setEmail('');
-    setRole('CLIENT');
+    setRoleKeys([]);
     setSelectedOrgId('');
     setError('');
   };
@@ -126,7 +145,7 @@ export function InviteMemberDialog() {
                 autoFocus
               />
             </div>
-            <div className="grid gap-2 min-w-0">
+            <div className="col-span-2 grid gap-2 min-w-0">
               <Label>Organization</Label>
               <SearchableSelect
                 options={orgsData?.data.map((org) => ({
@@ -142,22 +161,44 @@ export function InviteMemberDialog() {
                 triggerClassName="w-full"
               />
             </div>
-            <div className="grid gap-2">
-              <Label htmlFor="invite-role">Role</Label>
-              <Select
-                value={role}
-                onValueChange={setRole}
-                disabled={inviteMember.isPending}
-              >
-                <SelectTrigger id="invite-role" className="w-full">
-                  <SelectValue placeholder="Select a role" />
-                </SelectTrigger>
-                <SelectContent>
-                  <SelectItem value="CLIENT">Client</SelectItem>
-                  <SelectItem value="ADMIN">Admin</SelectItem>
-                  <SelectItem value="SUPER_ADMIN">Super Admin</SelectItem>
-                </SelectContent>
-              </Select>
+            <div className="col-span-2 grid gap-2">
+              <Label>Roles</Label>
+              <p className="text-xs text-muted-foreground">
+                What this person can do from their first sign-in.
+              </p>
+              <div className="thin-scroll max-h-52 divide-y overflow-y-auto rounded-md border px-3">
+                {rolesLoading ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground">
+                    Loading roles…
+                  </div>
+                ) : !roles || roles.length === 0 ? (
+                  <div className="py-6 text-center text-sm text-muted-foreground">
+                    You do not have permission to assign roles.
+                  </div>
+                ) : (
+                  roles.map((r) => (
+                    <label
+                      key={r.key}
+                      className="flex cursor-pointer items-start gap-3 py-2.5"
+                    >
+                      <Checkbox
+                        className="mt-0.5"
+                        checked={roleKeys.includes(r.key)}
+                        onCheckedChange={() => toggleRole(r.key)}
+                        disabled={inviteMember.isPending}
+                      />
+                      <span className="min-w-0">
+                        <span className="block font-mono text-sm">{r.key}</span>
+                        {r.description && (
+                          <span className="block text-xs text-muted-foreground">
+                            {r.description}
+                          </span>
+                        )}
+                      </span>
+                    </label>
+                  ))
+                )}
+              </div>
             </div>
             {error && (
               <p className="col-span-2 text-sm text-destructive">{error}</p>
@@ -174,7 +215,12 @@ export function InviteMemberDialog() {
             </Button>
             <Button
               type="submit"
-              disabled={inviteMember.isPending || !email.trim() || (role === 'CLIENT' && !selectedOrgId)}
+              disabled={
+                inviteMember.isPending ||
+                !email.trim() ||
+                roleKeys.length === 0 ||
+                (isOrgInvite && !selectedOrgId)
+              }
             >
               {inviteMember.isPending ? 'Sending...' : 'Send Invitation'}
             </Button>

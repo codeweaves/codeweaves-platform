@@ -12,10 +12,11 @@ import {
   type InboxItem,
 } from '@/hooks/use-handover';
 
+// Only the two actionable views are surfaced. The 'all' filter still exists on
+// the type and the API (see the count query below), it just has no tab.
 const TABS: { key: HandoverFilter; label: string }[] = [
   { key: 'needs', label: 'Needs you' },
   { key: 'handling', label: 'Handling' },
-  { key: 'all', label: 'All live' },
 ];
 
 function StatusChip({ item }: { item: InboxItem }) {
@@ -61,9 +62,11 @@ export function InboxListPane({
   // Both badge counts come from the SINGLE 'all' query rather than one query
   // each: 'all' is REQUESTED + ACTIVE_HUMAN, which is exactly the union the two
   // badges partition, so they can be derived client-side. Two separate count
-  // queries would have meant up to three concurrent inbox requests (each with
-  // its own 30s poll when the socket is down); this caps it at two, and collapses
-  // to one when the 'All live' tab is active because the keys then match.
+  // queries would have meant three concurrent inbox requests (each with its own
+  // 30s poll when the socket is down); this caps it at two.
+  //
+  // This query deliberately outlives the removed 'All live' tab — it is the
+  // counts source, not a view. Dropping it costs both badges.
   const allItems = useInbox('all').data;
   const needsCount =
     allItems?.filter((i) => i.handoverState === 'REQUESTED').length ?? 0;

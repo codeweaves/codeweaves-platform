@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, ForbiddenException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { HandoverService } from '../../../src/services/handover.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { RealtimeService } from '../../../src/services/realtime.service';
@@ -61,6 +61,10 @@ describe('HandoverService', () => {
     email: 'client@test.com',
     id: 'client-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -76,12 +80,20 @@ describe('HandoverService', () => {
     ...clientUser,
     id: 'admin-user-id',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
   };
 
   const superAdminUser: CurrentUserData = {
     ...clientUser,
     id: 'super-admin-user-id',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
   };
 
   const sessionRow = (overrides: Record<string, unknown> = {}) => ({

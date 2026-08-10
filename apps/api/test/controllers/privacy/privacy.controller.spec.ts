@@ -1,9 +1,8 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, ForbiddenException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { AccessScope, Role } from '@prisma/client';
 import { PrivacyController } from '../../../src/controllers/privacy/privacy.controller';
 import { PurgeService } from '../../../src/services/purge.service';
-import { RbacService } from '../../../src/common/rbac/rbac.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('PrivacyController', () => {
@@ -15,8 +14,20 @@ describe('PrivacyController', () => {
     summarizeVisitor: jest.fn(),
   };
 
-  const admin = { id: 'u2', role: Role.ADMIN, organizationId: 'platform-org' } as CurrentUserData;
-  const client = { id: 'u3', role: Role.CLIENT, organizationId: 'client-org' } as CurrentUserData;
+  const admin = {
+    id: 'u2',
+    role: Role.ADMIN,
+    accessScope: AccessScope.PLATFORM,
+    roleKeys: ['platform.privacy'],
+    organizationId: 'platform-org',
+  } as CurrentUserData;
+  const client = {
+    id: 'u3',
+    role: Role.CLIENT,
+    accessScope: AccessScope.ORG,
+    roleKeys: ['org.owner'],
+    organizationId: 'client-org',
+  } as CurrentUserData;
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -27,7 +38,6 @@ describe('PrivacyController', () => {
       controllers: [PrivacyController],
       providers: [
         { provide: PurgeService, useValue: mockPurge },
-        { provide: RbacService, useValue: { can: jest.fn().mockReturnValue(true) } },
       ],
     }).compile();
 

@@ -1,9 +1,9 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { HandoverController } from '../../../src/controllers/handover/handover.controller';
 import { HandoverService } from '../../../src/services/handover.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('HandoverController', () => {
@@ -23,6 +23,10 @@ describe('HandoverController', () => {
     email: 'client@test.com',
     id: 'client-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -32,7 +36,7 @@ describe('HandoverController', () => {
       controllers: [HandoverController],
       providers: [{ provide: HandoverService, useValue: mockService }, Reflector],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

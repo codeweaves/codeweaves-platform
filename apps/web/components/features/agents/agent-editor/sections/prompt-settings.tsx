@@ -4,7 +4,6 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { InfoTooltip } from '@/components/ui/info-tooltip';
 import { useAgentEditor } from '../agent-editor-context';
-import { useProfile } from '@/hooks/use-profile';
 import { KnowledgeSettings } from './knowledge-settings';
 
 /**
@@ -16,11 +15,7 @@ import { KnowledgeSettings } from './knowledge-settings';
  * thing (what the visitor sees on widget open) and lives in BehaviorSettings.
  */
 export function PromptSettings() {
-  const { profile } = useProfile();
   const { formData, updateFormData } = useAgentEditor();
-
-  const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
-  if (!isAdmin) return null;
 
   return (
     <div className="space-y-6">

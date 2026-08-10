@@ -6,7 +6,7 @@ import { AgentsService } from '../../../src/services/agents.service';
 import { AgentThemesService } from '../../../src/services/agent-themes.service';
 import { AgentKnowledgeService } from '../../../src/services/agent-knowledge.service';
 import { AgentDataFieldsService } from '../../../src/services/agent-data-fields.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import { ZodValidationPipe } from '../../../src/pipes/zod-validation.pipe';
 import {
   createAgentSchema,
@@ -15,7 +15,7 @@ import {
   updateWebhookSchema,
 } from '../../../src/models/agent.dto';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 
 describe('AgentsController', () => {
   let controller: AgentsController;
@@ -57,6 +57,10 @@ describe('AgentsController', () => {
     email: 'admin@test.com',
     id: 'admin-user-id',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -66,6 +70,10 @@ describe('AgentsController', () => {
     email: 'client@test.com',
     id: 'client-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -89,7 +97,7 @@ describe('AgentsController', () => {
         Reflector,
       ],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .compile();
 
@@ -235,40 +243,40 @@ describe('AgentsController', () => {
       expect(permission).toEqual({ resource: 'Agent', action: 'Create' });
     });
 
-    it('should have ADMIN, SUPER_ADMIN, and CLIENT roles on findAll', () => {
-      const roles = Reflect.getMetadata('roles', AgentsController.prototype.findAll);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN', 'CLIENT']);
+    it('declares a permission on findAll', () => {
+      const permission = Reflect.getMetadata('permission', AgentsController.prototype.findAll);
+      expect(permission).toEqual({ resource: 'Agent', action: 'Read' });
     });
 
-    it('should have ADMIN, SUPER_ADMIN, and CLIENT roles on findById', () => {
-      const roles = Reflect.getMetadata('roles', AgentsController.prototype.findById);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN', 'CLIENT']);
+    it('declares a permission on findById', () => {
+      const permission = Reflect.getMetadata('permission', AgentsController.prototype.findById);
+      expect(permission).toEqual({ resource: 'Agent', action: 'Read' });
     });
 
-    it('should have ADMIN, SUPER_ADMIN, and CLIENT roles on update', () => {
-      const roles = Reflect.getMetadata('roles', AgentsController.prototype.update);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN', 'CLIENT']);
+    it('declares a permission on update', () => {
+      const permission = Reflect.getMetadata('permission', AgentsController.prototype.update);
+      expect(permission).toEqual({ resource: 'Agent', action: 'Update' });
     });
 
-    it('should have ADMIN, SUPER_ADMIN, and CLIENT roles on remove', () => {
-      const roles = Reflect.getMetadata('roles', AgentsController.prototype.remove);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN', 'CLIENT']);
+    it('declares a permission on remove', () => {
+      const permission = Reflect.getMetadata('permission', AgentsController.prototype.remove);
+      expect(permission).toEqual({ resource: 'Agent', action: 'Delete' });
     });
 
     // Webhook endpoints — ADMIN and SUPER_ADMIN only (no CLIENT)
-    it('should have ADMIN and SUPER_ADMIN roles on setWebhook', () => {
-      const roles = Reflect.getMetadata('roles', AgentsController.prototype.setWebhook);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN']);
+    it('declares a permission on setWebhook', () => {
+      const permission = Reflect.getMetadata('permission', AgentsController.prototype.setWebhook);
+      expect(permission).toEqual({ resource: 'AgentSecret', action: 'Update' });
     });
 
-    it('should have ADMIN and SUPER_ADMIN roles on getWebhook', () => {
-      const roles = Reflect.getMetadata('roles', AgentsController.prototype.getWebhook);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN']);
+    it('declares a permission on getWebhook', () => {
+      const permission = Reflect.getMetadata('permission', AgentsController.prototype.getWebhook);
+      expect(permission).toEqual({ resource: 'AgentSecret', action: 'Read' });
     });
 
-    it('should have ADMIN and SUPER_ADMIN roles on testWebhook', () => {
-      const roles = Reflect.getMetadata('roles', AgentsController.prototype.testWebhook);
-      expect(roles).toEqual(['ADMIN', 'SUPER_ADMIN']);
+    it('declares a permission on testWebhook', () => {
+      const permission = Reflect.getMetadata('permission', AgentsController.prototype.testWebhook);
+      expect(permission).toEqual({ resource: 'AgentSecret', action: 'Update' });
     });
   });
 

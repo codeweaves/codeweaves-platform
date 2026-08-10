@@ -3,9 +3,9 @@ import { NotFoundException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
 import { AgentThemesController } from '../../../src/controllers/agents/agent-themes.controller';
 import { AgentThemesService } from '../../../src/services/agent-themes.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { defaultWidgetTheme } from '../../../src/models/agent-theme.dto';
 import type { WidgetTheme } from '../../../src/models/agent-theme.dto';
 
@@ -27,6 +27,10 @@ describe('AgentThemesController', () => {
     email: 'admin@test.com',
     id: 'admin-user-id',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -48,7 +52,7 @@ describe('AgentThemesController', () => {
         Reflector,
       ],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .compile();
 

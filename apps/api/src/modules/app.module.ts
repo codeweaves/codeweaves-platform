@@ -5,6 +5,7 @@ import { PrismaModule } from './prisma.module';
 import { HealthModule } from './health/health.module';
 import { AuthModule } from './auth.module';
 import { UsersModule } from './users.module';
+import { RbacAdminModule } from './rbac-admin.module';
 import { InvitationsModule } from './invitations.module';
 import { OrganizationsModule } from './organizations.module';
 import { AgentsModule } from './agents.module';
@@ -35,6 +36,7 @@ import { SecurityModule } from '../common/security/security.module';
 import { SupabaseStorageModule } from './supabase-storage.module';
 import { JwtAuthGuard } from '../guards/jwt-auth.guard';
 import { UserSyncGuard } from '../guards/user-sync.guard';
+import { PermissionGuard } from '../guards/permission.guard';
 import { RateLimitGuard } from '../guards/rate-limit.guard';
 import { CorrelationIdMiddleware } from '../middleware/correlation-id.middleware';
 import { WidgetCorsMiddleware } from '../middleware/widget-cors.middleware';
@@ -52,6 +54,8 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     PrismaModule,
     AuthModule,
     UsersModule,
+
+    RbacAdminModule,
     InvitationsModule,
     OrganizationsModule,
     AgentsModule,
@@ -90,6 +94,14 @@ import { AllExceptionsFilter } from '../filters/all-exceptions.filter';
     {
       provide: APP_GUARD,
       useClass: UserSyncGuard,
+    },
+    // Runs after UserSyncGuard so `request.user` already carries the role, and
+    // globally so a controller can no longer opt out of authorization by
+    // forgetting a @UseGuards. Denies any route that declares nothing;
+    // RouteAuthorizationAssertion stops the app booting if one exists.
+    {
+      provide: APP_GUARD,
+      useClass: PermissionGuard,
     },
     {
       provide: APP_GUARD,

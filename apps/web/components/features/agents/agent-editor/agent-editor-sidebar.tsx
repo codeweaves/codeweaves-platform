@@ -15,7 +15,7 @@ import {
   Headset,
 } from 'lucide-react';
 import { cn } from '@/lib/utils';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export type CategoryId =
   | 'general'
@@ -36,7 +36,12 @@ interface Category {
   title: string;
   icon: React.ReactNode;
   description: string;
-  adminOnly?: boolean;
+  /**
+   * Permission that unlocks this section. Every section has one: the editor is
+   * a bundle of separately grantable slices, so a teammate can be given the
+   * prompt without also getting the WhatsApp credentials.
+   */
+  requires: string;
 }
 
 const allCategories: Category[] = [
@@ -45,78 +50,84 @@ const allCategories: Category[] = [
     title: 'General',
     icon: <FileText className="h-5 w-5" />,
     description: 'Name and client mapping',
+    requires: 'Agent:Update',
   },
   {
     id: 'appearance',
     title: 'Appearance',
     icon: <Palette className="h-5 w-5" />,
     description: 'Colors, icons, and visual styling',
+    requires: 'AgentTheme:Update',
   },
   {
     id: 'chat',
     title: 'Chat Interface',
     icon: <MessageCircle className="h-5 w-5" />,
     description: 'Messages, avatars, and chat layout',
+    requires: 'AgentTheme:Update',
   },
   {
     id: 'behavior',
     title: 'Behavior',
     icon: <Settings className="h-5 w-5" />,
     description: 'Interactions and user experience',
+    requires: 'Agent:Update',
   },
   {
     id: 'voice',
     title: 'Voice',
     icon: <Mic className="h-5 w-5" />,
     description: 'Voice input and output settings',
+    requires: 'Agent:Update',
   },
   {
     id: 'prompt',
     title: 'Prompt',
     icon: <ScrollText className="h-5 w-5" />,
     description: 'Initial context and knowledge base',
-    adminOnly: true,
+    requires: 'Agent:UpdatePrompt',
   },
   {
     id: 'classification',
     title: 'Classification',
     icon: <Sparkles className="h-5 w-5" />,
     description: 'AI tagging: conversation topics & language detection',
+    requires: 'Agent:Update',
   },
   {
     id: 'dataCapture',
     title: 'Data Capture',
     icon: <ClipboardList className="h-5 w-5" />,
     description: 'Collect fields (name, email, …) from conversations',
-    adminOnly: true,
+    requires: 'AgentDataField:Read',
   },
   {
     id: 'integration',
     title: 'Integration',
     icon: <Plug className="h-5 w-5" />,
     description: 'Routing: n8n webhook or native AI orchestrator',
-    adminOnly: true,
+    requires: 'AgentSecret:Read',
   },
   {
     id: 'whatsapp',
     title: 'WhatsApp',
     icon: <MessageSquareText className="h-5 w-5" />,
     description: 'Connect a WhatsApp number to this agent',
-    adminOnly: true,
+    requires: 'WhatsappChannel:Read',
   },
   {
     id: 'branding',
     title: 'Branding',
     icon: <BadgeInfo className="h-5 w-5" />,
     description: 'Powered by / logo footer',
-    adminOnly: true,
+    requires: 'AgentTheme:UpdateBranding',
   },
   {
     id: 'humanHandover',
     title: 'Human Handover',
     icon: <Headset className="h-5 w-5" />,
     description: 'Let a teammate take over live chats',
-    adminOnly: true,
+    requires: 'Agent:UpdateHandover',
   },
 ];
 
@@ -129,13 +140,9 @@ export function AgentEditorSidebar({
   selectedCategory,
   onCategoryChange,
 }: AgentEditorSidebarProps) {
-  const { profile } = useProfile();
-  const isAdmin =
-    profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  const { can } = usePermissions();
 
-  const categories = allCategories.filter(
-    (cat) => !cat.adminOnly || isAdmin,
-  );
+  const categories = allCategories.filter((cat) => can(cat.requires));
 
   return (
     <div className="flex h-full w-64 shrink-0 flex-col border-r bg-background">

@@ -87,8 +87,14 @@ export function useInviteMember() {
   const queryClient = useQueryClient();
 
   return useMutation({
-    mutationFn: (data: { email: string; role: string; organizationId?: string }) =>
-      api.post('/invitations', data),
+    // roleKeys, not a single tier: the invited account is provisioned with
+    // exactly these roles, so "inbox agent only" is invitable rather than a
+    // demotion after the fact.
+    mutationFn: (data: {
+      email: string;
+      roleKeys: string[];
+      organizationId?: string;
+    }) => api.post('/invitations', data),
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ['invitations'] });
       queryClient.invalidateQueries({ queryKey: ['team-members'] });

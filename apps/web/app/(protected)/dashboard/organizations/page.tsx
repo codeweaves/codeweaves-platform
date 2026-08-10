@@ -2,23 +2,23 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { usePageHeader } from '@/components/layout/page-header';
 import { OrganizationsDataTable } from '@/components/features/organizations/organizations-data-table';
 import { CreateOrganizationDialog } from '@/components/features/organizations/create-organization-dialog';
 
 export default function OrganizationsPage() {
   const router = useRouter();
-  const { profile, isLoading } = useProfile();
+  const { can, isLoading } = usePermissions();
   const { setTitle, setActions } = usePageHeader();
 
-  const isSuperAdmin = profile?.role === 'SUPER_ADMIN';
+  const isSuperAdmin = can('Organization:Create');
 
   useEffect(() => {
-    if (!isLoading && profile?.role === 'CLIENT') {
+    if (!isLoading && !can('Organization:ReadAll')) {
       router.replace('/dashboard');
     }
-  }, [isLoading, profile, router]);
+  }, [isLoading, can, router]);
 
   useEffect(() => {
     setTitle('Organizations');
@@ -32,7 +32,7 @@ export default function OrganizationsPage() {
     return () => setActions(null);
   }, [isSuperAdmin, setActions]);
 
-  if (isLoading || profile?.role === 'CLIENT') {
+  if (isLoading || !can('Organization:ReadAll')) {
     return null;
   }
 

@@ -8,6 +8,8 @@ describe('CurrentUser Decorator', () => {
     email: 'test@example.com',
     id: 'user-123',
     role: 'CLIENT' as CurrentUserData['role'],
+    accessScope: 'ORG' as CurrentUserData['accessScope'],
+    roleKeys: ['org.owner'],
     organizationId: 'org-123',
     organization: { id: 'org-123', name: 'Test Org', slug: 'test-org' },
   };
@@ -81,6 +83,8 @@ describe('CurrentUser Decorator', () => {
       email: 'admin@codeweaves.com',
       id: 'superadmin-123',
       role: 'SUPER_ADMIN' as CurrentUserData['role'],
+      accessScope: 'PLATFORM' as CurrentUserData['accessScope'],
+      roleKeys: ['platform.super_admin'],
       organizationId: null,
       organization: null,
     };
