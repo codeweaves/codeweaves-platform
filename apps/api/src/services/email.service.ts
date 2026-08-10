@@ -56,7 +56,7 @@ export class EmailService {
       const { data, error } = await this.resend.emails.send({
         from: this.configService.get<string>(
           'EMAIL_FROM',
-          'CodeWeaves <noreply@codeweaves.com>',
+          'Klivo <noreply@mail.getklivo.com>',
         ),
         to: recipients,
         subject: options.subject,
