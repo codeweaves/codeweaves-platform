@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, NotFoundException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { ConversationsService } from '../../../src/services/conversations.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
@@ -27,6 +27,10 @@ describe('ConversationsService', () => {
     email: 'admin@test.com',
     id: 'admin-user-id',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -36,6 +40,10 @@ describe('ConversationsService', () => {
     email: 'super@test.com',
     id: 'super-user-id',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
     organizationId: null,
     organization: null,
   };
@@ -45,6 +53,10 @@ describe('ConversationsService', () => {
     email: 'client@test.com',
     id: 'client-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -54,6 +66,10 @@ describe('ConversationsService', () => {
     email: 'client-no-org@test.com',
     id: 'client-no-org-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: null,
     organization: null,
   };

@@ -2,7 +2,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { Role, type AgentDataField } from '@prisma/client';
+import { type AgentDataField } from '@prisma/client';
 import { type UpdateDataFieldsDto } from '@repo/validation';
 
 import { AgentCacheService } from '../common/cache/agent-cache.service';
@@ -12,6 +12,7 @@ import { TracerService } from '../common/tracer/tracer.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 import { PrismaService } from './prisma.service';
+import { isOrgScoped } from '../utils/tenant-filter';
 
 /**
  * AgentDataFieldsService: CRUD for an agent's "data capture" field definitions
@@ -225,7 +226,7 @@ export class AgentDataFieldsService {
       where: {
         id: agentId,
         deletedAt: null,
-        ...(user.role === Role.CLIENT && {
+        ...(isOrgScoped(user) && {
           organizationId: user.organizationId!,
         }),
       },

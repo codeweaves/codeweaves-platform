@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException } from '@nestjs/common';
 import { AnalyticsService } from '../../../src/services/analytics.service';
 import { PrismaService } from '../../../src/services/prisma.service';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('AnalyticsService', () => {
@@ -29,6 +29,10 @@ describe('AnalyticsService', () => {
     email: 'admin@test.com',
     id: 'admin-user-id',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -38,6 +42,10 @@ describe('AnalyticsService', () => {
     email: 'client@test.com',
     id: 'client-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -47,6 +55,10 @@ describe('AnalyticsService', () => {
     email: 'superadmin@test.com',
     id: 'superadmin-user-id',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
     organizationId: null,
     organization: null,
   };
@@ -56,6 +68,10 @@ describe('AnalyticsService', () => {
     email: 'client-no-org@test.com',
     id: 'client-no-org-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: null,
     organization: null,
   };

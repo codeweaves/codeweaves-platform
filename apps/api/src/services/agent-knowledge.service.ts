@@ -6,7 +6,7 @@ import {
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
-import { Role, type AgentKnowledge } from '@prisma/client';
+import { type AgentKnowledge } from '@prisma/client';
 import {
   KNOWLEDGE_UPLOAD_EXTENSIONS,
   MAX_KNOWLEDGE_TEXT_BYTES,
@@ -23,6 +23,7 @@ import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { TokenCounterService } from '../modules/ai/token-counter.service';
 
 import { PrismaService } from './prisma.service';
+import { isOrgScoped } from '../utils/tenant-filter';
 
 /**
  * Shape returned by `extractFile()` — the extracted text plus source metadata.
@@ -264,7 +265,7 @@ export class AgentKnowledgeService {
       where: {
         id: agentId,
         deletedAt: null,
-        ...(user.role === Role.CLIENT && {
+        ...(isOrgScoped(user) && {
           organizationId: user.organizationId!,
         }),
       },

@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { UsersController } from '../../../src/controllers/auth/users.controller';
 import { UsersService } from '../../../src/services/users.service';
 import { CurrentUserData } from '../../../src/decorators/current-user.decorator';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 
 describe('UsersController', () => {
   let controller: UsersController;
@@ -23,6 +23,10 @@ describe('UsersController', () => {
     email: 'test@example.com',
     id: 'user-uuid',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: 'org-uuid',
     organization: mockOrganization,
   };
@@ -32,6 +36,10 @@ describe('UsersController', () => {
     email: 'test@example.com',
     name: 'Test User',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organization: mockOrganization,
     createdAt: new Date('2026-01-01'),
     updatedAt: new Date('2026-01-01'),
@@ -72,6 +80,10 @@ describe('UsersController', () => {
         email: 'admin@codeweaves.com',
         id: 'superadmin-uuid',
         role: Role.SUPER_ADMIN,
+
+        accessScope: AccessScope.PLATFORM,
+
+        roleKeys: ['platform.super_admin'],
         organizationId: null,
         organization: null,
       };
@@ -80,6 +92,10 @@ describe('UsersController', () => {
         email: 'admin@codeweaves.com',
         name: 'Super Admin',
         role: Role.SUPER_ADMIN,
+
+        accessScope: AccessScope.PLATFORM,
+
+        roleKeys: ['platform.super_admin'],
         organization: null,
         createdAt: new Date('2026-01-01'),
         updatedAt: new Date('2026-01-01'),

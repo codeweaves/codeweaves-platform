@@ -2,7 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { InvitationsController } from '../../../src/controllers/invitations/invitations.controller';
 import { InvitationsService } from '../../../src/services/invitations.service';
 import { CurrentUserData } from '../../../src/decorators/current-user.decorator';
-import { InvitationStatus, Role } from '@prisma/client';
+import { InvitationStatus, Role, AccessScope } from '@prisma/client';
 
 describe('InvitationsController', () => {
   let controller: InvitationsController;
@@ -22,6 +22,10 @@ describe('InvitationsController', () => {
     email: 'admin@example.com',
     id: 'user-uuid-1',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
     organizationId: 'org-uuid-1',
     organization: { id: 'org-uuid-1', name: 'Test Org', slug: 'test-org' },
   };
@@ -30,6 +34,10 @@ describe('InvitationsController', () => {
     id: 'inv-uuid-1',
     email: 'new@example.com',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: 'org-uuid-1',
     token: 'token-uuid-1',
     reissueToken: 'reissue-uuid-1',
@@ -61,6 +69,10 @@ describe('InvitationsController', () => {
       const dto = {
         email: 'new@example.com',
         role: Role.CLIENT,
+
+        accessScope: AccessScope.ORG,
+
+        roleKeys: ['org.owner'],
         organizationId: 'org-uuid-1',
       };
       mockInvitationsService.create.mockResolvedValue(mockInvitation);
@@ -81,6 +93,10 @@ describe('InvitationsController', () => {
         email: 'new@example.com',
         organizationId: 'org-uuid-1',
         role: Role.CLIENT,
+
+        accessScope: AccessScope.ORG,
+
+        roleKeys: ['org.owner'],
       };
       mockInvitationsService.validate.mockResolvedValue(validationResult);
 
@@ -178,44 +194,44 @@ describe('InvitationsController', () => {
   });
 
   describe('role authorization metadata', () => {
-    it('should have SUPER_ADMIN role metadata on create endpoint', () => {
+    it('declares a permission on create', () => {
       const metadata = Reflect.getMetadata(
-        'roles',
+        'permission',
         InvitationsController.prototype.create,
       );
-      expect(metadata).toEqual([Role.SUPER_ADMIN]);
+      expect(metadata).toEqual({ resource: 'Invitation', action: 'Create' });
     });
 
-    it('should have SUPER_ADMIN and ADMIN role metadata on findAll endpoint', () => {
+    it('declares a permission on findAll', () => {
       const metadata = Reflect.getMetadata(
-        'roles',
+        'permission',
         InvitationsController.prototype.findAll,
       );
-      expect(metadata).toEqual([Role.SUPER_ADMIN, Role.ADMIN]);
+      expect(metadata).toEqual({ resource: 'Invitation', action: 'Read' });
     });
 
-    it('should have SUPER_ADMIN role metadata on findById endpoint', () => {
+    it('declares a permission on findById', () => {
       const metadata = Reflect.getMetadata(
-        'roles',
+        'permission',
         InvitationsController.prototype.findById,
       );
-      expect(metadata).toEqual([Role.SUPER_ADMIN]);
+      expect(metadata).toEqual({ resource: 'Invitation', action: 'Read' });
     });
 
-    it('should have SUPER_ADMIN role metadata on resend endpoint', () => {
+    it('declares a permission on resend', () => {
       const metadata = Reflect.getMetadata(
-        'roles',
+        'permission',
         InvitationsController.prototype.resend,
       );
-      expect(metadata).toEqual([Role.SUPER_ADMIN]);
+      expect(metadata).toEqual({ resource: 'Invitation', action: 'Update' });
     });
 
-    it('should have SUPER_ADMIN role metadata on cancel endpoint', () => {
+    it('declares a permission on cancel', () => {
       const metadata = Reflect.getMetadata(
-        'roles',
+        'permission',
         InvitationsController.prototype.cancel,
       );
-      expect(metadata).toEqual([Role.SUPER_ADMIN]);
+      expect(metadata).toEqual({ resource: 'Invitation', action: 'Delete' });
     });
 
     it('should NOT have role metadata on validate (public endpoint)', () => {

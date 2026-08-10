@@ -13,7 +13,6 @@ import {
   MAX_KNOWLEDGE_UPLOAD_BYTES,
 } from '@repo/validation';
 import { useAgentEditor } from '../agent-editor-context';
-import { useProfile } from '@/hooks/use-profile';
 import { useExtractKnowledgeFile } from '@/hooks/use-agent-knowledge';
 
 const ACCEPT_MIME = '.pdf,.docx,.txt,.md,application/pdf,application/vnd.openxmlformats-officedocument.wordprocessingml.document,text/plain,text/markdown';
@@ -42,14 +41,10 @@ function formatBytes(bytes: number): string {
  *     The actual DELETE happens at Save time via the layout's handleSave.
  */
 export function KnowledgeSettings() {
-  const { profile } = useProfile();
   const { agent, formData, updateFormData } = useAgentEditor();
 
-  const isAdmin = profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
   const extract = useExtractKnowledgeFile(agent.id);
   const fileInputRef = useRef<HTMLInputElement>(null);
-
-  if (!isAdmin) return null;
 
   const content = formData.knowledgeContent;
   const sourceFileName = formData.knowledgeSourceFileName;

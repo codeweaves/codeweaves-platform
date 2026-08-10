@@ -1,9 +1,10 @@
 import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { PrismaService } from './prisma.service';
 import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import type { ConversationsListQuery } from '../models/conversations.dto';
+import { isOrgScoped } from '../utils/tenant-filter';
 
 /**
  * Conversations service — powers the dashboard "Conversations" page.
@@ -42,7 +43,7 @@ export class ConversationsService {
     query: { agentId?: string; agentIds?: string[]; orgId?: string },
     user: CurrentUserData,
   ): { agent: Prisma.AgentWhereInput; agentId?: Prisma.StringFilter } {
-    if (user.role === Role.CLIENT && !user.organizationId) {
+    if (isOrgScoped(user) && !user.organizationId) {
       throw new ForbiddenException('Client user must be associated with an organization');
     }
 
@@ -53,8 +54,8 @@ export class ConversationsService {
 
     const agent: Prisma.AgentWhereInput = {
       deletedAt: null,
-      ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
-      ...(user.role !== Role.CLIENT && query.orgId && { organizationId: query.orgId }),
+      ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
+      ...(!isOrgScoped(user) && query.orgId && { organizationId: query.orgId }),
     };
 
     return {

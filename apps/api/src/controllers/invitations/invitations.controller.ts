@@ -6,10 +6,8 @@ import {
   Body,
   Param,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { InvitationsService } from '../../services/invitations.service';
 import {
   CreateInvitationDto,
@@ -23,10 +21,10 @@ import {
   CurrentUser,
   CurrentUserData,
 } from '../../decorators/current-user.decorator';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { Public } from '../../decorators/public.decorator';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 @ApiTags('Invitations')
 @ApiBearerAuth()
@@ -35,8 +33,7 @@ export class InvitationsController {
   constructor(private readonly invitationsService: InvitationsService) {}
 
   @Post()
-  @Roles(Role.SUPER_ADMIN)
-  @UseGuards(RolesGuard)
+  @RequirePermission(Resource.Invitation, Action.Create)
   @ApiOperation({ summary: 'Create a new invitation' })
   @ApiResponse({ status: 201, description: 'Invitation created' })
   @ApiResponse({ status: 401, description: 'Unauthorized' })
@@ -54,13 +51,13 @@ export class InvitationsController {
   @ApiParam({ name: 'token', description: 'Invitation token' })
   @ApiResponse({ status: 200, description: 'Invitation details' })
   @ApiResponse({ status: 404, description: 'Invalid or expired token' })
+  @RequirePermission(Resource.Invitation, Action.Read)
   async validate(@Param('token') token: string) {
     return this.invitationsService.validate(token);
   }
 
   @Get()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN)
-  @UseGuards(RolesGuard)
+  @RequirePermission(Resource.Invitation, Action.Read)
   @ApiOperation({ summary: 'List all invitations' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
@@ -78,8 +75,7 @@ export class InvitationsController {
   }
 
   @Get(':id')
-  @Roles(Role.SUPER_ADMIN)
-  @UseGuards(RolesGuard)
+  @RequirePermission(Resource.Invitation, Action.Read)
   @ApiOperation({ summary: 'Get invitation by ID' })
   @ApiParam({ name: 'id', description: 'Invitation UUID' })
   @ApiResponse({ status: 200, description: 'Invitation details' })
@@ -89,8 +85,7 @@ export class InvitationsController {
   }
 
   @Post(':id/resend')
-  @Roles(Role.SUPER_ADMIN)
-  @UseGuards(RolesGuard)
+  @RequirePermission(Resource.Invitation, Action.Update)
   @ApiOperation({ summary: 'Resend an invitation' })
   @ApiParam({ name: 'id', description: 'Invitation UUID' })
   @ApiResponse({ status: 200, description: 'Invitation resent' })
@@ -100,8 +95,7 @@ export class InvitationsController {
   }
 
   @Delete(':id')
-  @Roles(Role.SUPER_ADMIN)
-  @UseGuards(RolesGuard)
+  @RequirePermission(Resource.Invitation, Action.Delete)
   @ApiOperation({ summary: 'Cancel an invitation' })
   @ApiParam({ name: 'id', description: 'Invitation UUID' })
   @ApiResponse({ status: 200, description: 'Invitation cancelled' })
@@ -115,6 +109,7 @@ export class InvitationsController {
   @ApiOperation({ summary: 'Reissue an expired invitation' })
   @ApiResponse({ status: 201, description: 'New invitation issued' })
   @ApiResponse({ status: 404, description: 'Reissue token not found' })
+  @RequirePermission(Resource.Invitation, Action.Create)
   async reissue(
     @Body(new ZodValidationPipe(reissueInvitationSchema)) dto: ReissueInvitationDto,
   ) {

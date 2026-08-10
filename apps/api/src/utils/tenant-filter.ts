@@ -1,8 +1,8 @@
 import { ForbiddenException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { AccessScope } from '@prisma/client';
 
 export interface TenantFilterUser {
-  role: Role;
+  accessScope: AccessScope;
   organizationId: string | null;
 }
 
@@ -11,15 +11,27 @@ export type TenantFilter =
   | { deletedAt: null };
 
 /**
+ * Is this account confined to a single organization?
+ *
+ * The one place tenant scope is decided. Every query that narrows rows by
+ * organization should ask this rather than comparing roles, so "which rows" and
+ * "which actions" stay separate concerns: a user can gain or lose roles without
+ * that ever changing what data they can see.
+ */
+export function isOrgScoped(user: TenantFilterUser): boolean {
+  return user.accessScope === AccessScope.ORG;
+}
+
+/**
  * Build a Prisma where-clause fragment that enforces tenant isolation.
  *
- * - CLIENT: returns { organizationId, deletedAt: null } (throws if no org)
- * - ADMIN / SUPER_ADMIN: returns { deletedAt: null } (no org filter, sees all)
+ * - ORG scope: { organizationId, deletedAt: null }, throwing when no org is set
+ * - PLATFORM scope: { deletedAt: null }, i.e. every organization
  *
  * Always excludes soft-deleted records.
  */
 export function buildTenantFilter(user: TenantFilterUser): TenantFilter {
-  if (user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) {
+  if (!isOrgScoped(user)) {
     return { deletedAt: null };
   }
 

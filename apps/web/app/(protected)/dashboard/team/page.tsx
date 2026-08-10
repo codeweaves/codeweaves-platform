@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useCurrentOrganization } from '@/hooks/use-current-organization';
 import { usePageHeader } from '@/components/layout/page-header';
 import { TeamMembersList } from '@/components/features/team/team-members-list';
@@ -11,17 +11,17 @@ import { InviteMemberDialog } from '@/components/features/team/invite-member-dia
 
 export default function TeamPage() {
   const router = useRouter();
-  const { profile, isLoading } = useProfile();
+  const { can, isLoading } = usePermissions();
   const { organization } = useCurrentOrganization();
   const { setTitle, setActions } = usePageHeader();
-  const isSuperAdmin = profile?.role === 'SUPER_ADMIN';
+  const isSuperAdmin = can('Invitation:Create');
   const canInvite = !!(organization || isSuperAdmin);
 
   useEffect(() => {
-    if (!isLoading && profile?.role === 'CLIENT') {
+    if (!isLoading && !can('Member:Read')) {
       router.replace('/dashboard');
     }
-  }, [isLoading, profile, router]);
+  }, [isLoading, can, router]);
 
   // Match the agents page layout: title + primary action live in the global
   // page header so they sit at the very top of the chrome.
@@ -37,7 +37,7 @@ export default function TeamPage() {
     return () => setActions(null);
   }, [canInvite, setActions]);
 
-  if (isLoading || profile?.role === 'CLIENT') {
+  if (isLoading || !can('Member:Read')) {
     return null;
   }
 

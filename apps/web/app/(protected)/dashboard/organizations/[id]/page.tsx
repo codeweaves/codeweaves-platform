@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react';
 import { useParams, useRouter } from 'next/navigation';
 import { AlertCircle, ArrowLeft, Calendar, Trash2, Users } from 'lucide-react';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useOrganization } from '@/hooks/use-organizations';
 import { Button } from '@/components/ui/button';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
@@ -21,22 +21,22 @@ function formatDate(dateString: string) {
 export default function OrganizationDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
-  const { profile, isLoading: profileLoading } = useProfile();
+  const { can, isLoading: profileLoading } = usePermissions();
   const { data: org, isLoading: orgLoading, isError } = useOrganization(params.id);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   // SUPER_ADMIN only — both ADMIN and SUPER_ADMIN are platform-level roles
   // (no org of their own), but rename/delete are intentionally narrowed to
   // SUPER_ADMIN to keep the destructive action gated.
-  const canDelete = profile?.role === 'SUPER_ADMIN';
+  const canDelete = can('Organization:Delete');
 
   useEffect(() => {
-    if (!profileLoading && profile?.role === 'CLIENT') {
+    if (!profileLoading && !can('Organization:ReadAll')) {
       router.replace('/dashboard');
     }
-  }, [profileLoading, profile, router]);
+  }, [profileLoading, can, router]);
 
-  if (profileLoading || profile?.role === 'CLIENT') {
+  if (profileLoading || !can('Organization:ReadAll')) {
     return null;
   }
 

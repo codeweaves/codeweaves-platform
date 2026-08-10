@@ -16,24 +16,23 @@ import {
   ApiResponse,
   ApiParam,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { OrganizationMembersService } from '../../services/organization-members.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { TenantGuard } from '../../guards/tenant.guard';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 @ApiTags('Organization Members')
 @ApiBearerAuth()
 @Controller('organizations/:orgId/members')
-@UseGuards(RolesGuard, TenantGuard)
+@UseGuards(TenantGuard)
 export class OrganizationMembersController {
   constructor(
     private readonly membersService: OrganizationMembersService,
   ) {}
 
   @Get()
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.Member, Action.Read)
   @ApiOperation({ summary: 'List organization members' })
   @ApiParam({ name: 'orgId', description: 'Organization UUID' })
   @ApiResponse({ status: 200, description: 'List of organization members' })
@@ -45,13 +44,13 @@ export class OrganizationMembersController {
     @CurrentUser() user: CurrentUserData,
   ) {
     return this.membersService.listMembers(orgId, {
-      role: user.role,
+      accessScope: user.accessScope,
       organizationId: user.organizationId,
     });
   }
 
   @Patch(':userId')
-  @Roles(Role.SUPER_ADMIN)
+  @RequirePermission(Resource.Member, Action.Manage)
   @ApiOperation({ summary: 'Assign user to organization' })
   @ApiParam({ name: 'orgId', description: 'Organization UUID' })
   @ApiParam({ name: 'userId', description: 'User UUID' })
@@ -68,7 +67,7 @@ export class OrganizationMembersController {
   }
 
   @Delete(':userId')
-  @Roles(Role.SUPER_ADMIN)
+  @RequirePermission(Resource.Member, Action.Manage)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove user from organization' })
   @ApiParam({ name: 'orgId', description: 'Organization UUID' })

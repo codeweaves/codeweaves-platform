@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { Reflector } from '@nestjs/core';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import type { UpdateDataFieldsDto } from '@repo/validation';
 import { AgentDataFieldsController } from '../../../src/controllers/agents/agent-data-fields.controller';
 import { AgentDataFieldsService } from '../../../src/services/agent-data-fields.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
 describe('AgentDataFieldsController', () => {
@@ -19,6 +19,10 @@ describe('AgentDataFieldsController', () => {
   const user = {
     id: 'u1',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: 'org1',
   } as CurrentUserData;
   const agentId = '11111111-1111-4111-8111-111111111111';
@@ -32,7 +36,7 @@ describe('AgentDataFieldsController', () => {
         Reflector,
       ],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .compile();
     controller = moduleRef.get(AgentDataFieldsController);

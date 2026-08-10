@@ -24,6 +24,8 @@ import {
   UnsupportedLanguageError,
   VoiceProviderError,
 } from './providers/voice-provider.interface';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 /** Per-user preview rate limit. The 24h response cache already bounds upstream API spend
  *  globally (each provider+voiceId+language is synthesized at most once per 24h), so this
@@ -43,6 +45,7 @@ export class VoicesController {
   constructor(private readonly voiceService: VoiceService) {}
 
   @Get()
+  @RequirePermission(Resource.Voice, Action.Read)
   @ApiOperation({ summary: 'List available TTS voices grouped by provider' })
   @ApiResponse({ status: 200, description: 'Provider catalog with voices' })
   async listVoices(): Promise<VoiceListResponseDto> {
@@ -58,7 +61,11 @@ export class VoicesController {
     };
   }
 
+  // Voice:Read, same as listing. Preview is not gated apart from the catalog
+  // yet; spend is bounded by the per-user window below and the 24h synthesis
+  // cache. A dedicated Voice:Preview row can be added in a later migration.
   @Post('preview')
+  @RequirePermission(Resource.Voice, Action.Read)
   @ApiOperation({ summary: 'Synthesize a short sample of a voice for preview' })
   @ApiResponse({ status: 200, description: 'Base64-encoded preview audio' })
   @ApiResponse({ status: 400, description: 'Invalid request' })

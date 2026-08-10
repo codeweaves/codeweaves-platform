@@ -2,6 +2,7 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { BadRequestException, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { InvitationsService } from '../../../src/services/invitations.service';
+import { PermissionCatalogService } from '../../../src/common/rbac/permission-catalog.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { EmailService } from '../../../src/services/email.service';
 import { EmailTemplateService } from '../../../src/services/email-template.service';
@@ -52,10 +53,13 @@ describe('InvitationsService', () => {
     revokeInvitation: jest.fn(),
   };
 
+  // A stored row carries both: roleKeys is what signup provisions from, and the
+  // legacy `role` is still written so pre-RBAC pending invitations stay readable.
   const mockInvitation = {
     id: 'inv-uuid-1',
     email: 'new@example.com',
     role: Role.CLIENT,
+    roleKeys: ['org.owner'],
     organizationId: 'org-uuid-1',
     token: 'token-uuid-1',
     reissueToken: 'reissue-uuid-1',
@@ -80,6 +84,16 @@ describe('InvitationsService', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         InvitationsService,
+        {
+          provide: PermissionCatalogService,
+          useValue: {
+            // Mirrors the seeded catalog closely enough for the scope checks.
+            getRole: (key: string) =>
+              key.startsWith('org.')
+                ? { key, orgAllowed: true, clientGrantable: key !== 'org.owner' }
+                : { key, orgAllowed: false, clientGrantable: false },
+          },
+        },
         { provide: PrismaService, useValue: mockPrisma },
         { provide: EmailService, useValue: mockEmailService },
         { provide: EmailTemplateService, useValue: mockEmailTemplates },
@@ -127,7 +141,7 @@ describe('InvitationsService', () => {
   describe('create', () => {
     const createDto = {
       email: 'new@example.com',
-      role: Role.CLIENT,
+      roleKeys: ['org.owner'],
       organizationId: 'org-uuid-1',
     };
 
@@ -142,7 +156,7 @@ describe('InvitationsService', () => {
       expect(mockPrisma.userInvitation.create).toHaveBeenCalledWith({
         data: expect.objectContaining({
           email: 'new@example.com',
-          role: Role.CLIENT,
+          roleKeys: ['org.owner'],
           organizationId: 'org-uuid-1',
           invitedBy: 'user-uuid-1',
         }),

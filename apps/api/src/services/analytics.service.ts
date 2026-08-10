@@ -1,10 +1,11 @@
 import { Injectable, ForbiddenException } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import type { AnalyticsQuery, AgentAnalyticsQuery, ExportLogBody } from '../models/analytics.dto';
 import { startOfDayUtc, startOfNextDayUtc, isValidIanaTimezone } from '../utils/date-range';
+import { isOrgScoped } from '../utils/tenant-filter';
 
 /**
  * Outliers are detected DYNAMICALLY per metric using Tukey's interquartile
@@ -66,7 +67,7 @@ export class AnalyticsService {
     query: { agentId?: string; agentIds?: string[]; orgId?: string; orgIds?: string[] },
     user: CurrentUserData,
   ): Promise<string[]> {
-    if (user.role === Role.CLIENT && !user.organizationId) {
+    if (isOrgScoped(user) && !user.organizationId) {
       throw new ForbiddenException('Client user must be associated with an organization');
     }
 
@@ -82,8 +83,8 @@ export class AnalyticsService {
 
     const agentFilter: Prisma.AgentWhereInput = {
       deletedAt: null,
-      ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
-      ...(user.role !== Role.CLIENT && orgIdList.length > 0 && {
+      ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
+      ...(!isOrgScoped(user) && orgIdList.length > 0 && {
         organizationId: { in: orgIdList },
       }),
       ...(agentIdList.length > 0 && { id: { in: agentIdList } }),

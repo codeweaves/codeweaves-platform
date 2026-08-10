@@ -10,12 +10,10 @@ import {
   Post,
   Put,
   UploadedFile,
-  UseGuards,
   UseInterceptors,
 } from '@nestjs/common';
 import { FileInterceptor } from '@nestjs/platform-express';
 import { ApiOperation, ApiResponse, ApiTags } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import {
   MAX_KNOWLEDGE_UPLOAD_BYTES,
   updateKnowledgeSchema,
@@ -26,29 +24,28 @@ import {
   CurrentUser,
   type CurrentUserData,
 } from '../../decorators/current-user.decorator';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { AgentKnowledgeService } from '../../services/agent-knowledge.service';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 /**
  * Agent knowledge base management (non-RAG: static text prepended to system
  * prompt). Full RAG pipeline (with chunking + embeddings) ships in Phase 3
  * under a different endpoint family.
  *
- * Auth: ADMIN / SUPER_ADMIN / CLIENT. RolesGuard gates the route; the service
+ * Auth: ADMIN / SUPER_ADMIN / CLIENT. PermissionGuard gates the route; the service
  * org-scopes every method via assertAgentAccess, so a CLIENT only ever reaches
  * their own organisation's agents (a foreign agent 404s) — mirrors
  * AgentThemesController / AgentDataFieldsController.
  */
 @ApiTags('Agents')
-@UseGuards(RolesGuard)
 @Controller('agents/:agentId/knowledge')
 export class AgentKnowledgeController {
   constructor(private readonly knowledgeService: AgentKnowledgeService) {}
 
   @Get()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.AgentKnowledge, Action.Read)
   @ApiOperation({ summary: 'Fetch the agent\'s current knowledge content.' })
   @ApiResponse({ status: 200, description: 'Knowledge record or null.' })
   async get(
@@ -59,7 +56,7 @@ export class AgentKnowledgeController {
   }
 
   @Put()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.AgentKnowledge, Action.Update)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -80,7 +77,7 @@ export class AgentKnowledgeController {
   }
 
   @Post('extract')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.AgentKnowledge, Action.Update)
   @HttpCode(HttpStatus.OK)
   @ApiOperation({
     summary:
@@ -110,7 +107,7 @@ export class AgentKnowledgeController {
   }
 
   @Delete()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.AgentKnowledge, Action.Delete)
   @HttpCode(HttpStatus.NO_CONTENT)
   @ApiOperation({ summary: 'Remove the agent\'s knowledge content.' })
   @ApiResponse({ status: 204, description: 'Knowledge removed (or never existed).' })

@@ -2,7 +2,7 @@
 
 import { useEffect } from 'react';
 import { useRouter } from 'next/navigation';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { usePageHeader } from '@/components/layout/page-header';
 import { EmailTemplateEditor } from '@/components/features/email-templates/email-template-editor';
 
@@ -15,15 +15,15 @@ import { EmailTemplateEditor } from '@/components/features/email-templates/email
  */
 export default function UtilitiesEmailPage() {
   const router = useRouter();
-  const { profile, isLoading } = useProfile();
+  const { can, isLoading } = usePermissions();
   const { setTitle } = usePageHeader();
-  const isSuperAdmin = profile?.role === 'SUPER_ADMIN';
+  const isSuperAdmin = can('EmailTemplate:Update');
 
   useEffect(() => {
-    if (!isLoading && profile && !isSuperAdmin) {
+    if (!isLoading && !isSuperAdmin) {
       router.replace('/dashboard');
     }
-  }, [isLoading, profile, isSuperAdmin, router]);
+  }, [isLoading, isSuperAdmin, router]);
 
   useEffect(() => {
     setTitle('Email Templates');

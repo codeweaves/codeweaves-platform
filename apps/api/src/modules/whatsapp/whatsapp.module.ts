@@ -24,7 +24,7 @@ import { WhatsappWebhookController } from './whatsapp-webhook.controller';
  *   AgentsModule→ AgentsService (org-scoped authorization for the dashboard)
  *   AiModule    → DirectChatService (the buffered LLM turn)
  *   VoiceModule → VoiceService (transcribes inbound voice notes)
- * CryptoService (token encryption) and RbacService (RolesGuard) are global.
+ * CryptoService (token encryption) is global; authorization is the global PermissionGuard.
  */
 @Module({
   imports: [PrismaModule, ChatModule, AgentsModule, AiModule, VoiceModule, WhatsappSendModule],

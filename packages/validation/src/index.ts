@@ -110,11 +110,24 @@ export const organizationSummarySchema = z.object({
 
 export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
 
+export const accessScopeEnum = z.enum(['PLATFORM', 'ORG']);
+export type AccessScope = z.infer<typeof accessScopeEnum>;
+
 export const userProfileResponseSchema = z.object({
   id: z.string().uuid(),
   email: z.string().email(),
   name: z.string().nullable(),
   role: roleEnum,
+  /** Which rows this account may touch. PLATFORM = all orgs, ORG = its own. */
+  accessScope: accessScopeEnum,
+  /** Roles held. The UI shows these; it never decides anything from them. */
+  roleKeys: z.array(z.string()),
+  /**
+   * Everything the held roles add up to, computed server-side. The client reads
+   * this and never re-implements a rule, which is what stopped the six inline
+   * role comparisons from drifting out of sync with the API.
+   */
+  permissions: z.array(z.string()),
   organization: organizationSummarySchema.nullable(),
   createdAt: z.coerce.date(),
   updatedAt: z.coerce.date(),

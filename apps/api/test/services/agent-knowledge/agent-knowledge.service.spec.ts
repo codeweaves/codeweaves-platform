@@ -5,7 +5,7 @@ import {
   PayloadTooLargeException,
   UnsupportedMediaTypeException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { AgentKnowledgeService } from '../../../src/services/agent-knowledge.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
@@ -32,11 +32,19 @@ describe('AgentKnowledgeService', () => {
   const adminUser = {
     id: 'u1',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: 'org1',
   } as CurrentUserData;
   const clientUser = {
     id: 'u2',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: 'org2',
   } as CurrentUserData;
 

@@ -7,29 +7,26 @@ import {
   Body,
   Param,
   ParseUUIDPipe,
-  UseGuards,
   Res,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import type { Response } from 'express';
 import { AgentThemesService } from '../../services/agent-themes.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import { widgetThemeSchema, partialWidgetThemeSchema } from '../../models/agent-theme.dto';
 import type { WidgetTheme, PartialWidgetTheme } from '../../models/agent-theme.dto';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 @ApiTags('Agent Themes')
 @ApiBearerAuth()
 @Controller('agents/:id/theme')
-@UseGuards(RolesGuard)
 export class AgentThemesController {
   constructor(private readonly themesService: AgentThemesService) {}
 
   @Get()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.AgentTheme, Action.Read)
   @ApiOperation({ summary: 'Get agent theme configuration' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Theme configuration with version' })
@@ -47,7 +44,7 @@ export class AgentThemesController {
   }
 
   @Put()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.AgentTheme, Action.Update)
   @ApiOperation({ summary: 'Replace full agent theme configuration' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Theme updated' })
@@ -64,7 +61,7 @@ export class AgentThemesController {
   }
 
   @Patch()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.AgentTheme, Action.Update)
   @ApiOperation({ summary: 'Partially update agent theme configuration' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Theme patched' })
@@ -81,7 +78,7 @@ export class AgentThemesController {
   }
 
   @Post('reset')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.AgentTheme, Action.Update)
   @ApiOperation({ summary: 'Reset agent theme to defaults' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Theme reset to defaults' })

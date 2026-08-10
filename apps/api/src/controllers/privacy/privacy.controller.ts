@@ -7,15 +7,14 @@ import {
   Param,
   ParseUUIDPipe,
   Query,
-  UseGuards,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { CurrentUser } from '../../decorators/current-user.decorator';
 import type { CurrentUserData } from '../../decorators/current-user.decorator';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { PurgeService } from '../../services/purge.service';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
+import { isOrgScoped } from '../../utils/tenant-filter';
 
 /**
  * Privacy / data-subject-rights endpoints (DPDP S2 — erasure engine).
@@ -26,7 +25,6 @@ import { PurgeService } from '../../services/purge.service';
 @ApiTags('Privacy')
 @ApiBearerAuth()
 @Controller('privacy')
-@UseGuards(RolesGuard)
 export class PrivacyController {
   constructor(private readonly purgeService: PurgeService) {}
 
@@ -37,7 +35,7 @@ export class PrivacyController {
    */
   private resolveOrgScope(user: CurrentUserData, orgId?: string): string {
     const organizationId =
-      user.role === Role.CLIENT ? user.organizationId : (orgId ?? user.organizationId);
+      isOrgScoped(user) ? user.organizationId : (orgId ?? user.organizationId);
     if (!organizationId) {
       throw new BadRequestException('orgId is required');
     }
@@ -49,7 +47,7 @@ export class PrivacyController {
    * sessions, captured lead fields, operational record counts, purposes.
    */
   @Get('visitors/:visitorId/summary')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.Privacy, Action.Read)
   @ApiOperation({ summary: "Summarize a visitor's stored data (right to access)" })
   @ApiParam({ name: 'visitorId', description: 'Stored visitor identifier: vh_… hash (web) or phone (WhatsApp)' })
   @ApiQuery({ name: 'orgId', required: false, description: 'Target org (ADMIN/SUPER_ADMIN only; CLIENT is pinned to their own org)' })
@@ -70,7 +68,7 @@ export class PrivacyController {
    * the "right to erasure" path, run on a verified data-principal request.
    */
   @Delete('visitors/:visitorId')
-  @Roles(Role.SUPER_ADMIN, Role.ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.Privacy, Action.Delete)
   @ApiOperation({ summary: "Erase a visitor's data within an organization (right to erasure)" })
   @ApiParam({ name: 'visitorId', description: 'Stored visitor identifier: vh_… hash (web) or phone (WhatsApp)' })
   @ApiQuery({ name: 'orgId', required: false, description: 'Target org (ADMIN/SUPER_ADMIN only; CLIENT is pinned to their own org)' })
@@ -93,7 +91,7 @@ export class PrivacyController {
    * deliberate double-entry (no one-click catastrophes).
    */
   @Delete('organizations/:orgId')
-  @Roles(Role.SUPER_ADMIN)
+  @RequirePermission(Resource.Privacy, Action.DeleteOrg)
   @ApiOperation({ summary: 'Hard-delete an organization and its complete data footprint (irreversible)' })
   @ApiParam({ name: 'orgId', description: 'Organization UUID' })
   @ApiQuery({ name: 'confirm', required: true, description: 'Must exactly repeat the organization UUID' })

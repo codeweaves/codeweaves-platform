@@ -16,6 +16,7 @@ import { Role } from '@prisma/client';
 import { ConfigService } from '@nestjs/config';
 
 import { UsersService } from '../../src/services/users.service';
+import { PermissionCatalogService } from '../../src/common/rbac/permission-catalog.service';
 import { OrganizationsService } from '../../src/services/organizations.service';
 import { InvitationsService } from '../../src/services/invitations.service';
 import { PrismaService } from '../../src/services/prisma.service';
@@ -106,6 +107,18 @@ describe('Tenant Isolation — Evil Twin', () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
         UsersService,
+        {
+          // Shared by UsersService (profile permissions) and InvitationsService
+          // (validating the roles an invite carries).
+          provide: PermissionCatalogService,
+          useValue: {
+            resolvePermissions: () => new Set<string>(),
+            getRole: (key: string) =>
+              key.startsWith('org.')
+                ? { key, orgAllowed: true, clientGrantable: key !== 'org.owner' }
+                : { key, orgAllowed: false, clientGrantable: false },
+          },
+        },
         OrganizationsService,
         InvitationsService,
         { provide: PrismaService, useValue: mockPrisma },
@@ -405,7 +418,7 @@ describe('Tenant Isolation — Evil Twin', () => {
       await invitationsService.create(
         {
           email: 'newuser@acme.test',
-          role: Role.CLIENT,
+          roleKeys: ['org.owner'],
           organizationId: orgAData.org.id,
         },
         orgAData.admin.id,
@@ -438,7 +451,7 @@ describe('Tenant Isolation — Evil Twin', () => {
       await invitationsService.create(
         {
           email: 'newuser@evil.test',
-          role: Role.CLIENT,
+          roleKeys: ['org.owner'],
           organizationId: orgBData.org.id,
         },
         orgBData.admin.id,

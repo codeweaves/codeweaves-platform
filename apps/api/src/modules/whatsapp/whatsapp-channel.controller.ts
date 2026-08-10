@@ -7,7 +7,6 @@ import {
   Body,
   Param,
   ParseUUIDPipe,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -19,13 +18,10 @@ import {
   ApiParam,
 } from '@nestjs/swagger';
 
-import { Resource, Action } from '../../common/rbac/rbac.types';
 import {
   CurrentUser,
   CurrentUserData,
 } from '../../decorators/current-user.decorator';
-import { RequirePermission } from '../../decorators/require-permission.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 
 import {
@@ -35,10 +31,12 @@ import {
   type UpdateWhatsappChannelDto,
 } from './whatsapp-channel.dto';
 import { WhatsappChannelService } from './whatsapp-channel.service';
+import { Resource, Action } from '../../common/rbac/rbac.types';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
 
 /**
  * Dashboard endpoints to connect / inspect / disconnect an agent's WhatsApp
- * number. Authenticated (global JWT guard) + RBAC (RolesGuard + RequirePermission).
+ * number. Authenticated (global JWT guard) + RBAC (global PermissionGuard + RequirePermission).
  * Authorization that the agent belongs to the caller's org is enforced in the
  * service via AgentsService.findById.
  *
@@ -47,7 +45,6 @@ import { WhatsappChannelService } from './whatsapp-channel.service';
 @ApiTags('WhatsApp Channel')
 @ApiBearerAuth()
 @Controller('agents/:agentId/whatsapp')
-@UseGuards(RolesGuard)
 export class WhatsappChannelController {
   constructor(private readonly channelService: WhatsappChannelService) {}
 

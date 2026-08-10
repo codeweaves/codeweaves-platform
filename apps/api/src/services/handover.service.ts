@@ -22,6 +22,7 @@ import { AppLogger } from '../common/logger/app-logger';
 import { InternalEventLogger } from '../common/events/internal.logger';
 import { TracerService } from '../common/tracer/tracer.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
+import { isOrgScoped } from '../utils/tenant-filter';
 
 /**
  * Matches an explicit "I want a human" intent. Cheap + synchronous — runs on
@@ -423,7 +424,7 @@ export class HandoverService {
       where: {
         deletedAt: null,
         humanTakeoverEnabled: true,
-        ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
+        ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
       },
     });
     return { enabled: count > 0 };
@@ -729,7 +730,7 @@ export class HandoverService {
   // ---------------------------------------------------------------------------
 
   private assertClientHasOrg(user: CurrentUserData): void {
-    if (user.role === Role.CLIENT && !user.organizationId) {
+    if (isOrgScoped(user) && !user.organizationId) {
       throw new ForbiddenException('Client user must be associated with an organization');
     }
   }
@@ -740,8 +741,8 @@ export class HandoverService {
   ): Prisma.AgentWhereInput {
     return {
       deletedAt: null,
-      ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
-      ...(user.role !== Role.CLIENT && query.orgId && { organizationId: query.orgId }),
+      ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
+      ...(!isOrgScoped(user) && query.orgId && { organizationId: query.orgId }),
       ...(query.agentId && { id: query.agentId }),
     };
   }
@@ -753,7 +754,7 @@ export class HandoverService {
         sessionId: publicSessionId,
         agent: {
           deletedAt: null,
-          ...(user.role === Role.CLIENT && { organizationId: user.organizationId! }),
+          ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
         },
       },
       include: {

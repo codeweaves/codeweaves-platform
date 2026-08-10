@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
 import { NotFoundException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { NotificationService } from '../../../src/services/notification.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { RealtimeService } from '../../../src/services/realtime.service';
@@ -37,6 +37,10 @@ describe('NotificationService', () => {
     email: 'client@test.com',
     id: 'client-user-id',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Test Org', slug: 'test-org' },
   };
@@ -47,6 +51,10 @@ describe('NotificationService', () => {
     ...clientUser,
     id: 'platform-user-id',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
     organizationId: null,
     organization: null,
   };
@@ -57,6 +65,10 @@ describe('NotificationService', () => {
     ...clientUser,
     id: 'client-no-org',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: null,
     organization: null,
   };

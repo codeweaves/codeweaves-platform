@@ -10,10 +10,11 @@ import { PrismaService } from './prisma.service';
 import { EmailService } from './email.service';
 import { EmailTemplateService } from './email-template.service';
 import { ClerkManagementService } from './clerk-management.service';
-import { InvitationStatus, Prisma } from '@prisma/client';
+import { InvitationStatus, Prisma, Role } from '@prisma/client';
 import { CreateInvitationDto, InvitationListQuery } from '../models/invitation.dto';
 import { InvitationLoggerService } from '../common/logger/invitation.logger';
 import { AppLogger } from '../common/logger/app-logger';
+import { PermissionCatalogService } from '../common/rbac/permission-catalog.service';
 
 const INVITATION_EXPIRY_DAYS = 7;
 const MAX_REISSUE_COUNT = 5;
@@ -29,14 +30,39 @@ export class InvitationsService {
     private configService: ConfigService,
     private clerkManagement: ClerkManagementService,
     private readonly invitationLogger: InvitationLoggerService,
+    private readonly catalog: PermissionCatalogService,
   ) {}
 
   async create(dto: CreateInvitationDto, invitedById: string) {
     const email = dto.email.toLowerCase();
     this.log.debug('create', 'creating invitation', {
-      role: dto.role,
+      roleKeys: dto.roleKeys,
       organizationId: dto.organizationId ?? null,
     });
+
+    // Every requested role must exist. A typo would otherwise create an invite
+    // that provisions an account with fewer roles than intended, silently.
+    const unknown = dto.roleKeys.filter((k) => !this.catalog.getRole(k));
+    if (unknown.length > 0) {
+      throw new BadRequestException(`Unknown role(s): ${unknown.join(', ')}`);
+    }
+
+    // An org-scoped invite may only carry roles an ORG account can hold.
+    const isOrgInvite = dto.roleKeys.every((k) => k.startsWith('org.'));
+    if (isOrgInvite) {
+      const platformOnly = dto.roleKeys.filter(
+        (k) => !this.catalog.getRole(k)?.orgAllowed,
+      );
+      if (platformOnly.length > 0) {
+        throw new BadRequestException(
+          `Not available to organization users: ${platformOnly.join(', ')}`,
+        );
+      }
+    }
+
+    // The legacy tier is still written so a pending invitation remains readable
+    // by anything that has not moved to roleKeys yet.
+    const legacyRole = isOrgInvite ? Role.CLIENT : Role.SUPER_ADMIN;
 
     // Check if email already registered
     const existingUser = await this.prisma.user.findUnique({
@@ -63,7 +89,8 @@ export class InvitationsService {
       const invitation = await this.prisma.userInvitation.create({
         data: {
           email,
-          role: dto.role,
+          role: legacyRole,
+          roleKeys: dto.roleKeys,
           organizationId: dto.organizationId ?? null,
           invitedBy: invitedById,
           expiresAt: new Date(

@@ -1,17 +1,17 @@
 'use client';
 
 import { useEffect } from 'react';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { usePageHeader } from '@/components/layout/page-header';
 import { AgentsDataTable } from '@/components/features/agents/agents-data-table';
 import { CreateAgentDialog } from '@/components/features/agents/create-agent-dialog';
 
 export default function AgentsPage() {
-  const { profile, isLoading } = useProfile();
+  const { can, isLoading } = usePermissions();
   const { setTitle, setActions } = usePageHeader();
 
-  const isAdmin =
-    profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  // Only the create affordance is gated here; listing is gated by the API.
+  const isAdmin = can('Agent:Create');
 
   useEffect(() => {
     setTitle('Agents');

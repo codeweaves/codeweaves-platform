@@ -1,11 +1,8 @@
-import { Controller, Get, Patch, Param, Body, UseGuards } from '@nestjs/common';
+import { Controller, Get, Patch, Param, Body } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { EmailTemplateService } from '../../services/email-template.service';
 import type { EmailTemplateKey } from '../../services/email-template.registry';
 import { TracerService } from '../../common/tracer/tracer.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import {
@@ -16,6 +13,8 @@ import type {
   EmailTemplateKeyParams,
   UpdateEmailTemplateDto,
 } from '../../models/email-template.dto';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 /**
  * Utilities → Email. Lets the founders change transactional email copy without
@@ -31,8 +30,6 @@ import type {
 @ApiTags('Email Templates')
 @ApiBearerAuth()
 @Controller('email-templates')
-@UseGuards(RolesGuard)
-@Roles(Role.SUPER_ADMIN)
 export class EmailTemplatesController {
   constructor(
     private readonly templates: EmailTemplateService,
@@ -42,6 +39,7 @@ export class EmailTemplatesController {
   @Get()
   @ApiOperation({ summary: 'List editable email templates' })
   @ApiResponse({ status: 200, description: 'Templates (without html bodies)' })
+  @RequirePermission(Resource.EmailTemplate, Action.Read)
   async list() {
     return this.templates.listForEditor();
   }
@@ -50,6 +48,7 @@ export class EmailTemplatesController {
   @ApiOperation({ summary: 'One template with its html + allowed variables' })
   @ApiParam({ name: 'key', example: 'HANDOVER_REQUESTED' })
   @ApiResponse({ status: 200, description: 'Template + variable descriptors' })
+  @RequirePermission(Resource.EmailTemplate, Action.Read)
   async get(
     @Param(new ZodValidationPipe(emailTemplateKeyParamsSchema)) params: EmailTemplateKeyParams,
   ) {
@@ -60,6 +59,7 @@ export class EmailTemplatesController {
   @ApiOperation({ summary: 'Update a template subject + html' })
   @ApiParam({ name: 'key', example: 'HANDOVER_REQUESTED' })
   @ApiResponse({ status: 200, description: 'Updated template' })
+  @RequirePermission(Resource.EmailTemplate, Action.Update)
   async update(
     @Param(new ZodValidationPipe(emailTemplateKeyParamsSchema)) params: EmailTemplateKeyParams,
     @Body(new ZodValidationPipe(updateEmailTemplateSchema)) body: UpdateEmailTemplateDto,

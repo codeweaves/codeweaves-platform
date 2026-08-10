@@ -282,32 +282,69 @@ function AgentEditorContent() {
         return;
       }
 
-      const payload: Record<string, unknown> = {
-        name: formData.name,
-        systemPrompt: formData.systemPrompt || null,
-        welcomeMessage: formData.welcomeMessage || null,
-        allowedDomains: formData.allowedDomains,
-        voiceEnabled: formData.voiceEnabled,
-        voiceConfig: formData.voiceConfig,
-        // Whole aiConfig blob. Backend's `agentAiConfigUpdateSchema` is partial,
-        // so sending the full object is safe — each field is validated
-        // independently. Defaults are re-applied server-side on read.
-        aiConfig: formData.aiConfig,
-        categoryKeywords: formData.categoryKeywords,
-        supportedLanguages: formData.supportedLanguages,
-        sessionLifetimeHours: formData.sessionLifetimeHours,
-        fallbackPhrases: formData.fallbackPhrases,
-        humanTakeoverEnabled: formData.humanTakeoverEnabled,
-        showTalkToHumanButton: formData.showTalkToHumanButton,
-        humanConnectedLabel: formData.humanConnectedLabel.trim() || null,
-        handoverEmailEnabled: formData.handoverEmailEnabled,
-        handoverEmailRecipients: formData.handoverEmailRecipients,
+      /**
+       * Send ONLY the fields that actually changed.
+       *
+       * This used to send all of them on every save, which broke the moment the
+       * editor's sections became separately grantable roles: the payload always
+       * contained `systemPrompt` and the handover flags, so someone holding only
+       * `org.agent_editor` got a 403 for touching a colour. The server checks
+       * permissions per field, so an untouched section must not appear at all.
+       *
+       * It is also just better: no clobbering a field a teammate changed while
+       * this editor was open.
+       */
+      const payload: Record<string, unknown> = {};
+      const putIfChanged = (
+        key: string,
+        current: unknown,
+        saved: unknown,
+        value: unknown = current,
+      ) => {
+        // JSON compare so arrays and the config blobs work the same as scalars.
+        if (JSON.stringify(current) !== JSON.stringify(saved)) payload[key] = value;
       };
 
-      // Save agent config, webhook, and theme in parallel
-      const promises: Promise<unknown>[] = [
-        updateAgent.mutateAsync({ id: agent.id, data: payload }),
-      ];
+      putIfChanged('name', formData.name, savedFormData.name);
+      putIfChanged(
+        'systemPrompt',
+        formData.systemPrompt,
+        savedFormData.systemPrompt,
+        formData.systemPrompt || null,
+      );
+      putIfChanged(
+        'welcomeMessage',
+        formData.welcomeMessage,
+        savedFormData.welcomeMessage,
+        formData.welcomeMessage || null,
+      );
+      putIfChanged('allowedDomains', formData.allowedDomains, savedFormData.allowedDomains);
+      putIfChanged('voiceEnabled', formData.voiceEnabled, savedFormData.voiceEnabled);
+      putIfChanged('voiceConfig', formData.voiceConfig, savedFormData.voiceConfig);
+      // Whole aiConfig blob. Backend's `agentAiConfigUpdateSchema` is partial, so
+      // sending the full object is safe — each field is validated independently.
+      putIfChanged('aiConfig', formData.aiConfig, savedFormData.aiConfig);
+      putIfChanged('categoryKeywords', formData.categoryKeywords, savedFormData.categoryKeywords);
+      putIfChanged('supportedLanguages', formData.supportedLanguages, savedFormData.supportedLanguages);
+      putIfChanged('sessionLifetimeHours', formData.sessionLifetimeHours, savedFormData.sessionLifetimeHours);
+      putIfChanged('fallbackPhrases', formData.fallbackPhrases, savedFormData.fallbackPhrases);
+      putIfChanged('humanTakeoverEnabled', formData.humanTakeoverEnabled, savedFormData.humanTakeoverEnabled);
+      putIfChanged('showTalkToHumanButton', formData.showTalkToHumanButton, savedFormData.showTalkToHumanButton);
+      putIfChanged(
+        'humanConnectedLabel',
+        formData.humanConnectedLabel,
+        savedFormData.humanConnectedLabel,
+        formData.humanConnectedLabel.trim() || null,
+      );
+      putIfChanged('handoverEmailEnabled', formData.handoverEmailEnabled, savedFormData.handoverEmailEnabled);
+      putIfChanged('handoverEmailRecipients', formData.handoverEmailRecipients, savedFormData.handoverEmailRecipients);
+
+      // Save agent config, webhook, and theme in parallel. Skip the agent PATCH
+      // entirely when only a sub-resource (theme, knowledge, fields) changed.
+      const promises: Promise<unknown>[] = [];
+      if (Object.keys(payload).length > 0) {
+        promises.push(updateAgent.mutateAsync({ id: agent.id, data: payload }));
+      }
 
       if (formData.webhookUrl !== savedFormData.webhookUrl) {
         promises.push(

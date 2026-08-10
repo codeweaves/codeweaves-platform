@@ -18,6 +18,15 @@ enum Role {
   CLIENT
 }
 
+/// Which ROWS an account may touch. Orthogonal to what it may DO, which comes
+/// from its roles. PLATFORM sees every organization; ORG sees only its own via
+/// User.organizationId. This is the tenant-scoping discriminator that
+/// `User.role == CLIENT` used to serve, split out so "role" means one thing.
+enum AccessScope {
+  PLATFORM
+  ORG
+}
+
 enum AgentStatus {
   ACTIVE
   INACTIVE
@@ -154,42 +163,51 @@ enum WhatsappTemplateStatus {
 }
 
 model Organization {
-  id            String         @id @default(uuid())
-  name          String
-  slug          String         @unique
-  users         User[]
-  agents        Agent[]
-  notifications Notification[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
-  deletedAt     DateTime?
+  id              String               @id @default(uuid())
+  name            String
+  slug            String               @unique
+  users           User[]
+  agents          Agent[]
+  notifications   Notification[]
+  roleAssignments UserRoleAssignment[]
+  createdAt       DateTime             @default(now())
+  updatedAt       DateTime             @updatedAt
+  deletedAt       DateTime?
 
   @@index([slug])
   @@map("organizations")
 }
 
 model User {
-  id                  String             @id @default(uuid())
-  email               String             @unique
-  name                String?
-  role                Role               @default(CLIENT)
-  clerkId             String?            @unique
-  organizationId      String?
-  organization        Organization?      @relation(fields: [organizationId], references: [id])
+  id                      String               @id @default(uuid())
+  email                   String               @unique
+  name                    String?
+  /// DEPRECATED as an authorization input. Still written at signup from the
+  /// invitation and still read by the legacy @Roles path. Capabilities now come
+  /// from roleAssignments and row scope from accessScope. Dropped once the last
+  /// @Roles call site is gone.
+  role                    Role                 @default(CLIENT)
+  /// Which rows this account may touch. Backfilled from `role`:
+  /// SUPER_ADMIN/ADMIN -> PLATFORM, CLIENT -> ORG.
+  accessScope             AccessScope          @default(ORG)
+  roleAssignments         UserRoleAssignment[]
+  clerkId                 String?              @unique
+  organizationId          String?
+  organization            Organization?        @relation(fields: [organizationId], references: [id])
   // Chat sessions this user has taken over in the live-handover Inbox.
-  takenOverSessions   ChatSession[]      @relation("SessionTakenOverBy")
+  takenOverSessions       ChatSession[]        @relation("SessionTakenOverBy")
   // Handover cycles this user took over (history/analytics; see HandoverEvent).
-  handoverEventsTakenOver HandoverEvent[] @relation("HandoverEventTakenOverBy")
+  handoverEventsTakenOver HandoverEvent[]      @relation("HandoverEventTakenOverBy")
   // Cursor powering the notification-bell BADGE: set to now() when the panel is
   // opened. Unread count = notifications in my org created after this — a single
   // indexed count with no join, cheap enough to hit on every page load. Per-item
   // "which ones are bold" lives in NotificationRead and is only read when the
   // panel is actually open.
-  notificationsSeenAt DateTime?
-  notificationReads   NotificationRead[]
-  deletedAt           DateTime?
-  createdAt           DateTime           @default(now())
-  updatedAt           DateTime           @updatedAt
+  notificationsSeenAt     DateTime?
+  notificationReads       NotificationRead[]
+  deletedAt               DateTime?
+  createdAt               DateTime             @default(now())
+  updatedAt               DateTime             @updatedAt
 
   @@index([organizationId])
   @@index([clerkId])
@@ -199,7 +217,13 @@ model User {
 model UserInvitation {
   id                String           @id @default(uuid())
   email             String
+  /// Legacy tier. Still written so pending invitations created before roleKeys
+  /// existed keep resolving; new invitations set roleKeys instead.
   role              Role             @default(CLIENT)
+  /// Roles the invited account starts with, chosen when the invite is sent.
+  /// Empty means fall back to the legacy mapping from `role` (startingRolesFor
+  /// in users.service), which is what pending pre-RBAC invitations still use.
+  roleKeys          String[]         @default([])
   organizationId    String?
   token             String           @unique @default(uuid())
   reissueToken      String           @unique @default(uuid())
@@ -949,4 +973,96 @@ model EmailTemplate {
   updatedBy   String?
 
   @@map("email_templates")
+}
+
+// ---------------------------------------------------------------------------
+// RBAC
+//
+// A user holds ANY NUMBER of roles; their permissions are the UNION. Overlapping
+// roles are normal and dedupe. Rows here are SEEDED BY MIGRATION and the API
+// exposes no create/update/delete for them: changing what a role means is a PR,
+// not a runtime action.
+//
+// Two flags gate what an ORG-scope account may ever reach, both defaulting to
+// false so a newly added permission is invisible to orgs until a migration
+// deliberately opens it. DB triggers (see the migration) enforce them, because a
+// flag that only app code respects is documentation, not a control.
+//
+// Naming: these would read better as `Role`/`RolePermission`, but `enum Role`
+// already exists in this schema. The Prisma models carry an `App` prefix and
+// @@map to the plain table names, so SQL stays clean.
+// ---------------------------------------------------------------------------
+
+/// One atomic capability, e.g. 'Agent:Update'. The key is what a
+/// @RequirePermission decorator names; the boot-time route assertion fails the
+/// app if a decorator references a key with no row here.
+model Permission {
+  key         String   @id @db.VarChar(80)
+  resource    String   @db.VarChar(40)
+  action      String   @db.VarChar(20)
+  description String?  @db.VarChar(300)
+  /// May an ORG-scope account ever hold this? Default false = fails closed.
+  orgAllowed  Boolean  @default(false) @map("org_allowed")
+  createdAt   DateTime @default(now()) @map("created_at")
+
+  roles AppRolePermission[]
+
+  @@index([resource])
+  @@index([orgAllowed])
+  @@map("permissions")
+}
+
+/// A named bundle of permissions. Can hold one permission or forty.
+model AppRole {
+  key             String   @id @db.VarChar(60)
+  name            String   @db.VarChar(120)
+  description     String?  @db.VarChar(300)
+  /// May an ORG-scope account hold this role at all?
+  orgAllowed      Boolean  @default(false) @map("org_allowed")
+  /// May an org manager hand this out? Distinct from orgAllowed: `org.manager`
+  /// is orgAllowed (an org user holds it) but never clientGrantable, which is
+  /// what stops a manager minting another manager.
+  clientGrantable Boolean  @default(false) @map("client_grantable")
+  createdAt       DateTime @default(now()) @map("created_at")
+
+  permissions AppRolePermission[]
+  assignments UserRoleAssignment[]
+
+  @@index([orgAllowed])
+  @@map("roles")
+}
+
+model AppRolePermission {
+  roleKey       String     @map("role_key") @db.VarChar(60)
+  permissionKey String     @map("permission_key") @db.VarChar(80)
+  role          AppRole    @relation(fields: [roleKey], references: [key], onDelete: Cascade)
+  permission    Permission @relation(fields: [permissionKey], references: [key], onDelete: Cascade)
+
+  @@id([roleKey, permissionKey])
+  @@index([permissionKey])
+  @@map("role_permissions")
+}
+
+/// Who holds what. This is the only RBAC table the API writes at runtime.
+model UserRoleAssignment {
+  id             String    @id @default(uuid())
+  userId         String    @map("user_id")
+  roleKey        String    @map("role_key") @db.VarChar(60)
+  /// Null for PLATFORM-scope grants. Set for ORG-scope so a grant is tied to an
+  /// organization, which keeps multi-org membership possible later with no
+  /// migration.
+  organizationId String?   @map("organization_id")
+  grantedBy      String?   @map("granted_by")
+  createdAt      DateTime  @default(now()) @map("created_at")
+  deletedAt      DateTime? @map("deleted_at")
+
+  user         User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  role         AppRole       @relation(fields: [roleKey], references: [key])
+  organization Organization? @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, roleKey, organizationId])
+  @@index([userId])
+  @@index([organizationId])
+  @@index([roleKey])
+  @@map("user_role_assignments")
 }

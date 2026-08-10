@@ -6,7 +6,6 @@ import {
   Query,
   Body,
   HttpCode,
-  UseGuards,
 } from '@nestjs/common';
 import {
   ApiTags,
@@ -16,10 +15,7 @@ import {
   ApiQuery,
   ApiParam,
 } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { HandoverService } from '../../services/handover.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import {
@@ -32,6 +28,8 @@ import type {
   HandoverSessionParams,
   HandoverMessageDto,
 } from '../../models/handover.dto';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 /**
  * Live human-handover Inbox. Any client-side user who owns the bot can take
@@ -43,8 +41,6 @@ import type {
 @ApiTags('Handover')
 @ApiBearerAuth()
 @Controller('handover')
-@UseGuards(RolesGuard)
-@Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
 export class HandoverController {
   constructor(private readonly handover: HandoverService) {}
 
@@ -54,6 +50,7 @@ export class HandoverController {
   @ApiQuery({ name: 'agentId', required: false, type: String })
   @ApiQuery({ name: 'orgId', required: false, type: String, description: 'ADMIN/SUPER_ADMIN only' })
   @ApiResponse({ status: 200, description: 'Inbox list' })
+  @RequirePermission(Resource.Handover, Action.Read)
   async inbox(
     @Query(new ZodValidationPipe(handoverInboxQuerySchema)) query: HandoverInboxQuery,
     @CurrentUser() user: CurrentUserData,
@@ -64,6 +61,7 @@ export class HandoverController {
   @Get('enabled')
   @ApiOperation({ summary: 'Whether any in-scope bot has human takeover on (nav gating)' })
   @ApiResponse({ status: 200, description: '{ enabled: boolean }' })
+  @RequirePermission(Resource.Handover, Action.Read)
   async enabled(@CurrentUser() user: CurrentUserData) {
     return this.handover.handoverEnabled(user);
   }
@@ -73,6 +71,7 @@ export class HandoverController {
   @ApiParam({ name: 'sessionId', type: String })
   @ApiResponse({ status: 200, description: 'Thread' })
   @ApiResponse({ status: 404, description: 'Conversation not found' })
+  @RequirePermission(Resource.Handover, Action.Read)
   async thread(
     @Param(new ZodValidationPipe(handoverSessionParamsSchema)) params: HandoverSessionParams,
     @CurrentUser() user: CurrentUserData,
@@ -84,6 +83,7 @@ export class HandoverController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Take over the conversation (pauses the AI)' })
   @ApiResponse({ status: 200, description: 'Updated thread' })
+  @RequirePermission(Resource.Handover, Action.Take)
   async takeover(
     @Param(new ZodValidationPipe(handoverSessionParamsSchema)) params: HandoverSessionParams,
     @CurrentUser() user: CurrentUserData,
@@ -96,6 +96,7 @@ export class HandoverController {
   @ApiOperation({ summary: 'Send a human reply (must have taken over)' })
   @ApiResponse({ status: 201, description: 'Message created' })
   @ApiResponse({ status: 409, description: 'Not handling this conversation' })
+  @RequirePermission(Resource.Handover, Action.Reply)
   async message(
     @Param(new ZodValidationPipe(handoverSessionParamsSchema)) params: HandoverSessionParams,
     @Body(new ZodValidationPipe(handoverMessageSchema)) dto: HandoverMessageDto,
@@ -108,6 +109,7 @@ export class HandoverController {
   @HttpCode(200)
   @ApiOperation({ summary: 'Resolve — hand control back to the AI' })
   @ApiResponse({ status: 200, description: 'Updated thread' })
+  @RequirePermission(Resource.Handover, Action.Resolve)
   async resolve(
     @Param(new ZodValidationPipe(handoverSessionParamsSchema)) params: HandoverSessionParams,
     @CurrentUser() user: CurrentUserData,

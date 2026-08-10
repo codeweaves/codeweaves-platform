@@ -1,10 +1,10 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { NotFoundException, ConflictException } from '@nestjs/common';
 import { Reflector } from '@nestjs/core';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { OrganizationMembersController } from '../../../src/controllers/organizations/organization-members.controller';
 import { OrganizationMembersService } from '../../../src/services/organization-members.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import { TenantGuard } from '../../../src/guards/tenant.guard';
 import type { CurrentUserData } from '../../../src/decorators/current-user.decorator';
 
@@ -25,6 +25,10 @@ describe('OrganizationMembersController', () => {
     email: 'super@example.com',
     id: '333e4567-e89b-12d3-a456-426614174003',
     role: Role.SUPER_ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.super_admin'],
     organizationId: null,
     organization: null,
   };
@@ -34,6 +38,10 @@ describe('OrganizationMembersController', () => {
     email: 'admin@example.com',
     id: '444e4567-e89b-12d3-a456-426614174004',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Acme Corp', slug: 'acme-corp' },
   };
@@ -43,6 +51,10 @@ describe('OrganizationMembersController', () => {
     email: 'client@example.com',
     id: '555e4567-e89b-12d3-a456-426614174005',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: orgId,
     organization: { id: orgId, name: 'Acme Corp', slug: 'acme-corp' },
   };
@@ -53,6 +65,10 @@ describe('OrganizationMembersController', () => {
       email: 'user@example.com',
       name: 'Test User',
       role: Role.CLIENT,
+
+      accessScope: AccessScope.ORG,
+
+      roleKeys: ['org.owner'],
       createdAt: new Date('2026-01-01'),
     },
   ];
@@ -62,6 +78,10 @@ describe('OrganizationMembersController', () => {
     email: 'user@example.com',
     name: 'Test User',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     createdAt: new Date('2026-01-01'),
   };
 
@@ -73,7 +93,7 @@ describe('OrganizationMembersController', () => {
         Reflector,
       ],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .overrideGuard(TenantGuard)
       .useValue({ canActivate: () => true })
@@ -97,7 +117,7 @@ describe('OrganizationMembersController', () => {
 
       expect(result).toEqual(mockMembers);
       expect(mockMembersService.listMembers).toHaveBeenCalledWith(orgId, {
-        role: Role.SUPER_ADMIN,
+        accessScope: AccessScope.PLATFORM,
         organizationId: null,
       });
     });
@@ -109,7 +129,7 @@ describe('OrganizationMembersController', () => {
 
       expect(result).toEqual(mockMembers);
       expect(mockMembersService.listMembers).toHaveBeenCalledWith(orgId, {
-        role: Role.ADMIN,
+        accessScope: AccessScope.PLATFORM,
         organizationId: orgId,
       });
     });
@@ -121,7 +141,7 @@ describe('OrganizationMembersController', () => {
 
       expect(result).toEqual(mockMembers);
       expect(mockMembersService.listMembers).toHaveBeenCalledWith(orgId, {
-        role: Role.CLIENT,
+        accessScope: AccessScope.ORG,
         organizationId: orgId,
       });
     });
@@ -189,19 +209,28 @@ describe('OrganizationMembersController', () => {
   });
 
   describe('role authorization', () => {
-    it('should have SUPER_ADMIN, ADMIN, CLIENT roles on listMembers', () => {
-      const roles = Reflect.getMetadata('roles', controller.listMembers);
-      expect(roles).toEqual(['SUPER_ADMIN', 'ADMIN', 'CLIENT']);
+    it('declares a permission on listMembers', () => {
+      const permission = Reflect.getMetadata(
+        'permission',
+        OrganizationMembersController.prototype.listMembers,
+      );
+      expect(permission).toEqual({ resource: 'Member', action: 'Read' });
     });
 
-    it('should have SUPER_ADMIN role on assignMember', () => {
-      const roles = Reflect.getMetadata('roles', controller.assignMember);
-      expect(roles).toEqual(['SUPER_ADMIN']);
+    it('declares a permission on assignMember', () => {
+      const permission = Reflect.getMetadata(
+        'permission',
+        OrganizationMembersController.prototype.assignMember,
+      );
+      expect(permission).toEqual({ resource: 'Member', action: 'Manage' });
     });
 
-    it('should have SUPER_ADMIN role on removeMember', () => {
-      const roles = Reflect.getMetadata('roles', controller.removeMember);
-      expect(roles).toEqual(['SUPER_ADMIN']);
+    it('declares a permission on removeMember', () => {
+      const permission = Reflect.getMetadata(
+        'permission',
+        OrganizationMembersController.prototype.removeMember,
+      );
+      expect(permission).toEqual({ resource: 'Member', action: 'Manage' });
     });
   });
 });

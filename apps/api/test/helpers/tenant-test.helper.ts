@@ -1,4 +1,4 @@
-import { Role, InvitationStatus } from '@prisma/client';
+import { Role, InvitationStatus, AccessScope } from '@prisma/client';
 import { NotFoundException } from '@nestjs/common';
 import type { TenantFilterUser } from '../../src/utils/tenant-filter';
 
@@ -34,6 +34,8 @@ export interface MockUser {
   email: string;
   name: string;
   role: Role;
+  accessScope: AccessScope;
+  roleKeys: string[];
   clerkId: string;
   organizationId: string | null;
   organization: MockOrganization | null;
@@ -55,6 +57,14 @@ export function createTestUser(
     email: `${roleName}${suffix}@${orgSlug}.test`,
     name: `${role} User${suffix} (${org?.name ?? 'Platform'})`,
     role,
+    // Mirrors the RBAC backfill migration, so fixtures match real accounts.
+    accessScope: role === Role.CLIENT ? AccessScope.ORG : AccessScope.PLATFORM,
+    roleKeys:
+      role === Role.CLIENT
+        ? ['org.owner']
+        : role === Role.SUPER_ADMIN
+          ? ['platform.super_admin']
+          : ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     clerkId: `user_${orgSlug}-${roleName}${suffix}`,
     organizationId: org?.id ?? null,
     organization: org,
@@ -68,7 +78,7 @@ export function createTenantFilterUser(
   user: MockUser,
 ): TenantFilterUser {
   return {
-    role: user.role,
+    accessScope: user.accessScope,
     organizationId: user.organizationId,
   };
 }

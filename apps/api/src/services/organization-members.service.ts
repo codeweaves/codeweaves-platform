@@ -5,9 +5,10 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { Role } from '@prisma/client';
+import { AccessScope, Role } from '@prisma/client';
 import { UserLoggerService } from '../common/logger/user.logger';
 import { AppLogger } from '../common/logger/app-logger';
+import { isOrgScoped } from '../utils/tenant-filter';
 
 export interface MemberResponse {
   id: string;
@@ -18,7 +19,7 @@ export interface MemberResponse {
 }
 
 export interface MembersListCaller {
-  role: Role;
+  accessScope: AccessScope;
   organizationId: string | null;
 }
 
@@ -37,7 +38,7 @@ export class OrganizationMembersService {
   ): Promise<MemberResponse[]> {
     // CLIENT users can only list their own org's members
     if (
-      caller.role === Role.CLIENT &&
+      isOrgScoped(caller) &&
       caller.organizationId !== orgId
     ) {
       throw new NotFoundException('Organization not found');

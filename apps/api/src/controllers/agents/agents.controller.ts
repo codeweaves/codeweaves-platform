@@ -8,7 +8,6 @@ import {
   Param,
   Query,
   ParseUUIDPipe,
-  UseGuards,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
@@ -18,10 +17,6 @@ import { AgentsService } from '../../services/agents.service';
 import { AgentThemesService } from '../../services/agent-themes.service';
 import { AgentKnowledgeService } from '../../services/agent-knowledge.service';
 import { AgentDataFieldsService } from '../../services/agent-data-fields.service';
-import { Roles } from '../../decorators/roles.decorator';
-import { RequirePermission } from '../../decorators/require-permission.decorator';
-import { RolesGuard } from '../../guards/roles.guard';
-import { Resource, Action } from '../../common/rbac/rbac.types';
 import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
 import { CurrentUser, CurrentUserData } from '../../decorators/current-user.decorator';
 import {
@@ -36,11 +31,12 @@ import type {
   AgentListQuery,
   UpdateWebhookDto,
 } from '../../models/agent.dto';
+import { RequirePermission } from '../../decorators/require-permission.decorator';
+import { Resource, Action } from '../../common/rbac/rbac.types';
 
 @ApiTags('Agents')
 @ApiBearerAuth()
 @Controller('agents')
-@UseGuards(RolesGuard)
 export class AgentsController {
   constructor(
     private readonly agentsService: AgentsService,
@@ -64,7 +60,7 @@ export class AgentsController {
   }
 
   @Get()
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.Agent, Action.Read)
   @ApiOperation({ summary: 'List agents' })
   @ApiQuery({ name: 'page', required: false, type: Number, description: 'Page number (default: 1)' })
   @ApiQuery({ name: 'limit', required: false, type: Number, description: 'Items per page (default: 20, max: 100)' })
@@ -83,7 +79,7 @@ export class AgentsController {
   }
 
   @Get(':id')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.Agent, Action.Read)
   @ApiOperation({ summary: 'Get agent by ID' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Agent details' })
@@ -120,7 +116,7 @@ export class AgentsController {
    * scope is enforced by `findById(id, user)` — a foreign agent 404s.
    */
   @Get(':id/editor-config')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.Agent, Action.Read)
   @ApiOperation({
     summary: 'Bundled agent + webhook + theme + knowledge for the admin editor',
   })
@@ -177,7 +173,7 @@ export class AgentsController {
   }
 
   @Patch(':id')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.Agent, Action.Update)
   @ApiOperation({ summary: 'Update an agent' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Agent updated' })
@@ -194,7 +190,7 @@ export class AgentsController {
 
   @Delete(':id')
   @HttpCode(HttpStatus.NO_CONTENT)
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN, Role.CLIENT)
+  @RequirePermission(Resource.Agent, Action.Delete)
   @ApiOperation({ summary: 'Soft-delete an agent' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 204, description: 'Agent deleted' })
@@ -212,7 +208,7 @@ export class AgentsController {
   // ==========================================
 
   @Patch(':id/webhook')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermission(Resource.AgentSecret, Action.Update)
   @ApiOperation({ summary: 'Set agent webhook URL' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Webhook URL updated' })
@@ -229,7 +225,7 @@ export class AgentsController {
   }
 
   @Get(':id/webhook')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermission(Resource.AgentSecret, Action.Read)
   @ApiOperation({ summary: 'Get agent webhook URL (decrypted)' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Webhook URL' })
@@ -244,7 +240,7 @@ export class AgentsController {
   }
 
   @Post(':id/webhook/test')
-  @Roles(Role.ADMIN, Role.SUPER_ADMIN)
+  @RequirePermission(Resource.AgentSecret, Action.Update)
   @ApiOperation({ summary: 'Test agent webhook connectivity' })
   @ApiParam({ name: 'id', description: 'Agent UUID' })
   @ApiResponse({ status: 200, description: 'Webhook test result' })

@@ -4,12 +4,44 @@ import {
   UnauthorizedException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { User, Role, InvitationStatus, Prisma } from '@prisma/client';
+import { User, Role, AccessScope, InvitationStatus, Prisma } from '@prisma/client';
 import type { UpdateUserProfileDto, UserProfileResponse } from '../models/user.dto';
 import { buildTenantFilter, TenantFilterUser } from '../utils/tenant-filter';
 import { UserLoggerService } from '../common/logger/user.logger';
 import { AppLogger } from '../common/logger/app-logger';
 import { ClerkManagementService } from './clerk-management.service';
+import { PermissionCatalogService } from '../common/rbac/permission-catalog.service';
+
+/**
+ * Starting access scope + role set for a newly provisioned account, derived from
+ * the role its invitation carried. Mirrors the RBAC backfill migration exactly,
+ * so a user created today lands in the same state as one migrated yesterday.
+ *
+ * Invitations still carry the legacy `Role` enum. When invitations gain an
+ * explicit `roleKeys` list, this becomes the fallback for older pending rows.
+ */
+function startingRolesFor(role: Role): {
+  accessScope: AccessScope;
+  roleKeys: string[];
+} {
+  switch (role) {
+    case Role.SUPER_ADMIN:
+      return { accessScope: AccessScope.PLATFORM, roleKeys: ['platform.super_admin'] };
+    case Role.ADMIN:
+      return {
+        accessScope: AccessScope.PLATFORM,
+        roleKeys: [
+          'platform.support',
+          'platform.ops',
+          'platform.privacy',
+          'platform.agent_admin',
+        ],
+      };
+    case Role.CLIENT:
+    default:
+      return { accessScope: AccessScope.ORG, roleKeys: ['org.owner'] };
+  }
+}
 
 const USER_WITH_ORG_SELECT = {
   include: {
@@ -19,6 +51,12 @@ const USER_WITH_ORG_SELECT = {
         name: true,
         slug: true,
       },
+    },
+    // The profile endpoint serves the caller's permission set, so it needs the
+    // role keys to resolve against the catalog.
+    roleAssignments: {
+      where: { deletedAt: null },
+      select: { roleKey: true },
     },
   },
 } as const;
@@ -31,6 +69,7 @@ export class UsersService {
     private prisma: PrismaService,
     private readonly userLogger: UserLoggerService,
     private readonly clerkManagement: ClerkManagementService,
+    private readonly catalog: PermissionCatalogService,
   ) {}
 
   async findByClerkId(clerkId: string): Promise<User | null> {
@@ -132,7 +171,15 @@ export class UsersService {
   async syncOrCreateUser(jwtUser: { clerkId: string; email: string }) {
     const existingUser = await this.prisma.user.findUnique({
       where: { clerkId: jwtUser.clerkId },
-      include: { organization: true },
+      // Role assignments ride along on the query that already runs, so
+      // authorization costs no extra round trip. UserSyncGuard caches the result.
+      include: {
+        organization: true,
+        roleAssignments: {
+          where: { deletedAt: null },
+          select: { roleKey: true },
+        },
+      },
     });
 
     if (existingUser) {
@@ -152,15 +199,24 @@ export class UsersService {
     email: string;
     name: string | null;
     role: Role;
+    accessScope: AccessScope;
+    roleAssignments?: { roleKey: string }[];
     organization: { id: string; name: string; slug: string } | null;
     createdAt: Date;
     updatedAt: Date;
   }): UserProfileResponse {
+    const roleKeys = (user.roleAssignments ?? []).map((a) => a.roleKey);
+
     return {
       id: user.id,
       email: user.email,
       name: user.name,
       role: user.role,
+      accessScope: user.accessScope,
+      roleKeys,
+      // Resolved server-side so the browser never re-implements a rule. This is
+      // what `usePermissions()` reads; the UI decides nothing from role names.
+      permissions: [...this.catalog.resolvePermissions(roleKeys)].sort(),
       organization: user.organization,
       createdAt: user.createdAt,
       updatedAt: user.updatedAt,
@@ -227,14 +283,42 @@ export class UsersService {
 
     try {
       return await this.prisma.$transaction(async (tx) => {
+        // Prefer the role set chosen when the invite was sent. Falling back to
+        // the legacy mapping keeps invitations issued before roleKeys existed
+        // resolving exactly as they did, so no data migration was needed.
+        const invitedRoleKeys = invitation.roleKeys ?? [];
+        const { accessScope, roleKeys } =
+          invitedRoleKeys.length > 0
+            ? {
+                accessScope: invitedRoleKeys.every((k) => k.startsWith('org.'))
+                  ? AccessScope.ORG
+                  : AccessScope.PLATFORM,
+                roleKeys: invitedRoleKeys,
+              }
+            : startingRolesFor(invitation.role);
+
         const newUser = await tx.user.create({
           data: {
             clerkId: jwtUser.clerkId,
             email,
             role: invitation.role,
+            accessScope,
             organizationId: invitation.organizationId,
+            // Seed the role set in the same transaction as the user, so a new
+            // account is never left with zero roles and a dead dashboard.
+            roleAssignments: {
+              create: roleKeys.map((roleKey) => ({
+                roleKey,
+                // Platform grants are not tied to an org; org grants are.
+                organizationId:
+                  accessScope === AccessScope.ORG ? invitation.organizationId : null,
+              })),
+            },
           },
-          include: { organization: true },
+          include: {
+            organization: true,
+            roleAssignments: { where: { deletedAt: null }, select: { roleKey: true } },
+          },
         });
 
         await tx.userInvitation.update({
@@ -260,7 +344,12 @@ export class UsersService {
       ) {
         const raceUser = await this.prisma.user.findUnique({
           where: { clerkId: jwtUser.clerkId },
-          include: { organization: true },
+          // Same shape as the create above — the winning request already seeded
+          // the role set, and UserSyncGuard needs it on every return path.
+          include: {
+            organization: true,
+            roleAssignments: { where: { deletedAt: null }, select: { roleKey: true } },
+          },
         });
         if (raceUser) {
           this.log.warn('createFromInvitation', 'concurrent first-login race resolved', {

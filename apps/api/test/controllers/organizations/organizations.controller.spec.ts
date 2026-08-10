@@ -3,7 +3,7 @@ import { BadRequestException, NotFoundException, ConflictException } from '@nest
 import { Reflector } from '@nestjs/core';
 import { OrganizationsController } from '../../../src/controllers/organizations/organizations.controller';
 import { OrganizationsService } from '../../../src/services/organizations.service';
-import { RolesGuard } from '../../../src/guards/roles.guard';
+import { PermissionGuard } from '../../../src/guards/permission.guard';
 import { ZodValidationPipe } from '../../../src/pipes/zod-validation.pipe';
 import {
   createOrganizationSchema,
@@ -27,6 +27,8 @@ describe('OrganizationsController', () => {
     clerkId: 'user_sa',
     id: 'sa-id',
     role: 'SUPER_ADMIN' as const,
+    accessScope: 'PLATFORM' as const,
+    roleKeys: ['platform.super_admin'],
     organizationId: null,
     organization: null,
     email: 'sa@example.com',
@@ -58,7 +60,7 @@ describe('OrganizationsController', () => {
         Reflector,
       ],
     })
-      .overrideGuard(RolesGuard)
+      .overrideGuard(PermissionGuard)
       .useValue({ canActivate: () => true })
       .compile();
 
@@ -200,12 +202,23 @@ describe('OrganizationsController', () => {
   });
 
   describe('role authorization', () => {
-    it('should have SUPER_ADMIN role metadata on controller class', () => {
-      const roles = Reflect.getMetadata(
-        'roles',
-        OrganizationsController,
-      );
-      expect(roles).toEqual(['SUPER_ADMIN']);
+    it('declares a permission on every route', () => {
+      // Authorization moved from a class-level @Roles to a per-route
+      // @RequirePermission, so the check is that no route was left undeclared.
+      for (const method of [
+        'create',
+        'findAll',
+        'findById',
+        'update',
+        'getDeletePreview',
+        'delete',
+      ]) {
+        const permission = Reflect.getMetadata(
+          'permission',
+          (OrganizationsController.prototype as unknown as Record<string, unknown>)[method] as object,
+        );
+        expect(permission).toBeDefined();
+      }
     });
 
     it('should have @RequirePermission(Organization, ReadAll) on findAll', () => {
@@ -218,10 +231,10 @@ describe('OrganizationsController', () => {
 
     it('should allow SUPER_ADMIN and ADMIN for findById', () => {
       const roles = Reflect.getMetadata(
-        'roles',
+        'permission',
         OrganizationsController.prototype.findById,
       );
-      expect(roles).toEqual(['SUPER_ADMIN', 'ADMIN']);
+      expect(roles).toEqual({ resource: 'Organization', action: 'Read' });
     });
 
     it('should not override class-level SUPER_ADMIN for create', () => {

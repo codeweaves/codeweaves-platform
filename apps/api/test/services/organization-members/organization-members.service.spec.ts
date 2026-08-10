@@ -4,7 +4,7 @@ import {
   ConflictException,
   BadRequestException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { OrganizationMembersService } from '../../../src/services/organization-members.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { UserLoggerService } from '../../../src/common/logger/user.logger';
@@ -90,7 +90,7 @@ describe('OrganizationMembersService', () => {
       mockPrismaService.user.findMany.mockResolvedValue(members);
 
       const result = await service.listMembers(orgId, {
-        role: Role.SUPER_ADMIN,
+        accessScope: AccessScope.PLATFORM,
         organizationId: null,
       });
 
@@ -107,7 +107,7 @@ describe('OrganizationMembersService', () => {
       mockPrismaService.user.findMany.mockResolvedValue(members);
 
       const result = await service.listMembers(orgId, {
-        role: Role.ADMIN,
+        accessScope: AccessScope.PLATFORM,
         organizationId: otherOrgId,
       });
 
@@ -119,7 +119,7 @@ describe('OrganizationMembersService', () => {
       mockPrismaService.user.findMany.mockResolvedValue(members);
 
       const result = await service.listMembers(orgId, {
-        role: Role.CLIENT,
+        accessScope: AccessScope.ORG,
         organizationId: orgId,
       });
 
@@ -129,7 +129,7 @@ describe('OrganizationMembersService', () => {
     it('should throw NotFoundException when CLIENT accesses another org', async () => {
       await expect(
         service.listMembers(orgId, {
-          role: Role.CLIENT,
+          accessScope: AccessScope.ORG,
           organizationId: otherOrgId,
         }),
       ).rejects.toThrow(NotFoundException);
@@ -140,7 +140,7 @@ describe('OrganizationMembersService', () => {
 
       await expect(
         service.listMembers(orgId, {
-          role: Role.SUPER_ADMIN,
+          accessScope: AccessScope.PLATFORM,
           organizationId: null,
         }),
       ).rejects.toThrow(NotFoundException);
@@ -151,7 +151,7 @@ describe('OrganizationMembersService', () => {
       mockPrismaService.user.findMany.mockResolvedValue([]);
 
       const result = await service.listMembers(orgId, {
-        role: Role.SUPER_ADMIN,
+        accessScope: AccessScope.PLATFORM,
         organizationId: null,
       });
 

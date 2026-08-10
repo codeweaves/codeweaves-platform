@@ -1,6 +1,6 @@
 import { Test } from '@nestjs/testing';
 import { NotFoundException } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { Role, AccessScope } from '@prisma/client';
 import { AgentDataFieldsService } from '../../../src/services/agent-data-fields.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { AgentCacheService } from '../../../src/common/cache/agent-cache.service';
@@ -35,11 +35,19 @@ describe('AgentDataFieldsService', () => {
   const adminUser = {
     id: 'u1',
     role: Role.ADMIN,
+
+    accessScope: AccessScope.PLATFORM,
+
+    roleKeys: ['platform.support', 'platform.ops', 'platform.privacy', 'platform.agent_admin'],
     organizationId: 'org1',
   } as CurrentUserData;
   const clientUser = {
     id: 'u2',
     role: Role.CLIENT,
+
+    accessScope: AccessScope.ORG,
+
+    roleKeys: ['org.owner'],
     organizationId: 'org2',
   } as CurrentUserData;
 

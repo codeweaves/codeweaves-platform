@@ -3,12 +3,12 @@ import {
   BadRequestException,
   NotFoundException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
 import { PrismaService } from './prisma.service';
 import { SupabaseStorageService } from './supabase-storage.service';
 import { AppLogger } from '../common/logger/app-logger';
 import { TracerService } from '../common/tracer/tracer.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
+import { isOrgScoped } from '../utils/tenant-filter';
 
 const BUCKET = 'agent_assets';
 export const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
@@ -256,7 +256,7 @@ export class FilesService {
       where: {
         id: agentId,
         deletedAt: null,
-        ...(user.role === Role.CLIENT && {
+        ...(isOrgScoped(user) && {
           organizationId: user.organizationId!,
         }),
       },
