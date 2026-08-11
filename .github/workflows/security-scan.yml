@@ -23,7 +23,7 @@ jobs:
     name: Secrets (Gitleaks)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0 # full history for secret scanning
       - name: Gitleaks
@@ -41,7 +41,7 @@ jobs:
     name: SAST (Semgrep)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Semgrep
         run: |
           docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep semgrep scan \
@@ -59,7 +59,7 @@ jobs:
     name: Deps + Config (Trivy)
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
       - name: Trivy
         run: |
           docker run --rm -v "$PWD:/src" aquasec/trivy:latest fs \
