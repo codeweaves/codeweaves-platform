@@ -39,4 +39,24 @@ export class PiiDetectionService {
     out += text.slice(cursor);
     return out;
   }
+
+  /**
+   * Mask TOKENIZE-tier entities to a category label. Used ONLY as the fallback
+   * when the vault write fails: rather than store a `[BANK_ACCOUNT_1]` token
+   * whose real value we could not persist (unrecoverable, misleading), we store
+   * `[BANK_ACCOUNT REDACTED]`. Never used on the happy path — that tokenises.
+   */
+  maskTokenizeTier(text: string): string {
+    if (!text) return text;
+    const matches = detectPii(text).filter((m) => m.tier === 'TOKENIZE');
+    if (matches.length === 0) return text;
+    let out = '';
+    let cursor = 0;
+    for (const m of matches) {
+      out += text.slice(cursor, m.start) + `[${m.category} REDACTED]`;
+      cursor = m.end;
+    }
+    out += text.slice(cursor);
+    return out;
+  }
 }

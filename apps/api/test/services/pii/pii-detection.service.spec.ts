@@ -1,6 +1,7 @@
 import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
 import {
   detectPii,
+  last4Of,
   luhnValid,
   normalizeDigits,
   verhoeffValid,
@@ -57,9 +58,17 @@ describe('detectPii', () => {
     expect(matches.some((m) => m.category === 'AADHAAR')).toBe(false);
   });
 
-  it('detects PAN format', () => {
-    const matches = detectPii('PAN is ABCDE1234F please');
-    expect(matches.some((m) => m.category === 'PAN')).toBe(true);
+  it('detects PAN and classifies it as VAULT (TOKENIZE) tier', () => {
+    const pan = detectPii('PAN is ABCDE1234F please').find((m) => m.category === 'PAN');
+    expect(pan).toBeDefined();
+    // PAN is kept (encrypted vault + last-4), not destroyed — see the spec.
+    expect(pan?.tier).toBe('TOKENIZE');
+  });
+
+  it('last4Of returns the last 4 alphanumeric chars', () => {
+    expect(last4Of('1234 5678 9012')).toBe('9012');
+    expect(last4Of('ABCDE1234F')).toBe('234F');
+    expect(last4Of('12')).toBe('12');
   });
 
   it('detects Luhn-valid cards only', () => {
@@ -101,17 +110,26 @@ describe('detectPii', () => {
 describe('PiiDetectionService.maskHardDrop', () => {
   const service = new PiiDetectionService();
 
-  it('destroys Aadhaar, PAN and cards but keeps emails/phones', () => {
+  it('destroys DESTROY-tier (Aadhaar/card) but leaves VAULT PAN + ALLOW email/phone', () => {
     const input = `aadhaar ${VALID_AADHAAR}, pan ABCDE1234F, card ${VALID_CARD}, email a@b.com, phone 9876543210`;
     const out = service.maskHardDrop(input);
     expect(out).toContain('[AADHAAR REDACTED]');
-    expect(out).toContain('[PAN REDACTED]');
     expect(out).toContain('[CARD REDACTED ****1111]');
+    // PAN is VAULT tier now — the tokenizer handles it, not this DESTROY floor.
+    expect(out).toContain('ABCDE1234F');
     expect(out).toContain('a@b.com');
     expect(out).toContain('9876543210');
     expect(out).not.toContain(VALID_AADHAAR);
     expect(out).not.toContain(VALID_CARD);
+  });
+
+  it('maskTokenizeTier masks VAULT-tier (fallback when the vault write fails)', () => {
+    const out = service.maskTokenizeTier('pan ABCDE1234F, dob 12/08/1994');
+    expect(out).toContain('[PAN REDACTED]');
+    expect(out).toContain('[DOB REDACTED]');
     expect(out).not.toContain('ABCDE1234F');
+    // DESTROY/ALLOW tiers are untouched by this method.
+    expect(service.maskTokenizeTier('email a@b.com')).toContain('a@b.com');
   });
 
   it('returns the same reference when nothing matches', () => {

@@ -242,7 +242,7 @@ describe('PublicChatController', () => {
       agentId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
     };
 
-    const mockAgent = { id: 'agent-db-id', hmacEnabled: false };
+    const mockAgent = { id: 'agent-db-id', hmacEnabled: false, aiConfig: {}, organizationId: 'org-1' };
     const mockSession = { id: 'session-db-id', sessionId: 'session-uuid' };
 
     function createMockResponse() {
@@ -439,10 +439,13 @@ describe('PublicChatController', () => {
       // User message persisted via fire-and-forget with a pre-generated UUID
       // (the 3rd arg). This unblocks the LLM call from waiting on the DB
       // write — pattern matches the dev test endpoint.
+      // 4th arg = organizationId, passed because PII redaction is on by default
+      // (aiConfig has no explicit false) → storage tokenises VAULT-tier PII.
       expect(mockChatService.saveUserMessage).toHaveBeenCalledWith(
         mockSession.id,
         dto.chatInput,
         expect.any(String),
+        'org-1',
       );
 
       // Assistant message saved with full response, metadata, and a

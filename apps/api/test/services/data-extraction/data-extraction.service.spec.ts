@@ -5,6 +5,7 @@ import { PrismaService } from '../../../src/services/prisma.service';
 import { AiClassifierService } from '../../../src/common/ai/ai-classifier.service';
 import { InternalEventLogger } from '../../../src/common/events/internal.logger';
 import { CryptoService } from '../../../src/common/crypto/crypto.service';
+import { PiiTokenizerService } from '../../../src/modules/pii/pii-tokenizer.service';
 
 describe('DataExtractionService', () => {
   let service: DataExtractionService;
@@ -27,6 +28,9 @@ describe('DataExtractionService', () => {
     encryptFieldValues: jest.fn(),
     decryptFieldValues: jest.fn(),
   };
+  // Vault rehydration: passthrough (detokenise is a no-op when messages have no
+  // tokens). The vault itself is unit-tested in pii-tokenizer.service.spec.ts.
+  const mockPiiTokenizer = { forSession: jest.fn() };
 
   const sessionId = 'sess-1';
 
@@ -39,6 +43,7 @@ describe('DataExtractionService', () => {
       (d: Record<string, unknown> | null | undefined) => d ?? {},
     );
     mockConfig.get.mockReturnValue(undefined); // use defaults; timer not started (.compile doesn't call onModuleInit)
+    mockPiiTokenizer.forSession.mockResolvedValue({ detokenize: (s: string) => s });
     const moduleRef = await Test.createTestingModule({
       providers: [
         DataExtractionService,
@@ -50,6 +55,7 @@ describe('DataExtractionService', () => {
           useValue: { logStarted: jest.fn(), logCompleted: jest.fn(), logFailed: jest.fn() },
         },
         { provide: CryptoService, useValue: mockCrypto },
+        { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
       ],
     }).compile();
     service = moduleRef.get(DataExtractionService);
@@ -58,6 +64,7 @@ describe('DataExtractionService', () => {
   const baseSession = (overrides: Record<string, unknown> = {}) => ({
     agentId: 'agent-1',
     agent: {
+      organizationId: 'org-1',
       dataFields: [
         { key: 'email', label: 'Email', type: 'EMAIL', description: null },
         { key: 'age', label: 'Age', type: 'NUMBER', description: null },

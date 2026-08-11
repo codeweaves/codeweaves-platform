@@ -14,6 +14,7 @@ import {
 
 import { PrismaService } from './prisma.service';
 import { CryptoService } from '../common/crypto/crypto.service';
+import { PiiTokenizerService } from '../modules/pii/pii-tokenizer.service';
 import { InternalEventLogger } from '../common/events/internal.logger';
 
 /** Outcome of one extraction attempt. `retry` leaves the session due. */
@@ -60,6 +61,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly internalLog: InternalEventLogger,
     private readonly crypto: CryptoService,
+    private readonly piiTokenizer: PiiTokenizerService,
   ) {
     // Both default to sensible values; override in .env to watch it run fast
     // while testing (e.g. DATA_EXTRACT_DEBOUNCE_MS=5000, DATA_EXTRACT_POLL_MS=5000).
@@ -212,6 +214,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
         agentId: true,
         agent: {
           select: {
+            organizationId: true,
             dataFields: {
               orderBy: { order: 'asc' },
               select: { key: true, label: true, type: true, description: true },
@@ -241,7 +244,20 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     // Nothing from the user → nothing of theirs to capture; skip the LLM call.
     if (!session.messages.some((m) => m.role === 'USER')) return 'empty';
 
-    const transcript = this.buildTranscript(session.messages);
+    // Messages may store VAULT-tier tokens ([BANK_ACCOUNT_1], [DOB_1], …) when
+    // the agent has PII redaction on. Rehydrate via the session vault so the
+    // extractor sees the real values it needs to capture; captured values are
+    // re-encrypted into collected_data below. No-op when the vault is empty
+    // (agent stores raw), so this is safe on every agent.
+    const piiCtx = await this.piiTokenizer.forSession(
+      session.agent.organizationId,
+      chatSessionId,
+    );
+    const detokenizedMessages = session.messages.map((m) => ({
+      role: m.role,
+      content: piiCtx.detokenize(m.content),
+    }));
+    const transcript = this.buildTranscript(detokenizedMessages);
     const values = await this.ai.extractFields(transcript, extractable);
 
     // null = the extractor didn't actually run (unconfigured key or a failed

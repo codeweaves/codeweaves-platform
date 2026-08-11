@@ -551,7 +551,12 @@ export class VoiceController {
     }
 
     // Normal AI path: persist the inbound + expose its id, then show transcription.
-    const userMessage = await this.chatService.saveUserMessage(session.id, sttResult.transcript);
+    const userMessage = await this.chatService.saveUserMessage(
+      session.id,
+      sttResult.transcript,
+      undefined,
+      ChatService.isPiiRedactionEnabled(fullAgent.aiConfig) ? fullAgent.organizationId : undefined,
+    );
     res.setHeader('X-Message-Id', userMessage.id);
     res.write(JSON.stringify(transcriptionChunk) + '\n');
 

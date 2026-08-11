@@ -186,7 +186,12 @@ export class WhatsappInboundService {
     }
 
     // 6. Persist the inbound message before calling the LLM (survives LLM failure).
-    await this.chatService.saveUserMessage(session.id, userText);
+    await this.chatService.saveUserMessage(
+      session.id,
+      userText,
+      undefined,
+      ChatService.isPiiRedactionEnabled(agent.aiConfig) ? agent.organizationId : undefined,
+    );
 
     // 6b. Human handover parity with the widget/voice: a "talk to a human"
     //     keyword escalates immediately; otherwise the model gets the

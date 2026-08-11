@@ -79,6 +79,11 @@ describe('DirectChatService', () => {
     mockContext.assemble.mockResolvedValue(baseContext);
     mockHybrid.assemble.mockResolvedValue(baseContext);
     mockCache.getAgentWithKnowledge.mockResolvedValue({ knowledge: null });
+    // PII redaction is ON by default now, so loadPiiContext() calls forSession.
+    // These tests cover chat mechanics, not tokenisation (that lives in
+    // pii-tokenizer.service.spec.ts), so the vault context resolves to null
+    // (redaction inert). resetMocks wipes inline impls, so (re)apply each test.
+    mockPiiTokenizer.forSession.mockResolvedValue(null);
 
     const moduleRef = await Test.createTestingModule({
       providers: [

@@ -43,7 +43,7 @@ describe('WhatsappInboundService', () => {
     status: 'CONNECTED',
     accessTokenEnc: 'enc',
   };
-  const agent = { id: 'a1', status: 'ACTIVE', deletedAt: null };
+  const agent = { id: 'a1', status: 'ACTIVE', deletedAt: null, aiConfig: {}, organizationId: 'org-1' };
   const job = {
     phoneNumberId: 'p1',
     from: '15551234567',
@@ -127,7 +127,8 @@ describe('WhatsappInboundService', () => {
       'WHATSAPP',
       '15551234567',
     );
-    expect(chat.saveUserMessage).toHaveBeenCalledWith('sess-db', 'hello');
+    // 4th arg = organizationId (PII redaction on by default → storage vaults).
+    expect(chat.saveUserMessage).toHaveBeenCalledWith('sess-db', 'hello', undefined, 'org-1');
     expect(direct.send).toHaveBeenCalledTimes(1);
     expect(send.sendText).toHaveBeenCalledWith('p1', 'token', '15551234567', 'Hi there!');
     expect(chat.saveAssistantMessage).toHaveBeenCalledTimes(1);
@@ -194,6 +195,8 @@ describe('WhatsappInboundService', () => {
       expect(chat.saveUserMessage).toHaveBeenCalledWith(
         'sess-db',
         'what are your hours?',
+        undefined,
+        'org-1',
       );
       expect(direct.send).toHaveBeenCalledWith(
         expect.objectContaining({ newUserMessage: 'what are your hours?' }),
