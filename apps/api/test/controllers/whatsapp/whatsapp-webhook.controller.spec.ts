@@ -12,8 +12,10 @@ const VERIFY_TOKEN = 'verify-token';
 /** Build a chainable res mock: res.status(n).send(x). */
 function makeRes() {
   const send = jest.fn().mockReturnValue('RES');
-  const status = jest.fn().mockReturnValue({ send });
-  return { res: { status } as unknown as Response, status, send };
+  // Supports both `status(x).send(...)` and `status(x).type(...).send(...)`.
+  const type = jest.fn().mockReturnValue({ send });
+  const status = jest.fn().mockReturnValue({ send, type });
+  return { res: { status } as unknown as Response, status, send, type };
 }
 
 function signedReq(payload: unknown, secret = APP_SECRET): Request {
@@ -80,19 +82,34 @@ describe('WhatsappWebhookController', () => {
   });
 
   describe('verify (GET handshake)', () => {
-    it('echoes the challenge when the token matches', () => {
+    it('echoes the numeric challenge when the token matches', () => {
       const { res, status, send } = makeRes();
       controller.verify(
         {
           'hub.mode': 'subscribe',
           'hub.verify_token': VERIFY_TOKEN,
-          'hub.challenge': 'CHALLENGE',
+          'hub.challenge': '1234567890', // Meta always sends a numeric token
         },
         res,
       );
       expect(status).toHaveBeenCalledWith(200);
-      expect(send).toHaveBeenCalledWith('CHALLENGE');
+      expect(send).toHaveBeenCalledWith('1234567890');
       expect(whatsappLog.logWebhookVerified).toHaveBeenCalledTimes(1);
+    });
+
+    it('rejects (400) a non-numeric challenge even with a matching token (reflected-XSS guard)', () => {
+      const { res, status, send } = makeRes();
+      controller.verify(
+        {
+          'hub.mode': 'subscribe',
+          'hub.verify_token': VERIFY_TOKEN,
+          'hub.challenge': '<script>alert(1)</script>',
+        },
+        res,
+      );
+      expect(status).toHaveBeenCalledWith(400);
+      expect(send).not.toHaveBeenCalledWith('<script>alert(1)</script>');
+      expect(whatsappLog.logWebhookVerified).not.toHaveBeenCalled();
     });
 
     it('returns 403 when the token does not match', () => {

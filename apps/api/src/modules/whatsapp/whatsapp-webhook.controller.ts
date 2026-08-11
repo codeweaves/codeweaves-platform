@@ -71,10 +71,18 @@ export class WhatsappWebhookController {
     const verifyToken = this.config.verifyToken;
 
     if (mode === 'subscribe' && verifyToken && token === verifyToken) {
+      // `hub.challenge` is always a numeric token from Meta. Echo it only when
+      // it is digits-only + as text/plain, so a crafted
+      // `?hub.challenge=<script>…` can never be reflected back as HTML
+      // (reflected-XSS hardening).
+      if (!challenge || !/^\d+$/.test(challenge)) {
+        this.log.warn('verify', 'token matched but hub.challenge was not a numeric token');
+        return res.status(400).send('Bad Request');
+      }
       // Semantic event: Meta successfully verified the webhook. Fire-and-forget.
       this.whatsappLog.logWebhookVerified();
       this.log.info('verify', 'webhook verification succeeded');
-      return res.status(200).send(challenge);
+      return res.status(200).type('text/plain').send(challenge);
     }
     this.log.warn('verify', 'webhook verification failed (token mismatch)');
     return res.status(403).send('Forbidden');

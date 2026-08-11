@@ -206,7 +206,7 @@ export class SummarizationService {
       return (
         result.text
           .trim()
-          .replace(/^["'"`]|["'"`]$/g, '')
+          .replace(/^["'`]|["'`]$/g, '')
           .replace(/[.!?]+$/, '')
           .slice(0, 200) || 'New Conversation'
       );

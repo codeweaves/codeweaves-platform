@@ -218,18 +218,24 @@ export class EmailTemplateService {
  * Deliberately crude — good enough for transactional mail, no parser needed.
  */
 export function htmlToText(html: string): string {
+  // Input is server-built HTML whose substituted VALUES were already
+  // HTML-escaped by `escapeHtml` (so no user-controlled `<`, `>` or `"` reach
+  // here) — this is text extraction, not a security sanitizer. Closing tags
+  // match `\s*>` so `</script >`-style variants can't slip a tag through, and
+  // entities are decoded with `&amp;` LAST so an input like `&amp;lt;` can't be
+  // double-decoded into a live `<`.
   return html
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
+    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, '')
+    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
+    .replace(/<\/(p|div|h[1-6]|li|tr)\s*>/gi, '\n')
+    .replace(/<[^>]*>/g, '')
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .split('\n')

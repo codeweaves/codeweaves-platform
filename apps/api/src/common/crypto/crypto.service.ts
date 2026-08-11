@@ -48,7 +48,9 @@ export class CryptoService implements OnModuleInit {
 
   encrypt(plaintext: string): string {
     const iv = randomBytes(16);
-    const cipher = createCipheriv('aes-256-gcm', this.key, iv);
+    const cipher = createCipheriv('aes-256-gcm', this.key, iv, {
+      authTagLength: 16,
+    });
     const encrypted = Buffer.concat([
       cipher.update(plaintext, 'utf8'),
       cipher.final(),
@@ -68,7 +70,9 @@ export class CryptoService implements OnModuleInit {
     const iv = Buffer.from(ivHex, 'hex');
     const data = Buffer.from(dataHex, 'hex');
     const tag = Buffer.from(tagHex, 'hex');
-    const decipher = createDecipheriv('aes-256-gcm', this.key, iv);
+    const decipher = createDecipheriv('aes-256-gcm', this.key, iv, {
+      authTagLength: 16,
+    });
     decipher.setAuthTag(tag);
     return decipher.update(data).toString('utf8') + decipher.final('utf8');
   }
