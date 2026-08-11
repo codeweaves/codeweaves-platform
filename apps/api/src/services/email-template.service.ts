@@ -229,12 +229,14 @@ export function htmlToText(html: string): string {
   let text = html;
   let prev: string;
 
-  // Drop <script>/<style> blocks entirely.
+  // Drop <script>/<style> blocks entirely, then sweep any residual/unclosed
+  // style|script tag so this step can never leave a `<style`/`<script` behind.
   do {
     prev = text;
     text = text
       .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, '')
-      .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, '');
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, '')
+      .replace(/<\/?(?:style|script)\b[^>]*>?/gi, '');
   } while (text !== prev);
 
   // Turn block/line-break tags into newlines before stripping the rest.
