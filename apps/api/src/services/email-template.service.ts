@@ -219,17 +219,36 @@ export class EmailTemplateService {
  */
 export function htmlToText(html: string): string {
   // Input is server-built HTML whose substituted VALUES were already
-  // HTML-escaped by `escapeHtml` (so no user-controlled `<`, `>` or `"` reach
-  // here) — this is text extraction, not a security sanitizer. Closing tags
-  // match `\s*>` so `</script >`-style variants can't slip a tag through, and
-  // entities are decoded with `&amp;` LAST so an input like `&amp;lt;` can't be
-  // double-decoded into a live `<`.
-  return html
-    .replace(/<style\b[\s\S]*?<\/style\s*>/gi, '')
-    .replace(/<script\b[\s\S]*?<\/script\s*>/gi, '')
+  // HTML-escaped by `escapeHtml`, and the OUTPUT is the text/plain email part
+  // (never rendered as HTML) — so this is text extraction, not a security
+  // boundary. Even so, tag removal loops until the string stops changing, so an
+  // overlapping/nested construct like `<scr<script>ipt>` can't reconstruct a
+  // tag after a single pass; close tags use `[^>]*>` so attribute/whitespace
+  // variants can't slip through; and `&amp;` is decoded LAST so `&amp;lt;`
+  // can't be double-decoded into a live `<`.
+  let text = html;
+  let prev: string;
+
+  // Drop <script>/<style> blocks entirely.
+  do {
+    prev = text;
+    text = text
+      .replace(/<style\b[^>]*>[\s\S]*?<\/style[^>]*>/gi, '')
+      .replace(/<script\b[^>]*>[\s\S]*?<\/script[^>]*>/gi, '');
+  } while (text !== prev);
+
+  // Turn block/line-break tags into newlines before stripping the rest.
+  text = text
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|h[1-6]|li|tr)\s*>/gi, '\n')
-    .replace(/<[^>]*>/g, '')
+    .replace(/<\/(p|div|h[1-6]|li|tr)[^>]*>/gi, '\n');
+
+  // Strip all remaining tags, looping until stable.
+  do {
+    prev = text;
+    text = text.replace(/<[^>]*>/g, '');
+  } while (text !== prev);
+
+  return text
     .replace(/&nbsp;/g, ' ')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
