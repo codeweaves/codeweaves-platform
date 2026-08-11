@@ -5,6 +5,7 @@ import { useMutation, useQueryClient } from '@tanstack/react-query';
 import { useProfile } from '@/hooks/use-profile';
 import { usePageHeader } from '@/components/layout/page-header';
 import { useApiClient } from '@/lib/api-client';
+import { accountRoleLabel } from '@/lib/role-label';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -65,9 +66,7 @@ export default function SettingsPage() {
     return null;
   }
 
-  const roleLabel = profile?.role
-    ? profile.role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    : '';
+  const roleLabel = accountRoleLabel(profile) ?? '';
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -99,12 +98,15 @@ export default function SettingsPage() {
           </div>
 
           <div className="space-y-2">
-            <Label>Role</Label>
+            <Label>Roles</Label>
             <Input
               value={roleLabel}
               disabled
               className="text-muted-foreground"
             />
+            <p className="text-xs text-muted-foreground">
+              Roles are additive and only a platform administrator can change them.
+            </p>
           </div>
 
           {profile?.organization && (

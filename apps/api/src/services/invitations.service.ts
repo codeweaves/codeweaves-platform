@@ -291,6 +291,10 @@ export class InvitationsService {
       email: invitation.email,
       organizationId: invitation.organizationId,
       role: invitation.role,
+      // The additive roles this invite actually provisions. `role` above is the
+      // legacy single-value column, kept only so an invitation issued before
+      // roleKeys existed still renders something on the signup page.
+      roleKeys: invitation.roleKeys ?? [],
     };
   }
 

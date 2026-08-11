@@ -1,4 +1,4 @@
-export { Resource, Action } from './rbac.types';
+export { Resource, Action, SUPER_ADMIN_ROLE_KEY, isSuperAdmin } from './rbac.types';
 export type { PermissionKey } from './rbac.types';
 export { RbacModule } from './rbac.module';
 export { PermissionCatalogService } from './permission-catalog.service';

@@ -32,6 +32,7 @@ import {
   emitAgentTyping,
 } from '@/lib/handover-socket';
 import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAuth } from '@/hooks/use-auth';
 
 function MessageBubble({ message }: { message: ThreadMessage }) {
@@ -107,15 +108,16 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
   const resolve = useResolveHandover();
   const sendMessage = useSendHumanMessage();
   const { profile } = useProfile();
+  const { roleKeys } = usePermissions();
   const { getToken } = useAuth();
   const [draft, setDraft] = useState('');
   const [visitorTyping, setVisitorTyping] = useState(false);
   const scrollRef = useRef<HTMLDivElement>(null);
   const visitorTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
-  // Scope the socket to the VIEWER (org for a CLIENT, platform for an admin) —
+  // Scope the socket to the VIEWER (their org, or platform for staff) -
   // the same scope useHandoverRealtime uses, so we reuse that socket, not churn it.
   const scopeOrgId = profile?.organization?.id ?? undefined;
-  const scopeRole = profile?.role;
+  const scopeAccessScope = profile?.accessScope;
 
   // Auto-scroll to the newest message (also when the typing indicator appears).
   useEffect(() => {
@@ -128,7 +130,7 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
   // (org/platform room) — doing them here too caused a burst of duplicate fetches.
   useEffect(() => {
     const auth = profileHandoverAuth({
-      role: scopeRole,
+      accessScope: scopeAccessScope,
       organization: scopeOrgId ? { id: scopeOrgId } : null,
     });
     if (!sessionId || !auth) return;
@@ -152,7 +154,7 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
       }
       setVisitorTyping(false);
     };
-  }, [sessionId, scopeOrgId, scopeRole, getToken]);
+  }, [sessionId, scopeOrgId, scopeAccessScope, getToken]);
 
   // Once a conversation is resolved — by you, another teammate, or the idle
   // sweep — it leaves the live queue, so drop it from the main pane too (back
@@ -201,11 +203,12 @@ export function InboxThreadPane({ sessionId, currentUserId, onBack, onTakenOver,
   const handledByMe = state === 'ACTIVE_HUMAN' && thread.takenOverBy?.id === currentUserId;
   const handledByOther = state === 'ACTIVE_HUMAN' && !handledByMe;
   const holderName = thread.takenOverBy?.name?.trim() || 'A teammate';
-  // Mirrors the API's guard: SUPER_ADMIN only. An ADMIN is a peer of whoever is
-  // handling the chat, so they get no override — the 20-minute idle sweep is
-  // their release. Cosmetic only; the server decides. This just avoids offering
-  // a button that would 409.
-  const canOverride = profile?.role === 'SUPER_ADMIN';
+  // Mirrors the API's guard (HandoverService): platform.super_admin only. Anyone
+  // else holding Handover:Takeover is a peer of whoever is currently handling the
+  // chat, so they get no override and the 20-minute idle sweep is their release.
+  // Cosmetic only; the server decides. This just avoids offering a button that
+  // would 409.
+  const canOverride = roleKeys.includes('platform.super_admin');
 
   const doTakeover = () =>
     takeover.mutate(thread.sessionId, {

@@ -177,13 +177,16 @@ export function useNotificationSound(): {
  * socket rather than opening a second connection.
  */
 export function useNotificationRealtime(
-  profile: { role?: string; organization?: { id?: string | null } | null } | null | undefined,
+  profile:
+    | { accessScope?: string; organization?: { id?: string | null } | null }
+    | null
+    | undefined,
 ) {
   const qc = useQueryClient();
   const router = useRouter();
   const { getToken } = useAuth();
   const orgId = profile?.organization?.id ?? undefined;
-  const role = profile?.role;
+  const accessScope = profile?.accessScope;
 
   // Arm the autoplay unlock as soon as the shell mounts, so the first
   // notification of the session can actually make a sound.
@@ -194,7 +197,7 @@ export function useNotificationRealtime(
   const navigate = useCallback((url: string) => router.push(url), [router]);
 
   useEffect(() => {
-    const auth = profileHandoverAuth({ role, organization: orgId ? { id: orgId } : null });
+    const auth = profileHandoverAuth({ accessScope, organization: orgId ? { id: orgId } : null });
     if (!auth) return;
     const socket = ensureHandoverSocket(auth, getToken);
 
@@ -260,5 +263,5 @@ export function useNotificationRealtime(
       socket.off('notification', onNotification);
       socket.off('connect', onConnect);
     };
-  }, [orgId, role, qc, getToken, router, navigate]);
+  }, [orgId, accessScope, qc, getToken, router, navigate]);
 }

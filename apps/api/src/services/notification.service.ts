@@ -1,6 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import { Role } from '@prisma/client';
 import type { NotificationSeverity, NotificationType, Prisma } from '@prisma/client';
 import { PrismaService } from './prisma.service';
 import { RealtimeService } from './realtime.service';
@@ -8,6 +7,7 @@ import { NotificationMailerService } from './notification-mailer.service';
 import type { EmailTemplateKey } from './email-template.registry';
 import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
+import { isOrgScoped } from '../utils/tenant-filter';
 
 /** Hard cap on a bell page — keeps an unbounded `limit` from becoming a scan. */
 const MAX_PAGE_SIZE = 50;
@@ -187,9 +187,13 @@ export class NotificationService {
    */
   private scopeFor(user: CurrentUserData): Prisma.NotificationWhereInput | null {
     if (user.organizationId) return { organizationId: user.organizationId };
-    // Platform staff only. A CLIENT without an org is a misconfigured account,
-    // not a superuser — it must NOT fall through to the unscoped branch.
-    if (user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN) return {};
+    // Platform scope only. An ORG account without an org is a misconfigured
+    // account, not a superuser — it must NOT fall through to the unscoped branch.
+    //
+    // Reads accessScope, not the deprecated `role`: an account demoted to ORG via
+    // `PATCH /users/:id/scope` keeps its old `role`, and returning `{}` for it
+    // would show that person EVERY organization's notifications.
+    if (!isOrgScoped(user)) return {};
     return null;
   }
 

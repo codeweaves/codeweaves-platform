@@ -4,14 +4,14 @@ import {
   ExecutionContext,
   ForbiddenException,
 } from '@nestjs/common';
-import { Role } from '@prisma/client';
+import { isOrgScoped } from '../utils/tenant-filter';
 import { AppLogger } from '../common/logger/app-logger';
 
 /**
- * Guard that validates tenant context for CLIENT users.
+ * Guard that validates tenant context for ORG-scoped users.
  *
- * - ADMIN / SUPER_ADMIN pass through unconditionally.
- * - CLIENT users MUST have a valid organizationId; throws 403 if not.
+ * - PLATFORM scope passes through unconditionally.
+ * - ORG scope MUST have a valid organizationId; throws 403 if not.
  *
  * Apply with @UseGuards(TenantGuard) on controllers/routes
  * that serve tenant-scoped data.
@@ -29,7 +29,10 @@ export class TenantGuard implements CanActivate {
       return false;
     }
 
-    if (user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) {
+    // accessScope, NOT the deprecated `role` column. `PATCH /users/:id/scope`
+    // changes scope and deliberately leaves `role` alone, so reading `role` here
+    // would keep waving a demoted account through as platform staff.
+    if (!isOrgScoped(user)) {
       return true;
     }
 
@@ -37,7 +40,7 @@ export class TenantGuard implements CanActivate {
       this.log.warn(
         'canActivate',
         'tenant check denied — client user has no organization',
-        { role: user.role },
+        { accessScope: user.accessScope },
       );
       throw new ForbiddenException(
         'Client user must be associated with an organization',

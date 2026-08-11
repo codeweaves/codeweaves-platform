@@ -83,3 +83,23 @@ export enum Action {
  * table decides which do.
  */
 export type PermissionKey = `${Resource}:${Action}`;
+
+/**
+ * The one role key with meaning outside the permission catalog.
+ *
+ * A handful of actions are deliberately narrower than the permission that
+ * unlocks the route: seizing a conversation another teammate is handling, and
+ * erasing an organization with everything under it. Those permissions sit on
+ * other platform roles too, so the extra check names the role directly.
+ *
+ * Prefer a permission wherever one will do. Reach for this only where the rule
+ * genuinely is "the top role and nobody else", and never read the deprecated
+ * `User.role` column: a role set tracks what an account holds today, and
+ * `PATCH /users/:id/scope` leaves that old column stale on purpose.
+ */
+export const SUPER_ADMIN_ROLE_KEY = 'platform.super_admin';
+
+/** Does this account hold the super-admin role right now? */
+export function isSuperAdmin(user: { roleKeys?: string[] | null }): boolean {
+  return (user.roleKeys ?? []).includes(SUPER_ADMIN_ROLE_KEY);
+}

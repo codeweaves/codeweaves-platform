@@ -13,11 +13,15 @@ import {
   CardTitle,
 } from '@/components/ui/card';
 import { apiUrl } from '@/config/api';
+import { formatRoleKey } from '@/lib/role-label';
 
 interface InvitationData {
   email: string;
   organizationId: string;
+  /** Legacy single-value column. Only used when roleKeys is empty. */
   role: string;
+  /** The additive roles this invite provisions. */
+  roleKeys?: string[];
 }
 
 interface ValidationError {
@@ -151,7 +155,13 @@ export function InvitationContent() {
     );
   }
 
-  const roleLabel = state.invitation.role.replaceAll('_', ' ').toLowerCase();
+  // Roles are additive now, so an invite can carry several. Fall back to the
+  // legacy single role for invitations issued before roleKeys existed.
+  const roleKeys = state.invitation.roleKeys ?? [];
+  const roleLabel =
+    roleKeys.length > 0
+      ? roleKeys.map(formatRoleKey).join(', ')
+      : state.invitation.role.replaceAll('_', ' ').toLowerCase();
 
   return (
     <div className="flex min-h-screen items-center justify-center p-4">
@@ -159,10 +169,10 @@ export function InvitationContent() {
         <CardHeader>
           <CardTitle className="text-2xl">Welcome to Klivo</CardTitle>
           <CardDescription>
-            You&apos;ve been invited to join as a{' '}
-            <span className="font-medium text-foreground">{roleLabel}</span>.
-            Please check your email for the password setup link, or log in if
-            you&apos;ve already set your password.
+            You&apos;ve been invited to join with{' '}
+            <span className="font-medium text-foreground">{roleLabel}</span>{' '}
+            access. Please check your email for the password setup link, or log
+            in if you&apos;ve already set your password.
           </CardDescription>
         </CardHeader>
         <CardContent>

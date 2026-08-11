@@ -652,6 +652,9 @@ describe('InvitationsService', () => {
         email: mockInvitation.email,
         organizationId: mockInvitation.organizationId,
         role: mockInvitation.role,
+        // The additive roles the signup page labels from. `role` is only the
+        // legacy fallback for invitations issued before roleKeys existed.
+        roleKeys: mockInvitation.roleKeys,
       });
       expect(mockPrisma.userInvitation.findUnique).toHaveBeenCalledWith({
         where: { token: 'token-uuid-1' },

@@ -1,7 +1,7 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ForbiddenException, ExecutionContext } from '@nestjs/common';
 import { TenantGuard } from '../../src/guards/tenant.guard';
-import { Role } from '@prisma/client';
+import { AccessScope } from '@prisma/client';
 
 describe('TenantGuard', () => {
   let guard: TenantGuard;
@@ -33,55 +33,54 @@ describe('TenantGuard', () => {
     expect(guard).toBeDefined();
   });
 
-  it('should allow SUPER_ADMIN without organizationId', () => {
+  it('should allow PLATFORM scope without organizationId', () => {
     const context = createMockContext({
-      role: Role.SUPER_ADMIN,
+      accessScope: AccessScope.PLATFORM,
       organizationId: null,
     });
     expect(guard.canActivate(context)).toBe(true);
   });
 
-  it('should allow SUPER_ADMIN with organizationId', () => {
+  it('should allow PLATFORM scope with organizationId', () => {
     const context = createMockContext({
-      role: Role.SUPER_ADMIN,
+      accessScope: AccessScope.PLATFORM,
       organizationId: 'org-uuid',
     });
     expect(guard.canActivate(context)).toBe(true);
   });
 
-  it('should allow ADMIN without organizationId', () => {
+  it('should allow ORG scope with valid organizationId', () => {
     const context = createMockContext({
-      role: Role.ADMIN,
-      organizationId: null,
-    });
-    expect(guard.canActivate(context)).toBe(true);
-  });
-
-  it('should allow ADMIN with organizationId', () => {
-    const context = createMockContext({
-      role: Role.ADMIN,
+      accessScope: AccessScope.ORG,
       organizationId: 'org-uuid',
     });
     expect(guard.canActivate(context)).toBe(true);
   });
 
-  it('should allow CLIENT with valid organizationId', () => {
+  it('should throw ForbiddenException for ORG scope without organizationId', () => {
     const context = createMockContext({
-      role: Role.CLIENT,
-      organizationId: 'org-uuid',
-    });
-    expect(guard.canActivate(context)).toBe(true);
-  });
-
-  it('should throw ForbiddenException for CLIENT without organizationId', () => {
-    const context = createMockContext({
-      role: Role.CLIENT,
+      accessScope: AccessScope.ORG,
       organizationId: null,
     });
     expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
     expect(() => guard.canActivate(context)).toThrow(
       'Client user must be associated with an organization',
     );
+  });
+
+  /**
+   * The guard reads accessScope, not the deprecated `role` column. A holder of
+   * the old top-tier role who has since been demoted to ORG scope must be
+   * treated as ORG-scoped, otherwise `PATCH /users/:id/scope` would silently
+   * fail to take effect on every tenant-scoped route.
+   */
+  it('should ignore the legacy role column when deciding scope', () => {
+    const context = createMockContext({
+      role: 'SUPER_ADMIN',
+      accessScope: AccessScope.ORG,
+      organizationId: null,
+    });
+    expect(() => guard.canActivate(context)).toThrow(ForbiddenException);
   });
 
   it('should deny when there is no user on the request', () => {

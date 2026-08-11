@@ -19,7 +19,7 @@ import {
   useOrganizations,
   type Organization,
 } from '@/hooks/use-organizations';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import { formatDate } from '@/lib/utils';
 import { DeleteOrganizationDialog } from './delete-organization-dialog';
 import { RenameOrganizationDialog } from './rename-organization-dialog';
@@ -49,10 +49,12 @@ export function OrganizationsDataTable({
   const [deleteTarget, setDeleteTarget] = useState<Organization | null>(null);
   const [renameTarget, setRenameTarget] = useState<Organization | null>(null);
 
-  const { profile } = useProfile();
-  // SUPER_ADMIN only — ADMIN and SUPER_ADMIN are platform-level roles, but
-  // delete + rename are intentionally narrowed to SUPER_ADMIN.
-  const canMutate = profile?.role === 'SUPER_ADMIN';
+  // Mirrors the API: `Organization:Delete` sits on platform.ops too, but
+  // OrganizationsService.assertCanDelete narrows dropping an org (and everything
+  // under it) to platform.super_admin. Match that here so we never render a
+  // button the server will 403. Cosmetic only; the API is the boundary.
+  const { roleKeys } = usePermissions();
+  const canMutate = roleKeys.includes('platform.super_admin');
   const showActionsColumn = canMutate;
 
   const columns = useMemo<ColumnDef<Organization, unknown>[]>(() => {

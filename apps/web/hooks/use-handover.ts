@@ -220,15 +220,18 @@ export function useSendHumanMessage() {
  * stays as the safety net if the socket can't connect.
  */
 export function useHandoverRealtime(
-  profile: { role?: string; organization?: { id?: string | null } | null } | null | undefined,
+  profile:
+    | { accessScope?: string; organization?: { id?: string | null } | null }
+    | null
+    | undefined,
 ) {
   const qc = useQueryClient();
   const { getToken } = useAuth();
   const orgId = profile?.organization?.id ?? undefined;
-  const role = profile?.role;
+  const accessScope = profile?.accessScope;
 
   useEffect(() => {
-    const auth = profileHandoverAuth({ role, organization: orgId ? { id: orgId } : null });
+    const auth = profileHandoverAuth({ accessScope, organization: orgId ? { id: orgId } : null });
     if (!auth) return;
     // The gateway authenticates the socket with a verified Clerk token; `auth`
     // here is only the client-side scope hint for the singleton key.
@@ -258,5 +261,5 @@ export function useHandoverRealtime(
       socket.off('message', refetchSoon);
       if (timer) clearTimeout(timer);
     };
-  }, [orgId, role, qc, getToken]);
+  }, [orgId, accessScope, qc, getToken]);
 }

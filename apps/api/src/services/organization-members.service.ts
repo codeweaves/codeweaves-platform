@@ -5,6 +5,8 @@ import {
   BadRequestException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
+// Role is still surfaced in MemberResponse for the team list; it is no longer an
+// authorization input anywhere in this service.
 import { AccessScope, Role } from '@prisma/client';
 import { UserLoggerService } from '../common/logger/user.logger';
 import { AppLogger } from '../common/logger/app-logger';
@@ -36,7 +38,7 @@ export class OrganizationMembersService {
     orgId: string,
     caller: MembersListCaller,
   ): Promise<MemberResponse[]> {
-    // CLIENT users can only list their own org's members
+    // ORG-scoped callers can only list their own org's members
     if (
       isOrgScoped(caller) &&
       caller.organizationId !== orgId
@@ -75,9 +77,12 @@ export class OrganizationMembersService {
       throw new NotFoundException('User not found');
     }
 
-    if (user.role === Role.SUPER_ADMIN) {
+    // Checks the TARGET's scope, not their legacy role. A PLATFORM account sees
+    // every organization by definition, so pinning it to one is incoherent —
+    // change its scope first via `PATCH /users/:id/scope`.
+    if (!isOrgScoped(user)) {
       throw new BadRequestException(
-        'Cannot assign a SUPER_ADMIN user to an organization',
+        'Cannot assign a platform-scoped user to an organization',
       );
     }
 
