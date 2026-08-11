@@ -107,7 +107,8 @@ export function ChatSettings() {
             agentId={agent.id}
             purpose="header-logo"
             previewShape="circle"
-            hint="40x40px or larger · shown as a circle"
+            accept="image/png,image/jpeg,image/gif,image/webp"
+            hint="PNG, JPG, GIF or WebP · 40x40px or larger · shown as a circle · max 2MB"
           />
         </div>
       </div>
