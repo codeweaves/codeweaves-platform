@@ -218,22 +218,82 @@ export class EmailTemplateService {
  * Deliberately crude — good enough for transactional mail, no parser needed.
  */
 export function htmlToText(html: string): string {
-  return html
-    .replace(/<style[\s\S]*?<\/style>/gi, '')
-    .replace(/<script[\s\S]*?<\/script>/gi, '')
+  // Input is server-built HTML whose substituted VALUES were already
+  // HTML-escaped by `escapeHtml`, and the OUTPUT is the text/plain email part
+  // (never rendered as HTML) — so this is text extraction, not a security
+  // boundary. Even so, tag removal loops until the string stops changing, so an
+  // overlapping/nested construct like `<scr<script>ipt>` can't reconstruct a
+  // tag after a single pass; close tags use `[^>]*>` so attribute/whitespace
+  // variants can't slip through; and `&amp;` is decoded LAST so `&amp;lt;`
+  // can't be double-decoded into a live `<`.
+  // Remove <script>/<style> blocks with an imperative indexOf/slice scan rather
+  // than a regex: a regex "tag remover" is inherently bypassable, and this is a
+  // text/plain generator on already-escaped input (not a security boundary), so
+  // this is about producing clean text.
+  let text = stripTagBlocks(stripTagBlocks(html, 'script'), 'style');
+  let prev: string;
+
+  // Turn block/line-break tags into newlines before stripping the rest.
+  text = text
     .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|h[1-6]|li|tr)>/gi, '\n')
-    .replace(/<[^>]+>/g, '')
+    .replace(/<\/(p|div|h[1-6]|li|tr)[^>]*>/gi, '\n');
+
+  // Strip all remaining tags, looping until stable.
+  do {
+    prev = text;
+    text = text.replace(/<[^>]*>/g, '');
+  } while (text !== prev);
+
+  return text
     .replace(/&nbsp;/g, ' ')
-    .replace(/&amp;/g, '&')
     .replace(/&lt;/g, '<')
     .replace(/&gt;/g, '>')
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
+    .replace(/&amp;/g, '&')
     .replace(/[ \t]+/g, ' ')
     .replace(/\n{3,}/g, '\n\n')
     .split('\n')
     .map((line) => line.trim())
     .join('\n')
     .trim();
+}
+
+/**
+ * Remove every `<tag …>…</tag>` block (and a trailing UNCLOSED `<tag …>`) for a
+ * given tag name, scanning with indexOf/slice instead of a regex.
+ *
+ * A regex tag-stripper is the classic "incomplete sanitizer": one pass can
+ * always be defeated by an overlapping construct, and looping a regex is fragile
+ * to reason about. This linear scan is unconditionally complete — once an
+ * opening `<tag` has no matching `</tag`, the rest of the string is dropped, so
+ * nothing after an opener can survive. Case-insensitive; a boundary check keeps
+ * `<style>` matching while `<styles>`/`<scripting>` do not.
+ */
+function stripTagBlocks(input: string, tag: string): string {
+  const lower = input.toLowerCase();
+  const openNeedle = '<' + tag;
+  const closeNeedle = '</' + tag;
+  let out = '';
+  let i = 0;
+
+  for (;;) {
+    // Find the next real opener: `<tag` followed by a tag boundary, not a longer
+    // name (`<styles`). Skip past false matches.
+    let open = lower.indexOf(openNeedle, i);
+    while (open !== -1) {
+      const after = lower[open + openNeedle.length];
+      if (after === undefined || after === '>' || after === '/' || /\s/.test(after)) {
+        break;
+      }
+      open = lower.indexOf(openNeedle, open + 1);
+    }
+    if (open === -1) return out + input.slice(i);
+
+    out += input.slice(i, open);
+    const close = lower.indexOf(closeNeedle, open);
+    if (close === -1) return out; // Unclosed block → drop the remainder entirely.
+    const gt = input.indexOf('>', close);
+    i = gt === -1 ? input.length : gt + 1;
+  }
 }

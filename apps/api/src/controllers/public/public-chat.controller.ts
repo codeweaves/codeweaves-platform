@@ -692,11 +692,14 @@ export class PublicChatController {
       if (!closed) {
         // IG2: Map service timeout errors to the friendly controller timeout message
         const isTimeout = error instanceof Error && error.message.includes('timed out');
-        const message = isTimeout
+        const rawMessage = isTimeout
           ? 'Stream timeout - response took too long'
           : error instanceof HttpException
             ? error.message
             : 'An unexpected error occurred';
+        // Defence in depth: an exception message must not carry markup to the
+        // widget's renderer — strip angle brackets (xss-through-exception).
+        const message = rawMessage.replace(/[<>]/g, '');
         res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
       }
     } finally {

@@ -224,7 +224,10 @@ export class UsersService {
   }
 
   private sanitizeName(name: string): string {
-    return name.replace(/<[^>]*>?/g, '').trim();
+    // Strip angle brackets entirely — a display name never needs them, and
+    // removing every `<`/`>` (rather than tag-shaped substrings) can't be
+    // bypassed by nested/overlapping constructs like `<scr<script>ipt>`.
+    return name.replace(/[<>]/g, '').trim();
   }
 
   private async createFromInvitation(jwtUser: {

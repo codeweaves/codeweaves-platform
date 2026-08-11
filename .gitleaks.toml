@@ -1,0 +1,17 @@
+title = "Klivo Gitleaks config"
+
+# Keep all of Gitleaks' default rules...
+[extend]
+useDefault = true
+
+# ...but silence known-benign matches. These are placeholder/example values and
+# throwaway TEST keypairs inside BMAD planning docs — verified 2026-08-11 to be
+# NOT live secrets (the real .env is gitignored and clean of history leaks).
+# Scoped to the exact files so a genuinely new secret elsewhere still trips.
+[allowlist]
+description = "Placeholder text + test fixtures in BMAD planning artifacts"
+paths = [
+  '''_bmad-output/implementation-artifacts/0-9-set-up-environment-configuration\.md''',
+  '''_bmad-output/implementation-artifacts/10-6-voice-configuration-schema-database\.md''',
+  '''_bmad-output/planning-artifacts/test-design-architecture\.md''',
+]

@@ -435,7 +435,7 @@ describe('UsersService', () => {
       });
     });
 
-    it('should sanitize HTML tags from name', async () => {
+    it('strips all angle brackets from name (no HTML can survive)', async () => {
       const updatedUser = { ...mockUser, name: 'Clean Name' };
       mockPrismaService.user.update.mockResolvedValue(updatedUser);
 
@@ -443,11 +443,11 @@ describe('UsersService', () => {
         name: '<script>alert("xss")</script>Clean Name',
       });
 
-      expect(mockPrismaService.user.update).toHaveBeenCalledWith({
-        where: { id: mockUser.id },
-        data: { name: 'alert("xss")Clean Name' },
-        ...userWithOrgInclude,
-      });
+      // Every `<`/`>` is removed (complete, not tag-shaped strip), so no markup —
+      // even nested/overlapping — can survive.
+      const savedName = mockPrismaService.user.update.mock.calls[0][0].data.name;
+      expect(savedName).toBe('scriptalert("xss")/scriptClean Name');
+      expect(savedName).not.toMatch(/[<>]/);
     });
 
     it('should trim whitespace from sanitized name', async () => {
