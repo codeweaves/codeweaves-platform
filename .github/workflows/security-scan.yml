@@ -1,0 +1,76 @@
+name: Security Scan
+
+# Runs entirely on GitHub's runners (cloud) — nothing local. Findings are
+# published as downloadable artifacts + shown in each job's log. Jobs are
+# non-blocking (exit-code 0) so they report without walling off PRs; tighten
+# later once the baseline is clean.
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  schedule:
+    - cron: "0 3 * * 1" # weekly, Monday 03:00 UTC
+  workflow_dispatch: {} # lets you run it on-demand from the Actions tab
+
+permissions:
+  contents: read
+
+jobs:
+  secrets-gitleaks:
+    name: Secrets (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full git history for secret scanning
+      - name: Gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --redact --exit-code=0 \
+            --report-format=sarif --report-path=/repo/gitleaks.sarif
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: gitleaks-report
+          path: gitleaks.sarif
+
+  sast-semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep
+        # Fresh checkout has no node_modules, so this is fast; Semgrep also
+        # auto-skips .gitignored paths.
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep semgrep scan \
+            --config=p/security-audit --config=p/owasp-top-ten \
+            --severity=ERROR --metrics=off \
+            --sarif --output=/src/semgrep.sarif \
+            apps packages || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: semgrep-report
+          path: semgrep.sarif
+
+  deps-config-trivy:
+    name: Deps + Config (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy
+        # No node_modules in a fresh checkout → scans lockfiles/manifests +
+        # Dockerfiles/IaC + secrets, quickly.
+        run: |
+          docker run --rm -v "$PWD:/src" aquasec/trivy:latest fs \
+            --scanners vuln,secret,misconfig \
+            --severity HIGH,CRITICAL --exit-code 0 \
+            --format table --output /src/trivy-report.txt /src
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: trivy-report
+          path: trivy-report.txt
