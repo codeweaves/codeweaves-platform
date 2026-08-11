@@ -102,11 +102,14 @@ feeds the transcript to the extractor LLM. Once VAULT-tier values are tokens in
 the transcript, the extractor would capture `[BANK_ACCOUNT_1]` instead of the
 real value.
 
-**Fix:** before building the transcript, detokenise each message via
-`PiiTokenizerService.forSession(...)`. The extractor then sees real values,
-extracts them, and `crypto.encryptFieldValues` encrypts them into
-`collected_data` (already the case). Real values live only transiently in memory
-and encrypted at rest. This keeps deliberate capture working AND compliant.
+**Fix:** feed the extractor the STORED (tokenised) transcript so it only ever
+sees placeholders (`[BANK_ACCOUNT_1]`), then detokenise its EXTRACTED VALUES via
+the vault before `crypto.encryptFieldValues` writes them to `collected_data`.
+The real value is captured WITHOUT the extraction LLM ever seeing it, so the
+"no raw VAULT PII to the LLM" guarantee holds for extraction too (not only the
+chat call). Real values live only transiently in memory and are encrypted at
+rest. Do NOT detokenise the transcript before extraction — that would send the
+real value to the LLM.
 
 This is the correct division: the *transcript* hides the value; a *declared
 data-capture field* is the lawful-basis path to actually keep it (encrypted).

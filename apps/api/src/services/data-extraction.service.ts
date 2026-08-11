@@ -244,27 +244,32 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     // Nothing from the user → nothing of theirs to capture; skip the LLM call.
     if (!session.messages.some((m) => m.role === 'USER')) return 'empty';
 
-    // Messages may store VAULT-tier tokens ([BANK_ACCOUNT_1], [DOB_1], …) when
-    // the agent has PII redaction on. Rehydrate via the session vault so the
-    // extractor sees the real values it needs to capture; captured values are
-    // re-encrypted into collected_data below. No-op when the vault is empty
-    // (agent stores raw), so this is safe on every agent.
-    const piiCtx = await this.piiTokenizer.forSession(
-      session.agent.organizationId,
-      chatSessionId,
-    );
-    const detokenizedMessages = session.messages.map((m) => ({
-      role: m.role,
-      content: piiCtx.detokenize(m.content),
-    }));
-    const transcript = this.buildTranscript(detokenizedMessages);
-    const values = await this.ai.extractFields(transcript, extractable);
+    // The extractor LLM must NEVER see real VAULT-tier values. Build the
+    // transcript from the STORED (tokenised) messages, so it only ever sees
+    // placeholders like [BANK_ACCOUNT_1]/[DOB_1]; we detokenise its OUTPUT
+    // below. This preserves the "no raw VAULT PII to the LLM" guarantee for the
+    // extraction call too, not just the chat call.
+    const transcript = this.buildTranscript(session.messages);
+    const rawValues = await this.ai.extractFields(transcript, extractable);
 
     // null = the extractor didn't actually run (unconfigured key or a failed
     // call). Retry rather than marking this conversation done, so a transient
     // blip doesn't drop a lead.
-    if (values === null) return 'retry';
-    if (Object.keys(values).length === 0) return 'empty';
+    if (rawValues === null) return 'retry';
+    if (Object.keys(rawValues).length === 0) return 'empty';
+
+    // Detokenise the extracted VALUES via the session vault: a captured
+    // [BANK_ACCOUNT_1] becomes the real account number before we encrypt it.
+    // No-op for non-token values (names, emails). Net effect: the real value is
+    // captured WITHOUT the LLM ever having seen it.
+    const piiCtx = await this.piiTokenizer.forSession(
+      session.agent.organizationId,
+      chatSessionId,
+    );
+    const values: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rawValues)) {
+      values[key] = typeof value === 'string' ? piiCtx.detokenize(value) : value;
+    }
 
     // Merge over anything captured earlier (latest value wins, e.g. a corrected
     // email), so re-extraction on a resumed conversation never drops fields.

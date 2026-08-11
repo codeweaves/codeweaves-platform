@@ -179,6 +179,41 @@ describe('DataExtractionService', () => {
       expect(mockPrisma.collectedData.upsert).not.toHaveBeenCalled();
     });
 
+    it('feeds the extractor TOKENS and detokenizes its OUTPUT (no raw VAULT to LLM)', async () => {
+      mockPrisma.chatSession.findUnique.mockResolvedValue(
+        baseSession({
+          agent: {
+            organizationId: 'org-1',
+            dataFields: [
+              { key: 'bank_account', label: 'Bank account', type: 'STRING', description: null },
+            ],
+          },
+          messages: [{ role: 'USER', content: 'my bank account is [BANK_ACCOUNT_1]' }],
+        }),
+      );
+      // The vault maps the token back to the real value — applied to the
+      // extractor's OUTPUT, not its input.
+      mockPiiTokenizer.forSession.mockResolvedValue({
+        detokenize: (s: string) => s.replace('[BANK_ACCOUNT_1]', '998877665544'),
+      });
+      mockAi.extractFields.mockResolvedValue({ bank_account: '[BANK_ACCOUNT_1]' });
+      mockPrisma.collectedData.upsert.mockResolvedValue({});
+
+      expect(await service.extractForSession(sessionId)).toBe('captured');
+
+      // The extractor received the TOKEN, never the real number.
+      const transcriptArg = mockAi.extractFields.mock.calls[0][0] as string;
+      expect(transcriptArg).toContain('[BANK_ACCOUNT_1]');
+      expect(transcriptArg).not.toContain('998877665544');
+
+      // The STORED value is the detokenized real number (crypto is passthrough here).
+      expect(mockPrisma.collectedData.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ data: { bank_account: '998877665544' } }),
+        }),
+      );
+    });
+
     it('drops SYSTEM rows and labels HUMAN_AGENT as [ASSISTANT] in the transcript', async () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(
         baseSession({

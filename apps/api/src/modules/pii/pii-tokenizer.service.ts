@@ -154,7 +154,9 @@ export class PiiTokenizerService {
     const ctx = new PiiSessionContext(organizationId, chatSessionId, this);
     try {
       const rows = await this.prisma.piiToken.findMany({
-        where: { chatSessionId },
+        // Tenant boundary: a session UUID already scopes to one org, but filter
+        // on organizationId too so a cross-tenant read is impossible by construction.
+        where: { chatSessionId, organizationId },
         select: { category: true, token: true, valueEncrypted: true, valueHash: true },
       });
       ctx.seed(
