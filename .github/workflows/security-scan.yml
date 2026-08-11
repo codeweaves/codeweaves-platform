@@ -1,0 +1,73 @@
+name: Security Scan
+
+# Runs entirely on GitHub's runners (cloud). Findings are uploaded to the repo's
+# Security tab (free on public repos) AND printed in each job log. Jobs are
+# non-blocking (exit-code 0) so they report without walling off PRs; tighten
+# later once the baseline is clean.
+
+on:
+  push:
+    branches: [develop]
+  pull_request:
+    branches: [develop]
+  schedule:
+    - cron: "0 3 * * 1" # weekly, Monday 03:00 UTC
+  workflow_dispatch: {} # run on-demand from the Actions tab
+
+permissions:
+  contents: read
+  security-events: write # upload SARIF to the Security tab
+
+jobs:
+  secrets-gitleaks:
+    name: Secrets (Gitleaks)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0 # full history for secret scanning
+      - name: Gitleaks
+        run: |
+          docker run --rm -v "$PWD:/repo" zricethezav/gitleaks:latest \
+            detect --source=/repo --redact --exit-code=0 \
+            --report-format=sarif --report-path=/repo/gitleaks.sarif
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: gitleaks.sarif
+          category: gitleaks
+
+  sast-semgrep:
+    name: SAST (Semgrep)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Semgrep
+        run: |
+          docker run --rm -v "$PWD:/src" -w /src semgrep/semgrep semgrep scan \
+            --config=p/security-audit --config=p/owasp-top-ten \
+            --severity=ERROR --metrics=off \
+            --sarif --output=/src/semgrep.sarif \
+            apps packages || true
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: semgrep.sarif
+          category: semgrep
+
+  deps-config-trivy:
+    name: Deps + Config (Trivy)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Trivy
+        run: |
+          docker run --rm -v "$PWD:/src" aquasec/trivy:latest fs \
+            --scanners vuln,secret,misconfig \
+            --severity HIGH,CRITICAL --exit-code 0 \
+            --format sarif --output /src/trivy.sarif /src
+      - uses: github/codeql-action/upload-sarif@v3
+        if: always()
+        with:
+          sarif_file: trivy.sarif
+          category: trivy
