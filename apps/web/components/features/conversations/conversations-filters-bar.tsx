@@ -8,7 +8,7 @@ import { MultiSelect } from '@/components/ui/multi-select';
 import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
 import { useAgents } from '@/hooks/use-agents';
 import { useOrganizations } from '@/hooks/use-organizations';
-import { useProfile } from '@/hooks/use-profile';
+import { usePermissions } from '@/hooks/use-permissions';
 import type { ConversationSource } from '@/hooks/use-conversations';
 
 export interface ConversationFilters {
@@ -51,14 +51,15 @@ export function ConversationsFiltersBar({
   filters,
   onChange,
 }: ConversationsFiltersBarProps) {
-  const { profile } = useProfile();
-  const isAdmin =
-    profile?.role === 'SUPER_ADMIN' || profile?.role === 'ADMIN';
+  // Only a PLATFORM-scoped account sees more than one organization, so the org
+  // filter (and the list request behind it) is theirs alone. An ORG account is
+  // already pinned server-side, making the dropdown both useless and a 403.
+  const { isPlatform } = usePermissions();
 
   const { data: agentsData } = useAgents({ limit: 100 });
   const { data: orgsData } = useOrganizations(
     { limit: 100 },
-    { enabled: isAdmin },
+    { enabled: isPlatform },
   );
 
   // Build the Category filter options as the union of every visible agent's
@@ -141,7 +142,7 @@ export function ConversationsFiltersBar({
         }))}
       />
 
-      {isAdmin && orgsData?.data && (
+      {isPlatform && orgsData?.data && (
         <SearchableMultiSelect
           triggerClassName="w-[250px]"
           placeholder="All organizations"

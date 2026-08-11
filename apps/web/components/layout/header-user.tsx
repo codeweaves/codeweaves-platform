@@ -5,6 +5,7 @@ import { LogOut, Settings } from 'lucide-react';
 import { useAuth } from '@/hooks/use-auth';
 import { useProfile } from '@/hooks/use-profile';
 import { Avatar, AvatarFallback } from '@/components/ui/avatar';
+import { accountRoleLabel } from '@/lib/role-label';
 import {
   DropdownMenu,
   DropdownMenuContent,
@@ -37,9 +38,7 @@ export function HeaderUser() {
       .join('')
       .toUpperCase() || email[0]?.toUpperCase() || '?';
 
-  const roleLabel = profile?.role
-    ? profile.role.replace('_', ' ').replace(/\b\w/g, (c) => c.toUpperCase())
-    : null;
+  const roleLabel = accountRoleLabel(profile);
 
   return (
     <DropdownMenu>

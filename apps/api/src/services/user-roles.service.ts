@@ -11,6 +11,7 @@ import { TracerService } from '../common/tracer/tracer.service';
 import { UserSyncGuard } from '../guards/user-sync.guard';
 import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
+import { SUPER_ADMIN_ROLE_KEY } from '../common/rbac';
 import type {
   RoleView,
   UserDetail,
@@ -19,7 +20,7 @@ import type {
 } from '../models/rbac.dto';
 
 /** Role keys with meaning to the grant rules. */
-const SUPER_ADMIN = 'platform.super_admin';
+const SUPER_ADMIN = SUPER_ADMIN_ROLE_KEY;
 const PLATFORM_OPS = 'platform.ops';
 
 @Injectable()

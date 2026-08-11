@@ -6,12 +6,13 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { PrismaService } from './prisma.service';
-import { Prisma, Role } from '@prisma/client';
+import { Prisma } from '@prisma/client';
 import type { CreateOrganizationDto, UpdateOrganizationDto, OrganizationListQuery } from '../models/organization.dto';
 import { generateSlug, generateUniqueSlug } from '../utils/slug';
 import { OrganizationLoggerService } from '../common/logger/organization.logger';
 import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
+import { isSuperAdmin } from '../common/rbac';
 
 const MAX_SLUG_RETRIES = 3;
 
@@ -245,12 +246,15 @@ export class OrganizationsService {
   }
 
   /**
-   * Throws ForbiddenException unless the user is allowed to delete this org.
-   * SUPER_ADMIN only. ADMIN/CLIENT users are also blocked at the controller
-   * level via @Roles; this service-side check is defense in depth.
+   * Throws ForbiddenException unless the caller may delete this org.
+   *
+   * Deliberately stricter than the route: `Organization:Delete` is also held by
+   * `platform.ops`, but dropping an organization and everything under it stays
+   * super-admin-only. Reads the ROLE SET rather than the deprecated `role`
+   * column, so it tracks what the account actually holds today.
    */
   private assertCanDelete(_orgId: string, user: CurrentUserData): void {
-    if (user.role === Role.SUPER_ADMIN) return;
+    if (isSuperAdmin(user)) return;
     throw new ForbiddenException('You do not have permission to delete this organization');
   }
 

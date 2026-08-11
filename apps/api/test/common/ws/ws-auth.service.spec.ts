@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConfigService } from '@nestjs/config';
-import { Role } from '@prisma/client';
+import { AccessScope } from '@prisma/client';
 
 import { WsAuthService } from '../../../src/common/ws/ws-auth.service';
 import { PrismaService } from '../../../src/services/prisma.service';
@@ -72,10 +72,10 @@ describe('WsAuthService', () => {
   });
 
   describe('dashboard (Clerk token) path', () => {
-    it('scopes a CLIENT to their OWN org from the DB — never from a client-supplied orgId', async () => {
+    it('scopes an ORG user to their OWN org from the DB, never from a client-supplied orgId', async () => {
       mockVerifyToken.mockResolvedValue({ sub: 'user_client' });
       mockPrismaService.user.findFirst.mockResolvedValue({
-        role: Role.CLIENT,
+        accessScope: AccessScope.ORG,
         organizationId: orgId,
       });
 
@@ -87,14 +87,14 @@ describe('WsAuthService', () => {
       expect(scope).toEqual({ orgId });
       expect(mockPrismaService.user.findFirst).toHaveBeenCalledWith({
         where: { clerkId: 'user_client', deletedAt: null },
-        select: { role: true, organizationId: true },
+        select: { accessScope: true, organizationId: true },
       });
     });
 
-    it('gives ADMIN (no org) the platform room', async () => {
+    it('gives a PLATFORM account (no org) the platform room', async () => {
       mockVerifyToken.mockResolvedValue({ sub: 'user_admin' });
       mockPrismaService.user.findFirst.mockResolvedValue({
-        role: Role.ADMIN,
+        accessScope: AccessScope.PLATFORM,
         organizationId: null,
       });
 
@@ -102,15 +102,17 @@ describe('WsAuthService', () => {
       expect(scope).toEqual({ platform: true });
     });
 
-    it('gives SUPER_ADMIN (no org) the platform room', async () => {
+    it('ignores the legacy role column when deciding the room', async () => {
       mockVerifyToken.mockResolvedValue({ sub: 'user_super' });
       mockPrismaService.user.findFirst.mockResolvedValue({
-        role: Role.SUPER_ADMIN,
+        // A demoted account keeps its old role but must NOT reach the all-orgs room.
+        role: 'SUPER_ADMIN',
+        accessScope: AccessScope.ORG,
         organizationId: null,
       });
 
       const scope = await service.resolveScope({ auth: { token: 'good-token' } });
-      expect(scope).toEqual({ platform: true });
+      expect(scope).toBeNull();
     });
   });
 
@@ -155,10 +157,10 @@ describe('WsAuthService', () => {
       expect(scope).toBeNull();
     });
 
-    it('rejects a CLIENT with no org and no staff role (nothing to join)', async () => {
+    it('rejects an ORG-scoped user with no org (nothing to join)', async () => {
       mockVerifyToken.mockResolvedValue({ sub: 'user_orphan' });
       mockPrismaService.user.findFirst.mockResolvedValue({
-        role: Role.CLIENT,
+        accessScope: AccessScope.ORG,
         organizationId: null,
       });
       const scope = await service.resolveScope({ auth: { token: 'good-token' } });

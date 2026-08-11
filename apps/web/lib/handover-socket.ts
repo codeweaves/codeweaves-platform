@@ -7,8 +7,8 @@ import { API_BASE_URL } from '@/config/api';
  * Shared dashboard connection to the self-hosted Socket.io handover gateway
  * (replaces the Supabase-Realtime browser client). Scoped to the logged-in user:
  *
- *   - CLIENT → joins `org:<orgId>` → every message/handover ping for their org
- *   - SUPER_ADMIN/ADMIN (no org) → joins the shared `platform` room → all orgs
+ *   - ORG-scoped user → joins `org:<orgId>` → every message/handover ping for their org
+ *   - PLATFORM-scoped staff (no org) → joins the shared `platform` room → all orgs
  *   - `watch(sessionId)` joins a session room while a thread is open → that
  *     visitor's ephemeral "typing…" signal
  *   - `emitAgentTyping(sessionId)` relays the teammate's typing to the visitor
@@ -22,16 +22,24 @@ import { API_BASE_URL } from '@/config/api';
 export type HandoverAuth = { orgId?: string; platform?: boolean };
 
 /**
- * Socket scope for the logged-in user: their org (CLIENT) or the platform room
- * (SUPER_ADMIN/ADMIN, who have no org but watch every org's Inbox). null when
- * the profile can't be scoped yet — the caller then skips the socket (poll only).
+ * Socket scope for the logged-in user: their own org, or the platform room for
+ * PLATFORM-scoped staff (no org, watch every org's Inbox). null when the profile
+ * can't be scoped yet, and the caller then skips the socket (poll only).
+ *
+ * Reads `accessScope`, not the deprecated `role` column. The server derives the
+ * real room from the DB anyway, so a stale value here could never leak another
+ * org's stream; it would just pick the wrong singleton key and leave a
+ * downgraded user watching nothing.
  */
 export function profileHandoverAuth(
-  profile: { role?: string; organization?: { id?: string | null } | null } | null | undefined,
+  profile:
+    | { accessScope?: string; organization?: { id?: string | null } | null }
+    | null
+    | undefined,
 ): HandoverAuth | null {
   if (!profile) return null;
   if (profile.organization?.id) return { orgId: profile.organization.id };
-  if (profile.role === 'SUPER_ADMIN' || profile.role === 'ADMIN') return { platform: true };
+  if (profile.accessScope === 'PLATFORM') return { platform: true };
   return null;
 }
 

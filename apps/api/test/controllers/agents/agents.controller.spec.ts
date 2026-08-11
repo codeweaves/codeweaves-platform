@@ -7,6 +7,7 @@ import { AgentThemesService } from '../../../src/services/agent-themes.service';
 import { AgentKnowledgeService } from '../../../src/services/agent-knowledge.service';
 import { AgentDataFieldsService } from '../../../src/services/agent-data-fields.service';
 import { PermissionGuard } from '../../../src/guards/permission.guard';
+import { PermissionCatalogService } from '../../../src/common/rbac/permission-catalog.service';
 import { ZodValidationPipe } from '../../../src/pipes/zod-validation.pipe';
 import {
   createAgentSchema,
@@ -34,6 +35,30 @@ describe('AgentsController', () => {
   const mockThemesService = { getTheme: jest.fn() };
   const mockKnowledgeService = { get: jest.fn() };
   const mockDataFieldsService = { list: jest.fn() };
+
+  /**
+   * Just the slice of the real catalog these tests depend on. Mirrors the
+   * seeded grants: the two agent sub-resources below are separately grantable
+   * editor sections, so `getEditorConfig` must gate them PER PERMISSION rather
+   * than on any single role. Keys absent here resolve to no permissions, which
+   * is the same fail-closed direction the real catalog takes for unknown roles.
+   */
+  const CATALOG: Record<string, string[]> = {
+    'platform.agent_admin': [
+      'AgentSecret:Read',
+      'AgentSecret:Update',
+      'AgentDataField:Read',
+      'AgentDataField:Update',
+    ],
+    'org.agent_integrations': ['AgentSecret:Read', 'AgentSecret:Update'],
+    'org.agent_data_capture': ['AgentDataField:Read', 'AgentDataField:Update'],
+  };
+
+  const mockCatalog = {
+    resolvePermissions: jest.fn((roleKeys: string[]) =>
+      new Set(roleKeys.flatMap((k) => CATALOG[k] ?? [])),
+    ),
+  };
 
   const orgId = '123e4567-e89b-12d3-a456-426614174000';
   const agentId = '333e4567-e89b-12d3-a456-426614174000';
@@ -94,6 +119,7 @@ describe('AgentsController', () => {
         { provide: AgentThemesService, useValue: mockThemesService },
         { provide: AgentKnowledgeService, useValue: mockKnowledgeService },
         { provide: AgentDataFieldsService, useValue: mockDataFieldsService },
+        { provide: PermissionCatalogService, useValue: mockCatalog },
         Reflector,
       ],
     })
@@ -103,6 +129,10 @@ describe('AgentsController', () => {
 
     controller = module.get<AgentsController>(AgentsController);
     jest.clearAllMocks();
+    // clearAllMocks wipes the implementation too, so restore the catalog stub.
+    mockCatalog.resolvePermissions.mockImplementation(
+      (roleKeys: string[]) => new Set(roleKeys.flatMap((k) => CATALOG[k] ?? [])),
+    );
   });
 
   it('should be defined', () => {
@@ -185,17 +215,52 @@ describe('AgentsController', () => {
       expect(mockDataFieldsService.list).toHaveBeenCalled();
     });
 
-    it('STRIPS admin-only fields for a CLIENT (webhookUrl null, dataFields []) and never fetches them', async () => {
+    it('STRIPS both gated sections from a user holding neither permission, and never fetches them', async () => {
       const result = await controller.getEditorConfig(agentId, clientUser);
 
-      // Client-visible sections still hydrate…
+      // Ungated sections still hydrate…
       expect(result.agent).toEqual(mockAgent);
       expect(result.theme).toEqual(theme);
       expect(result.knowledge).toEqual(knowledge);
-      // …but the admin-only fields are stripped, and their services are not even called.
+      // …but the gated fields are stripped, and their services are not even called.
       expect(result.webhookUrl).toBeNull();
       expect(result.dataFields).toEqual([]);
       expect(mockAgentsService.getWebhookUrl).not.toHaveBeenCalled();
+      expect(mockDataFieldsService.list).not.toHaveBeenCalled();
+    });
+
+    /**
+     * The bug this gating replaced: the two sections were hidden behind the
+     * legacy role tier, so an ORG user granted `org.agent_data_capture` opened
+     * the Data Capture tab and got an empty list. They are separately grantable
+     * roles, so each section must follow its OWN permission.
+     */
+    it('returns dataFields for an ORG user holding only the data-capture role', async () => {
+      const dataCaptureUser: CurrentUserData = {
+        ...clientUser,
+        roleKeys: ['org.agent_data_capture'],
+      };
+
+      const result = await controller.getEditorConfig(agentId, dataCaptureUser);
+
+      expect(result.dataFields).toEqual(dataFields);
+      expect(mockDataFieldsService.list).toHaveBeenCalled();
+      // …and still nothing from the section they were NOT granted.
+      expect(result.webhookUrl).toBeNull();
+      expect(mockAgentsService.getWebhookUrl).not.toHaveBeenCalled();
+    });
+
+    it('returns webhookUrl for an ORG user holding only the integrations role', async () => {
+      const integrationsUser: CurrentUserData = {
+        ...clientUser,
+        roleKeys: ['org.agent_integrations'],
+      };
+
+      const result = await controller.getEditorConfig(agentId, integrationsUser);
+
+      expect(result.webhookUrl).toBe('https://hook.example.com');
+      expect(mockAgentsService.getWebhookUrl).toHaveBeenCalled();
+      expect(result.dataFields).toEqual([]);
       expect(mockDataFieldsService.list).not.toHaveBeenCalled();
     });
 

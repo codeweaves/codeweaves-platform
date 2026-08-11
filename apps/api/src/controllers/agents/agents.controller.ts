@@ -12,7 +12,6 @@ import {
   HttpStatus,
 } from '@nestjs/common';
 import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { Role } from '@prisma/client';
 import { AgentsService } from '../../services/agents.service';
 import { AgentThemesService } from '../../services/agent-themes.service';
 import { AgentKnowledgeService } from '../../services/agent-knowledge.service';
@@ -33,6 +32,7 @@ import type {
 } from '../../models/agent.dto';
 import { RequirePermission } from '../../decorators/require-permission.decorator';
 import { Resource, Action } from '../../common/rbac/rbac.types';
+import { PermissionCatalogService } from '../../common/rbac/permission-catalog.service';
 
 @ApiTags('Agents')
 @ApiBearerAuth()
@@ -43,6 +43,7 @@ export class AgentsController {
     private readonly themesService: AgentThemesService,
     private readonly knowledgeService: AgentKnowledgeService,
     private readonly dataFieldsService: AgentDataFieldsService,
+    private readonly catalog: PermissionCatalogService,
   ) {}
 
   @Post()
@@ -107,13 +108,17 @@ export class AgentsController {
    * agent itself is required; if it 404s we re-throw so the page can show the
    * "not found" state.
    *
-   * Client-accessible: a CLIENT edits their own agent's core / theme / knowledge.
-   * The admin-only bundles — `webhookUrl` (integration secret) and `dataFields`
-   * (data-capture config, admin-only per AgentDataFieldsController) — are fetched
-   * and returned ONLY for ADMIN/SUPER_ADMIN. A CLIENT gets `webhookUrl: null` and
-   * `dataFields: []`, so those sensitive fields never reach them (mirrors the
-   * editor sidebar, which hides the Integration + Data Capture sections). Tenant
-   * scope is enforced by `findById(id, user)` — a foreign agent 404s.
+   * Field-level gating: `webhookUrl` needs `AgentSecret:Read` and `dataFields`
+   * needs `AgentDataField:Read`, because both belong to editor sections that are
+   * separately grantable roles. Without the permission the caller gets
+   * `webhookUrl: null` / `dataFields: []`, mirroring the sidebar, which hides the
+   * matching section.
+   *
+   * Checked per PERMISSION rather than per role — gating on the legacy tier meant
+   * an org user holding `org.agent_data_capture` saw the section but received an
+   * empty list, while a super admin saw the same agent's fields fine.
+   *
+   * Tenant scope is enforced by `findById(id, user)` — a foreign agent 404s.
    */
   @Get(':id/editor-config')
   @RequirePermission(Resource.Agent, Action.Read)
@@ -138,26 +143,32 @@ export class AgentsController {
     // only ever resolves an agent in their own org).
     const agent = await this.agentsService.findById(id, user);
 
-    const isAdmin =
-      user.role === Role.ADMIN || user.role === Role.SUPER_ADMIN;
+    // Per-PERMISSION, not per-role. These two sub-resources belong to separately
+    // grantable editor sections, so gating them on the legacy tier meant an org
+    // user holding org.agent_data_capture still received `dataFields: []` and saw
+    // an empty section, while a super admin saw the same agent's fields fine.
+    const granted = this.catalog.resolvePermissions(user.roleKeys ?? []);
+    const canReadWebhook = granted.has('AgentSecret:Read');
+    const canReadDataFields = granted.has('AgentDataField:Read');
 
-    // Admin-only sub-resources (webhook URL + data-capture config) are fetched
-    // ONLY for ADMIN/SUPER_ADMIN. For a CLIENT we resolve to null/[] so the
-    // sensitive fields never reach them — the same per-section boundary the
-    // editor sidebar enforces, applied here at the field level.
+    // Anything the caller cannot read resolves to null/[] so the sensitive value
+    // never reaches them — the same boundary the editor sidebar draws, applied
+    // here at the field level.
     const [webhookResult, themeResult, knowledgeResult, dataFieldsResult] =
       await Promise.allSettled([
-        isAdmin
+        canReadWebhook
           ? this.agentsService.getWebhookUrl(id, user)
           : Promise.resolve(null),
         this.themesService.getTheme(id, user),
         this.knowledgeService.get(id, user),
-        isAdmin ? this.dataFieldsService.list(id, user) : Promise.resolve([]),
+        canReadDataFields
+          ? this.dataFieldsService.list(id, user)
+          : Promise.resolve([]),
       ]);
 
     return {
       agent,
-      // Webhook: admin-only; swallow any error (e.g. no secret row) → null.
+      // Webhook: needs AgentSecret:Read; swallow any error (no secret row) → null.
       webhookUrl:
         webhookResult.status === 'fulfilled' && webhookResult.value
           ? webhookResult.value.webhookUrl
@@ -166,7 +177,7 @@ export class AgentsController {
       theme: themeResult.status === 'fulfilled' ? themeResult.value : null,
       // Knowledge: null when no record. Editor treats null + empty-string the same.
       knowledge: knowledgeResult.status === 'fulfilled' ? knowledgeResult.value : null,
-      // Data-capture field definitions (admin-only); empty array for clients.
+      // Data-capture field definitions; empty array without AgentDataField:Read.
       dataFields:
         dataFieldsResult.status === 'fulfilled' ? dataFieldsResult.value : [],
     };

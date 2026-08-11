@@ -5,13 +5,7 @@ import {
   ConflictException,
 } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
-import {
-  Prisma,
-  Role,
-  type HandoverReason,
-  type HandoverResolution,
-  type HandoverState,
-} from '@prisma/client';
+import { Prisma, type HandoverReason, type HandoverResolution, type HandoverState } from '@prisma/client';
 import { tool, jsonSchema } from 'ai';
 import { PrismaService } from './prisma.service';
 import { RealtimeService } from './realtime.service';
@@ -24,6 +18,7 @@ import { InternalEventLogger } from '../common/events/internal.logger';
 import { TracerService } from '../common/tracer/tracer.service';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { isOrgScoped } from '../utils/tenant-filter';
+import { isSuperAdmin } from '../common/rbac';
 
 /**
  * Matches an explicit "I want a human" intent. Cheap + synchronous — runs on
@@ -494,7 +489,8 @@ export class HandoverService {
   ): void {
     if (session.handoverState !== 'ACTIVE_HUMAN') return;
     if (!session.takenOverById || session.takenOverById === user.id) return;
-    if (user.role === Role.SUPER_ADMIN) return;
+    // Seizing a conversation someone else is handling stays super-admin-only.
+    if (isSuperAdmin(user)) return;
 
     const who = session.takenOverBy?.name?.trim() || 'another teammate';
     throw new ConflictException(

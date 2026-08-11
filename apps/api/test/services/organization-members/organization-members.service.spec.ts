@@ -40,6 +40,7 @@ describe('OrganizationMembersService', () => {
     email: 'user@example.com',
     name: 'Test User',
     role: Role.CLIENT,
+    accessScope: AccessScope.ORG,
     clerkId: 'user_123',
     organizationId: null as string | null,
     deletedAt: null,
@@ -231,17 +232,31 @@ describe('OrganizationMembersService', () => {
       ).rejects.toThrow(NotFoundException);
     });
 
-    it('should throw BadRequestException when assigning a SUPER_ADMIN user', async () => {
-      const superAdminUser = { ...mockUser, role: Role.SUPER_ADMIN };
+    it('should throw BadRequestException when assigning a PLATFORM-scoped user', async () => {
+      const platformUser = { ...mockUser, accessScope: AccessScope.PLATFORM };
       mockPrismaService.organization.findUnique.mockResolvedValue(mockOrganization);
-      mockPrismaService.user.findUnique.mockResolvedValue(superAdminUser);
+      mockPrismaService.user.findUnique.mockResolvedValue(platformUser);
 
       await expect(
         service.assignMember(orgId, userId),
       ).rejects.toThrow(BadRequestException);
       await expect(
         service.assignMember(orgId, userId),
-      ).rejects.toThrow('Cannot assign a SUPER_ADMIN user to an organization');
+      ).rejects.toThrow('Cannot assign a platform-scoped user to an organization');
+    });
+
+    /**
+     * The check reads accessScope, not the deprecated role column. A user who
+     * still carries the old top-tier role but has been moved to ORG scope is a
+     * legitimate member and must be assignable.
+     */
+    it('should ignore the legacy role column and assign an ORG-scoped user', async () => {
+      const demoted = { ...mockUser, role: Role.SUPER_ADMIN, accessScope: AccessScope.ORG };
+      mockPrismaService.organization.findUnique.mockResolvedValue(mockOrganization);
+      mockPrismaService.user.findUnique.mockResolvedValue(demoted);
+      mockPrismaService.user.update.mockResolvedValue({ ...demoted, organizationId: orgId });
+
+      await expect(service.assignMember(orgId, userId)).resolves.toBeDefined();
     });
   });
 

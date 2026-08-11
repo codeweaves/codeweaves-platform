@@ -1,9 +1,9 @@
 import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { verifyToken } from '@clerk/backend';
-import { Role } from '@prisma/client';
 
 import { PrismaService } from '../../services/prisma.service';
+import { isOrgScoped } from '../../utils/tenant-filter';
 
 /**
  * The trusted scope a socket is entitled to, resolved from its handshake.
@@ -13,9 +13,9 @@ import { PrismaService } from '../../services/prisma.service';
 export interface WsScope {
   /** Widget: the public session it may watch (`session:<id>`). */
   sessionId?: string;
-  /** Dashboard CLIENT: their own org's inbox room (`org:<id>`). */
+  /** Dashboard ORG scope: their own org's inbox room (`org:<id>`). */
   orgId?: string;
-  /** Dashboard ADMIN/SUPER_ADMIN (no org): the all-orgs `platform` room. */
+  /** Dashboard PLATFORM scope (no org): the all-orgs `platform` room. */
   platform?: boolean;
 }
 
@@ -69,7 +69,7 @@ export class WsAuthService {
     const sessionId = pickStr(auth.sessionId) ?? pickStr(query.sessionId);
 
     // ── Dashboard path: a verified Clerk token is required. ──────────────────
-    // org/role come from the DB user the token maps to — client-supplied
+    // org/scope come from the DB user the token maps to — client-supplied
     // orgId/platform flags are ignored entirely.
     if (token) {
       const scope = await this.scopeFromToken(token);
@@ -98,13 +98,16 @@ export class WsAuthService {
 
       const user = await this.prisma.user.findFirst({
         where: { clerkId, deletedAt: null },
-        select: { role: true, organizationId: true },
+        select: { accessScope: true, organizationId: true },
       });
       if (!user) return null;
 
-      // A CLIENT is pinned to their own org. Platform staff (no org) watch all.
+      // An ORG account is pinned to its own org. Platform scope (no org) watches
+      // all. Reads accessScope, not the deprecated `role`: an account demoted via
+      // `PATCH /users/:id/scope` keeps its old `role`, and putting it in the
+      // platform room would stream it EVERY organization's live events.
       if (user.organizationId) return { orgId: user.organizationId };
-      if (user.role === Role.SUPER_ADMIN || user.role === Role.ADMIN) {
+      if (!isOrgScoped(user)) {
         return { platform: true };
       }
       // Authenticated but neither org-bound nor staff → no room to join.
