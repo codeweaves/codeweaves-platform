@@ -8,6 +8,7 @@ import { WidgetEventLogger } from '../common/events/widget.logger';
 import { AppLogger } from '../common/logger/app-logger';
 import { DirectChatService } from '../modules/ai/direct-chat.service';
 import { PiiDetectionService } from '../modules/pii/pii-detection.service';
+import { PiiTokenizerService } from '../modules/pii/pii-tokenizer.service';
 import { HandoverService } from './handover.service';
 import type { SendMessageDto } from '@repo/validation';
 import { resolveRoutingMode } from '@repo/validation';
@@ -34,6 +35,7 @@ export class ChatService {
     private readonly messageMetricsService: MessageMetricsService,
     private readonly handoverService: HandoverService,
     private readonly piiDetection: PiiDetectionService,
+    private readonly piiTokenizer: PiiTokenizerService,
     private readonly widgetLog: WidgetEventLogger,
   ) {}
 
@@ -168,7 +170,7 @@ export class ChatService {
         deletedAt: null,
         status: 'ACTIVE',
       },
-      select: { id: true, hmacEnabled: true, aiConfig: true },
+      select: { id: true, hmacEnabled: true, aiConfig: true, organizationId: true },
     });
     if (!agent) {
       throw new NotFoundException('Agent not found or inactive');
@@ -354,17 +356,56 @@ export class ChatService {
    * the UUID and fire-and-forget the persist while still tracking the row for
    * later operations (e.g. orphan cleanup). Mirrors `saveAssistantMessage`.
    */
-  async saveUserMessage(chatSessionId: string, content: string, id?: string) {
+  async saveUserMessage(
+    chatSessionId: string,
+    content: string,
+    id?: string,
+    organizationId?: string,
+  ) {
     return this.prisma.chatMessage.create({
       data: {
         ...(id ? { id } : {}),
         chatSessionId,
         role: 'USER',
-        // Compliance floor: Aadhaar/PAN/card/… numbers never reach Postgres.
-        // Irreversible by design — see docs/plans/pii-redaction-plan.md.
-        content: this.piiDetection.maskHardDrop(content),
+        content: await this.redactUserContent(content, chatSessionId, organizationId),
       },
     });
+  }
+
+  /**
+   * Single choke point for persisting visitor-authored text.
+   *   - HARD_DROP-tier (card/Aadhaar/passport/…) is ALWAYS destroyed.
+   *   - VAULT-tier (bank/DOB/PAN/IFSC): callers pass `organizationId` ONLY when
+   *     the agent opted into PII redaction (`aiConfig.piiRedactionEnabled`), in
+   *     which case those values are tokenised into the encrypted vault and the
+   *     transcript stores the token. Without an org this is the pre-existing
+   *     HARD_DROP-only behaviour (no regression for agents that never opted in).
+   * Gating storage on the SAME flag as the LLM path keeps the two consistent.
+   * See docs/security/pii-handling-spec.md.
+   */
+  private async redactUserContent(
+    content: string,
+    chatSessionId: string,
+    organizationId?: string,
+  ): Promise<string> {
+    return organizationId
+      ? this.piiTokenizer.redactForStorage(organizationId, chatSessionId, content)
+      : this.piiDetection.maskHardDrop(content);
+  }
+
+  /**
+   * True when the agent opted into PII redaction. Reading the raw boolean is
+   * equivalent to the parsed `aiConfig` (schema default is `false`) and avoids a
+   * full Zod parse on the persist path. Callers use it to decide whether to pass
+   * `organizationId` into `saveUserMessage`/`redactUserContent` (→ vault).
+   */
+  static isPiiRedactionEnabled(aiConfig: Prisma.JsonValue | null | undefined): boolean {
+    // Default ON (compliance floor, mirrors the aiConfig schema default). Off
+    // only when an agent EXPLICITLY sets piiRedactionEnabled=false.
+    if (aiConfig && typeof aiConfig === 'object' && !Array.isArray(aiConfig)) {
+      return (aiConfig as Record<string, unknown>).piiRedactionEnabled !== false;
+    }
+    return true;
   }
 
   /**
@@ -569,12 +610,19 @@ export class ChatService {
       ...detectFallback(result.text, fullAgent.fallbackPhrases),
     };
 
+    const storedUserContent = await this.redactUserContent(
+      dto.chatInput,
+      session.id,
+      ChatService.isPiiRedactionEnabled(fullAgent.aiConfig)
+        ? fullAgent.organizationId
+        : undefined,
+    );
     const [userMessage, assistantMessage] = await this.prisma.$transaction([
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
           role: 'USER',
-          content: this.piiDetection.maskHardDrop(dto.chatInput),
+          content: storedUserContent,
         },
       }),
       this.prisma.chatMessage.create({
@@ -632,13 +680,15 @@ export class ChatService {
     const backendRespondedAt = new Date();
     const metadata = this.buildMetadata(backendReceivedAt, backendRespondedAt, n8nResponse);
 
+    // n8n is retired; no org threaded here, so VAULT-tier is masked (never raw).
+    const storedUserContent = await this.redactUserContent(dto.chatInput, session.id);
     // Store user message + AI response + update session atomically
     const [userMessage, assistantMessage] = await this.prisma.$transaction([
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
           role: 'USER',
-          content: this.piiDetection.maskHardDrop(dto.chatInput),
+          content: storedUserContent,
         },
       }),
       this.prisma.chatMessage.create({
@@ -693,12 +743,12 @@ export class ChatService {
     const agent = await this.resolveAgent(dto.agentId);
     const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
 
-    // Store user message BEFORE calling n8n
+    // Store user message BEFORE calling n8n (n8n retired; no org → VAULT masked).
     const userMessage = await this.prisma.chatMessage.create({
       data: {
         chatSessionId: session.id,
         role: 'USER',
-        content: this.piiDetection.maskHardDrop(dto.chatInput),
+        content: await this.redactUserContent(dto.chatInput, session.id),
       },
     });
 

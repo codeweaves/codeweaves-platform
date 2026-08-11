@@ -10,6 +10,7 @@ import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
 import { MessageMetricsService } from '../../../src/services/message-metrics.service';
 import { HandoverService } from '../../../src/services/handover.service';
 import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
+import { PiiTokenizerService } from '../../../src/modules/pii/pii-tokenizer.service';
 import { WidgetEventLogger } from '../../../src/common/events/widget.logger';
 
 describe('ChatService', () => {
@@ -70,6 +71,13 @@ describe('ChatService', () => {
   };
 
   const mockWidgetLog = { logSessionStarted: jest.fn() };
+
+  // Storage-side PII redaction is unit-tested in pii-tokenizer.service.spec.ts;
+  // here it passes content through so ChatService's own behaviour is isolated.
+  const mockPiiTokenizer = {
+    redactForStorage: jest.fn(async (_org: string, _sid: string, content: string) => content),
+    forSession: jest.fn(),
+  };
 
   const MOCK_AGENT_ID = 'a1b2c3d4-e5f6-7890-abcd-ef1234567890';
   const MOCK_SESSION_ID = 'session-uuid-1234';
@@ -135,11 +143,17 @@ describe('ChatService', () => {
         { provide: HandoverService, useValue: mockHandoverService },
         { provide: WidgetEventLogger, useValue: mockWidgetLog },
         PiiDetectionService,
+        { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
       ],
     }).compile();
 
     service = module.get<ChatService>(ChatService);
     jest.clearAllMocks();
+
+    // resetMocks wipes inline impls; (re)apply the passthrough each test.
+    mockPiiTokenizer.redactForStorage.mockImplementation(
+      async (_o: string, _s: string, c: string) => c,
+    );
 
     // Default mocks for a successful flow (hmacEnabled: false by default)
     mockPrismaService.agent.findFirst.mockResolvedValue({ id: MOCK_AGENT_ID, hmacEnabled: false });
@@ -517,7 +531,7 @@ describe('ChatService', () => {
 
         expect(mockPrismaService.agent.findFirst).toHaveBeenCalledWith({
           where: { id: MOCK_AGENT_ID, deletedAt: null, status: 'ACTIVE' },
-          select: { id: true, hmacEnabled: true, aiConfig: true },
+          select: { id: true, hmacEnabled: true, aiConfig: true, organizationId: true },
         });
       });
     });

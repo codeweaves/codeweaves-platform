@@ -145,17 +145,21 @@ export const agentAiConfigSchema = z
 
     // ----- PII redaction (docs/plans/pii-redaction-plan.md) -----
     /**
-     * When true, TOKENIZE-tier PII (addresses, DOBs, bank/account numbers, …)
-     * in conversation history is replaced with stable placeholders before any
-     * LLM call; human agents and the visitor still see real values. Coverage
-     * note (be honest in UI copy): identifier detection works in any language;
-     * name/address detection is not included yet.
+     * PII redaction for VAULT-tier data (bank/account numbers, DOB, IFSC, PAN).
+     * ON by DEFAULT (compliance floor): these values are replaced with stable
+     * placeholders before any LLM call AND before they are written to the
+     * transcript; the real value lives only in the encrypted `pii_tokens` vault,
+     * revealed to authorised staff on demand (audited). Set to `false` only for
+     * the rare agent that genuinely needs raw values inline.
      *
-     * Government/financial identifiers (Aadhaar, PAN, cards, passport, …) are
-     * ALWAYS destroyed at ingestion regardless of this toggle — that is a
-     * compliance floor, not a feature.
+     * Coverage note (be honest in UI copy): identifier detection works in any
+     * language; name/address detection is not included yet.
+     *
+     * Government identifiers with no product use (Aadhaar, cards, passport, DL,
+     * voter ID) are ALWAYS destroyed at ingestion regardless of this toggle —
+     * a compliance floor, not a feature.
      */
-    piiRedactionEnabled: z.boolean().default(false),
+    piiRedactionEnabled: z.boolean().default(true),
     /**
      * When PII redaction is on, also tokenize what we persist to chat_traces
      * (userMessage/response) and suppress raw previews in file logs.

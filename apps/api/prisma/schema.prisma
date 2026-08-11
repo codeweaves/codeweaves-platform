@@ -890,6 +890,10 @@ model PiiToken {
   token          String // "[BANK_ACCOUNT_1]" — unique within the session
   valueHash      String // HMAC-SHA256(sessionId, normalized value) hex
   valueEncrypted String // AES-256-GCM (CryptoService format iv:data:tag)
+  // Last 4 significant chars in plaintext, for masked dashboard display
+  // ("****9012") without decrypting. Only ever set for VAULT-tier categories
+  // (bank/DOB/PAN/IFSC); HARD_DROP identifiers never reach this table.
+  last4          String?
   createdAt      DateTime @default(now())
 
   @@unique([chatSessionId, token])

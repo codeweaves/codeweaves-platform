@@ -7,6 +7,7 @@ import { PrismaService } from '../../../src/services/prisma.service';
 import { RealtimeService } from '../../../src/services/realtime.service';
 import { WhatsappOutboundService } from '../../../src/modules/whatsapp/whatsapp-outbound.service';
 import { PiiDetectionService } from '../../../src/modules/pii/pii-detection.service';
+import { PiiTokenizerService } from '../../../src/modules/pii/pii-tokenizer.service';
 import { InternalEventLogger } from '../../../src/common/events/internal.logger';
 import { TracerService } from '../../../src/common/tracer/tracer.service';
 import { NotificationService } from '../../../src/services/notification.service';
@@ -55,6 +56,11 @@ describe('HandoverService', () => {
   const mockTracer = { logAuditEvent: jest.fn().mockResolvedValue(undefined) };
 
   const mockNotifications = { emit: jest.fn().mockResolvedValue(undefined) };
+
+  // Passes content through; the redaction itself is covered in the tokenizer spec.
+  const mockPiiTokenizer = {
+    redactForStorage: jest.fn(async (_org: string, _sid: string, content: string) => content),
+  };
 
   const clientUser: CurrentUserData = {
     clerkId: 'user_client',
@@ -140,11 +146,16 @@ describe('HandoverService', () => {
         { provide: TracerService, useValue: mockTracer },
         { provide: NotificationService, useValue: mockNotifications },
         PiiDetectionService,
+        { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
       ],
     }).compile();
 
     service = module.get<HandoverService>(HandoverService);
     jest.clearAllMocks();
+    // resetMocks wipes inline impls; (re)apply the passthrough each test.
+    mockPiiTokenizer.redactForStorage.mockImplementation(
+      async (_o: string, _s: string, c: string) => c,
+    );
     mockRealtime.emitHandover.mockResolvedValue(undefined);
     mockRealtime.emitMessage.mockResolvedValue(undefined);
     mockPrisma.user.findUnique.mockResolvedValue({ name: 'Priya' });

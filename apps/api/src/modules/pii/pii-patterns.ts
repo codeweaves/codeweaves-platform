@@ -50,7 +50,10 @@ export const CATEGORY_TIERS: Record<PiiCategory, PiiTier> = {
   EMAIL: 'ALLOW',
   PHONE: 'ALLOW',
   AADHAAR: 'HARD_DROP',
-  PAN: 'HARD_DROP',
+  // PAN is VAULT (not HARD_DROP): an Indian tax ID is less restricted than
+  // Aadhaar, so encrypt-at-rest + last-4 display is the standard. Kept, never
+  // destroyed. See docs/security/pii-handling-spec.md §3.
+  PAN: 'TOKENIZE',
   CARD: 'HARD_DROP',
   PASSPORT: 'HARD_DROP',
   DRIVING_LICENCE: 'HARD_DROP',
@@ -196,9 +199,9 @@ const RECOGNIZERS: Recognizer[] = [
     hardDropMask: () => '[AADHAAR REDACTED]',
   },
   {
+    // VAULT tier: tokenised + encrypted, not destroyed (see CATEGORY_TIERS).
     category: 'PAN',
     pattern: /\b[A-Z]{5}\d{4}[A-Z]\b/g,
-    hardDropMask: () => '[PAN REDACTED]',
   },
   {
     // 13-19 digits with optional space/dash grouping, Luhn-valid.
@@ -296,4 +299,13 @@ export function detectPii(text: string): PiiMatch[] {
     }
   }
   return kept;
+}
+
+/**
+ * Last 4 significant (alphanumeric) characters of a value, for masked display
+ * ("****9012"). Strips spaces/dashes first so "1234 5678 9012" → "9012" and a
+ * PAN "ABCDE1234F" → "234F". Returns '' for values shorter than needed.
+ */
+export function last4Of(value: string): string {
+  return value.replace(/[^A-Za-z0-9]/g, '').slice(-4);
 }

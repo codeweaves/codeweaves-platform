@@ -391,7 +391,12 @@ export class PublicChatController {
       // round-trip (~300-500ms) before the orchestrator starts.
       const userMessageId = randomUUID();
       void this.chatService
-        .saveUserMessage(session.id, dto.chatInput, userMessageId)
+        .saveUserMessage(
+          session.id,
+          dto.chatInput,
+          userMessageId,
+          ChatService.isPiiRedactionEnabled(agent.aiConfig) ? agent.organizationId : undefined,
+        )
         .catch((err) => {
           this.log.warn(
             'stream',

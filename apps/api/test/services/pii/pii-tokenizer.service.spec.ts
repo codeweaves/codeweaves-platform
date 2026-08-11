@@ -115,6 +115,54 @@ describe('PiiTokenizerService', () => {
     ctx.tokenize('dob 12/08/1994');
     await expect(ctx.flush()).resolves.toBeUndefined();
   });
+
+  describe('redactForStorage (transcript storage path)', () => {
+    it('destroys DESTROY-tier, tokenises VAULT-tier, and durably vaults with last4', async () => {
+      const out = await service.redactForStorage(
+        'org-1',
+        'sess-1',
+        'card 4111111111111111, pan ABCDE1234F, account 123456789012 bank',
+      );
+      expect(out).toContain('[CARD REDACTED ****1111]'); // destroyed, last-4 kept
+      expect(out).toContain('[PAN_1]');
+      expect(out).toContain('[BANK_ACCOUNT_1]');
+      expect(out).not.toContain('ABCDE1234F');
+      expect(out).not.toContain('123456789012');
+
+      expect(mockPrisma.piiToken.createMany).toHaveBeenCalledTimes(1);
+      const rows = mockPrisma.piiToken.createMany.mock.calls[0]![0].data as Array<{
+        category: string;
+        valueEncrypted: string;
+        last4: string;
+      }>;
+      expect(rows.find((r) => r.category === 'BANK_ACCOUNT')).toMatchObject({
+        valueEncrypted: 'enc(123456789012)',
+        last4: '9012',
+      });
+      expect(rows.find((r) => r.category === 'PAN')).toMatchObject({ last4: '234F' });
+    });
+
+    it('masks VAULT-tier (no dangling token) when the durable vault write fails', async () => {
+      mockPrisma.piiToken.createMany.mockRejectedValue(new Error('db down'));
+      const out = await service.redactForStorage(
+        'org-1',
+        'sess-1',
+        'account 123456789012 bank and pan ABCDE1234F',
+      );
+      // No token whose value we could not persist — masked instead, never raw.
+      expect(out).toContain('[BANK_ACCOUNT REDACTED]');
+      expect(out).toContain('[PAN REDACTED]');
+      expect(out).not.toContain('123456789012');
+      expect(out).not.toContain('ABCDE1234F');
+      expect(out).not.toContain('[BANK_ACCOUNT_1]');
+    });
+
+    it('writes nothing for a message with no VAULT-tier PII', async () => {
+      const out = await service.redactForStorage('org-1', 'sess-1', 'hello, a pricing question');
+      expect(out).toBe('hello, a pricing question');
+      expect(mockPrisma.piiToken.createMany).not.toHaveBeenCalled();
+    });
+  });
 });
 
 describe('StreamDetokenizer', () => {

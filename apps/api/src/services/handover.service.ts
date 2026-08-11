@@ -17,6 +17,7 @@ import { PrismaService } from './prisma.service';
 import { RealtimeService } from './realtime.service';
 import { NotificationService } from './notification.service';
 import { PiiDetectionService } from '../modules/pii/pii-detection.service';
+import { PiiTokenizerService } from '../modules/pii/pii-tokenizer.service';
 import { WhatsappOutboundService } from '../modules/whatsapp/whatsapp-outbound.service';
 import { AppLogger } from '../common/logger/app-logger';
 import { InternalEventLogger } from '../common/events/internal.logger';
@@ -59,6 +60,7 @@ export class HandoverService {
     private readonly config: ConfigService,
     private readonly whatsappOutbound: WhatsappOutboundService,
     private readonly piiDetection: PiiDetectionService,
+    private readonly piiTokenizer: PiiTokenizerService,
     private readonly events: InternalEventLogger,
     private readonly tracer: TracerService,
     private readonly notifications: NotificationService,
@@ -342,9 +344,14 @@ export class HandoverService {
         data: {
           chatSessionId: ctx.sessionDbId,
           role: 'USER',
-          // Compliance floor: identity/card numbers are destroyed before
-          // persistence on every channel, including while a human handles.
-          content: this.piiDetection.maskHardDrop(content),
+          // Same PII floor as the bot path: DESTROY-tier (Aadhaar/card/...) is
+          // masked and VAULT-tier (bank/DOB/PAN/IFSC) is tokenised into the
+          // encrypted vault, on every channel, including while a human handles.
+          content: await this.piiTokenizer.redactForStorage(
+            ctx.organizationId,
+            ctx.sessionDbId,
+            content,
+          ),
         },
       });
       await this.prisma.chatSession.update({

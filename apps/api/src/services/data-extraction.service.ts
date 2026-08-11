@@ -14,6 +14,7 @@ import {
 
 import { PrismaService } from './prisma.service';
 import { CryptoService } from '../common/crypto/crypto.service';
+import { PiiTokenizerService } from '../modules/pii/pii-tokenizer.service';
 import { InternalEventLogger } from '../common/events/internal.logger';
 
 /** Outcome of one extraction attempt. `retry` leaves the session due. */
@@ -60,6 +61,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     private readonly config: ConfigService,
     private readonly internalLog: InternalEventLogger,
     private readonly crypto: CryptoService,
+    private readonly piiTokenizer: PiiTokenizerService,
   ) {
     // Both default to sensible values; override in .env to watch it run fast
     // while testing (e.g. DATA_EXTRACT_DEBOUNCE_MS=5000, DATA_EXTRACT_POLL_MS=5000).
@@ -212,6 +214,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
         agentId: true,
         agent: {
           select: {
+            organizationId: true,
             dataFields: {
               orderBy: { order: 'asc' },
               select: { key: true, label: true, type: true, description: true },
@@ -241,14 +244,32 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     // Nothing from the user → nothing of theirs to capture; skip the LLM call.
     if (!session.messages.some((m) => m.role === 'USER')) return 'empty';
 
+    // The extractor LLM must NEVER see real VAULT-tier values. Build the
+    // transcript from the STORED (tokenised) messages, so it only ever sees
+    // placeholders like [BANK_ACCOUNT_1]/[DOB_1]; we detokenise its OUTPUT
+    // below. This preserves the "no raw VAULT PII to the LLM" guarantee for the
+    // extraction call too, not just the chat call.
     const transcript = this.buildTranscript(session.messages);
-    const values = await this.ai.extractFields(transcript, extractable);
+    const rawValues = await this.ai.extractFields(transcript, extractable);
 
     // null = the extractor didn't actually run (unconfigured key or a failed
     // call). Retry rather than marking this conversation done, so a transient
     // blip doesn't drop a lead.
-    if (values === null) return 'retry';
-    if (Object.keys(values).length === 0) return 'empty';
+    if (rawValues === null) return 'retry';
+    if (Object.keys(rawValues).length === 0) return 'empty';
+
+    // Detokenise the extracted VALUES via the session vault: a captured
+    // [BANK_ACCOUNT_1] becomes the real account number before we encrypt it.
+    // No-op for non-token values (names, emails). Net effect: the real value is
+    // captured WITHOUT the LLM ever having seen it.
+    const piiCtx = await this.piiTokenizer.forSession(
+      session.agent.organizationId,
+      chatSessionId,
+    );
+    const values: Record<string, unknown> = {};
+    for (const [key, value] of Object.entries(rawValues)) {
+      values[key] = typeof value === 'string' ? piiCtx.detokenize(value) : value;
+    }
 
     // Merge over anything captured earlier (latest value wins, e.g. a corrected
     // email), so re-extraction on a resumed conversation never drops fields.

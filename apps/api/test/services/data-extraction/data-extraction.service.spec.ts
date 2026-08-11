@@ -5,6 +5,7 @@ import { PrismaService } from '../../../src/services/prisma.service';
 import { AiClassifierService } from '../../../src/common/ai/ai-classifier.service';
 import { InternalEventLogger } from '../../../src/common/events/internal.logger';
 import { CryptoService } from '../../../src/common/crypto/crypto.service';
+import { PiiTokenizerService } from '../../../src/modules/pii/pii-tokenizer.service';
 
 describe('DataExtractionService', () => {
   let service: DataExtractionService;
@@ -27,6 +28,9 @@ describe('DataExtractionService', () => {
     encryptFieldValues: jest.fn(),
     decryptFieldValues: jest.fn(),
   };
+  // Vault rehydration: passthrough (detokenise is a no-op when messages have no
+  // tokens). The vault itself is unit-tested in pii-tokenizer.service.spec.ts.
+  const mockPiiTokenizer = { forSession: jest.fn() };
 
   const sessionId = 'sess-1';
 
@@ -39,6 +43,7 @@ describe('DataExtractionService', () => {
       (d: Record<string, unknown> | null | undefined) => d ?? {},
     );
     mockConfig.get.mockReturnValue(undefined); // use defaults; timer not started (.compile doesn't call onModuleInit)
+    mockPiiTokenizer.forSession.mockResolvedValue({ detokenize: (s: string) => s });
     const moduleRef = await Test.createTestingModule({
       providers: [
         DataExtractionService,
@@ -50,6 +55,7 @@ describe('DataExtractionService', () => {
           useValue: { logStarted: jest.fn(), logCompleted: jest.fn(), logFailed: jest.fn() },
         },
         { provide: CryptoService, useValue: mockCrypto },
+        { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
       ],
     }).compile();
     service = moduleRef.get(DataExtractionService);
@@ -58,6 +64,7 @@ describe('DataExtractionService', () => {
   const baseSession = (overrides: Record<string, unknown> = {}) => ({
     agentId: 'agent-1',
     agent: {
+      organizationId: 'org-1',
       dataFields: [
         { key: 'email', label: 'Email', type: 'EMAIL', description: null },
         { key: 'age', label: 'Age', type: 'NUMBER', description: null },
@@ -170,6 +177,41 @@ describe('DataExtractionService', () => {
       mockAi.extractFields.mockResolvedValue(null);
       expect(await service.extractForSession(sessionId)).toBe('retry');
       expect(mockPrisma.collectedData.upsert).not.toHaveBeenCalled();
+    });
+
+    it('feeds the extractor TOKENS and detokenizes its OUTPUT (no raw VAULT to LLM)', async () => {
+      mockPrisma.chatSession.findUnique.mockResolvedValue(
+        baseSession({
+          agent: {
+            organizationId: 'org-1',
+            dataFields: [
+              { key: 'bank_account', label: 'Bank account', type: 'STRING', description: null },
+            ],
+          },
+          messages: [{ role: 'USER', content: 'my bank account is [BANK_ACCOUNT_1]' }],
+        }),
+      );
+      // The vault maps the token back to the real value — applied to the
+      // extractor's OUTPUT, not its input.
+      mockPiiTokenizer.forSession.mockResolvedValue({
+        detokenize: (s: string) => s.replace('[BANK_ACCOUNT_1]', '998877665544'),
+      });
+      mockAi.extractFields.mockResolvedValue({ bank_account: '[BANK_ACCOUNT_1]' });
+      mockPrisma.collectedData.upsert.mockResolvedValue({});
+
+      expect(await service.extractForSession(sessionId)).toBe('captured');
+
+      // The extractor received the TOKEN, never the real number.
+      const transcriptArg = mockAi.extractFields.mock.calls[0][0] as string;
+      expect(transcriptArg).toContain('[BANK_ACCOUNT_1]');
+      expect(transcriptArg).not.toContain('998877665544');
+
+      // The STORED value is the detokenized real number (crypto is passthrough here).
+      expect(mockPrisma.collectedData.upsert).toHaveBeenCalledWith(
+        expect.objectContaining({
+          create: expect.objectContaining({ data: { bank_account: '998877665544' } }),
+        }),
+      );
     });
 
     it('drops SYSTEM rows and labels HUMAN_AGENT as [ASSISTANT] in the transcript', async () => {
