@@ -14,7 +14,18 @@ export type VoiceErrorSeverity = 'error' | 'warning' | 'info';
 
 const MAX_RECORDING_MS = 60_000;
 const DURATION_UPDATE_MS = 100;
-const API_TIMEOUT_MS = 30_000;
+// IDLE timeout: give up only if NO stream activity arrives for this long. It is
+// RE-ARMED on every chunk (see armIdleTimeout below), so a long reply is never
+// aborted while audio is still coming through. (Previously this was a fixed 30s
+// deadline on the whole request, which cut long replies off mid-playback and
+// showed a false "Voice processing timed out".) Sits above the server's own 25s
+// idle watchdog so the server's typed error chunk wins the race.
+const IDLE_TIMEOUT_MS = 30_000;
+// The wait for the FIRST audio chunk needs a wider window than a mid-stream gap:
+// the LLM has to produce a sentence and its TTS has to return bytes, and a
+// provider that times out its WebSocket before falling back to batch HTTP stacks
+// onto that. Real turns have taken 32s to first audio and then finished fine.
+const FIRST_CHUNK_TIMEOUT_MS = 50_000;
 
 const ERROR_MESSAGES: { [key: string]: string | undefined } = {
   STT_FAILED: "Couldn't understand audio. Please try again or type your message.",
@@ -383,10 +394,16 @@ export function useVoice({
     abortRef.current = controller;
     timedOutRef.current = false;
 
-    timeoutRef.current = setTimeout(() => {
-      timedOutRef.current = true;
-      controller.abort();
-    }, API_TIMEOUT_MS);
+    // Arm (and re-arm) the idle deadline. Every stream callback below pushes it
+    // back out, so it only fires when the stream has genuinely stalled.
+    const armIdleTimeout = (windowMs: number = IDLE_TIMEOUT_MS) => {
+      if (timeoutRef.current) clearTimeout(timeoutRef.current);
+      timeoutRef.current = setTimeout(() => {
+        timedOutRef.current = true;
+        controller.abort();
+      }, windowMs);
+    };
+    armIdleTimeout(FIRST_CHUNK_TIMEOUT_MS);
 
     let receivedFirstAudio = false;
     let fullResponseText = '';
@@ -408,6 +425,9 @@ export function useVoice({
         signal: controller.signal,
         callbacks: {
           onTranscription: (text: string) => {
+            // The transcript landing does NOT mean the reply is close — the wait
+            // for first audio starts here, so keep the long window.
+            armIdleTimeout(FIRST_CHUNK_TIMEOUT_MS);
             onTranscriptionRef.current?.(text, '');
             // Drop out of 'processing' as soon as the transcript lands so the user
             // never sits looking at "Transcribing…" while we wait for the bot's audio.
@@ -415,23 +435,33 @@ export function useVoice({
             setVoiceStateSynced('idle');
           },
           onAudioChunk: (chunk: VoiceAudioChunk) => {
-            // Skip empty-audio chunks. The server's per-sentence final marker
-            // (isFinalChunk=true) carries no audio bytes — it only exists to
-            // settle metrics on the server side. createBuffer requires ≥1
-            // sample, so enqueuing empty would throw.
+            armIdleTimeout();
+            // Pure metrics marker (no text AND no audio) — the server's
+            // per-sentence final marker. Nothing to show or play.
+            if (!chunk.audio && !chunk.text) return;
+
+            // Deliver sentence text in sync with audio so the UI shows text as
+            // the voice plays. Done BEFORE the no-audio bail-out: a sentence
+            // that is nothing but a link (or an emoji) is stripped from TTS, so
+            // it arrives as text with no audio — and the transcript here is
+            // assembled purely from these chunks, so bailing first would lose
+            // that sentence for good.
+            if (chunk.text) {
+              onResponseTextChunkRef.current?.(chunk.text, chunk.sentenceIndex);
+            }
+
+            // Nothing to play. createBuffer requires ≥1 sample, so enqueuing
+            // empty audio would throw.
             if (!chunk.audio) return;
 
             if (!receivedFirstAudio) {
               receivedFirstAudio = true;
               setVoiceStateSynced('playing');
             }
-            // Deliver sentence text in sync with audio so UI shows text as voice plays
-            if (chunk.text) {
-              onResponseTextChunkRef.current?.(chunk.text, chunk.sentenceIndex);
-            }
             queue.enqueue(chunk.audio, chunk.audioFormat);
           },
           onComplete: (fullText: string) => {
+            armIdleTimeout();
             fullResponseText = fullText;
             queue.markStreamComplete();
           },
@@ -484,7 +514,7 @@ export function useVoice({
           onErrorRef.current?.(msg);
           Sentry.captureMessage('Voice API frontend timeout', {
             level: 'error',
-            extra: { agentId, timeoutMs: API_TIMEOUT_MS, voiceState: voiceStateRef.current },
+            extra: { agentId, idleTimeoutMs: IDLE_TIMEOUT_MS, voiceState: voiceStateRef.current },
           });
           setVoiceStateSynced('idle');
         }

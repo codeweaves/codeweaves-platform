@@ -63,28 +63,8 @@ export function markdownToWhatsapp(input: string): string {
   return text.replace(/\n{3,}/g, '\n\n').trim();
 }
 
-/**
- * Strip Markdown down to plain prose for TTS, so the agent speaks the words and
- * not the symbols (no "asterisk asterisk bold"). Keeps the text inside emphasis,
- * headings, links, and code; drops the markers.
- */
-export function markdownToPlainText(input: string): string {
-  if (!input) return input;
-  let text = input;
-  // Fenced code blocks -> keep the inner content (drop the fences/lang).
-  text = text.replace(/```[a-zA-Z0-9]*\n?([\s\S]*?)```/g, '$1');
-  // Inline code -> content.
-  text = text.replace(/`([^`\n]+)`/g, '$1');
-  // Images -> alt text; links -> link text.
-  text = text.replace(/!\[([^\]]*)\]\([^)]*\)/g, '$1');
-  text = text.replace(/\[([^\]]+)\]\([^)]*\)/g, '$1');
-  // Heading markers.
-  text = text.replace(/^[ \t]*#{1,6}[ \t]+/gm, '');
-  // Blockquote + list markers at line start — BEFORE the emphasis strip, so a
-  // "* " bullet isn't mistaken for (and partly eaten by) an emphasis marker.
-  text = text.replace(/^[ \t]*>[ \t]?/gm, '');
-  text = text.replace(/^[ \t]*[-*+][ \t]+/gm, '');
-  // Emphasis / strikethrough markers.
-  text = text.replace(/\*\*|__|~~|\*|_|~/g, '');
-  return text.replace(/\n{3,}/g, '\n\n').trim();
-}
+// Markdown -> plain prose for TTS now lives with the rest of the speech-text
+// handling (URL and emoji stripping) in common/text/speakable-text.ts, so the
+// WhatsApp voice note and the widget voice turn speak text the same way.
+// Re-exported for the existing import sites.
+export { markdownToPlainText } from '../../common/text/speakable-text';

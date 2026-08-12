@@ -41,6 +41,46 @@ function parseInline(text: string): string {
   return result;
 }
 
+/**
+ * Hide a trailing markdown construct that hasn't finished arriving yet.
+ *
+ * A streamed reply is rendered on every chunk, so mid-flight the tail can be a
+ * half-written link — "see [Impress PMS](htt" — which renderMarkdown has no
+ * choice but to show as raw text, URL and all. Cutting the unterminated tail
+ * means the link simply appears complete a moment later instead of unspooling
+ * its syntax on screen.
+ *
+ * Only ever trims the END of the string, and only for constructs whose raw form
+ * is genuinely ugly (links, images, code). Emphasis markers are left alone: a
+ * stray "**" for one frame is not worth the risk of eating real text.
+ */
+export function stripTrailingIncompleteMarkdown(text: string): string {
+  if (!text) return text;
+  let out = text;
+
+  // Unclosed link / image: cut back to its opening bracket. A bare "[text]"
+  // with nothing following is legitimate prose and stays.
+  const bracket = out.lastIndexOf('[');
+  if (bracket !== -1) {
+    const tail = out.slice(bracket);
+    const complete = /^\[[^\]]*\]\([^)]*\)/.test(tail) || /^\[[^\]]*\][^(]/.test(tail);
+    if (!complete) {
+      // Include the "!" of an image so "![alt" doesn't leave a dangling "!".
+      out = out.slice(0, bracket > 0 && out[bracket - 1] === '!' ? bracket - 1 : bracket);
+    }
+  }
+
+  // Unterminated code fence, then an odd backtick (an inline span still open).
+  const fences = out.split('```').length - 1;
+  if (fences % 2 === 1) {
+    out = out.slice(0, out.lastIndexOf('```'));
+  } else if ((out.match(/`/g) ?? []).length % 2 === 1) {
+    out = out.slice(0, out.lastIndexOf('`'));
+  }
+
+  return out;
+}
+
 /** Parse markdown text into safe HTML string */
 export function renderMarkdown(text: string): string {
   if (!text) return '';

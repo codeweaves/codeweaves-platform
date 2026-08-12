@@ -197,7 +197,8 @@ export function ChatWindow({
         startTypewriter();
         setVoiceLoading(false);
       } else {
-        typewriterBufferRef.current += ' ' + text;
+        // Verbatim — chunks arrive with their original leading whitespace.
+        typewriterBufferRef.current += text;
         startTypewriter();
       }
     }, [createBotMessage, startTypewriter, setVoiceLoading]),

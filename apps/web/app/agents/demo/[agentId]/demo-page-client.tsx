@@ -147,8 +147,9 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         ]);
         startTypewriter(id);
       } else {
-        // Append space + next sentence to the typewriter buffer
-        typewriterBufferRef.current += ' ' + sentenceText;
+        // Append VERBATIM — each chunk already carries the whitespace that
+        // preceded it in the reply, so list items keep their own lines.
+        typewriterBufferRef.current += sentenceText;
       }
     }, [startTypewriter]),
     onResponse: useCallback((reply: string, newSessionId: string) => {
