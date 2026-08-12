@@ -19,6 +19,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { useInviteMember } from '@/hooks/use-team';
 import { useOrganizations } from '@/hooks/use-organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 import { useAssignableRoles } from '@/hooks/use-rbac';
 
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
@@ -31,8 +32,14 @@ export function InviteMemberDialog() {
   const [roleKeys, setRoleKeys] = useState<string[]>([]);
   const [selectedOrgId, setSelectedOrgId] = useState('');
   const [error, setError] = useState('');
+  const { can } = usePermissions();
 
-  const { data: orgsData } = useOrganizations({ limit: 100 });
+  // Inviting is platform-only today, but listing organizations is a separate
+  // permission — skip the request rather than 403 if those ever diverge.
+  const { data: orgsData } = useOrganizations(
+    { limit: 100 },
+    { enabled: can('Organization:ReadAll') },
+  );
   // Already filtered to what the caller may grant, so the invite cannot hand out
   // a role the same person could not assign afterwards.
   const { data: roles, isLoading: rolesLoading } = useAssignableRoles(open);

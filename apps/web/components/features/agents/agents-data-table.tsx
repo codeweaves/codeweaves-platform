@@ -50,6 +50,7 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
   const router = useRouter();
   const { can } = usePermissions();
   const isAdmin = can('Agent:Delete');
+  const canListOrganizations = can('Organization:ReadAll');
 
   const [fetchParams, setFetchParams] = useState<DataTableFetchParams>({
     page: 0,
@@ -65,8 +66,14 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
 
   const deleteAgentMutation = useDeleteAgent();
 
-  // Fetch organizations list for admin filter dropdown
-  const { data: orgsData } = useOrganizations({ limit: 100 });
+  // Organizations back the "Organization" filter below, which only renders for
+  // `isAdmin`. Gate the REQUEST on the same thing plus the permission the API
+  // actually enforces, otherwise every org-scoped user loads this page and fires
+  // a request that can only 403 (twice, once for React Query's retry).
+  const { data: orgsData } = useOrganizations(
+    { limit: 100 },
+    { enabled: isAdmin && canListOrganizations },
+  );
 
   // Map DataTable fetch params to API params
   const sortField = fetchParams.sorting[0];
