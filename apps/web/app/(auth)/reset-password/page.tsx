@@ -39,13 +39,19 @@ export default function ResetPasswordPage() {
   // `session_exists`, stranding the user on a form asking for an email we
   // already know. Settings signs out before sending anyone here, so reaching
   // this page signed in means a direct URL or a stale tab. Route them into the
-  // app rather than let them walk into that dead end. Mirrors the same guard on
-  // the sign-in page.
+  // app rather than let them walk into that dead end.
   useEffect(() => {
     if (authLoaded && isSignedIn) {
       router.replace('/dashboard');
     }
   }, [authLoaded, isSignedIn, router]);
+
+  // The redirect above cannot fire until after the first paint, so the form has
+  // to be withheld until we know the session state — otherwise a signed-in user
+  // sees a flash of "Reset password" before being bounced. Withheld while auth
+  // is still resolving too, since at that point `isSignedIn` is not yet false,
+  // it is unknown.
+  const redirecting = !authLoaded || isSignedIn;
 
   const [step, setStep] = useState<'request' | 'reset'>('request');
   const [email, setEmail] = useState('');
@@ -124,6 +130,16 @@ export default function ResetPasswordPage() {
       setSubmitting(false);
     }
   };
+
+  if (redirecting) {
+    return (
+      <AuthShell>
+        <div className="flex min-h-40 items-center justify-center">
+          <Loader2 className="size-5 animate-spin text-muted-foreground" />
+        </div>
+      </AuthShell>
+    );
+  }
 
   return (
     <AuthShell>
