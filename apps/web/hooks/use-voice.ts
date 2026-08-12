@@ -26,6 +26,11 @@ const IDLE_TIMEOUT_MS = 30_000;
 // provider that times out its WebSocket before falling back to batch HTTP stacks
 // onto that. Real turns have taken 32s to first audio and then finished fine.
 const FIRST_CHUNK_TIMEOUT_MS = 50_000;
+// Absolute ceiling on one voice turn, never re-armed. The idle timers above only
+// catch a stream that goes QUIET; a stream that keeps trickling chunks would
+// renew them forever. The server has its own 180s ceiling, so this only fires if
+// that fails to — hence the margin above it.
+const HARD_DEADLINE_MS = 200_000;
 
 const ERROR_MESSAGES: { [key: string]: string | undefined } = {
   STT_FAILED: "Couldn't understand audio. Please try again or type your message.",
@@ -317,6 +322,7 @@ export function useVoice({
   const errorTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const hardDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timedOutRef = useRef(false);
   const activeMimeRef = useRef<string>('audio/webm');
 
@@ -349,6 +355,10 @@ export function useVoice({
     if (timeoutRef.current) {
       clearTimeout(timeoutRef.current);
       timeoutRef.current = null;
+    }
+    if (hardDeadlineRef.current) {
+      clearTimeout(hardDeadlineRef.current);
+      hardDeadlineRef.current = null;
     }
     if (recorderRef.current && recorderRef.current.state !== 'inactive') {
       recorderRef.current.stop();
@@ -404,6 +414,22 @@ export function useVoice({
       }, windowMs);
     };
     armIdleTimeout(FIRST_CHUNK_TIMEOUT_MS);
+
+    // Independent of the idle timers and never re-armed — see HARD_DEADLINE_MS.
+    const clearStreamTimers = () => {
+      if (timeoutRef.current) {
+        clearTimeout(timeoutRef.current);
+        timeoutRef.current = null;
+      }
+      if (hardDeadlineRef.current) {
+        clearTimeout(hardDeadlineRef.current);
+        hardDeadlineRef.current = null;
+      }
+    };
+    hardDeadlineRef.current = setTimeout(() => {
+      timedOutRef.current = true;
+      controller.abort();
+    }, HARD_DEADLINE_MS);
 
     let receivedFirstAudio = false;
     let fullResponseText = '';
@@ -476,10 +502,7 @@ export function useVoice({
         },
       });
 
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
+      clearStreamTimers();
 
       if (controller.signal.aborted) return;
 
@@ -499,10 +522,7 @@ export function useVoice({
         }
       }
     } catch (err) {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
+      clearStreamTimers();
 
       queue.stop();
       playbackQueueRef.current = null;
@@ -537,6 +557,10 @@ export function useVoice({
         },
       });
     } finally {
+      // Belt and braces: both paths clear these already, but an early `return`
+      // above must not leave a 200s timer holding this turn's controller — it
+      // would abort a LATER turn.
+      clearStreamTimers();
       if (abortRef.current === controller) {
         abortRef.current = null;
       }
