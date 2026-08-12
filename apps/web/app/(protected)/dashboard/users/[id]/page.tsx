@@ -76,7 +76,7 @@ export default function UserDetailPage() {
     <div className="space-y-8">
       <Button variant="ghost" size="sm" asChild className="-ml-2">
         <Link href="/dashboard/users">
-          <ArrowLeft className="mr-2 size-4" />
+          <ArrowLeft className="size-4" />
           All users
         </Link>
       </Button>

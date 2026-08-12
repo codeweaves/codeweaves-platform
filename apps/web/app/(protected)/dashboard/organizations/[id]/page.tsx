@@ -48,7 +48,7 @@ export default function OrganizationDetailPage() {
           size="sm"
           onClick={() => router.push('/dashboard/organizations')}
         >
-          <ArrowLeft className="mr-2 h-4 w-4" />
+          <ArrowLeft className="h-4 w-4" />
           Back to Organizations
         </Button>
       </div>
@@ -84,7 +84,7 @@ export default function OrganizationDetailPage() {
                 size="sm"
                 onClick={() => setDeleteOpen(true)}
               >
-                <Trash2 className="mr-2 h-4 w-4" />
+                <Trash2 className="h-4 w-4" />
                 Delete organization
               </Button>
             )}

@@ -128,7 +128,24 @@ function buildQuery(params: ConversationListParams): string {
   return s ? `?${s}` : '';
 }
 
-export function useConversations(params: ConversationListParams = {}) {
+export interface ConversationsQueryOptions {
+  /** Poll interval in ms, or false to disable. Callers pass false when the tab is hidden. */
+  refetchInterval?: number | false;
+}
+
+/**
+ * The global 5-minute staleTime would swallow a poll — React Query skips a
+ * scheduled refetch while the data is still fresh. So polling callers get a
+ * staleTime of 0, and everyone else keeps the default.
+ */
+function resolveStaleTime(options?: ConversationsQueryOptions): number {
+  return options?.refetchInterval ? 0 : 5 * 60_000;
+}
+
+export function useConversations(
+  params: ConversationListParams = {},
+  options?: ConversationsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
@@ -136,10 +153,26 @@ export function useConversations(params: ConversationListParams = {}) {
     queryKey: ['conversations', params],
     queryFn: () => api.get(`/conversations${buildQuery(params)}`),
     enabled: isAuthenticated && !authLoading,
+    staleTime: resolveStaleTime(options),
+    refetchInterval: options?.refetchInterval ?? false,
+    // Never poll a backgrounded tab — a dashboard left open overnight should
+    // cost nothing.
+    refetchIntervalInBackground: false,
+    // Overrides the global `false` for polling callers only. Polling pauses on a
+    // hidden tab, so without a catch-up on return you would stare at data up to
+    // a whole poll interval old. Fixing the staleness beats labelling it.
+    refetchOnWindowFocus: Boolean(options?.refetchInterval),
+    // Filters and pages change the key; without this the list empties on every
+    // change. Callers distinguish "new query loading" from "background poll"
+    // via `isPlaceholderData`.
+    placeholderData: (previous) => previous,
   });
 }
 
-export function useConversation(sessionId: string | undefined) {
+export function useConversation(
+  sessionId: string | undefined,
+  options?: ConversationsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
@@ -147,5 +180,14 @@ export function useConversation(sessionId: string | undefined) {
     queryKey: ['conversations', 'detail', sessionId],
     queryFn: () => api.get(`/conversations/${sessionId}`),
     enabled: isAuthenticated && !authLoading && !!sessionId,
+    staleTime: resolveStaleTime(options),
+    // Only an ACTIVE conversation can gain messages. An EXPIRED transcript is
+    // immutable, so polling one is pure waste — stop as soon as we know.
+    refetchInterval: (query) =>
+      query.state.data?.status === 'ACTIVE'
+        ? (options?.refetchInterval ?? false)
+        : false,
+    refetchIntervalInBackground: false,
+    refetchOnWindowFocus: Boolean(options?.refetchInterval),
   });
 }

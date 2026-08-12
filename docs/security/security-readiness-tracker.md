@@ -3,6 +3,25 @@
 **Created:** 2026-07-25 · **Owner:** Dhruv + co-founder
 Groundwork plan (do the free readiness work now; pay for audits only when a client funds them). Word **"compliant" is deliberately NOT used** in product/docs — that's a legal/process claim the founders own.
 
+## ⭐ DRIVER: a potential client asked for SOC2; their IT team wants to review the dashboard
+
+**Reality check — SOC2 cannot be obtained on a client's short timeline.** It's a formal CPA-firm audit: Type I = weeks of readiness + auditor; Type II = 3–12 months of evidence. **Do not promise SOC2 by a date.** Position it honestly as "in progress, roadmap attached."
+
+**What we CAN win now:** pass their IT team's **vendor security review** (a questionnaire + a look at the app), which startups pass pre-certification with a strong posture + docs + a safe sandbox.
+
+**Client-review readiness checklist (the near-term goal):**
+| # | Item | Status | Owner |
+|---|---|---|---|
+| CR.1 | **Isolated sandbox tenant, fake data only** for their IT team (NEVER real/other-prospect data) | ⛔ | AI + founder |
+| CR.2 | VAPT scan results (Part 1) — clean or with a remediation plan | ⛔ | AI |
+| CR.3 | Security questionnaire answers + MVSP yes/no (Part 2.2) | 🟡 | AI |
+| CR.4 | Security docs pack: policies (2.1), subprocessor list (✅), data-protection controls, DPA/security addendum | 🟡 | AI + founder + lawyer |
+| CR.5 | **SOC2 roadmap** doc (shows intent + realistic timeline) | ⛔ | AI drafts |
+| CR.6 | Fix review-visible gaps: **enforce MFA**, secrets manager, security headers | 🟡 | AI + founder |
+| CR.7 | Confirm multi-tenant isolation holds (our strongest selling point) — IDOR work already done; re-verify | 🟡 | AI |
+
+**Hard rule:** the client's IT team gets a sandbox tenant only. Real data / other tenants are never exposed. Our tenant isolation + RBAC + audit logs are what make this safe AND are the things they'll be checking — so they're assets, not risks.
+
 ## Status legend
 - ✅ **Done** — built & verified
 - 🟡 **Partial / verify** — exists but needs confirmation or finishing
@@ -18,12 +37,12 @@ Groundwork plan (do the free readiness work now; pay for audits only when a clie
 | 1.1a | Dependency scan | ✅ Done (ongoing) | AI | `bun audit` (bun monorepo — not npm; no Python). 144 findings = **already-triaged baseline** (PRs #166-168): 2 criticals test-only, highs are dev/build tooling (vite/jest/nestjs-cli), **none prod-runtime-reachable**. Re-run each dep bump. |
 | 1.1b | Enable Dependabot | ⛔ / 🧑 | AI scaffolds, founder enables | AI adds `.github/dependabot.yml`; founder flips it on in repo settings. |
 | 1.1c | Enable CodeQL | ⛔ / 🧑 | AI scaffolds, founder enables | AI adds CodeQL workflow; founder confirms code-scanning enabled. |
-| 1.2 | OWASP ZAP baseline scan | ⛔ | AI writes, runs in CI/box | Target `app.codeweaves.com`. **Exclude paid endpoints** (`/public/chat/*`, `/public/voice/*`, WhatsApp send, invite-email) so it doesn't burn LLM/voice/email spend. Passive/baseline mode. |
+| 1.2 | OWASP ZAP baseline scan | ⛔ | AI writes, runs in CI/box | Target `app.getklivo.com`. **Exclude paid endpoints** (`/public/chat/*`, `/public/voice/*`, WhatsApp send, invite-email) so it doesn't burn LLM/voice/email spend. Passive/baseline mode. |
 | 1.3 | Nuclei scan | ⛔ | AI writes, runs in CI/box | Same target + same exclusions. Non-intrusive templates. |
 | 1.4 | Fix all Critical/High | 🟡 | AI | Dep scan: nothing prod-reachable to fix today (documented). ZAP/Nuclei findings: triage after scan; fix or document why not. |
 | 1.5 | Purge scan junk data | ✅ capability ready | AI | Erasure engine (`DELETE /privacy/*`) cleans any junk rows a scan creates against the real DB. |
 
-**Note on `app.codeweaves.com`:** it's the real hosted env (live keys + real test data). Scanning it is fine and gives prod-relevant results — we just exclude the paid endpoints so it costs ~nothing. A separate staging is only needed for the **paid pentest** (Part 1b), not this free pass.
+**Note on `app.getklivo.com`:** it's the real hosted env (live keys + real test data). Scanning it is fine and gives prod-relevant results — we just exclude the paid endpoints so it costs ~nothing. A separate staging is only needed for the **paid pentest** (Part 1b), not this free pass.
 
 ---
 
@@ -73,7 +92,7 @@ Groundwork plan (do the free readiness work now; pay for audits only when a clie
 
 ## This week (recommended order)
 1. **1.1b/1.1c** — AI adds Dependabot + CodeQL config; founder enables (when GitHub API is healthy).
-2. **1.2 / 1.3** — AI writes the ZAP + Nuclei run scripts (paid endpoints excluded); run against `app.codeweaves.com`; send output.
+2. **1.2 / 1.3** — AI writes the ZAP + Nuclei run scripts (paid endpoints excluded); run against `app.getklivo.com`; send output.
 3. **2.2** — AI sends the MVSP yes/no.
 Then decide between Part 2.1 (Comp AI policies) and Part 3 gaps (consent / breach alerting).
 

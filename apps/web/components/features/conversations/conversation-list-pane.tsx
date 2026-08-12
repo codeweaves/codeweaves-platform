@@ -24,9 +24,11 @@ import {
   type ConversationListItem,
   type ConversationSource,
 } from '@/hooks/use-conversations';
+import { useTabVisible } from '@/hooks/use-tab-visible';
 import type { ConversationFilters } from './conversations-filters-bar';
 import { cn } from '@/lib/utils';
 import { visitorLabel } from '@/lib/visitor-label';
+import { CONVERSATIONS_POLL_MS } from './conversations-refresh';
 
 interface ConversationListPaneProps {
   selectedSessionId: string | null;
@@ -184,7 +186,17 @@ export function ConversationListPane({
     [page, pageSize, filters],
   );
 
-  const { data, isLoading, isFetching, isError, refetch } = useConversations(queryParams);
+  // Auto-refresh, paused while the tab is in the background.
+  const isTabVisible = useTabVisible();
+  const { data, isLoading, isFetching, isPlaceholderData, isError, refetch } =
+    useConversations(queryParams, {
+      refetchInterval: isTabVisible ? CONVERSATIONS_POLL_MS : false,
+    });
+
+  // "A new query is loading" — a filter or page change — as opposed to a
+  // background poll re-fetching what is already on screen. Only the former
+  // should show progress or lock the pager; the poll must stay invisible.
+  const isSwitchingQuery = isPlaceholderData;
 
   const conversations = useMemo(() => data?.data ?? [], [data]);
   const total = data?.meta.total ?? 0;
@@ -226,7 +238,7 @@ export function ConversationListPane({
               disabled={isFetching}
             >
               <RefreshCw
-                className={cn('mr-1 size-3', isFetching && 'animate-spin')}
+                className={cn('size-3', isFetching && 'animate-spin')}
               />
               Try again
             </Button>
@@ -254,7 +266,7 @@ export function ConversationListPane({
           </div>
         ) : (
           <>
-            {isFetching && (
+            {isSwitchingQuery && (
               <div className="sticky top-0 z-10 flex items-center justify-center bg-background/60 py-1 text-[11px] text-muted-foreground backdrop-blur">
                 <Loader2 className="mr-1 size-3 animate-spin" /> Updating…
               </div>
@@ -303,7 +315,7 @@ export function ConversationListPane({
               size="icon"
               className="size-7"
               onClick={() => setPage((p) => Math.max(1, p - 1))}
-              disabled={page <= 1 || isFetching}
+              disabled={page <= 1 || isSwitchingQuery}
               aria-label="Previous page"
             >
               <ChevronLeft className="size-4" />
@@ -313,7 +325,7 @@ export function ConversationListPane({
               size="icon"
               className="size-7"
               onClick={() => setPage((p) => Math.min(totalPages || 1, p + 1))}
-              disabled={page >= totalPages || isFetching}
+              disabled={page >= totalPages || isSwitchingQuery}
               aria-label="Next page"
             >
               <ChevronRight className="size-4" />

@@ -13,6 +13,14 @@ import type { CurrentUserData } from '../decorators/current-user.decorator';
 
 import { PrismaService } from './prisma.service';
 import { isOrgScoped } from '../utils/tenant-filter';
+import { CSV_BOM, csvFilenameSegment, csvRow } from '../utils/csv';
+import { createTimestampFormatter, resolveTimeZone } from '../utils/datetime';
+
+/** A column in the collected-data table: the JSON key plus its display label. */
+interface CollectedDataColumn {
+  key: string;
+  label: string;
+}
 
 /**
  * AgentDataFieldsService: CRUD for an agent's "data capture" field definitions
@@ -39,6 +47,15 @@ export class AgentDataFieldsService {
 
   private static readonly COLLECTED_DATA_DEFAULT_LIMIT = 20;
   private static readonly COLLECTED_DATA_MAX_LIMIT = 100;
+
+  /**
+   * CSV export tuning. Rows are read in cursor-paged batches and streamed out,
+   * so neither the API nor Postgres ever holds the whole export in memory. The
+   * hard row cap stops one enormous tenant from pinning a worker for minutes;
+   * it is announced in the file itself and in the audit log when hit.
+   */
+  private static readonly EXPORT_BATCH_SIZE = 500;
+  private static readonly EXPORT_MAX_ROWS = 50_000;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -153,40 +170,7 @@ export class AgentDataFieldsService {
     const safePage = Math.max(page, 1);
     const skip = (safePage - 1) * safeLimit;
 
-    // Distinct keys across ALL captured rows → stable columns across pages.
-    // (agentId column is Postgres `text`, so a plain text param compares fine.)
-    const keyRows = await this.prisma.$queryRaw<Array<{ key: string }>>`
-      SELECT DISTINCT jsonb_object_keys(data) AS key
-      FROM collected_data
-      WHERE "agentId" = ${agentId}
-    `;
-    const presentKeys = new Set(keyRows.map((r) => r.key));
-
-    const fields = await this.prisma.agentDataField.findMany({
-      where: { agentId },
-      orderBy: { order: 'asc' },
-      select: { key: true, label: true },
-    });
-
-    const columns: Array<{ key: string; label: string }> = [];
-    const seen = new Set<string>();
-    // Current fields — friendly labels, shown even if no data has been captured
-    // for them yet (stable table structure).
-    for (const field of fields) {
-      columns.push({ key: field.key, label: field.label });
-      seen.add(field.key);
-    }
-    // Orphaned keys: present in stored data but no current field def (e.g. a
-    // renamed field). Surfaced with the raw key so nothing is silently hidden.
-    for (const key of presentKeys) {
-      if (!seen.has(key)) columns.push({ key, label: key });
-    }
-    // Order columns alphabetically by header label (case-insensitive) so the
-    // table reads predictably regardless of field-definition order. (The
-    // "Captured at" column is appended client-side and always stays last.)
-    columns.sort((a, b) =>
-      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
-    );
+    const columns = await this.buildColumns(agentId);
 
     const [rows, total] = await Promise.all([
       this.prisma.collectedData.findMany({
@@ -213,6 +197,193 @@ export class AgentDataFieldsService {
   }
 
   /**
+   * Authorise a CSV export and hand back a lazy stream of the file.
+   *
+   * Split in two deliberately: everything that can FAIL (access check, column
+   * derivation) happens here and throws before the controller has written a
+   * single response header, so a 404 still renders as JSON rather than as a
+   * corrupt half-download. Only the row streaming is deferred.
+   *
+   * The export covers EVERY row, never the page on screen — the dashboard's
+   * pagination is a viewport, not a filter. Sort order carries across because
+   * that IS a choice the user made about the data.
+   *
+   * `timeZone` is the browser's IANA zone; timestamps render in it rather than
+   * UTC so the file reads the way the dashboard does.
+   */
+  async prepareCollectedDataExport(
+    agentId: string,
+    user: CurrentUserData,
+    sortOrder: 'asc' | 'desc' = 'desc',
+    timeZone?: string,
+  ): Promise<{ filename: string; stream: AsyncGenerator<string> }> {
+    const agent = await this.assertAgentAccess(agentId, user);
+    const columns = await this.buildColumns(agentId);
+    const zone = resolveTimeZone(timeZone);
+
+    const date = new Date().toISOString().slice(0, 10);
+    const filename = `collected-data-${csvFilenameSegment(agent.name, 'agent')}-${date}.csv`;
+
+    return {
+      filename,
+      stream: this.streamCollectedDataCsv(
+        agentId,
+        agent.organizationId,
+        columns,
+        sortOrder,
+        zone,
+        user,
+      ),
+    };
+  }
+
+  /**
+   * Cursor-paged CSV generator: one batch in flight at a time, decrypted and
+   * serialised as it goes.
+   *
+   * Cursor rather than offset paging because `skip` makes Postgres re-scan and
+   * discard every earlier row, so a deep page of a large export costs
+   * quadratic work. `id` is the tiebreaker on `extractedAt` (which is not
+   * unique) to keep the ordering total and the cursor stable.
+   */
+  private async *streamCollectedDataCsv(
+    agentId: string,
+    organizationId: string,
+    columns: CollectedDataColumn[],
+    sortOrder: 'asc' | 'desc',
+    timeZone: string,
+    user: CurrentUserData,
+  ): AsyncGenerator<string> {
+    const formatTimestamp = createTimestampFormatter(timeZone);
+    let cursor: string | undefined;
+    let rowCount = 0;
+    let truncated = false;
+
+    // Everything, header included, sits inside the try: a client that aborts
+    // after receiving only the header still gets an audit entry.
+    try {
+      // BOM first, then the header. The zone is named in the header so the file
+      // is self-describing once it has been mailed on to someone else.
+      yield CSV_BOM +
+        csvRow([...columns.map((c) => c.label), `Captured At (${timeZone})`]);
+
+      for (;;) {
+        const batch = await this.prisma.collectedData.findMany({
+          where: { agentId },
+          orderBy: [{ extractedAt: sortOrder }, { id: 'asc' }],
+          take: AgentDataFieldsService.EXPORT_BATCH_SIZE,
+          ...(cursor && { cursor: { id: cursor }, skip: 1 }),
+          select: {
+            id: true,
+            data: true,
+            extractedAt: true,
+          },
+        });
+        if (batch.length === 0) break;
+
+        let chunk = '';
+        for (const row of batch) {
+          const values = this.crypto.decryptFieldValues(
+            row.data as Record<string, unknown> | null,
+          );
+          chunk += csvRow([
+            ...columns.map((c) => values[c.key]),
+            formatTimestamp(row.extractedAt),
+          ]);
+          rowCount += 1;
+          if (rowCount >= AgentDataFieldsService.EXPORT_MAX_ROWS) {
+            truncated = true;
+            break;
+          }
+        }
+        yield chunk;
+
+        if (truncated) {
+          yield csvRow([
+            `Export truncated at ${AgentDataFieldsService.EXPORT_MAX_ROWS} rows. Narrow the range or contact support for the full set.`,
+          ]);
+          break;
+        }
+        if (batch.length < AgentDataFieldsService.EXPORT_BATCH_SIZE) break;
+        cursor = batch[batch.length - 1]!.id;
+      }
+    } finally {
+      // Bulk PII leaving the platform is exactly what an auditor asks about, so
+      // this is written even when the client aborts mid-download (the generator's
+      // `finally` runs on early return) — a partial export still left the building.
+      // Never throws: the file has already been delivered by this point.
+      try {
+        await this.tracer.logAuditEvent(
+          agentId,
+          'COLLECTED_DATA_EXPORTED',
+          {
+            response: {
+              rowCount,
+              truncated,
+              sortOrder,
+              timeZone,
+              columnKeys: columns.map((c) => c.key),
+              userId: user.id,
+            },
+          },
+          { organizationId, agentId },
+        );
+      } catch (error) {
+        this.log.warn('streamCollectedDataCsv', 'export audit log failed', {
+          agentId,
+          error: error instanceof Error ? error.message : String(error),
+        });
+      }
+      this.log.info('streamCollectedDataCsv', 'collected-data CSV exported', {
+        agentId,
+        rowCount,
+        truncated,
+      });
+    }
+  }
+
+  /**
+   * The dynamic column set for an agent, shared by the table view and the CSV
+   * export so both always show the same shape.
+   *
+   * Current field defs come first (labelled, ordered, present even with no data
+   * yet), then any orphaned keys still sitting in stored rows — e.g. from a
+   * renamed field — surfaced under their raw key so nothing is silently hidden.
+   * The result is sorted by label so the table reads predictably regardless of
+   * field-definition order.
+   */
+  private async buildColumns(agentId: string): Promise<CollectedDataColumn[]> {
+    // Distinct keys across ALL captured rows → stable columns across pages.
+    // (agentId column is Postgres `text`, so a plain text param compares fine.)
+    const keyRows = await this.prisma.$queryRaw<Array<{ key: string }>>`
+      SELECT DISTINCT jsonb_object_keys(data) AS key
+      FROM collected_data
+      WHERE "agentId" = ${agentId}
+    `;
+    const presentKeys = new Set(keyRows.map((r) => r.key));
+
+    const fields = await this.prisma.agentDataField.findMany({
+      where: { agentId },
+      orderBy: { order: 'asc' },
+      select: { key: true, label: true },
+    });
+
+    const columns: CollectedDataColumn[] = [];
+    const seen = new Set<string>();
+    for (const field of fields) {
+      columns.push({ key: field.key, label: field.label });
+      seen.add(field.key);
+    }
+    for (const key of presentKeys) {
+      if (!seen.has(key)) columns.push({ key, label: key });
+    }
+    columns.sort((a, b) =>
+      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+    );
+    return columns;
+  }
+
+  /**
    * Verify the agent exists and the caller may access it. CLIENT users are
    * scoped to their own organisation; ADMIN/SUPER_ADMIN (platform staff) may
    * reach any org. Throws 404 (not 403) on a miss so we don't leak which agent
@@ -221,7 +392,7 @@ export class AgentDataFieldsService {
   private async assertAgentAccess(
     agentId: string,
     user: CurrentUserData,
-  ): Promise<{ id: string; organizationId: string }> {
+  ): Promise<{ id: string; organizationId: string; name: string }> {
     const agent = await this.prisma.agent.findFirst({
       where: {
         id: agentId,
@@ -230,7 +401,7 @@ export class AgentDataFieldsService {
           organizationId: user.organizationId!,
         }),
       },
-      select: { id: true, organizationId: true },
+      select: { id: true, organizationId: true, name: true },
     });
     if (!agent) {
       throw new NotFoundException('Agent not found');

@@ -1,0 +1,3 @@
+# Scan reports can contain sensitive findings + URLs — never commit them.
+*
+!.gitignore

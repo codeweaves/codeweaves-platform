@@ -27,7 +27,12 @@ export class DashboardCorsMiddleware implements NestMiddleware {
           'Access-Control-Allow-Headers',
           'Content-Type, Authorization, X-Correlation-Id',
         );
-        res.setHeader('Access-Control-Expose-Headers', 'X-Correlation-Id');
+        // Content-Disposition is exposed so a fetch-driven download (CSV export)
+        // can read the server-chosen filename instead of inventing one.
+        res.setHeader(
+          'Access-Control-Expose-Headers',
+          'X-Correlation-Id, Content-Disposition',
+        );
         res.setHeader('Access-Control-Max-Age', '600');
       }
 

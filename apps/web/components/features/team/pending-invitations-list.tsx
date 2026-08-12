@@ -275,7 +275,7 @@ export function PendingInvitationsList() {
                 onClick={() => refetch()}
                 disabled={isFetching}
               >
-                <RefreshCw className={`mr-1 size-3 ${isFetching ? 'animate-spin' : ''}`} />
+                <RefreshCw className={`size-3 ${isFetching ? 'animate-spin' : ''}`} />
                 Try again
               </Button>
             </div>

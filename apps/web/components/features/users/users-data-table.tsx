@@ -125,7 +125,7 @@ export function UsersDataTable() {
         <AlertCircle className="size-6 text-destructive" />
         <span className="text-sm text-muted-foreground">Failed to load users</span>
         <Button variant="outline" size="sm" onClick={() => refetch()} disabled={isFetching}>
-          <RefreshCw className="mr-2 size-4" />
+          <RefreshCw className="size-4" />
           Try again
         </Button>
       </div>

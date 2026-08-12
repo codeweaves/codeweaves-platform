@@ -1,8 +1,9 @@
 'use client';
 
-import { useState } from 'react';
-import { useSignIn, useClerk } from '@clerk/nextjs';
+import { useEffect, useState } from 'react';
+import { useAuth, useSignIn, useClerk } from '@clerk/nextjs';
 import Link from 'next/link';
+import { useRouter } from 'next/navigation';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
@@ -31,6 +32,20 @@ function maskEmail(email: string): string {
 export default function ResetPasswordPage() {
   const { signIn } = useSignIn();
   const { signOut } = useClerk();
+  const { isLoaded: authLoaded, isSignedIn } = useAuth();
+  const router = useRouter();
+
+  // `signIn.create()` cannot run over a live session — Clerk rejects it with
+  // `session_exists`, stranding the user on a form asking for an email we
+  // already know. Settings signs out before sending anyone here, so reaching
+  // this page signed in means a direct URL or a stale tab. Route them into the
+  // app rather than let them walk into that dead end. Mirrors the same guard on
+  // the sign-in page.
+  useEffect(() => {
+    if (authLoaded && isSignedIn) {
+      router.replace('/dashboard');
+    }
+  }, [authLoaded, isSignedIn, router]);
 
   const [step, setStep] = useState<'request' | 'reset'>('request');
   const [email, setEmail] = useState('');
@@ -138,7 +153,7 @@ export default function ResetPasswordPage() {
             />
           </div>
           <Button type="submit" className="h-11 w-full" disabled={submitting}>
-            {submitting && <Loader2 className="mr-2 size-4 animate-spin" />}
+            {submitting && <Loader2 className="size-4 animate-spin" />}
             Send reset code
           </Button>
           <p className="text-center text-sm">
@@ -194,7 +209,7 @@ export default function ResetPasswordPage() {
             />
           </div>
           <Button type="submit" className="h-11 w-full" disabled={submitting}>
-            {submitting && <Loader2 className="mr-2 size-4 animate-spin" />}
+            {submitting && <Loader2 className="size-4 animate-spin" />}
             Set new password
           </Button>
           <p className="text-center text-sm">

@@ -43,7 +43,7 @@ export function EmbedCodeDialog({ publicId, open, onOpenChange, trigger }: Embed
         <DialogTrigger asChild>
           {trigger ?? (
             <Button variant="outline" size="sm">
-              <Code className="mr-2 h-4 w-4" />
+              <Code className="h-4 w-4" />
               Embed Code
             </Button>
           )}

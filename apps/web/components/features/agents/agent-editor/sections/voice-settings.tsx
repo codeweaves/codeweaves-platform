@@ -439,8 +439,8 @@ export function VoiceSettings() {
                   <div className="pt-2 border-t">
                     <ToggleRow
                       id="ttsStreaming"
-                      label="Streaming TTS (experimental)"
-                      description="Off by default. Flip on once tested."
+                      label="Streaming TTS"
+                      description="Off by default."
                       info={
                         <>
                           <p>

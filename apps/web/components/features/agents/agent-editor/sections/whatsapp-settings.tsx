@@ -296,7 +296,7 @@ export function WhatsappSettings() {
           <Button type="button" onClick={handleConnect} disabled={connect.isPending}>
             {connect.isPending ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Connecting…
+                <Loader2 className="h-4 w-4 animate-spin" /> Connecting…
               </>
             ) : (
               'Connect WhatsApp'
@@ -392,11 +392,11 @@ function ConnectedCard({
           <Button variant="destructive" size="sm" disabled={disconnecting}>
             {disconnecting ? (
               <>
-                <Loader2 className="mr-2 h-4 w-4 animate-spin" /> Disconnecting…
+                <Loader2 className="h-4 w-4 animate-spin" /> Disconnecting…
               </>
             ) : (
               <>
-                <Trash2 className="mr-2 h-4 w-4" /> Disconnect
+                <Trash2 className="h-4 w-4" /> Disconnect
               </>
             )}
           </Button>
