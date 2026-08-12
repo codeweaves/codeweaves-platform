@@ -19,6 +19,7 @@ import { Label } from '@/components/ui/label';
 import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useCreateAgent } from '@/hooks/use-agents';
 import { useOrganizations } from '@/hooks/use-organizations';
+import { usePermissions } from '@/hooks/use-permissions';
 
 export function CreateAgentDialog() {
   const router = useRouter();
@@ -27,7 +28,14 @@ export function CreateAgentDialog() {
   const [organizationId, setOrganizationId] = useState('');
   const [error, setError] = useState('');
   const createAgent = useCreateAgent();
-  const { data: orgsData, isLoading: orgsLoading } = useOrganizations({ limit: 100 });
+  const { can } = usePermissions();
+  // Defensive: the dialog only mounts behind `Agent:Create`, which today is
+  // platform-only, but listing organizations is a SEPARATE permission. Skip the
+  // request rather than 403 if the two ever diverge for a role.
+  const { data: orgsData, isLoading: orgsLoading } = useOrganizations(
+    { limit: 100 },
+    { enabled: can('Organization:ReadAll') },
+  );
 
   // Auto-select when there's only one org
   useEffect(() => {

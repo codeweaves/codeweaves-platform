@@ -51,8 +51,10 @@ export function useOrganizations(
   const queryString = queryParams.toString();
   const endpoint = `/organizations${queryString ? `?${queryString}` : ''}`;
 
-  // GET /organizations is ADMIN/SUPER_ADMIN only; callers can pass
-  // enabled: false (e.g. for CLIENT users) to skip the doomed 403 request.
+  // GET /organizations requires `Organization:ReadAll`, which only platform roles
+  // hold. Callers MUST pass `enabled: can('Organization:ReadAll')` unless the
+  // component cannot render without it — otherwise every org-scoped user fires a
+  // request that can only 403, and `retry: 1` makes it two.
   const callerEnabled = options.enabled ?? true;
 
   return useQuery<PaginatedOrganizations>({

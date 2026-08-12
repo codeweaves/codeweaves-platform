@@ -74,7 +74,7 @@ export function AnalyticsPageClient() {
 
   const searchParams = useSearchParams();
   const { profile, isLoading: profileLoading } = useProfile();
-  const { isPlatform } = usePermissions();
+  const { isPlatform, can } = usePermissions();
 
   const { setTitle } = usePageHeader();
   const isAdmin = isPlatform;
@@ -206,9 +206,14 @@ export function AnalyticsPageClient() {
   const { data: agentsData } = useAgents({ limit: 100 });
   const agents: Agent[] = agentsData?.data ?? [];
 
-  // Org list for admin filter (Task 3.4)
-  // Hook always called (React rules); endpoint returns 403 for CLIENT — React Query handles silently
-  const { data: orgsData } = useOrganizations({ limit: 100 });
+  // Org list for the admin filter (Task 3.4). The hook is always CALLED (React
+  // rules), but the request is gated: an org-scoped user discards the result on
+  // the next line anyway, so firing it only produced a guaranteed 403 per page
+  // load. `enabled: false` is how you skip the fetch without skipping the hook.
+  const { data: orgsData } = useOrganizations(
+    { limit: 100 },
+    { enabled: isAdmin && can('Organization:ReadAll') },
+  );
   const organizations: Organization[] = isAdmin ? (orgsData?.data ?? []) : [];
 
   // M2: page-level error state. Per-chart errors render inside their own cards;
