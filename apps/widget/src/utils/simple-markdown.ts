@@ -63,7 +63,11 @@ export function stripTrailingIncompleteMarkdown(text: string): string {
   const bracket = out.lastIndexOf('[');
   if (bracket !== -1) {
     const tail = out.slice(bracket);
-    const complete = /^\[[^\]]*\]\([^)]*\)/.test(tail) || /^\[[^\]]*\][^(]/.test(tail);
+    // `(?:$|[^(])` — a bracketed phrase that ENDS the text is finished prose,
+    // not a link mid-flight. Requiring a character after "]" would hide real
+    // content on every frame whose last token happens to be "]".
+    const complete =
+      /^\[[^\]]*\]\([^)]*\)/.test(tail) || /^\[[^\]]*\](?:$|[^(])/.test(tail);
     if (!complete) {
       // Include the "!" of an image so "![alt" doesn't leave a dangling "!".
       out = out.slice(0, bracket > 0 && out[bracket - 1] === '!' ? bracket - 1 : bracket);

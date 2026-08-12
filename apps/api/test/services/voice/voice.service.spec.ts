@@ -679,6 +679,37 @@ describe('VoiceService', () => {
       const passedRequest = (elevenLabsProvider.synthesize as jest.Mock).mock.calls.at(-1)?.[0];
       expect(passedRequest?.voiceId).toBe('caller-override');
     });
+
+    it('should send the speakable text, never the raw Markdown/URL', async () => {
+      mockPrisma.agent.findUnique.mockResolvedValue({
+        voiceEnabled: true,
+        voiceConfig: { sttEnabled: true, ttsEnabled: true, ttsVoiceId: 'v', defaultLanguage: 'en', supportedLanguages: ['en'], ttsSpeed: 1.0, autoDetectLanguage: true },
+      });
+
+      await service.synthesize({
+        text: 'See [MNC PMS](https://example.com/mnc.php) for details.',
+        language: 'en',
+        agentId: 'agent-1',
+      });
+
+      const passedRequest = (elevenLabsProvider.synthesize as jest.Mock).mock.calls.at(-1)?.[0];
+      expect(passedRequest?.text).toBe('See MNC PMS for details.');
+    });
+
+    it('should reject text with nothing speakable rather than read the URL aloud', async () => {
+      mockPrisma.agent.findUnique.mockResolvedValue({
+        voiceEnabled: true,
+        voiceConfig: { sttEnabled: true, ttsEnabled: true, ttsVoiceId: 'v', defaultLanguage: 'en', supportedLanguages: ['en'], ttsSpeed: 1.0, autoDetectLanguage: true },
+      });
+      (elevenLabsProvider.synthesize as jest.Mock).mockClear();
+
+      // A URL-only (or emoji-only) input has nothing to say. Falling back to the
+      // raw text would spell the URL out — the exact bug the strip exists to fix.
+      await expect(
+        service.synthesize({ text: 'https://example.com/a.php', language: 'en', agentId: 'agent-1' }),
+      ).rejects.toThrow(BadRequestException);
+      expect(elevenLabsProvider.synthesize as jest.Mock).not.toHaveBeenCalled();
+    });
   });
 
   describe('listAllVoices', () => {

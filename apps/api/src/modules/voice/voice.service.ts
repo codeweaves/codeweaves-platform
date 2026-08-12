@@ -341,13 +341,22 @@ export class VoiceService {
     //
     // The text is reduced to speakable prose here rather than at each call site:
     // callers hand us whatever the LLM wrote (Markdown, links and all), and a TTS
-    // engine pronounces every character of it. Falls back to the original when
-    // nothing speakable survives (e.g. a caller synthesising a URL on purpose),
-    // so no request that used to produce audio stops producing it.
+    // engine pronounces every character of it.
     const speakableText = toSpeakableText(request.text);
+    if (!hasSpeakableContent(speakableText)) {
+      // Nothing left to say — the input was only a URL, emoji, or punctuation.
+      // Synthesising the ORIGINAL text instead would defeat the strip entirely
+      // (the engine would spell the URL out, which is the bug this exists to
+      // fix), and Sarvam 400s on text with no language characters anyway. Fail
+      // fast so callers take their no-audio path: WhatsApp falls back to a text
+      // reply, the public endpoint returns TTS_FAILED. The streaming pipeline
+      // never reaches here — it emits a text-only chunk for such sentences so
+      // they still appear in the transcript.
+      throw new BadRequestException('Text contains nothing speakable');
+    }
     const enrichedRequest: TTSRequest = {
       ...request,
-      text: hasSpeakableContent(speakableText) ? speakableText : request.text,
+      text: speakableText,
       voiceId: request.voiceId ?? config.ttsVoiceId,
       speed: request.speed ?? config.ttsSpeed,
     };
