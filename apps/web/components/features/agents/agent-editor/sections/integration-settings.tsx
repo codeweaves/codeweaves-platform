@@ -211,7 +211,7 @@ export function IntegrationSettings() {
             placeholder="example.com or localhost:5000"
           />
           <Button type="button" onClick={() => addDomains(newDomain)} size="sm">
-            <Plus className="mr-1 h-4 w-4" /> Add
+            <Plus className="h-4 w-4" /> Add
           </Button>
         </div>
         {domains.length > 0 && (

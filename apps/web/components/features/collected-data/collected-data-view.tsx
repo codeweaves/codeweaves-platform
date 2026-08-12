@@ -1,8 +1,9 @@
 'use client';
 
-import { useCallback, useMemo, useState } from 'react';
+import { useCallback, useEffect, useMemo, useState } from 'react';
 import type { ColumnDef } from '@tanstack/react-table';
-import { AlertCircle, Database, Loader2, RefreshCw } from 'lucide-react';
+import { toast } from 'sonner';
+import { AlertCircle, Database, Download, Loader2, RefreshCw } from 'lucide-react';
 import {
   DataTable,
   DataTableColumnHeader,
@@ -14,9 +15,10 @@ import { SearchableSelect } from '@/components/ui/searchable-select';
 import { useAgents } from '@/hooks/use-agents';
 import {
   useCollectedData,
+  useExportCollectedData,
   type CollectedDataRow,
 } from '@/hooks/use-collected-data';
-import { formatDate } from '@/lib/utils';
+import { formatDate, formatTimeAgo } from '@/lib/utils';
 
 /**
  * Collected-data viewer: pick an agent (required), then see one row per
@@ -51,15 +53,40 @@ export function CollectedDataView() {
       : 'asc'
     : undefined;
 
-  const { data, isError, refetch, isFetching } = useCollectedData(agentId, {
-    page: fetchParams.page + 1, // API is 1-based
-    limit: fetchParams.pageSize,
-    sortOrder,
-  });
+  const { data, isError, isLoading, refetch, isFetching, dataUpdatedAt } =
+    useCollectedData(agentId, {
+      page: fetchParams.page + 1, // API is 1-based
+      limit: fetchParams.pageSize,
+      sortOrder,
+    });
+
+  const exportCsv = useExportCollectedData(agentId);
 
   const handleFetch = useCallback((params: DataTableFetchParams) => {
     setFetchParams(params);
   }, []);
+
+  // Re-render the "updated Xm ago" label on a slow tick. Only while an agent is
+  // selected, so an idle page with nothing on it costs no timers.
+  const [, setClockTick] = useState(0);
+  useEffect(() => {
+    if (!agentId) return;
+    const id = setInterval(() => setClockTick((t) => t + 1), 30_000);
+    return () => clearInterval(id);
+  }, [agentId]);
+
+  const handleExport = useCallback(() => {
+    exportCsv.mutate(
+      { sortOrder },
+      {
+        onSuccess: (filename) => toast.success(`Downloaded ${filename}`),
+        onError: (error) =>
+          toast.error(error.message || 'Could not export collected data'),
+      },
+    );
+  }, [exportCsv, sortOrder]);
+
+  const hasRows = (data?.total ?? 0) > 0;
 
   // Dynamic columns: one per captured key (labelled), plus a "Captured" time.
   const columns = useMemo<ColumnDef<CollectedDataRow, unknown>[]>(() => {
@@ -96,25 +123,71 @@ export function CollectedDataView() {
 
   return (
     <div className="space-y-6">
-      <div className="max-w-sm space-y-2">
-        <Label className="text-sm font-medium">
-          Agent <span className="text-destructive">*</span>
-        </Label>
-        <SearchableSelect
-          options={agents.map((agent) => ({
-            value: agent.id,
-            label: agent.name,
-          }))}
-          value={agentId}
-          onValueChange={(v) => setAgentId(v || undefined)}
-          placeholder={agentsLoading ? 'Loading agents…' : 'Select an agent'}
-          searchPlaceholder="Search agents…"
-          emptyMessage="No agents found"
-          triggerClassName="w-full"
-        />
-        <p className="text-xs text-muted-foreground">
-          Pick an agent to see the data captured from its conversations.
-        </p>
+      <div className="flex flex-col gap-4 sm:flex-row sm:items-start sm:justify-between">
+        <div className="w-full max-w-sm space-y-2">
+          <Label className="text-sm font-medium">
+            Agent <span className="text-destructive">*</span>
+          </Label>
+          <SearchableSelect
+            options={agents.map((agent) => ({
+              value: agent.id,
+              label: agent.name,
+            }))}
+            value={agentId}
+            onValueChange={(v) => setAgentId(v || undefined)}
+            placeholder={agentsLoading ? 'Loading agents…' : 'Select an agent'}
+            searchPlaceholder="Search agents…"
+            emptyMessage="No agents found"
+            triggerClassName="w-full"
+          />
+          <p className="text-xs text-muted-foreground">
+            Pick an agent to see the data captured from its conversations.
+          </p>
+        </div>
+
+        {agentId && (
+          <div className="flex items-center gap-2 sm:pt-6">
+            {dataUpdatedAt > 0 && (
+              <span
+                className="hidden text-xs text-muted-foreground sm:inline"
+                aria-live="polite"
+              >
+                Updated {formatTimeAgo(dataUpdatedAt)}
+              </span>
+            )}
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={() => refetch()}
+              disabled={isFetching}
+              title="Fetch the latest captured data"
+            >
+              {/* No margin — Button owns the icon-to-label gap. */}
+              <RefreshCw
+                className={`size-4 ${isFetching ? 'animate-spin' : ''}`}
+              />
+              Refresh
+            </Button>
+            <Button
+              variant="outline"
+              size="sm"
+              onClick={handleExport}
+              disabled={!hasRows || exportCsv.isPending}
+              title={
+                hasRows
+                  ? 'Download every captured row as a CSV'
+                  : 'Nothing captured yet'
+              }
+            >
+              {exportCsv.isPending ? (
+                <Loader2 className="size-4 animate-spin" />
+              ) : (
+                <Download className="size-4" />
+              )}
+              Export CSV
+            </Button>
+          </div>
+        )}
       </div>
 
       {!agentId ? (
@@ -130,7 +203,9 @@ export function CollectedDataView() {
           data={data?.rows ?? []}
           pageCount={data ? Math.ceil(data.total / data.limit) : 0}
           totalItems={data?.total ?? 0}
-          isLoading={isFetching}
+          // First load only. A refetch keeps the previous page on screen and
+          // spins the Refresh button instead of blanking the table.
+          isLoading={isLoading}
           onFetch={handleFetch}
           initialPageSize={10}
           pageSizeOptions={[5, 10, 50, 100]}
@@ -156,7 +231,7 @@ export function CollectedDataView() {
                   disabled={isFetching}
                 >
                   <RefreshCw
-                    className={`mr-1 size-3 ${isFetching ? 'animate-spin' : ''}`}
+                    className={`size-3 ${isFetching ? 'animate-spin' : ''}`}
                   />
                   Try again
                 </Button>

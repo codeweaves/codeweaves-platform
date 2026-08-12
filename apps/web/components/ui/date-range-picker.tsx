@@ -125,7 +125,7 @@ export function DateRangePicker({
             triggerClassName,
           )}
         >
-          <CalendarIcon className='mr-2 size-4 shrink-0' />
+          <CalendarIcon className='size-4 shrink-0' />
           <span className='min-w-0 flex-1 truncate'>{displayText}</span>
           {showClear && hasSelection ? (
             <span

@@ -21,9 +21,11 @@ import {
   CollapsibleTrigger,
 } from '@/components/ui/collapsible';
 import { useConversation } from '@/hooks/use-conversations';
+import { useTabVisible } from '@/hooks/use-tab-visible';
 import { ConversationTranscript } from './conversation-transcript';
 import { cn } from '@/lib/utils';
 import { visitorLabel } from '@/lib/visitor-label';
+import { CONVERSATIONS_POLL_MS } from './conversations-refresh';
 
 interface ConversationDetailPaneProps {
   sessionId: string | null;
@@ -88,8 +90,12 @@ export function ConversationDetailPane({
   sessionId,
   className,
 }: ConversationDetailPaneProps) {
+  // Auto-refresh alongside the list, paused while the tab is hidden. The hook
+  // itself stops polling once the conversation is no longer ACTIVE.
+  const isTabVisible = useTabVisible();
   const { data: conv, isLoading, isError, error } = useConversation(
     sessionId ?? undefined,
+    { refetchInterval: isTabVisible ? CONVERSATIONS_POLL_MS : false },
   );
   const [summaryOpen, setSummaryOpen] = useState(false);
 
@@ -124,7 +130,7 @@ export function ConversationDetailPane({
         </div>
         <Button variant="outline" size="sm" asChild>
           <Link href="/dashboard/conversations">
-            <ArrowLeft className="mr-1 size-4" />
+            <ArrowLeft className="size-4" />
             Back to conversations
           </Link>
         </Button>

@@ -8,8 +8,10 @@ import {
   ParseUUIDPipe,
   Put,
   Query,
+  Res,
 } from '@nestjs/common';
 import { ApiOperation, ApiParam, ApiResponse, ApiTags } from '@nestjs/swagger';
+import type { Response } from 'express';
 import { updateDataFieldsSchema, type UpdateDataFieldsDto } from '@repo/validation';
 
 import {
@@ -100,5 +102,63 @@ export class AgentDataFieldsController {
       Number.isFinite(parsedLimit as number) ? parsedLimit : undefined,
       order,
     );
+  }
+
+  /**
+   * Stream every captured row for the agent as a CSV download.
+   *
+   * Same `CollectedData:Read` gate as the table: whoever may page through this
+   * data may take it with them. The export is still audit-logged
+   * (`COLLECTED_DATA_EXPORTED`) because bulk PII leaving the platform is what a
+   * DPDP/GDPR auditor asks about.
+   *
+   * `@Res()` with manual writes (not a returned value) because the body is
+   * generated in batches — a 50k-row export must never be assembled in memory.
+   * `write()` is awaited on backpressure so a slow client throttles the reads
+   * instead of filling the socket buffer.
+   */
+  @Get('collected/export')
+  @RequirePermission(Resource.CollectedData, Action.Read)
+  @ApiOperation({
+    summary: 'Download every captured row for the agent as a CSV file.',
+  })
+  @ApiParam({ name: 'agentId', description: 'Agent UUID' })
+  @ApiResponse({ status: 200, description: 'CSV attachment.' })
+  @ApiResponse({ status: 404, description: 'Agent not found.' })
+  async exportCollected(
+    @Param('agentId', new ParseUUIDPipe({ version: '4' })) agentId: string,
+    @CurrentUser() user: CurrentUserData,
+    @Res() res: Response,
+    @Query('sortOrder') sortOrder?: string,
+    @Query('tz') tz?: string,
+  ): Promise<void> {
+    const order = sortOrder === 'asc' ? 'asc' : 'desc';
+    // No page/limit: the export is the whole set. `tz` is the caller's IANA
+    // zone, validated (and defaulted to UTC) in the service.
+    // Throws (and renders as JSON) before any header is written.
+    const { filename, stream } =
+      await this.dataFieldsService.prepareCollectedDataExport(
+        agentId,
+        user,
+        order,
+        tz,
+      );
+
+    res.setHeader('Content-Type', 'text/csv; charset=utf-8');
+    res.setHeader('Content-Disposition', `attachment; filename="${filename}"`);
+    // PII: never let a proxy or the browser keep a copy.
+    res.setHeader('Cache-Control', 'no-store');
+
+    const write = (chunk: string) =>
+      new Promise<void>((resolve) => {
+        if (res.write(chunk)) resolve();
+        else res.once('drain', resolve);
+      });
+
+    for await (const chunk of stream) {
+      if (res.writableEnded) break; // client hung up
+      await write(chunk);
+    }
+    res.end();
   }
 }

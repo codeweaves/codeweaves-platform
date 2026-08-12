@@ -201,7 +201,7 @@ export function BehaviorSettings() {
 
           {starters.length < 4 && (
             <Button variant="outline" onClick={addStarter} className="w-full">
-              <Plus className="mr-2 h-4 w-4" /> Add Conversation Starter
+              <Plus className="h-4 w-4" /> Add Conversation Starter
             </Button>
           )}
 
@@ -276,7 +276,7 @@ export function BehaviorSettings() {
 
           {fallbackPhrases.length < 3 && (
             <Button variant="outline" onClick={addFallbackPhrase} className="w-full">
-              <Plus className="mr-2 h-4 w-4" /> Add Fallback Phrase
+              <Plus className="h-4 w-4" /> Add Fallback Phrase
             </Button>
           )}
 

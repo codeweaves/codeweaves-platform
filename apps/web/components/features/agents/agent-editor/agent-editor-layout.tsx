@@ -180,7 +180,7 @@ function AgentEditorContent() {
           onClick={() => window.open(`/agents/demo/${agent.id}`, '_blank')}
           aria-label="Open demo"
         >
-          <ExternalLink className="mr-2 h-4 w-4" />
+          <ExternalLink className="h-4 w-4" />
           Demo
         </Button>
         <EmbedCodeDialog publicId={agent.publicId} />
@@ -592,7 +592,7 @@ function AgentEditorContent() {
                     disabled={!hasUnsavedChanges || saving}
                     className="rounded-r-none border-r-0"
                   >
-                    <RotateCcw className="mr-2 h-4 w-4" />
+                    <RotateCcw className="h-4 w-4" />
                     Reset
                   </Button>
                   <DropdownMenuTrigger asChild>
@@ -611,13 +611,13 @@ function AgentEditorContent() {
                     onClick={handleReset}
                     disabled={!hasUnsavedChanges}
                   >
-                    <RotateCcw className="mr-2 h-4 w-4" />
+                    <RotateCcw className="h-4 w-4" />
                     Reset to Last Saved
                   </DropdownMenuItem>
                   <DropdownMenuItem
                     onClick={() => setResetDefaultsOpen(true)}
                   >
-                    <RotateCw className="mr-2 h-4 w-4" />
+                    <RotateCw className="h-4 w-4" />
                     Reset to Defaults
                   </DropdownMenuItem>
                 </DropdownMenuContent>
@@ -629,9 +629,9 @@ function AgentEditorContent() {
                 disabled={!hasUnsavedChanges || saving}
               >
                 {saving ? (
-                  <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                  <Loader2 className="h-4 w-4 animate-spin" />
                 ) : (
-                  <Save className="mr-2 h-4 w-4" />
+                  <Save className="h-4 w-4" />
                 )}
                 {saving ? 'Saving...' : 'Save Changes'}
               </Button>

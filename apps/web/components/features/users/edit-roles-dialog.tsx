@@ -173,7 +173,7 @@ export function EditRolesDialog({ user, open, onOpenChange }: EditRolesDialogPro
             onClick={handleSave}
             disabled={isSelf || setRoles.isPending || nothingChanged}
           >
-            {setRoles.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+            {setRoles.isPending && <Loader2 className="size-4 animate-spin" />}
             Save roles
           </Button>
         </DialogFooter>

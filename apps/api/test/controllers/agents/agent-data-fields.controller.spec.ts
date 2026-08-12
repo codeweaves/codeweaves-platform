@@ -14,7 +14,32 @@ describe('AgentDataFieldsController', () => {
     list: jest.fn(),
     replaceAll: jest.fn(),
     getCollectedDataView: jest.fn(),
+    prepareCollectedDataExport: jest.fn(),
   };
+
+  /** Minimal Express `Response` double that records what was written. */
+  const mockResponse = () => {
+    const headers: Record<string, string> = {};
+    const chunks: string[] = [];
+    return {
+      headers,
+      chunks,
+      writableEnded: false,
+      setHeader: jest.fn((k: string, v: string) => {
+        headers[k] = v;
+      }),
+      write: jest.fn((chunk: string) => {
+        chunks.push(chunk);
+        return true; // no backpressure
+      }),
+      once: jest.fn(),
+      end: jest.fn(),
+    };
+  };
+
+  async function* csvStream(...chunks: string[]) {
+    for (const chunk of chunks) yield chunk;
+  }
 
   const user = {
     id: 'u1',
@@ -125,5 +150,107 @@ describe('AgentDataFieldsController', () => {
       undefined,
       'desc',
     );
+  });
+
+  describe('exportCollected()', () => {
+    it('sends CSV attachment headers and streams every chunk', async () => {
+      mockService.prepareCollectedDataExport.mockResolvedValue({
+        filename: 'collected-data-support-bot-2026-08-11.csv',
+        stream: csvStream('header\r\n', 'row1\r\n'),
+      });
+      const res = mockResponse();
+
+      await controller.exportCollected(agentId, user, res as never);
+
+      expect(mockService.prepareCollectedDataExport).toHaveBeenCalledWith(
+        agentId,
+        user,
+        'desc',
+        undefined,
+      );
+      expect(res.headers['Content-Type']).toBe('text/csv; charset=utf-8');
+      expect(res.headers['Content-Disposition']).toBe(
+        'attachment; filename="collected-data-support-bot-2026-08-11.csv"',
+      );
+      // PII must not sit in a proxy or browser cache.
+      expect(res.headers['Cache-Control']).toBe('no-store');
+      expect(res.chunks.join('')).toBe('header\r\nrow1\r\n');
+      expect(res.end).toHaveBeenCalled();
+    });
+
+    it('forwards sortOrder=asc and falls back to desc for anything else', async () => {
+      mockService.prepareCollectedDataExport.mockResolvedValue({
+        filename: 'f.csv',
+        stream: csvStream(''),
+      });
+
+      await controller.exportCollected(agentId, user, mockResponse() as never, 'asc');
+      expect(mockService.prepareCollectedDataExport).toHaveBeenLastCalledWith(
+        agentId,
+        user,
+        'asc',
+        undefined,
+      );
+
+      await controller.exportCollected(
+        agentId,
+        user,
+        mockResponse() as never,
+        'garbage',
+      );
+      expect(mockService.prepareCollectedDataExport).toHaveBeenLastCalledWith(
+        agentId,
+        user,
+        'desc',
+        undefined,
+      );
+    });
+
+    it("forwards the caller's time zone", async () => {
+      mockService.prepareCollectedDataExport.mockResolvedValue({
+        filename: 'f.csv',
+        stream: csvStream(''),
+      });
+
+      await controller.exportCollected(
+        agentId,
+        user,
+        mockResponse() as never,
+        'desc',
+        'Asia/Kolkata',
+      );
+
+      expect(mockService.prepareCollectedDataExport).toHaveBeenCalledWith(
+        agentId,
+        user,
+        'desc',
+        'Asia/Kolkata',
+      );
+    });
+
+    it('stops writing once the client has hung up', async () => {
+      mockService.prepareCollectedDataExport.mockResolvedValue({
+        filename: 'f.csv',
+        stream: csvStream('a', 'b'),
+      });
+      const res = mockResponse();
+      res.writableEnded = true;
+
+      await controller.exportCollected(agentId, user, res as never);
+
+      expect(res.write).not.toHaveBeenCalled();
+    });
+
+    it('lets an access failure surface before any header is written', async () => {
+      mockService.prepareCollectedDataExport.mockRejectedValue(
+        new Error('Agent not found'),
+      );
+      const res = mockResponse();
+
+      await expect(
+        controller.exportCollected(agentId, user, res as never),
+      ).rejects.toThrow('Agent not found');
+      expect(res.setHeader).not.toHaveBeenCalled();
+    });
   });
 });

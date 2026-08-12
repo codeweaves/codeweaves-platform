@@ -179,11 +179,11 @@ export function KnowledgeSettings() {
             disabled={extract.isPending}
           >
             {extract.isPending ? (
-              <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+              <Loader2 className="h-4 w-4 animate-spin" />
             ) : hasContent ? (
-              <RefreshCw className="mr-2 h-4 w-4" />
+              <RefreshCw className="h-4 w-4" />
             ) : (
-              <Upload className="mr-2 h-4 w-4" />
+              <Upload className="h-4 w-4" />
             )}
             {extract.isPending
               ? 'Extracting…'
@@ -200,7 +200,7 @@ export function KnowledgeSettings() {
               onClick={handleLocalRemove}
               disabled={extract.isPending}
             >
-              <Trash2 className="mr-2 h-4 w-4" />
+              <Trash2 className="h-4 w-4" />
               Clear
             </Button>
           )}

@@ -169,7 +169,7 @@ export default function SignInPage() {
         </div>
 
         <Button type="submit" className="h-11 w-full" disabled={submitting}>
-          {submitting && <Loader2 className="mr-2 size-4 animate-spin" />}
+          {submitting && <Loader2 className="size-4 animate-spin" />}
           Sign in
         </Button>
       </form>

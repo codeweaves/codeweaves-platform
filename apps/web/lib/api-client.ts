@@ -55,8 +55,55 @@ export function useApiClient() {
     return null;
   }, [getToken, isSignedIn]);
 
+  /**
+   * Fetches a file attachment instead of JSON, and saves it.
+   *
+   * A plain `<a href>` cannot carry the Clerk bearer token, so the download has
+   * to go through fetch. The server-chosen filename is read from
+   * `Content-Disposition` (exposed by the dashboard CORS middleware) with the
+   * caller's suggestion as the fallback.
+   */
+  const downloadWithAuth = useCallback(
+    async (endpoint: string, fallbackFilename: string) => {
+      if (!isSignedIn) {
+        throw new Error('Not authenticated');
+      }
+
+      const token = await getToken({ template: CLERK_JWT_TEMPLATE });
+      if (!token) {
+        throw new Error('Not authenticated');
+      }
+
+      const response = await fetch(apiUrl(endpoint), {
+        method: 'GET',
+        headers: { Authorization: `Bearer ${token}` },
+      });
+
+      if (!response.ok) {
+        const error = await response.json().catch(() => ({}));
+        throw new Error(error.message || `Download failed: ${response.status}`);
+      }
+
+      const disposition = response.headers.get('content-disposition') ?? '';
+      const match = /filename="?([^";]+)"?/i.exec(disposition);
+      const filename = match?.[1] ?? fallbackFilename;
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      const link = document.createElement('a');
+      link.href = url;
+      link.download = filename;
+      link.click();
+      URL.revokeObjectURL(url);
+
+      return filename;
+    },
+    [getToken, isSignedIn],
+  );
+
   return useMemo(() => ({
     get: (endpoint: string) => fetchWithAuth(endpoint, { method: 'GET' }),
+    download: downloadWithAuth,
     post: (endpoint: string, data?: unknown) => fetchWithAuth(endpoint, {
       method: 'POST',
       body: data !== undefined ? JSON.stringify(data) : undefined,
@@ -80,5 +127,5 @@ export function useApiClient() {
       }
       return fetchWithAuth(endpoint, { method: 'POST', body: formData }, true);
     },
-  }), [fetchWithAuth]);
+  }), [fetchWithAuth, downloadWithAuth]);
 }

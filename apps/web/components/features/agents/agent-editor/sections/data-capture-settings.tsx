@@ -243,7 +243,7 @@ export function DataCaptureSettings() {
             </span>
             {fields.length < MAX_DATA_FIELDS && (
               <Button variant="outline" onClick={addField}>
-                <Plus className="mr-2 h-4 w-4" /> Add Field
+                <Plus className="h-4 w-4" /> Add Field
               </Button>
             )}
           </div>

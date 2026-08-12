@@ -76,9 +76,9 @@ function ExportButton({ config }: { config: DataTableExportConfig }) {
         className="h-9"
       >
         {config.isExporting ? (
-          <Loader2 className="mr-2 size-4 animate-spin" />
+          <Loader2 className="size-4 animate-spin" />
         ) : (
-          <Download className="mr-2 size-4" />
+          <Download className="size-4" />
         )}
         {label}
       </Button>
@@ -91,9 +91,9 @@ function ExportButton({ config }: { config: DataTableExportConfig }) {
       <DropdownMenuTrigger asChild>
         <Button variant="outline" size="sm" disabled={config.isExporting} className="h-9">
           {config.isExporting ? (
-            <Loader2 className="mr-2 size-4 animate-spin" />
+            <Loader2 className="size-4 animate-spin" />
           ) : (
-            <Download className="mr-2 size-4" />
+            <Download className="size-4" />
           )}
           {label}
           <ChevronDown className="ml-2 size-4" />

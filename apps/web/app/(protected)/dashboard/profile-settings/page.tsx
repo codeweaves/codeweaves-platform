@@ -16,19 +16,44 @@ import {
   CardHeader,
   CardTitle,
 } from '@/components/ui/card';
+import {
+  AlertDialog,
+  AlertDialogAction,
+  AlertDialogCancel,
+  AlertDialogContent,
+  AlertDialogDescription,
+  AlertDialogFooter,
+  AlertDialogHeader,
+  AlertDialogTitle,
+  AlertDialogTrigger,
+} from '@/components/ui/alert-dialog';
 import { toast } from 'sonner';
 import { Loader2 } from 'lucide-react';
-import { useRouter } from 'next/navigation';
+import { useClerk } from '@clerk/nextjs';
 
 export default function SettingsPage() {
   const { profile, isLoading } = useProfile();
   const { setTitle } = usePageHeader();
   const api = useApiClient();
   const queryClient = useQueryClient();
-  const router = useRouter();
+  const { signOut } = useClerk();
 
   const [name, setName] = useState('');
   const [hasChanges, setHasChanges] = useState(false);
+
+  /**
+   * Clerk cannot run a sign-in/reset flow over a live session, so resetting the
+   * password means signing out first. `redirectUrl` (rather than a `router.push`
+   * beforehand) is what keeps that ordered: the session is torn down and only
+   * then does the browser land on the reset page, so the page's own signed-in
+   * guard cannot bounce us straight back out.
+   *
+   * Confirmed first because this ends the session. A user clicking to see what
+   * the option does should not be logged out for their curiosity.
+   */
+  const startPasswordReset = () => {
+    void signOut({ redirectUrl: '/reset-password' });
+  };
 
   useEffect(() => {
     setTitle('Settings');
@@ -125,7 +150,7 @@ export default function SettingsPage() {
               onClick={handleSave}
               disabled={!hasChanges || updateProfile.isPending}
             >
-              {updateProfile.isPending && <Loader2 className="mr-2 size-4 animate-spin" />}
+              {updateProfile.isPending && <Loader2 className="size-4 animate-spin" />}
               Save Changes
             </Button>
           </div>
@@ -142,15 +167,31 @@ export default function SettingsPage() {
             <div>
               <p className="text-sm font-medium">Password</p>
               <p className="text-sm text-muted-foreground">
-                We&apos;ll email you a code to set a new password.
+                We&apos;ll sign you out and email you a code to set a new
+                password.
               </p>
             </div>
-            <Button
-              variant="outline"
-              onClick={() => router.push('/reset-password')}
-            >
-              Reset Password
-            </Button>
+            <AlertDialog>
+              <AlertDialogTrigger asChild>
+                <Button variant="outline">Reset Password</Button>
+              </AlertDialogTrigger>
+              <AlertDialogContent>
+                <AlertDialogHeader>
+                  <AlertDialogTitle>Reset your password?</AlertDialogTitle>
+                  <AlertDialogDescription>
+                    You&apos;ll be signed out and sent to the reset page, where
+                    we&apos;ll email you a one-time code. Setting a new password
+                    also signs you out everywhere else.
+                  </AlertDialogDescription>
+                </AlertDialogHeader>
+                <AlertDialogFooter>
+                  <AlertDialogCancel>Cancel</AlertDialogCancel>
+                  <AlertDialogAction onClick={startPasswordReset}>
+                    Sign out and continue
+                  </AlertDialogAction>
+                </AlertDialogFooter>
+              </AlertDialogContent>
+            </AlertDialog>
           </div>
         </CardContent>
       </Card>

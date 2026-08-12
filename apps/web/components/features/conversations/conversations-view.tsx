@@ -3,6 +3,7 @@
 import { useCallback, useState } from 'react';
 import { ConversationListPane } from './conversation-list-pane';
 import { ConversationDetailPane } from './conversation-detail-pane';
+import { ConversationsRefreshButton } from './conversations-refresh';
 import {
   ConversationsFiltersBar,
   EMPTY_FILTERS,
@@ -45,7 +46,13 @@ export function ConversationsView({ selectedSessionId }: ConversationsViewProps)
     // page fits the screen. Both panes always show — fixed-width desktop
     // dashboard, not a mobile app.
     <div className="flex h-[calc(100svh-7.5rem)] flex-col gap-4">
-      <ConversationsFiltersBar filters={filters} onChange={setFilters} />
+      <div className="flex items-start justify-between gap-4">
+        <div className="min-w-0 flex-1">
+          <ConversationsFiltersBar filters={filters} onChange={setFilters} />
+        </div>
+        {/* Refreshes both panes at once — see ConversationsRefreshButton. */}
+        <ConversationsRefreshButton className="shrink-0" />
+      </div>
 
       <div className="min-h-0 flex-1 overflow-hidden rounded-lg border bg-background">
         <div className="flex h-full">
