@@ -598,26 +598,81 @@ export class VoiceController {
     // Client disconnect handling
     let closed = false;
     const abortController = new AbortController();
+
+    // Stream watchdogs.
+    //
+    // This used to be a single fixed 60s deadline on the whole turn, which killed
+    // long-but-perfectly-healthy replies: a ten-sentence answer synthesised one
+    // sentence at a time can legitimately run past a minute, and the visitor got
+    // "Voice processing timed out" mid-sentence with audio still playing. What
+    // actually needs catching is a STALLED stream, so the deadline is now IDLE
+    // based and re-armed on every chunk written (matching the widget's own idle
+    // timeout), with a hard ceiling as the backstop against a stream that
+    // trickles forever.
+    //
+    // The wait for the FIRST chunk gets its own, longer window: nothing can be
+    // emitted until the LLM has produced a sentence AND its TTS has returned
+    // first bytes, and a provider that has to time out its WebSocket (12-15s)
+    // and fall back to batch HTTP stacks on top of that. Real turns in this
+    // system have taken 32s to first audio and then completed fine, so a plain
+    // idle window sized for mid-stream gaps would kill them.
+    const VOICE_STREAM_FIRST_CHUNK_TIMEOUT_MS = 45_000;
+    const VOICE_STREAM_IDLE_TIMEOUT_MS = 25_000;
+    const VOICE_STREAM_MAX_TOTAL_MS = 180_000;
+
+    let idleTimer: ReturnType<typeof setTimeout> | null = null;
+    let totalTimer: ReturnType<typeof setTimeout> | null = null;
+    const clearStreamTimers = () => {
+      if (idleTimer) {
+        clearTimeout(idleTimer);
+        idleTimer = null;
+      }
+      if (totalTimer) {
+        clearTimeout(totalTimer);
+        totalTimer = null;
+      }
+    };
+    let streamProgressed = false;
+    const failStream = (reason: 'first-chunk' | 'idle' | 'total') => {
+      if (closed) return;
+      this.log.warn('handleStreamingVoice', 'voice stream timed out', {
+        agentId: resolvedAgentId,
+        sessionId: session.sessionId,
+        reason,
+        elapsedMs: Date.now() - startTime,
+      });
+      const timeoutChunk = {
+        type: 'error' as const,
+        errorCode: voiceErrorCodes.PROVIDER_TIMEOUT,
+        message: 'Voice stream timeout — response took too long',
+      };
+      res.write(JSON.stringify(timeoutChunk) + '\n');
+      res.end();
+      closed = true;
+      abortController.abort();
+      clearStreamTimers();
+    };
+    totalTimer = setTimeout(() => failStream('total'), VOICE_STREAM_MAX_TOTAL_MS);
+    const armIdleTimeout = () => {
+      if (closed) return;
+      if (idleTimer) clearTimeout(idleTimer);
+      // Capture the reason at arm time — by the time the timer fires,
+      // streamProgressed may have flipped for a LATER re-arm, not this one.
+      const reason = streamProgressed ? 'idle' : 'first-chunk';
+      const windowMs = streamProgressed
+        ? VOICE_STREAM_IDLE_TIMEOUT_MS
+        : VOICE_STREAM_FIRST_CHUNK_TIMEOUT_MS;
+      idleTimer = setTimeout(() => failStream(reason), windowMs);
+    };
+    armIdleTimeout();
+
+    // Visitor closed the tab / aborted the fetch — stop synthesising and drop the
+    // watchdogs so nothing is left holding this request's closure.
     res.on('close', () => {
       closed = true;
       abortController.abort();
+      clearStreamTimers();
     });
-
-    // Stream timeout (60s — voice streams are slower than text due to TTS per sentence)
-    const VOICE_STREAM_TIMEOUT_MS = 60_000;
-    const timeout = setTimeout(() => {
-      if (!closed) {
-        const timeoutChunk = {
-          type: 'error' as const,
-          errorCode: voiceErrorCodes.PROVIDER_TIMEOUT,
-          message: 'Voice stream timeout — response took too long',
-        };
-        res.write(JSON.stringify(timeoutChunk) + '\n');
-        res.end();
-        closed = true;
-        abortController.abort();
-      }
-    }, VOICE_STREAM_TIMEOUT_MS);
 
     // Build the token stream from either direct-mode LLM or the legacy n8n
     // webhook, depending on the agent's routing mode. Both sources yield
@@ -748,6 +803,10 @@ export class VoiceController {
           });
         }
         res.write(JSON.stringify(chunk) + '\n');
+        // Progress — the stream is alive, so push the deadline back out. From
+        // here on the tighter mid-stream idle window applies.
+        streamProgressed = true;
+        armIdleTimeout();
       }
     } catch (error) {
       if (!closed) {
@@ -776,7 +835,7 @@ export class VoiceController {
         res.write(JSON.stringify(errorChunk) + '\n');
       }
     } finally {
-      clearTimeout(timeout);
+      clearStreamTimers();
       // Model escalated mid-stream via connect_to_human → tell the widget so it
       // shows the "connecting" line + starts polling for the teammate's replies.
       if (toolEscalated && !closed && !res.writableEnded) {

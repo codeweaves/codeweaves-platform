@@ -25,7 +25,7 @@ import { useChat } from '../hooks/useChat';
 import { useVoice } from '../hooks/useVoice';
 import { VoiceRecordingBar } from './VoiceRecordingBar';
 import { isSafeUrl } from '../utils/url';
-import { renderMarkdown } from '../utils/simple-markdown';
+import { BotMessageText } from './BotMessageText';
 import type { AgentConfig } from '../types';
 
 export interface ChatWidgetSurfaceProps {
@@ -276,8 +276,11 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
         appendBotMessageText(id, text);
         setVoiceLoading(false);
       } else if (voiceBotMsgIdRef.current) {
-        // Append subsequent sentences with a space
-        appendBotMessageText(voiceBotMsgIdRef.current, ' ' + text);
+        // Append VERBATIM. Each chunk arrives with the whitespace that preceded
+        // it in the reply, so a list item keeps its own line; adding a space
+        // here instead would collapse "- a\n- b" onto one line and Markdown
+        // would render the whole list as a single bullet until the reply ended.
+        appendBotMessageText(voiceBotMsgIdRef.current, text);
       }
     }, [createBotMessage, appendBotMessageText, setVoiceLoading]),
     onComplete: useCallback((fullText: string) => {
@@ -529,10 +532,8 @@ export function ChatWidgetSurface({ agentId, agentConfig, theme, position }: Cha
                       >
                         {isUser ? (
                           <p class="cw-message-text leading-relaxed" style={{ fontSize: '1em' }}>{message.content}</p>
-                        ) : message.isStreaming ? (
-                          <p class="cw-message-text leading-relaxed" style={{ fontSize: '1em' }}>{message.content}</p>
                         ) : (
-                          <div class="cw-message-text leading-relaxed" style={{ fontSize: '1em' }} dangerouslySetInnerHTML={{ __html: renderMarkdown(message.content) }} />
+                          <BotMessageText content={message.content} isStreaming={message.isStreaming} />
                         )}
                       </div>
                       {showBotMeta ? (

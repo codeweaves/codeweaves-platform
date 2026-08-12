@@ -8,6 +8,7 @@ import { AppLogger } from '../../common/logger/app-logger';
 import type { N8nStreamChunk } from '../../services/n8n-stream.interface';
 import type { VoiceStreamChunk } from './interfaces/voice-stream.interface';
 import { SentenceBuffer } from './utils/sentence-buffer';
+import { DisplayTextTracker } from './utils/display-text';
 import {
   type VoiceProvider,
   type STTRequest,
@@ -23,6 +24,10 @@ import {
   VoiceProviderError,
 } from './providers/voice-provider.interface';
 import { PrismaService } from '../../services/prisma.service';
+import {
+  toSpeakableText,
+  hasSpeakableContent,
+} from '../../common/text/speakable-text';
 import { type VoiceConfigDto, voiceConfigSchema } from '@repo/validation';
 
 const DEFAULT_VOICE_CONFIG: VoiceConfigDto = Object.freeze(
@@ -44,29 +49,11 @@ const VOICE_LIST_CACHE_TTL_MS = 60 * 60 * 1000;
 /** Preview audio for a (provider, voiceId, language) is deterministic — cache for 1 day. */
 const VOICE_PREVIEW_CACHE_TTL_MS = 24 * 60 * 60 * 1000;
 
-/** Emoji / pictographs / flags / skin-tone + variation modifiers / ZWJ / keycap.
- *  Stripped from TTS INPUT only — the chat display keeps the original text. */
-const EMOJI_SYMBOL_RE =
-  // Intentionally matches emoji plus their ZWJ / variation-selector / skin-tone /
-  // keycap "glue" so compound emoji strip cleanly. The misleading-character-class
-  // rule is about accidental combos; here it's deliberate.
-  // eslint-disable-next-line no-misleading-character-class
-  /[0-9#*]\u{FE0F}?\u{20E3}|[\u{1F1E6}-\u{1F1FF}\u{1F3FB}-\u{1F3FF}\u{FE00}-\u{FE0F}\u{200D}\u{20E3}\p{Extended_Pictographic}]/gu;
-
-/** Text to SEND TO TTS: strip emoji/symbols and collapse the whitespace they
- *  leave behind. Callers keep the ORIGINAL text for the chat transcript.
- *  Sarvam's TTS 400s on text with no language characters ("Text must contain at
- *  least one character from the allowed languages") — a bare/trailing emoji like
- *  "🔧🤖" is the classic trigger. */
-export function toSpeakableText(text: string): string {
-  return text.replace(EMOJI_SYMBOL_RE, '').replace(/\s+/g, ' ').trim();
-}
-
-/** True when there's something worth speaking (≥1 letter or digit). Emoji-only /
- *  punctuation-only chunks return false → skip TTS entirely (still shown as text). */
-export function hasSpeakableContent(text: string): boolean {
-  return /[\p{L}\p{N}]/u.test(text);
-}
+// TTS input sanitisation lives in common/text/speakable-text.ts so every voice
+// path (streaming widget turns, the non-streaming endpoint, WhatsApp voice notes)
+// shares one definition of "what the agent says out loud". Re-exported here
+// because this module is the historical import site.
+export { toSpeakableText, hasSpeakableContent };
 
 /** Render a personalised preview line per language. Falls back to English when the language
  *  isn't templated, and to a generic sample when the voice name isn't known. */
@@ -351,8 +338,16 @@ export class VoiceService {
     // voice (and speed) are honoured by every code path that calls synthesize() — including
     // the legacy non-streaming voiceConversation flow which never sets voiceId itself.
     // Caller-supplied values win (e.g., the public /synthesize endpoint may override).
+    //
+    // The text is reduced to speakable prose here rather than at each call site:
+    // callers hand us whatever the LLM wrote (Markdown, links and all), and a TTS
+    // engine pronounces every character of it. Falls back to the original when
+    // nothing speakable survives (e.g. a caller synthesising a URL on purpose),
+    // so no request that used to produce audio stops producing it.
+    const speakableText = toSpeakableText(request.text);
     const enrichedRequest: TTSRequest = {
       ...request,
+      text: hasSpeakableContent(speakableText) ? speakableText : request.text,
       voiceId: request.voiceId ?? config.ttsVoiceId,
       speed: request.speed ?? config.ttsSpeed,
     };
@@ -497,6 +492,9 @@ export class VoiceService {
     let sentenceIndex = 0;
     let successCount = 0;
     let session: TTSSession | null = null;
+    // Restores the newline/blank-line each sentence was preceded by, so the
+    // client can append chunks verbatim and see the real layout while streaming.
+    const displayText = new DisplayTextTracker(() => fullText);
 
     try {
       session = await provider.openSynthesisSession({
@@ -658,23 +656,40 @@ export class VoiceService {
       }.bind(this);
 
       // Drive the LLM token stream → sentence buffer → session.synthesize.
+      // `display` carries the sentence WITH its original leading whitespace and
+      // replaces the trimmed `text` on the way out, so the client's transcript
+      // keeps list and paragraph structure mid-stream.
+      const emit = async function* (
+        this: VoiceService,
+        sentence: string,
+      ): AsyncGenerator<VoiceStreamChunk> {
+        const display = displayText.next(sentence);
+        for await (const c of renderSentence(sentence)) {
+          if (c.type !== 'audio') {
+            yield c;
+            continue;
+          }
+          yield {
+            ...c,
+            ttsProvider: provider.name,
+            ...(c.text ? { text: display } : {}),
+          };
+        }
+      }.bind(this);
+
       for await (const chunk of tokenStream) {
         if (chunk.type === 'item' && chunk.content) {
           fullText += chunk.content;
           const sentences = sentenceBuffer.addToken(chunk.content);
           for (const sentence of sentences) {
-            for await (const c of renderSentence(sentence)) {
-              yield c.type === 'audio' ? { ...c, ttsProvider: provider.name } : c;
-            }
+            yield* emit(sentence);
           }
         }
       }
       // Tail (partial sentence without terminator)
       const remaining = sentenceBuffer.flush();
       if (remaining) {
-        for await (const c of renderSentence(remaining)) {
-          yield c.type === 'audio' ? { ...c, ttsProvider: provider.name } : c;
-        }
+        yield* emit(remaining);
       }
     } finally {
       if (session) {
@@ -706,7 +721,13 @@ export class VoiceService {
   ): AsyncGenerator<VoiceStreamChunk> {
     const sentenceBuffer = new SentenceBuffer();
     const ttsPromises: Promise<VoiceStreamChunk[]>[] = [];
+    // Display text per sentence, parallel-indexed with ttsPromises: TTS runs
+    // concurrently here, so the yielder below can't tell which sentence a chunk
+    // came from without it. See DisplayTextTracker for why the trimmed sentence
+    // isn't good enough for the transcript.
+    const displayTexts: string[] = [];
     let fullText = '';
+    const displayText = new DisplayTextTracker(() => fullText);
 
     const wake: { fn: (() => void) | null } = { fn: null };
     const waitForNewPromise = () =>
@@ -730,6 +751,7 @@ export class VoiceService {
             fullText += chunk.content;
             const sentences = sentenceBuffer.addToken(chunk.content);
             for (const sentence of sentences) {
+              displayTexts.push(displayText.next(sentence));
               ttsPromises.push(
                 this.synthesizeSentenceToChunks(
                   sentence,
@@ -746,6 +768,7 @@ export class VoiceService {
         }
         const remaining = sentenceBuffer.flush();
         if (remaining) {
+          displayTexts.push(displayText.next(remaining));
           ttsPromises.push(
             this.synthesizeSentenceToChunks(
               remaining,
@@ -771,11 +794,13 @@ export class VoiceService {
     while (true) {
       if (yielded < ttsPromises.length) {
         const chunks = await ttsPromises[yielded]!;
+        const display = displayTexts[yielded];
         yielded++;
         let sentenceSucceeded = false;
         for (const c of chunks) {
           if (c.type === 'audio' && c.isFinalChunk) sentenceSucceeded = true;
-          yield c;
+          // Swap the trimmed sentence for the separator-preserving display text.
+          yield c.type === 'audio' && c.text && display ? { ...c, text: display } : c;
         }
         if (sentenceSucceeded) successCount++;
       } else if (llmConsumerDone) {

@@ -29,7 +29,15 @@ const DURATION_UPDATE_MS = 100;
 // (Previously this was a fixed 30s deadline on the whole request, which killed
 // long replies while they were still streaming and playing — surfacing a false
 // "Voice processing timed out" even though audio was coming through fine.)
-const IDLE_TIMEOUT_MS = 25_000;
+// Sits just above the server's own 25s idle watchdog so that on a real stall the
+// server's typed error chunk arrives before we abort locally.
+const IDLE_TIMEOUT_MS = 30_000;
+// The wait for the FIRST audio chunk is a different animal: the LLM has to
+// produce a sentence and its TTS has to return bytes, and a provider that times
+// out its WebSocket before falling back to batch HTTP stacks onto that. Turns
+// have legitimately taken 32s to first audio, so this window is generous, and
+// again sits above the server's matching 45s one.
+const FIRST_CHUNK_TIMEOUT_MS = 50_000;
 
 // ── Error message mapping (matches demo page) ──
 
@@ -244,14 +252,14 @@ export function useVoice({
     // no stream activity; every chunk callback below re-arms it, so a healthy
     // stream is never aborted while audio is still arriving. It's cleared once
     // the stream finishes (see the clearTimeout after the await).
-    const armIdleTimeout = () => {
+    const armIdleTimeout = (windowMs: number = IDLE_TIMEOUT_MS) => {
       if (timeoutRef.current) clearTimeout(timeoutRef.current);
       timeoutRef.current = setTimeout(() => {
         timedOutRef.current = true;
         controller.abort();
-      }, IDLE_TIMEOUT_MS);
+      }, windowMs);
     };
-    armIdleTimeout();
+    armIdleTimeout(FIRST_CHUNK_TIMEOUT_MS);
 
     let receivedFirstAudio = false;
     let fullResponseText = '';
@@ -273,7 +281,9 @@ export function useVoice({
         signal: controller.signal,
         callbacks: {
           onTranscription: (text: string) => {
-            armIdleTimeout();
+            // The transcript landing does NOT mean the reply is close — the wait
+            // for first audio starts here, so keep the long window.
+            armIdleTimeout(FIRST_CHUNK_TIMEOUT_MS);
             onTranscriptionRef.current?.(text);
             // Drop out of 'processing' the instant the transcript lands so the
             // "Transcribing…" loader disappears as soon as the user sees their words.
