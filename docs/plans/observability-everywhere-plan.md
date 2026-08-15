@@ -814,7 +814,7 @@ Convert these to `AppLogger` and add step/branch/catch logs per §3.3. (Grouped 
 
 ## 11. Build sequence (one PR per phase)
 
-Branch per phase off `develop`: `feature/observability-p0`, `-p1`, … Each PR: implement → add/adjust unit tests in `apps/api/test/` → `bun run lint && bun run check-types && bun run build && bun run test:cov` → open PR to `develop`. Then run `/bmad-code-review` and fix findings (per `CLAUDE.md`).
+Branch per phase off `develop`: `feature/observability-p0`, `-p1`, … Each PR: implement → add/adjust unit tests in `apps/api/test/` → `bun run lint && bun run check-types && bun run build && bun run test:cov` → open PR to `develop`. Then run `/code-review` and fix findings (per `CLAUDE.md`).
 
 ### Phase 0 — Foundation (no behavior change)
 - CREATE `common/events/redaction.util.ts` (§5), `common/events/event-log.types.ts` (§6.2), `common/logger/app-logger.ts` (§3.1), `common/events/resolve-channel.ts` (§8).

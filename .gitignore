@@ -59,10 +59,6 @@ test-pages/
 logs/
 apps/api/logs/
 
-# Bmad Agents files
-_bmad/
-# docs/
-
 nul
 NUL
 
