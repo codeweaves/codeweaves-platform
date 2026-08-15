@@ -69,15 +69,6 @@
 - [CI/CD Pipeline](../.github/workflows/ci.yml) - GitHub Actions workflow
 - [Auth Components README](../apps/web/components/auth/README.md) - Auth component docs
 
-### Planning Artifacts
-
-- [PRD](../_bmad-output/planning-artifacts/prd.md) - Product Requirements Document
-- [Architecture Plan](../_bmad-output/planning-artifacts/architecture.md) - High-level architecture
-- [Epics](../_bmad-output/planning-artifacts/epics.md) - Epic-level planning
-- [Test Design - Architecture](../_bmad-output/planning-artifacts/test-design-architecture.md) - Architecture testing strategy
-- [Test Design - QA](../_bmad-output/planning-artifacts/test-design-qa.md) - QA testing design
-- [Sprint Status](../_bmad-output/implementation-artifacts/sprint-status.yaml) - Current sprint tracking
-
 ## Getting Started
 
 ### First Time Setup
@@ -99,7 +90,6 @@ When working with AI tools on this codebase:
 4. **For Widget work** - Reference [Architecture - Widget](./architecture-widget.md)
 5. **For full-stack features** - Reference both API and Web architectures + [Integration Architecture](./integration-architecture.md)
 6. **For data changes** - Reference [Data Models](./data-models-api.md)
-7. **For planning** - Reference the [PRD](../_bmad-output/planning-artifacts/prd.md) and [Epics](../_bmad-output/planning-artifacts/epics.md)
 
 ### Pre-Commit Checklist
 
