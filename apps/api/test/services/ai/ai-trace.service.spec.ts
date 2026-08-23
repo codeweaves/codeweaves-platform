@@ -81,6 +81,111 @@ describe('AiTraceService', () => {
         }),
       ).rejects.toThrow('boom');
     });
+
+    // Tracing is fire-and-forget by contract (CLAUDE.md: table logs must never
+    // break a request). These cover the case where the OBSERVATION fails rather
+    // than the work — previously the logging call sat inside the same try as
+    // fn(), so a broken extractor was reported as the measured operation having
+    // failed AND killed the request.
+    it('returns the result when extractData throws — a broken extractor must not fail the work', async () => {
+      const trace = service.startTrace({ agentId: 'a-1' });
+
+      const result = await trace.measure(
+        'rag.retrieve',
+        async () => ({ chunks: [1, 2, 3] }),
+        () => {
+          throw new Error('extractor bug');
+        },
+      );
+
+      // The work succeeded, so the caller gets its result.
+      expect(result).toEqual({ chunks: [1, 2, 3] });
+    });
+
+    it('does not report the operation as failed when only the extractor threw', async () => {
+      const trace = service.startTrace({ agentId: 'a-1' });
+      await trace.measure(
+        'rag.retrieve',
+        async () => ({ ok: true }),
+        () => {
+          throw new Error('extractor bug');
+        },
+      );
+      await trace.end({ success: true, userMessage: 'hi', response: 'yo' });
+
+      // The step must NOT carry an error: the retrieval genuinely succeeded.
+      // Reporting it as failed is what sent people debugging phantom failures.
+      const steps = (
+        mockPrisma.chatTrace.create.mock.calls[0][0] as {
+          data: { steps: Array<{ step: string; error?: unknown }> };
+        }
+      ).data.steps;
+      const step = steps.find((s) => s.step === 'rag.retrieve');
+      expect(step).toBeDefined();
+      expect(step!.error).toBeUndefined();
+    });
+
+    it('still records the step name and duration when the extractor throws', async () => {
+      const trace = service.startTrace({ agentId: 'a-1' });
+      await trace.measure(
+        'rag.retrieve',
+        async () => ({ ok: true }),
+        () => {
+          throw new Error('extractor bug');
+        },
+      );
+      await trace.end({ success: true, userMessage: 'hi', response: 'yo' });
+
+      const steps = (
+        mockPrisma.chatTrace.create.mock.calls[0][0] as {
+          data: { steps: Array<{ step: string; durationMs: number }> };
+        }
+      ).data.steps;
+      // Losing the extracted data is acceptable; losing the step is not —
+      // the name and timing are most of its debugging value.
+      expect(steps.some((s) => s.step === 'rag.retrieve')).toBe(true);
+    });
+
+    it('propagates the WORK error unchanged, so real failures still surface', async () => {
+      // The other half of the contract: making tracing safe must not swallow
+      // genuine failures from the measured operation.
+      const trace = service.startTrace({ agentId: 'a-1' });
+      await expect(
+        trace.measure(
+          'rag.retrieve',
+          async () => {
+            throw new Error('pgvector down');
+          },
+          () => ({ never: 'reached' }),
+        ),
+      ).rejects.toThrow('pgvector down');
+    });
+  });
+
+  describe('fire-and-forget guarantee', () => {
+    it('step() never throws, even on an unserialisable value', () => {
+      const trace = service.startTrace({ agentId: 'a-1' });
+      const hostile = {
+        get boom() {
+          throw new Error('getter explodes');
+        },
+      };
+      expect(() =>
+        trace.step('some.step', hostile as unknown as Record<string, unknown>),
+      ).not.toThrow();
+    });
+
+    it('error() never throws', () => {
+      const trace = service.startTrace({ agentId: 'a-1' });
+      const hostile = {
+        get boom() {
+          throw new Error('getter explodes');
+        },
+      };
+      expect(() =>
+        trace.error('some.step', new Error('real failure'), hostile as unknown as Record<string, unknown>),
+      ).not.toThrow();
+    });
   });
 
   describe('error()', () => {
