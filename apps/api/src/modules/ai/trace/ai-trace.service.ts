@@ -247,6 +247,9 @@ export class AiTraceService {
  * trace by AiTraceService.startTrace().
  */
 class TraceContextImpl implements TraceContext {
+  /** Own logger: a tracing failure must not be reported through tracing. */
+  private readonly logger = new Logger(TraceContextImpl.name);
+
   constructor(
     private readonly active: ActiveTrace,
     private readonly service: AiTraceService,
@@ -269,47 +272,98 @@ class TraceContextImpl implements TraceContext {
   }
 
   step(name: string, data?: Record<string, unknown>, durationMs = 0): void {
-    this.service.logStep(this.active.traceId, {
-      step: name,
-      timestamp: new Date().toISOString(),
-      durationMs,
-      data,
-    });
+    // Tracing is fire-and-forget by contract (see CLAUDE.md: table logs must
+    // never break a request). logStep itself is in-memory + pino, but a caller
+    // can hand us a value pino cannot serialise (a BigInt, a getter that
+    // throws), and that must cost us this line — not the visitor's answer.
+    this.safely('step', () =>
+      this.service.logStep(this.active.traceId, {
+        step: name,
+        timestamp: new Date().toISOString(),
+        durationMs,
+        data,
+      }),
+    );
   }
 
+  /**
+   * Run `fn`, time it, and record a step for it.
+   *
+   * The try block wraps ONLY `fn()`. It used to also wrap the logging call,
+   * which meant a throwing `extractData` or an unserialisable `data` value
+   * landed in the catch — where it was recorded as the measured operation
+   * having failed and then rethrown. So a tracing bug both killed the request
+   * and sent whoever debugged it after a phantom RAG/LLM failure. The work's
+   * own errors still propagate exactly as before; only the observation of it
+   * is now unable to fail the caller.
+   */
   async measure<T>(
     name: string,
     fn: () => Promise<T>,
     extractData?: (result: T) => Record<string, unknown>,
   ): Promise<T> {
     const start = performance.now();
+    let result: T;
+
     try {
-      const result = await fn();
-      const durationMs = Math.round(performance.now() - start);
-      this.step(name, extractData?.(result), durationMs);
-      return result;
+      result = await fn();
     } catch (err) {
       const durationMs = Math.round(performance.now() - start);
       this.error(name, err as Error);
-      // Still log a step with duration so timing is captured even on failure.
-      this.service.logStep(this.active.traceId, {
-        step: name,
-        timestamp: new Date().toISOString(),
-        durationMs,
-        error: { message: (err as Error).message },
-      });
+      // Duration is recorded on the failure path too, so a slow failure is
+      // still visible in the trace.
+      this.safely('measure:error-step', () =>
+        this.service.logStep(this.active.traceId, {
+          step: name,
+          timestamp: new Date().toISOString(),
+          durationMs,
+          error: { message: (err as Error).message },
+        }),
+      );
       throw err;
     }
+
+    // Outside the try: nothing below here may fail the caller.
+    const durationMs = Math.round(performance.now() - start);
+    let data: Record<string, unknown> | undefined;
+    try {
+      data = extractData?.(result);
+    } catch (err) {
+      // A broken extractor loses its data, not the step. Recording the step
+      // with no data still preserves the name and the timing, which is most of
+      // its debugging value.
+      this.logger.warn(
+        `Trace extractData for step "${name}" threw: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
+    this.step(name, data, durationMs);
+    return result;
   }
 
   error(name: string, err: Error, data?: Record<string, unknown>): void {
-    this.service.logStep(this.active.traceId, {
-      step: name,
-      timestamp: new Date().toISOString(),
-      durationMs: 0,
-      data,
-      error: { message: err.message, stack: err.stack },
-    });
+    this.safely('error', () =>
+      this.service.logStep(this.active.traceId, {
+        step: name,
+        timestamp: new Date().toISOString(),
+        durationMs: 0,
+        data,
+        error: { message: err.message, stack: err.stack },
+      }),
+    );
+  }
+
+  /**
+   * Swallow anything the trace write throws. The console warning is the only
+   * place a tracing failure is allowed to surface — never the caller's stack.
+   */
+  private safely(what: string, write: () => void): void {
+    try {
+      write();
+    } catch (err) {
+      this.logger.warn(
+        `Trace ${what} failed for trace ${this.active.traceId}: ${err instanceof Error ? err.message : String(err)}`,
+      );
+    }
   }
 
   async end(params: EndTraceParams): Promise<void> {
