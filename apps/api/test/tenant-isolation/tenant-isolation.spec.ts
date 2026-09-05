@@ -292,9 +292,9 @@ describe('Tenant Isolation — Evil Twin', () => {
 
   // ────────────────────────────────────────────────────────────────────
   // AC#3: Organization resource isolation
-  // Organization endpoints are SUPER_ADMIN-only (controller-level guard),
-  // so isolation is enforced at the authorization layer, not at the
-  // service/filter layer. We verify the service behavior here.
+  // List/update/delete on organizations are platform-only permissions, but
+  // org.owner holds Organization:Read, so findById MUST scope ORG callers to
+  // their own organization at the service layer.
   // ────────────────────────────────────────────────────────────────────
 
   describe('Organization isolation', () => {
@@ -304,7 +304,10 @@ describe('Tenant Isolation — Evil Twin', () => {
         _count: { users: orgAData.users.length },
       });
 
-      const result = await organizationsService.findById(orgAData.org.id);
+      const result = await organizationsService.findById(
+        orgAData.org.id,
+        createTenantFilterUser(superAdmin),
+      );
 
       expect(result.id).toBe(orgAData.org.id);
       expect(result.name).toBe('Acme Corp');
@@ -314,8 +317,35 @@ describe('Tenant Isolation — Evil Twin', () => {
       mockPrisma.organization.findFirst.mockResolvedValue(null);
 
       await expectTenantIsolated(() =>
-        organizationsService.findById('non-existent-uuid'),
+        organizationsService.findById(
+          'non-existent-uuid',
+          createTenantFilterUser(superAdmin),
+        ),
       );
+    });
+
+    it('AC#1: an Org A client reading Org B by id gets 404 without touching the DB', async () => {
+      await expectTenantIsolated(() =>
+        organizationsService.findById(
+          orgBData.org.id,
+          createTenantFilterUser(orgAData.client),
+        ),
+      );
+      expect(mockPrisma.organization.findFirst).not.toHaveBeenCalled();
+    });
+
+    it('an Org A client can still read their own organization', async () => {
+      mockPrisma.organization.findFirst.mockResolvedValue({
+        ...orgAData.org,
+        _count: { users: orgAData.users.length },
+      });
+
+      const result = await organizationsService.findById(
+        orgAData.org.id,
+        createTenantFilterUser(orgAData.client),
+      );
+
+      expect(result.id).toBe(orgAData.org.id);
     });
 
     it('findAll returns all organizations (SUPER_ADMIN only endpoint)', async () => {
@@ -492,7 +522,10 @@ describe('Tenant Isolation — Evil Twin', () => {
       mockPrisma.organization.findUnique.mockResolvedValue(null);
 
       await expectTenantIsolated(() =>
-        organizationsService.findById(orgBData.org.id),
+        organizationsService.findById(
+          orgBData.org.id,
+          createTenantFilterUser(superAdmin),
+        ),
       );
     });
 

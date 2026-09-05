@@ -68,9 +68,17 @@ export class RedisService implements OnModuleInit, OnModuleDestroy {
   }
 
   async onModuleDestroy() {
-    if (this.client) {
+    if (!this.client) return;
+    try {
       await this.client.quit();
       this.log.info('onModuleDestroy', 'Redis connection closed');
+    } catch (err) {
+      // With enableOfflineQueue=false, quit() rejects when the client never
+      // connected. Shutdown must not fail over an already-dead Redis.
+      this.log.warn(
+        'onModuleDestroy',
+        `Redis quit failed (already disconnected?) — ${err instanceof Error ? err.message : String(err)}`,
+      );
     }
   }
 

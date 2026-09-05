@@ -146,11 +146,12 @@ describe('OrganizationsController', () => {
     it('should return an organization by id', async () => {
       mockOrganizationsService.findById.mockResolvedValue(mockOrgWithCounts);
 
-      const result = await controller.findById(mockOrganization.id);
+      const result = await controller.findById(mockOrganization.id, superAdminUser);
 
       expect(result).toEqual(mockOrgWithCounts);
       expect(mockOrganizationsService.findById).toHaveBeenCalledWith(
         mockOrganization.id,
+        superAdminUser,
       );
     });
 
@@ -160,7 +161,7 @@ describe('OrganizationsController', () => {
       );
 
       await expect(
-        controller.findById('nonexistent-id'),
+        controller.findById('nonexistent-id', superAdminUser),
       ).rejects.toThrow(NotFoundException);
     });
   });

@@ -112,24 +112,16 @@ export class WidgetCorsMiddleware implements NestMiddleware {
       return String(req.body.agentId);
     }
 
-    // Voice endpoints use multipart/form-data — body not parsed yet in middleware.
-    // Try to read agentId from query parameter (widget sends ?agentId=xxx).
-    // If not available, fall through to preflight-style handling; the voice controller
-    // validates the agent after multer parses the body, so this is defense-in-depth only.
-    const isVoiceRoute = url.includes('/public/voice/');
-    if (req.method === 'POST' && isVoiceRoute) {
-      const queryAgentId = req.query?.agentId;
-      if (typeof queryAgentId === 'string' && queryAgentId.trim()) {
-        return queryAgentId.trim();
-      }
-      // No agentId in query — allow through; controller enforces agent validation
-      return '__preflight__';
-    }
-
-    // Body-less GET widget endpoints (e.g. the handover poll loop at
-    // /public/chat/:sessionId/poll) carry only a sessionId in the URL, so the
-    // agentId is sent as a query param for CORS resolution. The browser's
-    // preflight uses the same URL+query, so this also covers OPTIONS below.
+    // Voice endpoints use multipart/form-data — body not parsed yet in middleware —
+    // so the widget sends the agent as ?agentId=xxx (voice-client.ts). Body-less
+    // GET widget endpoints (e.g. the handover poll loop at
+    // /public/chat/:sessionId/poll) do the same. The browser's preflight uses the
+    // same URL+query, so this also covers OPTIONS below.
+    //
+    // A voice POST WITHOUT the query param falls through to `null` (no CORS
+    // headers). It used to return '__preflight__', which handed
+    // Access-Control-Allow-Origin to any origin that simply omitted the param and
+    // so bypassed the per-agent domain allowlist on every voice route.
     const queryAgentId = req.query?.agentId;
     if (typeof queryAgentId === 'string' && queryAgentId.trim()) {
       return queryAgentId.trim();

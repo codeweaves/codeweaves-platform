@@ -17,6 +17,9 @@ if (process.env.SENTRY_DSN) {
     release: process.env.SENTRY_RELEASE || process.env.npm_package_version,
     maxBreadcrumbs: 25,
     beforeSend: scrubSentryEvent,
+    // Performance tracing (p50/p95 per route in Sentry). Off unless set, so
+    // turning it on in prod is an env change: SENTRY_TRACES_SAMPLE_RATE=0.1.
+    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0) || 0,
     // Source maps are uploaded via sentry-cli in CI (see SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT env vars)
     // This tells the SDK to look for them when symbolizing stack traces
     ...(process.env.NODE_ENV === 'production' && {
@@ -30,6 +33,13 @@ async function bootstrap() {
   // WhatsApp webhook needs to verify Meta's X-Hub-Signature-256 HMAC against the
   // exact bytes sent. JSON parsing still happens as normal for every other route.
   const app = await NestFactory.create(AppModule, { rawBody: true });
+
+  // Without this, Nest never listens for SIGTERM/SIGINT, so no OnModuleDestroy
+  // hook ever runs: the buffered llm_usage batch (UsageTrackingService) was lost
+  // on every deploy, and Prisma/Redis were never closed cleanly. Render sends
+  // SIGTERM and waits before SIGKILL, which is exactly the window these hooks
+  // need.
+  app.enableShutdownHooks();
 
   // Trust the reverse proxy in front of us (Vercel/Cloudflare/nginx) so
   // req.ip resolves to the real client IP via X-Forwarded-For.
