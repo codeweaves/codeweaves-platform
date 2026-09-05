@@ -8,18 +8,17 @@
 - `REDIS_URL` present and correct in Render env.
 
 ## Cause
-Redis is **optional and fail-open by design**: agent/knowledge cache, widget CORS cache and the message rate limiter all fall back to Postgres or to "allow" when Redis errors (`RateLimiterService.checkRateLimit` returns `allowed: true` on any error).
+Redis is **optional by design**: the agent/knowledge cache and widget CORS cache fall back to Postgres, and the rate limiter falls back to an in-process limiter (`LocalRateLimiter`) with the same limits, counted per API instance.
 
 ## What is actually at risk while it is down
-1. **No rate limits on public endpoints.** Every widget/voice message goes through. An abuser can run up the LLM bill. Watch `llm_usage` by agent (query in observability-map.md) until Redis is back.
+1. **Rate limits are approximate.** Each API instance counts on its own, so with N instances the effective cap is N x the configured limit. Still bounded. Render logs show `Redis unavailable — rate limiting on the in-process fallback` once a minute while this lasts.
 2. **Slower turns.** Knowledge/data-field loads hit Postgres every time instead of the cache.
 3. If `SOCKET_IO_REDIS=true` (multi-instance only): live handover events stop crossing instances. Single instance: no effect.
 
 ## Fix
 1. Upstash quota exhausted: upgrade the plan or wait for the daily reset. The app reconnects on its own (`retryStrategy` gives up after 3 tries per outage; a restart forces a fresh attempt).
 2. Wrong URL or rotated password: fix `REDIS_URL`, redeploy.
-3. Redis is gone for a long time and abuse is visible: set the affected agent to inactive from the dashboard, or tighten `allowedDomains`. Both are enforced without Redis.
+3. Abuse is visible despite the fallback: set the affected agent to inactive from the dashboard, or tighten `allowedDomains`. Both are enforced without Redis.
 
 ## Prevent
-- The rate limiter has no in-memory fallback today. That is proposed item B-1 in `docs/review/develop-review-2026-09-05.md`. Until it lands, a Redis outage is a cost-exposure event, not just a performance one.
 - Alert on `degraded` from `/health/ready`, not only on 503.

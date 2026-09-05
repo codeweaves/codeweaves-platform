@@ -2,10 +2,20 @@ import { Injectable } from '@nestjs/common';
 import { AppLogger } from '../logger/app-logger';
 import { RedisService } from './redis.service';
 import { RateLimitResult } from './rate-limiter.types';
+import { LocalRateLimiter } from './local-rate-limiter';
+
+/** Throttle the "Redis down, using local limiter" warning to one per minute. */
+const FALLBACK_LOG_INTERVAL_MS = 60_000;
 
 @Injectable()
 export class RateLimiterService {
   private readonly log = new AppLogger(RateLimiterService.name);
+  /**
+   * Engaged only when Redis fails. Per-instance and approximate, but it keeps
+   * every cap bounded during an outage instead of removing them all.
+   */
+  private readonly local = new LocalRateLimiter();
+  private lastFallbackLogAt = 0;
 
   constructor(private readonly redisService: RedisService) {}
 
@@ -19,7 +29,9 @@ export class RateLimiterService {
    *   3. ZCARD — count requests in the current window
    *   4. EXPIRE — set TTL for automatic cleanup
    *
-   * Fail-open: if Redis is unavailable, requests are allowed.
+   * Redis unavailable: falls back to the in-process LocalRateLimiter with the
+   * same key/limit/window, so an outage degrades to per-instance limits rather
+   * than to no limits (the public chat/voice routes spend LLM money per call).
    */
   async checkRateLimit(
     key: string,
@@ -52,7 +64,7 @@ export class RateLimiterService {
           'checkRateLimit',
           `Rate limit pipeline returned null for key: ${redisKey} — fail-open`,
         );
-        return this.failOpen(limit, windowMs);
+        return this.fallback(key, limit, windowMs);
       }
 
       // results[2] is the ZCARD result: [error, count]
@@ -62,7 +74,7 @@ export class RateLimiterService {
           'checkRateLimit',
           `Rate limit ZCARD error for key: ${redisKey} — fail-open`,
         );
-        return this.failOpen(limit, windowMs);
+        return this.fallback(key, limit, windowMs);
       }
 
       const currentCount = zcardResult[1] as number;
@@ -104,16 +116,19 @@ export class RateLimiterService {
           error instanceof Error ? error.message : String(error)
         }`,
       );
-      return this.failOpen(limit, windowMs);
+      return this.fallback(key, limit, windowMs);
     }
   }
 
-  private failOpen(limit: number, windowMs: number): RateLimitResult {
-    return {
-      allowed: true,
-      remaining: limit,
-      retryAfterMs: 0,
-      resetMs: windowMs,
-    };
+  private fallback(key: string, limit: number, windowMs: number): RateLimitResult {
+    const now = Date.now();
+    if (now - this.lastFallbackLogAt > FALLBACK_LOG_INTERVAL_MS) {
+      this.lastFallbackLogAt = now;
+      this.log.warn(
+        'fallback',
+        `Redis unavailable — rate limiting on the in-process fallback (per-instance, ${this.local.size} keys tracked)`,
+      );
+    }
+    return this.local.check(key, limit, windowMs);
   }
 }

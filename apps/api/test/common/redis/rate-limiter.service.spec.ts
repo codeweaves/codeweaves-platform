@@ -170,29 +170,52 @@ describe('RateLimiterService', () => {
       });
     });
 
-    describe('fail-open behavior', () => {
-      it('should allow request when pipeline exec throws', async () => {
-        mockPipelineExec.mockRejectedValue(
-          new Error('Redis connection refused'),
-        );
+    describe('Redis unavailable: in-process fallback (not fail-open)', () => {
+      it('still counts the request when pipeline exec throws', async () => {
+        mockPipelineExec.mockRejectedValue(new Error('Redis connection refused'));
 
         const result = await service.checkRateLimit('key', 10, 60_000);
 
         expect(result.allowed).toBe(true);
-        expect(result.remaining).toBe(10);
+        expect(result.remaining).toBe(9); // counted locally, not waved through
         expect(result.retryAfterMs).toBe(0);
       });
 
-      it('should allow request when pipeline returns null', async () => {
+      it('blocks once the local window is full', async () => {
+        mockPipelineExec.mockRejectedValue(new Error('Redis connection refused'));
+
+        for (let i = 0; i < 10; i++) {
+          const r = await service.checkRateLimit('device:abc', 10, 60_000);
+          expect(r.allowed).toBe(true);
+        }
+        const blocked = await service.checkRateLimit('device:abc', 10, 60_000);
+
+        expect(blocked.allowed).toBe(false);
+        expect(blocked.remaining).toBe(0);
+        expect(blocked.retryAfterMs).toBeGreaterThan(0);
+        expect(blocked.retryAfterMs).toBeLessThanOrEqual(60_000);
+      });
+
+      it('keeps keys independent on the fallback path', async () => {
+        mockPipelineExec.mockRejectedValue(new Error('down'));
+
+        for (let i = 0; i < 10; i++) await service.checkRateLimit('a', 10, 60_000);
+        const other = await service.checkRateLimit('b', 10, 60_000);
+
+        expect(other.allowed).toBe(true);
+        expect(other.remaining).toBe(9);
+      });
+
+      it('falls back when pipeline returns null', async () => {
         mockPipelineExec.mockResolvedValue(null);
 
         const result = await service.checkRateLimit('key', 10, 60_000);
 
         expect(result.allowed).toBe(true);
-        expect(result.remaining).toBe(10);
+        expect(result.remaining).toBe(9);
       });
 
-      it('should allow request when ZCARD result has an error', async () => {
+      it('falls back when ZCARD result has an error', async () => {
         mockPipelineExec.mockResolvedValue([
           [null, 0],
           [null, 1],
@@ -204,15 +227,26 @@ describe('RateLimiterService', () => {
         const result = await service.checkRateLimit('key', 10, 60_000);
 
         expect(result.allowed).toBe(true);
-        expect(result.remaining).toBe(10);
+        expect(result.remaining).toBe(9);
       });
 
-      it('should allow request when pipeline throws non-Error', async () => {
+      it('falls back when pipeline throws a non-Error', async () => {
         mockPipelineExec.mockRejectedValue('string error');
 
         const result = await service.checkRateLimit('key', 10, 60_000);
 
         expect(result.allowed).toBe(true);
+      });
+
+      it('falls back when the Redis client itself is unavailable (pipeline() throws)', async () => {
+        mockRedisService.pipeline.mockImplementation(() => {
+          throw new Error('Redis client not initialised');
+        });
+
+        const result = await service.checkRateLimit('key', 3, 60_000);
+
+        expect(result.allowed).toBe(true);
+        expect(result.remaining).toBe(2);
       });
     });
 
