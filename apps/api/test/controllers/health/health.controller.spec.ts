@@ -1,77 +1,123 @@
 import { HealthController } from '../../../src/modules/health/health.controller';
 import { IS_PUBLIC_KEY } from '../../../src/decorators/public.decorator';
 import { SKIP_RATE_LIMIT_KEY } from '../../../src/decorators/rate-limit.decorator';
+import type { PrismaService } from '../../../src/services/prisma.service';
+import type { RedisService } from '../../../src/common/redis/redis.service';
+import type { ConfigService } from '@nestjs/config';
+import type { Response } from 'express';
 
-describe('HealthController (liveness)', () => {
+describe('HealthController', () => {
   let controller: HealthController;
+  let prisma: { $queryRaw: jest.Mock };
+  let redis: { ping: jest.Mock };
+  let config: { get: jest.Mock };
+  let res: { status: jest.Mock };
 
   beforeEach(() => {
-    controller = new HealthController();
+    prisma = { $queryRaw: jest.fn().mockResolvedValue([{ one: 1 }]) };
+    redis = { ping: jest.fn().mockResolvedValue('PONG') };
+    config = { get: jest.fn().mockReturnValue('redis://localhost:6379') };
+    res = { status: jest.fn() };
+    controller = new HealthController(
+      prisma as unknown as PrismaService,
+      redis as unknown as RedisService,
+      config as unknown as ConfigService,
+    );
   });
 
-  it('should be defined', () => {
-    expect(controller).toBeDefined();
-  });
-
-  describe('getHealth', () => {
-    it('should return 200 with status ok, timestamp, version, and uptime', () => {
+  describe('getHealth (liveness)', () => {
+    it('returns status ok, timestamp, version, uptime without touching any dependency', () => {
       const result = controller.getHealth();
 
       expect(result.status).toBe('ok');
-      expect(result).toHaveProperty('timestamp');
-      expect(result).toHaveProperty('version');
-      expect(result).toHaveProperty('uptime');
-    });
-
-    it('should return a valid ISO timestamp', () => {
-      const result = controller.getHealth();
-
       expect(new Date(result.timestamp).toISOString()).toBe(result.timestamp);
-    });
-
-    it('should return version as a string', () => {
-      const result = controller.getHealth();
-
       expect(typeof result.version).toBe('string');
-    });
-
-    it('should return uptime as a positive number', () => {
-      const result = controller.getHealth();
-
-      expect(typeof result.uptime).toBe('number');
       expect(result.uptime).toBeGreaterThan(0);
+      expect(prisma.$queryRaw).not.toHaveBeenCalled();
+      expect(redis.ping).not.toHaveBeenCalled();
     });
 
-    it('should have no injected dependencies (pure liveness)', () => {
-      // HealthController constructor takes no arguments — no DB, no Redis
-      const freshController = new HealthController();
-      const result = freshController.getHealth();
-
-      expect(result.status).toBe('ok');
+    it('is @Public() and the controller skips rate limiting', () => {
+      expect(Reflect.getMetadata(IS_PUBLIC_KEY, HealthController.prototype.getHealth)).toBe(true);
+      expect(Reflect.getMetadata(SKIP_RATE_LIMIT_KEY, HealthController)).toBe(true);
     });
 
-    it('should be decorated with @Public()', () => {
-      const metadata = Reflect.getMetadata(
-        IS_PUBLIC_KEY,
-        HealthController.prototype.getHealth,
-      );
-      expect(metadata).toBe(true);
-    });
-
-    it('should be decorated with @SkipRateLimit() at class level', () => {
-      const metadata = Reflect.getMetadata(
-        SKIP_RATE_LIMIT_KEY,
-        HealthController,
-      );
-      expect(metadata).toBe(true);
-    });
-
-    it('should respond in under 10ms (AC#4 liveness performance)', () => {
+    it('responds in under 10ms', () => {
       const start = performance.now();
       controller.getHealth();
-      const elapsed = performance.now() - start;
+      expect(performance.now() - start).toBeLessThan(10);
+    });
+  });
 
-      expect(elapsed).toBeLessThan(10);
+  describe('getReadiness', () => {
+    it('is @Public()', () => {
+      expect(Reflect.getMetadata(IS_PUBLIC_KEY, HealthController.prototype.getReadiness)).toBe(true);
+    });
+
+    it('reports ok with 200 when both probes pass', async () => {
+      const report = await controller.getReadiness(res as unknown as Response);
+
+      expect(report.status).toBe('ok');
+      expect(report.checks.db.state).toBe('ok');
+      expect(report.checks.redis.state).toBe('ok');
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('reports fail with 503 when the database probe throws', async () => {
+      prisma.$queryRaw.mockRejectedValue(new Error('connection refused'));
+
+      const report = await controller.getReadiness(res as unknown as Response);
+
+      expect(report.status).toBe('fail');
+      expect(report.checks.db).toEqual(expect.objectContaining({ state: 'fail', error: 'error' }));
+      expect(res.status).toHaveBeenCalledWith(503);
+    });
+
+    it('reports degraded with 200 when Redis fails (fail-open dependency)', async () => {
+      redis.ping.mockRejectedValue(new Error('ECONNREFUSED'));
+
+      const report = await controller.getReadiness(res as unknown as Response);
+
+      expect(report.status).toBe('degraded');
+      expect(report.checks.redis.state).toBe('degraded');
+      expect(report.checks.db.state).toBe('ok');
+      expect(res.status).not.toHaveBeenCalled();
+    });
+
+    it('reports redis as disabled when REDIS_URL is not set, without pinging', async () => {
+      config.get.mockReturnValue(undefined);
+
+      const report = await controller.getReadiness(res as unknown as Response);
+
+      expect(report.status).toBe('ok');
+      expect(report.checks.redis.state).toBe('disabled');
+      expect(redis.ping).not.toHaveBeenCalled();
+    });
+
+    it('never leaks dependency error text, only a coarse reason', async () => {
+      prisma.$queryRaw.mockRejectedValue(new Error('password authentication failed for user postgres'));
+
+      const report = await controller.getReadiness(res as unknown as Response);
+
+      expect(JSON.stringify(report)).not.toContain('password');
+      expect(report.checks.db.error).toBe('error');
+    });
+
+    it('times out a hung probe instead of hanging the health check', async () => {
+      jest.useFakeTimers();
+      try {
+        prisma.$queryRaw.mockReturnValue(new Promise(() => undefined));
+
+        const pending = controller.getReadiness(res as unknown as Response);
+        await jest.advanceTimersByTimeAsync(2_100);
+        const report = await pending;
+
+        expect(report.status).toBe('fail');
+        expect(report.checks.db.error).toBe('timeout');
+        expect(res.status).toHaveBeenCalledWith(503);
+      } finally {
+        jest.useRealTimers();
+      }
     });
   });
 });

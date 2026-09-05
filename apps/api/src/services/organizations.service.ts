@@ -13,6 +13,8 @@ import { OrganizationLoggerService } from '../common/logger/organization.logger'
 import { AppLogger } from '../common/logger/app-logger';
 import type { CurrentUserData } from '../decorators/current-user.decorator';
 import { isSuperAdmin } from '../common/rbac';
+import { isOrgScoped } from '../utils/tenant-filter';
+import type { TenantFilterUser } from '../utils/tenant-filter';
 
 const MAX_SLUG_RETRIES = 3;
 
@@ -126,7 +128,16 @@ export class OrganizationsService {
     };
   }
 
-  async findById(id: string) {
+  /**
+   * An ORG-scoped caller may only read their own organization. Anything else is
+   * a 404, not a 403: a 403 would confirm the id exists (enumeration oracle),
+   * matching the convention in UserRolesService.findVisibleUser.
+   */
+  async findById(id: string, user: TenantFilterUser) {
+    if (isOrgScoped(user) && user.organizationId !== id) {
+      throw new NotFoundException('Organization not found');
+    }
+
     const organization = await this.prisma.organization.findFirst({
       where: { id, deletedAt: null },
       include: {

@@ -6,6 +6,8 @@ export default [
     ignores: [
       "dist/**",
       "coverage/**",
+      // Local RAG eval harness build output (untracked). Not source.
+      "eval/.build/**",
       "node_modules/**",
       "generated/**",
       "eslint.config.js",

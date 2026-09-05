@@ -22,6 +22,7 @@ describe('PurgeService', () => {
     userInvitation: { deleteMany: jest.fn() },
     file: { findMany: jest.fn(), deleteMany: jest.fn() },
     collectedData: { findMany: jest.fn() },
+    notification: { deleteMany: jest.fn() },
   };
   const mockTracer = { logAuditEvent: jest.fn() };
   const mockStorage = { remove: jest.fn() };
@@ -62,6 +63,22 @@ describe('PurgeService', () => {
       { id: 'db-2', sessionId: 'pub-2', agentId: 'agent-2' },
     ];
 
+    it('removes handover notifications deep-linked to the visitor sessions, org-scoped', async () => {
+      mockPrisma.chatSession.findMany.mockResolvedValue(sessions);
+      mockPrisma.notification.deleteMany.mockResolvedValue({ count: 2 });
+
+      const result = await service.eraseVisitor(ORG, 'vh_abc');
+
+      expect(mockPrisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: {
+          organizationId: ORG,
+          entityType: 'conversation',
+          entityId: { in: ['pub-1', 'pub-2'] },
+        },
+      });
+      expect(result.notifications).toBe(2);
+    });
+
     it('deletes the FK-less tables by session-id union, then the sessions', async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue(sessions);
       mockPrisma.piiToken.deleteMany.mockResolvedValue({ count: 3 });
@@ -93,6 +110,7 @@ describe('PurgeService', () => {
         chatTraces: 5,
         llmUsage: 7,
         eventLogs: 9,
+        notifications: 0,
       });
     });
 
@@ -227,6 +245,29 @@ describe('PurgeService', () => {
       mockPrisma.agent.findMany.mockResolvedValue([{ id: 'a1' }, { id: 'a2' }]);
       mockPrisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
       mockPrisma.organization.delete.mockResolvedValue({ id: ORG });
+    });
+
+    // Regression: Notification.organization is a required FK with no cascade
+    // (RESTRICT), so the final organization.delete failed for any org that had
+    // ever raised a handover alert.
+    it('deletes notifications before the org row (required FK with no cascade)', async () => {
+      const order: string[] = [];
+      mockPrisma.notification.deleteMany.mockImplementation(async () => {
+        order.push('notifications');
+        return { count: 3 };
+      });
+      mockPrisma.organization.delete.mockImplementation(async () => {
+        order.push('org');
+        return { id: ORG };
+      });
+
+      const result = await service.eraseOrganization(ORG);
+
+      expect(mockPrisma.notification.deleteMany).toHaveBeenCalledWith({
+        where: { organizationId: ORG },
+      });
+      expect(order.indexOf('notifications')).toBeLessThan(order.indexOf('org'));
+      expect(result.notifications).toBe(3);
     });
 
     it('throws 404 for an unknown organization', async () => {

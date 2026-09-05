@@ -14,6 +14,7 @@ export interface VisitorErasureResult {
   chatTraces: number;
   llmUsage: number;
   eventLogs: number;
+  notifications: number;
 }
 
 /** DPDP right-to-access: a summary of what we hold on one visitor (S3). */
@@ -58,6 +59,7 @@ export interface OrgErasureResult {
   auditLogs: number;
   files: number;
   invitations: number;
+  notifications: number;
 }
 
 /**
@@ -223,6 +225,7 @@ export class PurgeService {
       chatTraces: 0,
       llmUsage: 0,
       eventLogs: 0,
+      notifications: 0,
     };
 
     if (dbIds.length > 0) {
@@ -264,6 +267,20 @@ export class PurgeService {
       })
     ).count;
 
+    // Handover notifications deep-link to the session (entityId = the public
+    // sessionId) with no FK, so the cascade below cannot reach them.
+    if (publicIds.length > 0) {
+      result.notifications = (
+        await this.prisma.notification.deleteMany({
+          where: {
+            organizationId,
+            entityType: 'conversation',
+            entityId: { in: publicIds },
+          },
+        })
+      ).count;
+    }
+
     if (dbIds.length > 0) {
       // Last: the sessions themselves. FK cascade removes chat_messages,
       // chat_message_metrics and collected_data in the same statement.
@@ -284,6 +301,7 @@ export class PurgeService {
         chatTraces: result.chatTraces,
         llmUsage: result.llmUsage,
         eventLogs: result.eventLogs,
+        notifications: result.notifications,
       },
       { organizationId },
     );
@@ -329,6 +347,7 @@ export class PurgeService {
       auditLogs: 0,
       files: 0,
       invitations: 0,
+      notifications: 0,
     };
 
     // 1) FK-less observability tables, by indexed scope columns (no id lists
@@ -414,6 +433,15 @@ export class PurgeService {
       await this.prisma.agent.deleteMany({ where: { id: { in: agentIds } } });
     }
 
+    // 4b) Notifications. Required FK to Organization with NO cascade (Prisma's
+    //     default is RESTRICT), so the org row below cannot be deleted while any
+    //     remain; without this step every org that ever raised a handover alert
+    //     failed here, after its agents and users were already gone.
+    //     notification_reads cascade from these rows.
+    result.notifications = (
+      await this.prisma.notification.deleteMany({ where: { organizationId } })
+    ).count;
+
     // 5) People, invitations, then the org row itself.
     result.invitations = (
       await this.prisma.userInvitation.deleteMany({ where: { organizationId } })
@@ -444,6 +472,7 @@ export class PurgeService {
         auditLogs: result.auditLogs,
         files: result.files,
         invitations: result.invitations,
+        notifications: result.notifications,
       },
       { organizationId },
     );

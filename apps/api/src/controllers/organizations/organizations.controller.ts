@@ -73,8 +73,11 @@ export class OrganizationsController {
   @ApiResponse({ status: 401, description: 'Unauthorized' })
   @ApiResponse({ status: 403, description: 'Forbidden - SUPER_ADMIN or ADMIN only' })
   @ApiResponse({ status: 404, description: 'Organization not found' })
-  async findById(@Param('id', ParseUUIDPipe) id: string) {
-    return this.organizationsService.findById(id);
+  async findById(
+    @Param('id', ParseUUIDPipe) id: string,
+    @CurrentUser() user: CurrentUserData,
+  ) {
+    return this.organizationsService.findById(id, user);
   }
 
   @Patch(':id')

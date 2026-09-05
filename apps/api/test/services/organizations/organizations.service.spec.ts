@@ -3,7 +3,7 @@ import { NotFoundException, ConflictException, BadRequestException } from '@nest
 import { OrganizationsService } from '../../../src/services/organizations.service';
 import { PrismaService } from '../../../src/services/prisma.service';
 import { OrganizationLoggerService } from '../../../src/common/logger/organization.logger';
-import { Prisma } from '@prisma/client';
+import { AccessScope, Prisma } from '@prisma/client';
 import * as slugUtils from '../../../src/utils/slug';
 
 describe('OrganizationsService', () => {
@@ -42,6 +42,9 @@ describe('OrganizationsService', () => {
     ...mockOrganization,
     _count: { users: 5, agents: 0 },
   };
+
+  const platformUser = { accessScope: AccessScope.PLATFORM, organizationId: null };
+  const orgUser = { accessScope: AccessScope.ORG, organizationId: mockOrganization.id };
 
   const p2002Error = new Prisma.PrismaClientKnownRequestError(
     'Unique constraint failed',
@@ -325,7 +328,7 @@ describe('OrganizationsService', () => {
         mockOrgWithCounts,
       );
 
-      const result = await service.findById(mockOrganization.id);
+      const result = await service.findById(mockOrganization.id, platformUser);
 
       expect(result).toEqual(mockOrgWithCounts);
       expect(mockPrismaService.organization.findFirst).toHaveBeenCalledWith({
@@ -344,12 +347,31 @@ describe('OrganizationsService', () => {
     it('should throw NotFoundException when organization does not exist', async () => {
       mockPrismaService.organization.findFirst.mockResolvedValue(null);
 
-      await expect(service.findById('nonexistent-id')).rejects.toThrow(
+      await expect(service.findById('nonexistent-id', platformUser)).rejects.toThrow(
         NotFoundException,
       );
-      await expect(service.findById('nonexistent-id')).rejects.toThrow(
+      await expect(service.findById('nonexistent-id', platformUser)).rejects.toThrow(
         'Organization not found',
       );
+    });
+
+    it('lets an ORG-scoped caller read their own organization', async () => {
+      mockPrismaService.organization.findFirst.mockResolvedValue(mockOrgWithCounts);
+
+      const result = await service.findById(mockOrganization.id, orgUser);
+
+      expect(result).toEqual(mockOrgWithCounts);
+    });
+
+    // Tenant isolation: org.owner holds Organization:Read, so without this check
+    // any org user could read any other organization by UUID.
+    it('returns 404 (not 403) to an ORG-scoped caller asking for another organization', async () => {
+      const otherOrgId = '99999999-9999-4999-8999-999999999999';
+
+      await expect(service.findById(otherOrgId, orgUser)).rejects.toThrow(
+        NotFoundException,
+      );
+      expect(mockPrismaService.organization.findFirst).not.toHaveBeenCalled();
     });
   });
 
