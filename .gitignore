@@ -93,6 +93,8 @@ docs/security/questionnaire-answers.md
 # posture question by question. Never in a public repo.
 docs/assessment/
 
-# Timestamped .env backups taken when switching a local env over
+# Timestamped .env backups, e.g. taken when switching a local env over.
+# These hold REAL keys. GitHub push protection caught one of these being
+# committed by a `git add -A`; this is the belt to that braces.
 .env.backup-*
 **/.env.backup-*

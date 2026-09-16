@@ -1,0 +1,148 @@
+# Deploy the develop environment: migrate the database FIRST, then release the
+# code that depends on it.
+#
+# Render used to auto-deploy on every push to `develop`. That meant code could
+# go live before its migration had been applied, because migrations were run by
+# hand from a laptop (which is also how six stray tables ended up on the shared
+# database). This workflow owns the order instead.
+#
+# See docs/adr/0001-environments-and-deploy-pipeline.md.
+#
+# Requires, once:
+#   - repo secret DEVELOP_DATABASE_URL    Supabase DIRECT url (port 5432, NOT the
+#                                         6543 pooler: DDL cannot run through
+#                                         pgbouncer in transaction mode)
+#   - repo secret RENDER_DEPLOY_HOOK_URL  Render service, Settings, Deploy Hook
+#   - Render auto-deploy set to "No", so this is the only thing that deploys.
+
+name: Deploy develop
+
+on:
+  # Chained off CI rather than triggered by the push directly, so a deploy can
+  # only happen after lint, types, tests and build have all passed on that exact
+  # commit. `branches` filters on the CI run's branch, so pull-request CI runs
+  # never reach here.
+  workflow_run:
+    workflows: ['CI']
+    types: [completed]
+    branches: [develop]
+  # For re-running a deploy without pushing a commit.
+  workflow_dispatch:
+
+concurrency:
+  group: deploy-develop
+  # Never cancel a run in progress: it may be midway through a migration.
+  cancel-in-progress: false
+
+env:
+  API_URL: https://api.getklivo.com
+
+jobs:
+  migrate-and-deploy:
+    name: Migrate, deploy, verify
+    # Skip when CI failed. workflow_dispatch has no conclusion, hence the second
+    # branch of the condition.
+    if: >-
+      github.event_name == 'workflow_dispatch' ||
+      github.event.workflow_run.conclusion == 'success'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - name: Checkout the commit CI actually verified
+        uses: actions/checkout@v4
+        with:
+          # NOT the branch tip: by the time this runs, another commit may have
+          # landed that CI has not finished checking.
+          ref: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Setup Bun
+        uses: oven-sh/setup-bun@v1
+        with:
+          bun-version: '1.3.9'
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Generate Prisma Client
+        working-directory: apps/api
+        run: bun prisma generate
+
+      - name: Show which migrations are pending
+        working-directory: apps/api
+        env:
+          DIRECT_URL: ${{ secrets.DEVELOP_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DEVELOP_DATABASE_URL }}
+        # Informational only: `migrate status` exits non-zero when migrations are
+        # pending, which is the normal case here.
+        run: bun prisma migrate status || true
+
+      - name: Apply migrations
+        working-directory: apps/api
+        env:
+          DIRECT_URL: ${{ secrets.DEVELOP_DATABASE_URL }}
+          DATABASE_URL: ${{ secrets.DEVELOP_DATABASE_URL }}
+        # A failure here stops the job, so the old code keeps running against the
+        # old schema rather than new code meeting a half-migrated database.
+        run: bun prisma migrate deploy
+
+      - name: Trigger the Render deploy
+        run: |
+          set -euo pipefail
+          echo "Deploying ${GITHUB_SHA_TO_DEPLOY:0:8}"
+          curl -fsS -X POST "${{ secrets.RENDER_DEPLOY_HOOK_URL }}" -o /dev/null
+          echo "Render accepted the deploy request."
+        env:
+          GITHUB_SHA_TO_DEPLOY: ${{ github.event.workflow_run.head_sha || github.sha }}
+
+      - name: Wait for the new commit to be serving traffic
+        env:
+          EXPECTED: ${{ github.event.workflow_run.head_sha || github.sha }}
+        run: |
+          set -uo pipefail
+          # Render builds, then swaps. The OLD instance answers "ok" the whole
+          # time, so polling health alone proves nothing. /health reports the
+          # commit it is running (RENDER_GIT_COMMIT), so we wait for that to
+          # match what we just deployed.
+          deadline=$(( SECONDS + 900 ))
+          last=""
+          while [ "$SECONDS" -lt "$deadline" ]; do
+            live=$(curl -fsS --max-time 10 "$API_URL/health" 2>/dev/null \
+                   | sed -n 's/.*"commit":"\([^"]*\)".*/\1/p') || live=""
+            if [ -n "$live" ] && [ "$live" != "$last" ]; then
+              echo "serving: ${live:0:8}  want: ${EXPECTED:0:8}"
+              last="$live"
+            fi
+            if [ "$live" = "$EXPECTED" ]; then
+              echo "New commit is live."
+              exit 0
+            fi
+            if [ "$live" = "unknown" ]; then
+              echo "::warning::/health reports commit 'unknown'. RENDER_GIT_COMMIT is"
+              echo "::warning::not set on the service, so this deploy cannot be verified."
+              exit 0
+            fi
+            sleep 10
+          done
+          echo "::error::Timed out after 15 minutes waiting for ${EXPECTED:0:8}."
+          echo "::error::Check the Render dashboard: the build may have failed."
+          exit 1
+
+      - name: Verify dependencies are reachable
+        run: |
+          set -uo pipefail
+          # The new code is live; confirm it can actually reach Postgres. A
+          # `degraded` result means Redis is down, which the app tolerates by
+          # design, so it is a warning rather than a failed deploy.
+          body=$(curl -fsS --max-time 15 "$API_URL/health/ready") || {
+            echo "::error::/health/ready did not respond."; exit 1; }
+          echo "$body"
+          case "$body" in
+            *'"status":"ok"'*)       echo "Ready." ;;
+            *'"status":"degraded"'*) echo "::warning::Deployed, but Redis is unreachable. See docs/runbooks/redis-down.md" ;;
+            *) echo "::error::Not ready after deploy. See docs/runbooks/database-connections.md"; exit 1 ;;
+          esac

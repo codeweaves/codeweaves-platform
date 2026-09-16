@@ -1,12 +1,12 @@
-import { Controller, Get, Res } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import type { Response } from 'express';
-import { Public } from '../../decorators/public.decorator';
-import { SkipRateLimit } from '../../decorators/rate-limit.decorator';
-import { PrismaService } from '../../services/prisma.service';
-import { RedisService } from '../../common/redis/redis.service';
-import { AppLogger } from '../../common/logger/app-logger';
+import { Controller, Get, Res } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
+import type { Response } from "express";
+import { Public } from "../../decorators/public.decorator";
+import { SkipRateLimit } from "../../decorators/rate-limit.decorator";
+import { PrismaService } from "../../services/prisma.service";
+import { RedisService } from "../../common/redis/redis.service";
+import { AppLogger } from "../../common/logger/app-logger";
 
 /**
  * A dependency probe never waits longer than this. The platform health check
@@ -14,17 +14,29 @@ import { AppLogger } from '../../common/logger/app-logger';
  */
 const CHECK_TIMEOUT_MS = 2_000;
 
-export type CheckState = 'ok' | 'fail' | 'degraded' | 'disabled';
+/**
+ * The commit this instance is running, so a deploy can be verified rather than
+ * assumed. Render sets RENDER_GIT_COMMIT on its own; anywhere else (Cloud Run)
+ * must pass GIT_COMMIT in at build time.
+ *
+ * Without this, a pipeline that polls /health after triggering a deploy gets
+ * "ok" straight away from the OLD instance, which is still serving while the new
+ * one builds. That makes the check meaningless.
+ */
+const DEPLOYED_COMMIT =
+  process.env.RENDER_GIT_COMMIT ?? process.env.GIT_COMMIT ?? "unknown";
+
+export type CheckState = "ok" | "fail" | "degraded" | "disabled";
 
 export interface DependencyCheck {
   state: CheckState;
   latencyMs: number;
   /** Coarse reason only (timeout | error). Details stay in server logs. */
-  error?: 'timeout' | 'error';
+  error?: "timeout" | "error";
 }
 
 export interface ReadinessReport {
-  status: 'ok' | 'degraded' | 'fail';
+  status: "ok" | "degraded" | "fail";
   timestamp: string;
   checks: {
     db: DependencyCheck;
@@ -32,9 +44,9 @@ export interface ReadinessReport {
   };
 }
 
-@ApiTags('Health')
+@ApiTags("Health")
 @SkipRateLimit()
-@Controller('health')
+@Controller("health")
 export class HealthController {
   private readonly log = new AppLogger(HealthController.name);
 
@@ -47,18 +59,20 @@ export class HealthController {
   /** Liveness: is the process up. No I/O, so it never flaps on a dependency. */
   @Public()
   @Get()
-  @ApiOperation({ summary: 'Liveness health check' })
-  @ApiResponse({ status: 200, description: 'Service is alive' })
+  @ApiOperation({ summary: "Liveness health check" })
+  @ApiResponse({ status: 200, description: "Service is alive" })
   getHealth(): {
     status: string;
     timestamp: string;
     version: string;
+    commit: string;
     uptime: number;
   } {
     return {
-      status: 'ok',
+      status: "ok",
       timestamp: new Date().toISOString(),
-      version: process.env.npm_package_version || '0.0.0',
+      version: process.env.npm_package_version || "0.0.0",
+      commit: DEPLOYED_COMMIT,
       uptime: process.uptime(),
     };
   }
@@ -71,55 +85,82 @@ export class HealthController {
    * platform health check here, not at the liveness route.
    */
   @Public()
-  @Get('ready')
-  @ApiOperation({ summary: 'Readiness: Postgres + Redis probes with 2s timeouts' })
-  @ApiResponse({ status: 200, description: 'Ready (or degraded: Redis down, DB fine)' })
-  @ApiResponse({ status: 503, description: 'Not ready: database unreachable' })
+  @Get("ready")
+  @ApiOperation({
+    summary: "Readiness: Postgres + Redis probes with 2s timeouts",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Ready (or degraded: Redis down, DB fine)",
+  })
+  @ApiResponse({ status: 503, description: "Not ready: database unreachable" })
   async getReadiness(
     @Res({ passthrough: true }) res: Response,
   ): Promise<ReadinessReport> {
     const [db, redis] = await Promise.all([this.checkDb(), this.checkRedis()]);
-    const status: ReadinessReport['status'] =
-      db.state === 'fail' ? 'fail' : redis.state === 'degraded' ? 'degraded' : 'ok';
-    if (status === 'fail') res.status(503);
-    return { status, timestamp: new Date().toISOString(), checks: { db, redis } };
+    const status: ReadinessReport["status"] =
+      db.state === "fail"
+        ? "fail"
+        : redis.state === "degraded"
+          ? "degraded"
+          : "ok";
+    if (status === "fail") res.status(503);
+    return {
+      status,
+      timestamp: new Date().toISOString(),
+      checks: { db, redis },
+    };
   }
 
   private async checkDb(): Promise<DependencyCheck> {
     const start = performance.now();
     try {
       await withTimeout(this.prisma.$queryRaw`SELECT 1`, CHECK_TIMEOUT_MS);
-      return { state: 'ok', latencyMs: Math.round(performance.now() - start) };
+      return { state: "ok", latencyMs: Math.round(performance.now() - start) };
     } catch (err) {
-      const error = err instanceof ProbeTimeoutError ? 'timeout' : 'error';
-      this.log.error('checkDb', 'readiness: database probe failed', err, { error });
-      return { state: 'fail', latencyMs: Math.round(performance.now() - start), error };
+      const error = err instanceof ProbeTimeoutError ? "timeout" : "error";
+      this.log.error("checkDb", "readiness: database probe failed", err, {
+        error,
+      });
+      return {
+        state: "fail",
+        latencyMs: Math.round(performance.now() - start),
+        error,
+      };
     }
   }
 
   private async checkRedis(): Promise<DependencyCheck> {
-    if (!this.config.get<string>('REDIS_URL')) {
-      return { state: 'disabled', latencyMs: 0 };
+    if (!this.config.get<string>("REDIS_URL")) {
+      return { state: "disabled", latencyMs: 0 };
     }
     const start = performance.now();
     try {
       await withTimeout(this.redis.ping(), CHECK_TIMEOUT_MS);
-      return { state: 'ok', latencyMs: Math.round(performance.now() - start) };
+      return { state: "ok", latencyMs: Math.round(performance.now() - start) };
     } catch (err) {
-      const error = err instanceof ProbeTimeoutError ? 'timeout' : 'error';
-      this.log.warn('checkRedis', 'readiness: redis probe failed (fail-open features degraded)', {
+      const error = err instanceof ProbeTimeoutError ? "timeout" : "error";
+      this.log.warn(
+        "checkRedis",
+        "readiness: redis probe failed (fail-open features degraded)",
+        {
+          error,
+          message: err instanceof Error ? err.message : String(err),
+        },
+      );
+      return {
+        state: "degraded",
+        latencyMs: Math.round(performance.now() - start),
         error,
-        message: err instanceof Error ? err.message : String(err),
-      });
-      return { state: 'degraded', latencyMs: Math.round(performance.now() - start), error };
+      };
     }
   }
 }
 
 class ProbeTimeoutError extends Error {
   constructor() {
-    super('probe timeout');
-    this.name = 'ProbeTimeoutError';
+    super("probe timeout");
+    this.name = "ProbeTimeoutError";
   }
 }
 
