@@ -26,8 +26,11 @@ describe("prisma.config assertLocalDatabase", () => {
     });
 
     it("names the host so the message is actionable", () => {
+      // A plain string, not a regex: toThrow() substring-matches either way,
+      // and an unanchored regex tested against a URL trips CodeQL's
+      // js/regex/missing-regexp-anchor rule.
       expect(() => assertLocalDatabase(REMOTE, argv("migrate", "dev"))).toThrow(
-        /aws-1-ap-south-1\.pooler\.supabase\.com/,
+        "aws-1-ap-south-1.pooler.supabase.com",
       );
     });
 
