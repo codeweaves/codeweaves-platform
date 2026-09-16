@@ -1,9 +1,20 @@
-import { AccessScope, PrismaClient, Role } from '@prisma/client';
+/// <reference types="node" />
+import "dotenv/config";
+import { AccessScope, PrismaClient, Role } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
-const prisma = new PrismaClient();
+// Prisma 7 rejects `new PrismaClient()` with no options: a driver adapter is
+// required. seed-analytics.ts and seed-demo-agents.ts were updated at the
+// upgrade; this file was missed, so the seed failed on every database.
+const connectionString = process.env.DATABASE_URL;
+if (!connectionString) {
+  throw new Error("DATABASE_URL environment variable is not configured");
+}
+const adapter = new PrismaPg({ connectionString });
+const prisma = new PrismaClient({ adapter });
 
 /** The role that grants every permission. Seeded by the RBAC migration. */
-const SUPER_ADMIN_ROLE_KEY = 'platform.super_admin';
+const SUPER_ADMIN_ROLE_KEY = "platform.super_admin";
 
 /**
  * Bootstraps the first account on a fresh database.
@@ -22,11 +33,12 @@ async function main() {
   const email = process.env.SUPER_ADMIN_EMAIL;
   // Renamed with the Auth0 -> Clerk migration; the old name still works so an
   // existing .env keeps functioning.
-  const clerkId = process.env.SUPER_ADMIN_CLERK_ID ?? process.env.SUPER_ADMIN_AUTH0_ID;
+  const clerkId =
+    process.env.SUPER_ADMIN_CLERK_ID ?? process.env.SUPER_ADMIN_AUTH0_ID;
 
   if (!email || !clerkId) {
     console.error(
-      'SUPER_ADMIN_EMAIL and SUPER_ADMIN_CLERK_ID environment variables are required',
+      "SUPER_ADMIN_EMAIL and SUPER_ADMIN_CLERK_ID environment variables are required",
     );
     process.exit(1);
   }
@@ -37,7 +49,7 @@ async function main() {
   if (!role) {
     console.error(
       `Role "${SUPER_ADMIN_ROLE_KEY}" not found. Run "prisma migrate deploy" first — ` +
-        'the RBAC migration seeds the role catalog this depends on.',
+        "the RBAC migration seeds the role catalog this depends on.",
     );
     process.exit(1);
   }
@@ -56,12 +68,14 @@ async function main() {
         where: { id: existing.id },
         data: { accessScope: AccessScope.PLATFORM },
       });
-      updates.push('accessScope=PLATFORM');
+      updates.push("accessScope=PLATFORM");
     }
 
     // Without this the account resolves to zero permissions and every screen is
     // denied, which is what an account created before RBAC looks like.
-    if (!existing.roleAssignments.some((a) => a.roleKey === SUPER_ADMIN_ROLE_KEY)) {
+    if (
+      !existing.roleAssignments.some((a) => a.roleKey === SUPER_ADMIN_ROLE_KEY)
+    ) {
       await prisma.userRoleAssignment.create({
         data: { userId: existing.id, roleKey: SUPER_ADMIN_ROLE_KEY },
       });
@@ -70,7 +84,7 @@ async function main() {
 
     console.log(
       updates.length > 0
-        ? `Super admin already existed, repaired: ${email} (${updates.join(', ')})`
+        ? `Super admin already existed, repaired: ${email} (${updates.join(", ")})`
         : `Super admin already exists and is correctly configured: ${email}`,
     );
     return;
@@ -80,7 +94,7 @@ async function main() {
     data: {
       email,
       clerkId,
-      name: 'Super Admin',
+      name: "Super Admin",
       // Legacy tier, still written because invitations read it.
       role: Role.SUPER_ADMIN,
       accessScope: AccessScope.PLATFORM,
