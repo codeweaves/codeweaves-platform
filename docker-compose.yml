@@ -1,24 +1,48 @@
-services:
-  # PostgreSQL Database (local development - uncomment when needed)
-  # postgres:
-  #   image: postgres:16-alpine
-  #   container_name: codeweaves-postgres
-  #   restart: unless-stopped
-  #   ports:
-  #     - "5432:5432"
-  #   environment:
-  #     POSTGRES_USER: postgres
-  #     POSTGRES_PASSWORD: postgres
-  #     POSTGRES_DB: codeweaves
-  #   volumes:
-  #     - postgres_data:/var/lib/postgresql/data
-  #   healthcheck:
-  #     test: ["CMD-SHELL", "pg_isready -U postgres"]
-  #     interval: 10s
-  #     timeout: 5s
-  #     retries: 5
+# Local development dependencies.
+#
+# The apps themselves run on the HOST via `bun dev`, not in Docker. Only their
+# backing services live here, so changing code never needs a container rebuild.
+#
+# See docs/adr/0001-environments-and-deploy-pipeline.md: local development uses
+# THIS database, never a remote one. The guard in apps/api/prisma.config.ts
+# enforces that for any command that creates or destroys schema.
+#
+#   bun db:setup              first run: start, migrate, seed
+#   docker compose up -d      start Postgres and Redis
+#   docker compose down       stop them, keep the data
+#   docker compose down -v    stop them and DELETE the data (fresh start)
 
-  # Redis (for rate limiting, caching)
+services:
+  postgres:
+    # Postgres 17 to match Supabase (staging runs 17.6), so a pg_dump taken from
+    # staging restores here without a version mismatch. pgvector rather than the
+    # plain image: same Postgres, with the vector extension available but not
+    # enabled. `develop` does not use it, the RAG branch does, so a branch switch
+    # will not break local setup.
+    image: pgvector/pgvector:pg17
+    container_name: codeweaves-postgres
+    restart: unless-stopped
+    ports:
+      # 5433 on the host, not 5432. A native PostgreSQL install (common on
+      # Windows, where it runs as a service) already owns 5432, and Docker will
+      # happily bind alongside it while every client silently reaches the other
+      # one. The symptom is a confusing "authentication failed for user
+      # postgres". Inside the container it is still 5432.
+      - "5433:5432"
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: codeweaves
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+    healthcheck:
+      # Waits for the named database, not just the server, so `bun db:setup`
+      # cannot start migrating a database that is still being created.
+      test: ["CMD-SHELL", "pg_isready -U postgres -d codeweaves"]
+      interval: 5s
+      timeout: 5s
+      retries: 12
+
   redis:
     image: redis:7-alpine
     container_name: codeweaves-redis
@@ -30,49 +54,10 @@ services:
       - redis_data:/data
     healthcheck:
       test: ["CMD", "redis-cli", "ping"]
-      interval: 10s
+      interval: 5s
       timeout: 5s
-      retries: 5
-
-  # API Server (containerized mode - optional)
-  api:
-    build:
-      context: .
-      dockerfile: ./apps/api/Dockerfile
-    container_name: codeweaves-api
-    restart: unless-stopped
-    ports:
-      - "3001:3001"
-    environment:
-      NODE_ENV: development
-      PORT: 3001
-      DATABASE_URL: ${DATABASE_URL}
-      DIRECT_URL: ${DIRECT_URL}
-      REDIS_URL: redis://redis:6379
-    depends_on:
-      redis:
-        condition: service_healthy
-    volumes:
-      - ./apps/api:/app/apps/api
-      - /app/node_modules
-      - /app/apps/api/node_modules
-
-  # Web Dashboard (containerized mode - optional)
-  web:
-    build:
-      context: .
-      dockerfile: ./apps/web/Dockerfile
-    container_name: codeweaves-web
-    restart: unless-stopped
-    ports:
-      - "3000:3000"
-    environment:
-      NODE_ENV: development
-    volumes:
-      - ./apps/web:/app/apps/web
-      - /app/node_modules
-      - /app/apps/web/node_modules
+      retries: 12
 
 volumes:
-  # postgres_data:
+  postgres_data:
   redis_data:
