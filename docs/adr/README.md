@@ -9,7 +9,7 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | #                                                | Title                            | Status   | Date       |
 | ------------------------------------------------ | -------------------------------- | -------- | ---------- |
 | [0001](0001-environments-and-deploy-pipeline.md) | Environments and deploy pipeline | Accepted | 2026-09-16 |
-| [0002](0002-production-hosting-and-region.md)    | Production hosting and region    | Proposed | 2026-09-16 |
+| [0002](0002-production-hosting-and-region.md)    | Production hosting and region    | Accepted | 2026-09-16 |
 
 ## When to write one
 

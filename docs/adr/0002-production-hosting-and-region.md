@@ -1,8 +1,8 @@
 # ADR-0002: Production hosting and region
 
-- **Status:** Proposed
+- **Status:** Accepted
 - **Date:** 2026-09-16
-- **Deciders:** Dhruv (pending)
+- **Deciders:** Dhruv
 
 ## Context
 
@@ -19,7 +19,7 @@ Eight consecutive samples: 186, 186, 186, 186, 186, 186, 186, 187 ms. The first 
 
 Response headers: `Server: cloudflare`, `CF-RAY: ...-BOM`, `x-render-origin-server: Render`.
 
-**How to read that.** Cloudflare terminates in Mumbai, which is why the browser-side connection feels fast. The origin is Render. From that origin, **both** Supabase (`ap-south-1`, Mumbai) and Upstash are 186 ms away. Two independent services showing the same figure is what a single long network hop looks like: the API is one fixed distance from an Indian region, not close to it. Render's free tier has no Indian region.
+**How to read that.** Cloudflare terminates in Mumbai, which is why the browser-side connection feels fast. The origin is Render. From that origin, **both** Supabase (`ap-south-1`, Mumbai) and Upstash are 186 ms away. Two independent services showing the same figure is what a single long network hop looks like: the API is one fixed distance from an Indian region, not close to it. Render's free tier has no Indian region. The origin was later confirmed by the founder as Virginia, which matches the measured figure (US East to Mumbai is roughly 180 ms).
 
 **Why 186 ms matters more than it looks.** One chat turn makes roughly three sequential rounds of database and Redis calls before the LLM request is even sent: resolve the agent, then the session and full agent record, then knowledge plus conversation context plus the PII token map. That is about **550 ms of pure geography per message**, before any AI work starts.
 
@@ -34,7 +34,7 @@ Users are in India. The API also depends on **Supabase Storage** for agent asset
 - **Couples us to:** Google Cloud for compute, and whichever database vendor we pick for the life of the data.
 - **Cost of waiting:** low today, because production is empty. High after launch, because the database becomes hard to move.
 
-## Decision (proposed)
+## Decision
 
 | Component           | Choice                                                    | Region                 |
 | ------------------- | --------------------------------------------------------- | ---------------------- |
@@ -81,5 +81,8 @@ Staging keeps a different latency profile from production on purpose, because it
 
 ## Open questions
 
-- **Founder decision:** Supabase Pro (recommended) versus Cloud SQL plus a storage migration. This ADR moves to Accepted once that is confirmed.
 - Upstash region for production Redis. Lower impact than the database, same reasoning.
+
+## Decision log
+
+- **2026-09-16:** Supabase Pro confirmed by the founder, to be provisioned at launch. Cloud SQL is not pursued, for the reason in "Options rejected": the application still needs Supabase Storage, so moving only Postgres would add a vendor rather than replace one.
