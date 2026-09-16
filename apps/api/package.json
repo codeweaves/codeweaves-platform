@@ -16,10 +16,13 @@
     "test:cov": "jest --config jest.config.cjs --coverage",
     "test:e2e": "jest --config jest.e2e.config.cjs",
     "seed:analytics": "bunx tsx prisma/seed-analytics.ts",
-    "seed:demo-agents": "bunx tsx prisma/seed-demo-agents.ts"
-  },
-  "prisma": {
-    "seed": "bun run prisma/seed.ts"
+    "seed:demo-agents": "bunx tsx prisma/seed-demo-agents.ts",
+    "db:migrate": "prisma migrate dev",
+    "db:deploy": "prisma migrate deploy",
+    "db:reset": "prisma migrate reset",
+    "db:seed": "prisma db seed",
+    "db:studio": "prisma studio",
+    "db:assert-local": "bun run prisma/assert-local-db.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.64",

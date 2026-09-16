@@ -92,3 +92,7 @@ docs/security/questionnaire-answers.md
 # the client's confidential material as much as ours, and they restate our
 # posture question by question. Never in a public repo.
 docs/assessment/
+
+# Timestamped .env backups taken when switching a local env over
+.env.backup-*
+**/.env.backup-*

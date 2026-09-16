@@ -42,11 +42,11 @@ Users are in India. The API also depends on **Supabase Storage** for agent asset
 | Production database | new Supabase project, **Pro** plan                        | `ap-south-1` (Mumbai)  |
 | Production Redis    | Upstash                                                   | nearest Indian region  |
 | Production storage  | Supabase Storage (same project)                           | with the database      |
-| Staging             | unchanged: Render free plus the existing Supabase project | as-is                  |
+| Develop             | unchanged: Render free plus the existing Supabase project | as-is                  |
 
 The API sits next to its database. Expected effect: the ~550 ms of per-turn geography falls to roughly 10 to 15 ms.
 
-Staging keeps a different latency profile from production on purpose, because it is free. Latency conclusions from staging are therefore treated as an upper bound, not a prediction.
+The develop environment keeps a different latency profile from production on purpose, because it is free. Latency conclusions from develop are therefore treated as an upper bound, not a prediction.
 
 ## Options rejected
 
@@ -75,8 +75,8 @@ Staging keeps a different latency profile from production on purpose, because it
 - Infrastructure cost goes from zero to roughly **$25 per month** (Supabase Pro) plus Cloud Run usage, which at this traffic is small and scales to zero.
 - Cloud Run needs a container, so a `Dockerfile` for `apps/api` becomes required work.
 - Backups arrive with Supabase Pro. That closes the largest pre-launch risk and the vendor-assessment gap in one step. A **restore must be tested**, not assumed.
-- Two hosting platforms to understand: Render for staging, Cloud Run for production. Accepted, because staging stays free and disposable.
-- Load-test numbers from staging will not predict production for anything database-bound. Any capacity conclusion about the chat path has to be re-checked on production-like infrastructure.
+- Two hosting platforms to understand: Render for develop, Cloud Run for production. Accepted, because develop stays free and disposable.
+- Load-test numbers from develop will not predict production for anything database-bound. Any capacity conclusion about the chat path has to be re-checked on production-like infrastructure.
 - Several parallelism optimisations in the chat path become unnecessary once the database is close. They are not harmful and do not need removing, but future work should not add more of them for latency reasons alone.
 
 ## Open questions

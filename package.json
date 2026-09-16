@@ -14,7 +14,12 @@
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
     "test:cov": "turbo run test:cov",
-    "seed:analytics": "turbo run seed:analytics"
+    "seed:analytics": "turbo run seed:analytics",
+    "db:up": "docker compose up -d --wait",
+    "db:down": "docker compose down",
+    "db:nuke": "docker compose down -v",
+    "db:setup": "bun run --filter @repo/api db:assert-local && bun run db:up && bun run --filter @repo/api db:deploy && bun run --filter @repo/api db:seed",
+    "db:pull": "bash scripts/db/pull-develop-data.sh"
   },
   "devDependencies": {
     "eslint": "^9.39.5",

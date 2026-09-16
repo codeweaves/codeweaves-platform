@@ -12,10 +12,12 @@ export default [
       "generated/**",
       "eslint.config.js",
       "*.cjs",
+      // Prisma CLI tooling. These run through the Prisma CLI or bun, not the
+      // Nest build, so they are outside tsconfig's project and the type-aware
+      // parser cannot resolve them. Listing the directory rather than each file
+      // stops the next script added here from breaking lint.
       "prisma.config.ts",
-      "prisma/seed.ts",
-      "prisma/seed-analytics.ts",
-      "prisma/seed-demo-agents.ts",
+      "prisma/**",
     ],
   },
   ...config,
