@@ -14,13 +14,12 @@
     "test": "turbo run test",
     "test:e2e": "turbo run test:e2e",
     "test:cov": "turbo run test:cov",
-    "seed:analytics": "turbo run seed:analytics",
-    "doctor": "npx react-doctor@latest"
+    "seed:analytics": "turbo run seed:analytics"
   },
   "devDependencies": {
     "eslint": "^9.39.5",
+    "lefthook": "^2.1.12",
     "prettier": "^3.9.6",
-    "react-doctor": "^0.2.16",
     "turbo": "^2.10.6",
     "typescript": "5.9.2"
   },

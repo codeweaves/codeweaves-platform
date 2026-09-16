@@ -71,3 +71,32 @@ jobs:
         with:
           sarif_file: trivy.sarif
           category: trivy
+
+  sbom:
+    name: SBOM + licences (CycloneDX)
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate SBOM (CycloneDX) and a licence summary
+        run: |
+          # `references/` holds vendored third-party codebases we read for
+          # patterns but never ship, so it is excluded from the bill of
+          # materials. Same for build output and test fixtures.
+          SKIP="--skip-dirs references --skip-dirs '**/dist' --skip-dirs '**/.next'"
+          docker run --rm -v "$PWD:/src" aquasec/trivy:latest fs \
+            --scanners license --format cyclonedx \
+            --output /src/sbom.cdx.json $SKIP /src
+          docker run --rm -v "$PWD:/src" aquasec/trivy:latest fs \
+            --scanners license --format table \
+            --output /src/licences.txt $SKIP /src
+      - name: Show the licence summary in the job log
+        if: always()
+        run: head -c 20000 licences.txt || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: sbom
+          path: |
+            sbom.cdx.json
+            licences.txt
+          retention-days: 90

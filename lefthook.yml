@@ -1,0 +1,34 @@
+# Local quality gates. Git runs these, not the AI agent, so no agent can skip
+# them and neither can a rushed human. This is the "Before Committing to github"
+# list from CLAUDE.md, moved somewhere it actually binds.
+#
+# Split of responsibility:
+#   pre-commit -> formatting only, must feel instant
+#   pre-push   -> the real gates, kept under ~2 minutes
+#   CI         -> everything, including the full test suite and the build
+#
+# Lefthook diffs against origin/develop to decide what is being pushed, so the
+# gates correctly skip when a branch has nothing new.
+#
+# Escape hatch: `git push --no-verify`. Deliberate, visible, and your call.
+
+pre-commit:
+  jobs:
+    - name: format
+      glob: "*.{ts,tsx,js,jsx,json,md,css}"
+      run: bunx prettier --write {staged_files}
+      stage_fixed: true
+
+pre-push:
+  piped: true # stop at the first failure instead of running everything
+  jobs:
+    - name: lint
+      run: bun run lint
+
+    - name: types
+      run: bun run check-types
+
+    # Only pay the ~105s test cost when the API actually changed.
+    - name: api-tests
+      glob: "apps/api/**/*.{ts,tsx}"
+      run: bun run test
