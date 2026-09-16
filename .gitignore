@@ -92,3 +92,9 @@ docs/security/questionnaire-answers.md
 # the client's confidential material as much as ours, and they restate our
 # posture question by question. Never in a public repo.
 docs/assessment/
+
+# Timestamped .env backups, e.g. taken when switching a local env over.
+# These hold REAL keys. GitHub push protection caught one of these being
+# committed by a `git add -A`; this is the belt to that braces.
+.env.backup-*
+**/.env.backup-*
