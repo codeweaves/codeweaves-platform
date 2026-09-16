@@ -11,23 +11,24 @@
 - Platform is **pre-launch with zero production user data.** This means data-shape changes
   (encryption, IP hashing, storage changes) carry **no migration risk** — the single best
   time to make them. This plan is deliberately front-loaded on those.
-- Scope here = **engineering + document drafts.** Legal *validity* of the policy text needs a
+- Scope here = **engineering + document drafts.** Legal _validity_ of the policy text needs a
   lawyer's review; that's the only out-of-code dependency.
 
 ## Obligation → deliverable map
 
-| DPDP obligation | What we build |
-|---|---|
-| Consent + privacy notice (clear, plain language) | Privacy Policy doc (S6); widget notice (S5) **DEFERRED** at user request 2026-07-24 |
-| Right to erasure / correction | Erasure engine: per-visitor + org-wide delete (S2) |
-| Right to access (summary of data + processing) | Per-visitor data summary endpoint (S3) |
-| Reasonable security safeguards (encryption / masking / access control / logs ~1yr) | Encrypt lead data + hash IP (S1); retention/purge job (S4) |
-| Grievance redressal + breach process | Grievance/breach doc + published contact (S6) |
-| Processor contracts | DPA template (S6) — used when signing B2B clients |
+| DPDP obligation                                                                    | What we build                                                                       |
+| ---------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------- |
+| Consent + privacy notice (clear, plain language)                                   | Privacy Policy doc (S6); widget notice (S5) **DEFERRED** at user request 2026-07-24 |
+| Right to erasure / correction                                                      | Erasure engine: per-visitor + org-wide delete (S2)                                  |
+| Right to access (summary of data + processing)                                     | Per-visitor data summary endpoint (S3)                                              |
+| Reasonable security safeguards (encryption / masking / access control / logs ~1yr) | Encrypt lead data + hash IP (S1); retention/purge job (S4)                          |
+| Grievance redressal + breach process                                               | Grievance/breach doc + published contact (S6)                                       |
+| Processor contracts                                                                | DPA template (S6) — used when signing B2B clients                                   |
 
 ## Workstreams (stories)
 
-### S1 — Data-handling hardening *(do first; risk-free with no existing data)*
+### S1 — Data-handling hardening _(do first; risk-free with no existing data)_
+
 - Encrypt `CollectedData.data` at rest via existing `CryptoService` (reversible — still shown in dashboard).
 - Store `ChatSession.visitorId` for web as an **HMAC hash** of the IP (deterministic → distinct-user
   counting, returning-visitor logic, rate-limiting all still work; raw IP no longer retained). WhatsApp
@@ -38,6 +39,7 @@
 - AC: new writes encrypted/hashed; dashboard reads decrypt correctly; analytics unaffected; unit tests.
 
 ### S2 — Erasure engine
+
 - `PurgeService` that deletes by id set across **all** tables holding subject data, including the
   FK-less ones (`chat_traces`, `pii_tokens`, `event_logs`, `llm_usage`) that today would orphan.
 - **`event_logs` deletion uses its existing indexed columns** (`organizationId`, `agentId`,
@@ -51,11 +53,13 @@
   tenant-auth guarded; irreversibility guarded (explicit scope + confirm); unit tests.
 
 ### S3 — Access / data summary
+
 - Per-visitor endpoint returning what we hold (sessions, messages, collected fields) + processing
-  purposes, as JSON. (DPDP needs a *summary*, not GDPR-style portability — keep it simple.)
+  purposes, as JSON. (DPDP needs a _summary_, not GDPR-style portability — keep it simple.)
 - AC: returns a visitor's complete footprint; tenant-scoped; unit test.
 
 ### S4 — Retention / purge job
+
 - Per-table retention windows (industry-standard tiers, all configurable), triggered via the existing
   **external-cron → internal endpoint (x-internal-secret)** pattern, not an in-process cron.
 - **Industry-anchored defaults (matches OpenAI/Zendesk/SOC 2):**
@@ -68,18 +72,21 @@
 **Decision (2026-07-24):** `event_logs` **keeps full request/response payloads** (incl. message
 content) — the owner wants complete envelopes for forensics ("what happened when"). This is
 compliant because event_logs is brought into the lifecycle, NOT by stripping content:
+
 - S2 erasure MUST delete event_logs rows for an erased subject (match on `visitorId`/`sessionId`/`organizationId`).
 - S4 retention trims old event_logs rows on the window.
 - Verify the payload size cap (`capJson`) is generous enough not to truncate real chat messages.
-Principle: duplication is fine when every copy is access-controlled + deletable + time-bounded.
+  Principle: duplication is fine when every copy is access-controlled + deletable + time-bounded.
 
 ### S5 — Widget notice + consent — **DEFERRED (parked 2026-07-24 at user request)**
+
 - One-line notice + Privacy Policy link at chat start (per-agent config toggle, default on). Optional
   affirmative "start chat" acknowledgement.
 - AC: notice shown at/before first message; links resolve; toggle in agent config; no layout break in Shadow DOM.
 - NOT in the current build loop. Revisit closer to launch.
 
 ### S6 — Policy documents (drafts; founder fills company specifics)
+
 - Privacy Policy (DPDP-aligned) · Subprocessor list (from verified inventory) · DPA template · Grievance + breach process.
 - Founder-supplied blanks: legal company name, registered address, grievance contact email.
 
@@ -95,6 +102,7 @@ Principle: duplication is fine when every copy is access-controlled + deletable 
 ## Goal (loop exit condition)
 
 **Definition of done** — the loop terminates when ALL of these hold:
+
 - S6, S1, S2, S3, S4 implemented per their acceptance criteria.
 - Every new/changed `apps/api` controller + service has unit tests in `apps/api/test/`.
 - `bun run lint` · `bun run check-types` · `bun run build` · `bun run test:cov` all pass.
@@ -105,7 +113,7 @@ Principle: duplication is fine when every copy is access-controlled + deletable 
 
 ## Progress tracker (loop state — update each iteration)
 
-- [x] S6 — policy docs — DONE 2026-07-24: `docs/legal/privacy-policy.md`, `subprocessor-list.md`, `dpa-template.md`, `grievance-and-breach-process.md` (all with [PLACEHOLDER] tags)
+- [x] S6 — policy docs — DONE 2026-07-24: `docs/security/policies/privacy-policy.md`, `subprocessor-list.md`, `dpa-template.md`, (grievance process merged into `docs/security/policies/incident-response-and-breach-process.md` on 2026-09-02)
 - [x] S1 — data hardening — DONE 2026-07-24: `CryptoService.hashVisitorIp` (HMAC, domain-separated, loopback→undefined) wired at all 4 capture sites (public-chat ×3, voice ×1); `encryptFieldValues`/`decryptFieldValues` (values encrypted `enc:v1:`, keys plaintext for jsonb_object_keys) wired into data-extraction (decrypt→merge→encrypt) + agent-data-fields (decrypt on read). WhatsApp phone untouched (outbound needs it). 4 specs updated (resetMocks-safe), 13 new crypto tests. 125 tests green, types+lint green.
 - [x] S2 — erasure engine — DONE 2026-07-24: `PurgeService` (eraseVisitor org-scoped + eraseOrganization hard-delete), children-first idempotent deleteManys (no giant transaction), FK-less tables by indexed scope columns, org purge memory-safe (no id lists), storage cleanup per bucket, counts-only audit proof records. `PrivacyController`: DELETE /privacy/visitors/:visitorId (CLIENT pinned to own org) + DELETE /privacy/organizations/:orgId?confirm=<orgId> (SUPER_ADMIN, double-entry). PrivacyModule registered. 17 tests green, types+lint green.
 - [x] S3 — access summary — DONE 2026-07-24: `PurgeService.summarizeVisitor` (sessions w/ message counts, decrypted collected-data fields, record counts for traces/eventLogs/piiTokens/llmUsage, processing purposes) + `GET /privacy/visitors/:visitorId/summary` (same org-pinning as erasure, shared resolveOrgScope). Read-only verified by test. 21 privacy tests green, types+lint green.
