@@ -42,7 +42,7 @@ AI, voice and WhatsApp keys are optional. Without them the app boots fine and
 those specific features fail when you use them.
 
 > **Never put a Supabase URL in `apps/api/.env`.** Local development uses the
-> Docker Postgres below. Staging and production URLs live in CI secrets, and only
+> Docker Postgres below. The develop and production URLs live in CI secrets, and only
 > CI migrates them. See
 > [ADR-0001](adr/0001-environments-and-deploy-pipeline.md). This is enforced:
 > `prisma.config.ts` refuses `migrate dev`, `migrate reset` and `db push`
@@ -100,10 +100,10 @@ reachable, so check `docker compose ps`.
 # 2. create the migration against your LOCAL database
 bun --cwd apps/api db:migrate
 # 3. commit the generated folder in prisma/migrations/ with your code
-# 4. open a PR. CI applies it to staging on merge.
+# 4. open a PR. CI applies it to develop on merge.
 ```
 
-Never run a migration against staging or production by hand. That is what left
+Never run a migration against develop or production by hand. That is what left
 six stray tables on the shared database before this was enforced.
 
 ## Development Commands

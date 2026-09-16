@@ -1,11 +1,13 @@
 # Load testing
 
-Two k6 scripts cover the paths that matter at launch. Run them against **staging + a Supabase branch**, never production.
+Two k6 scripts cover the paths that matter at launch. Run them against the **develop** environment, never production.
 
-| Script | Path under test | Why |
-|---|---|---|
+There is no separate staging environment today, so `develop` is the target. It shares the real database and real provider keys, which is why the cost warning and the rate-limit change below are not optional.
+
+| Script              | Path under test                                                | Why                                                                                           |
+| ------------------- | -------------------------------------------------------------- | --------------------------------------------------------------------------------------------- |
 | `k6/widget-chat.js` | widget config, `POST /public/chat/stream` (SSE), handover poll | The money path. Holds open SSE streams, which is what exhausts sockets and the DB pool first. |
-| `k6/dashboard.js` | analytics summary/charts/handover/agents, conversations list | Heaviest SQL in the app. 30 staff refreshing dashboards. |
+| `k6/dashboard.js`   | analytics summary/charts/handover/agents, conversations list   | Heaviest SQL in the app. 30 staff refreshing dashboards.                                      |
 
 Voice is not scripted. It needs an audio fixture and burns STT + TTS + LLM money per turn. Smoke it by hand with the widget after the chat test passes; the same rate limiter and DB pool are in play.
 
@@ -18,7 +20,7 @@ Voice is not scripted. It needs an audio fixture and burns STT + TTS + LLM money
 ## Before you run
 
 1. **Use a test agent on a cheap model.** Every stream turn is a real LLM call. `widget-chat.js` at the default profile makes roughly 600 to 900 turns. On `gpt-4.1-mini` with a short prompt that is cents, on a large model it is not.
-2. **Raise the per-IP ceiling on the target.** k6 runs from one IP. `MessageRateLimitService` caps one IP at 30 msg/min and 300 msg/hr per agent (`MSG_IP_MINUTE_LIMIT`, `MSG_IP_HOUR_LIMIT`). Set both to `1000000` on the staging API for the run, then put them back. The per-device limit (10/min) stays: each VU is its own device and sleeps 8 to 12 s between turns, which is under it.
+2. **Raise the per-IP ceiling on the target.** k6 runs from one IP. `MessageRateLimitService` caps one IP at 30 msg/min and 300 msg/hr per agent (`MSG_IP_MINUTE_LIMIT`, `MSG_IP_HOUR_LIMIT`). Set both to `1000000` on the develop API for the run, then put them back. The per-device limit (10/min) stays: each VU is its own device and sleeps 8 to 12 s between turns, which is under it.
 3. **Allow the origin.** Either put the `ORIGIN` you pass into the test agent's `allowedDomains`, or leave `allowedDomains` empty.
 4. **Watch these while it runs:**
    - Supabase: Database, Connection pooling: active client connections. Each API instance holds a `pg` pool of 10.
@@ -29,7 +31,7 @@ Voice is not scripted. It needs an audio fixture and burns STT + TTS + LLM money
 ## Run
 
 ```bash
-k6 run -e BASE_URL=https://api-staging.example.com \
+k6 run -e BASE_URL=https://api.getklivo.com \
        -e AGENT_PUBLIC_ID=abcd1234 \
        -e ORIGIN=https://customer.example \
        -e RUN_ID=$(date +%s) \
@@ -41,20 +43,20 @@ k6 run -e BASE_URL=... -e AGENT_PUBLIC_ID=... -e MODE=poll-only scripts/load/k6/
 # Dashboard reads. CLERK_TOKEN is a Clerk session JWT for a TEST user.
 # Default session tokens expire in 60 s, so mint one from a Clerk JWT template
 # with a longer lifetime for the run.
-k6 run -e BASE_URL=... -e DASHBOARD_ORIGIN=https://app-staging.example.com \
+k6 run -e BASE_URL=... -e DASHBOARD_ORIGIN=https://app.getklivo.com \
        -e CLERK_TOKEN=eyJ... scripts/load/k6/dashboard.js
 ```
 
 ## Pass criteria (thresholds in the scripts)
 
-| Metric | Target | Reason |
-|---|---|---|
-| `config_ms` p95 | < 800 ms | Widget first paint depends on it. Cached per agent after the first hit. |
-| `stream_turn_ms` p95 | < 15 s | Whole turn incl. LLM. Controller times the SSE out at 30 s, LLM at 60 s. |
-| `stream_failed` | < 2% | Anything above means the API, not the model, is failing. |
-| `poll_ms` p95 | < 500 ms | Two indexed queries. |
-| `analytics_ms` p95 | < 2.5 s | 30-day SQL aggregates. |
-| `http_req_failed` | < 2% (widget), < 1% (dashboard) | |
+| Metric               | Target                          | Reason                                                                   |
+| -------------------- | ------------------------------- | ------------------------------------------------------------------------ |
+| `config_ms` p95      | < 800 ms                        | Widget first paint depends on it. Cached per agent after the first hit.  |
+| `stream_turn_ms` p95 | < 15 s                          | Whole turn incl. LLM. Controller times the SSE out at 30 s, LLM at 60 s. |
+| `stream_failed`      | < 2%                            | Anything above means the API, not the model, is failing.                 |
+| `poll_ms` p95        | < 500 ms                        | Two indexed queries.                                                     |
+| `analytics_ms` p95   | < 2.5 s                         | 30-day SQL aggregates.                                                   |
+| `http_req_failed`    | < 2% (widget), < 1% (dashboard) |                                                                          |
 
 ## Capacity maths
 
@@ -62,10 +64,10 @@ k6 run -e BASE_URL=... -e DASHBOARD_ORIGIN=https://app-staging.example.com \
 
 ## If it fails
 
-| Symptom | First move |
-|---|---|
+| Symptom                                                      | First move                                                                                                            |
+| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
 | `stream_failed` climbs, Sentry shows `LLM_COMPLETION_FAILED` | Provider rate limit. Lower VUs or add `fallbackModels` to the test agent. See `docs/runbooks/llm-provider-outage.md`. |
-| `checks.db.latencyMs` rises, then 503 on `/health/ready` | Pool saturation. See `docs/runbooks/database-connections.md`. |
-| `stream_rate_limited` > 0 | You did not raise `MSG_IP_*_LIMIT` on the target. |
-| Render memory climbs and does not fall | Open streams not closing on client abort. Check `res.on('close')` paths; capture a heap snapshot. |
-| `poll_ms` p95 > 500 ms | Missing index or the DB is already saturated by the chat scenario. Run `MODE=poll-only` to separate them. |
+| `checks.db.latencyMs` rises, then 503 on `/health/ready`     | Pool saturation. See `docs/runbooks/database-connections.md`.                                                         |
+| `stream_rate_limited` > 0                                    | You did not raise `MSG_IP_*_LIMIT` on the target.                                                                     |
+| Render memory climbs and does not fall                       | Open streams not closing on client abort. Check `res.on('close')` paths; capture a heap snapshot.                     |
+| `poll_ms` p95 > 500 ms                                       | Missing index or the DB is already saturated by the chat scenario. Run `MODE=poll-only` to separate them.             |

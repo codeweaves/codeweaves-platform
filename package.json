@@ -19,7 +19,7 @@
     "db:down": "docker compose down",
     "db:nuke": "docker compose down -v",
     "db:setup": "bun run --filter @repo/api db:assert-local && bun run db:up && bun run --filter @repo/api db:deploy && bun run --filter @repo/api db:seed",
-    "db:pull": "bash scripts/db/pull-staging-data.sh"
+    "db:pull": "bash scripts/db/pull-develop-data.sh"
   },
   "devDependencies": {
     "eslint": "^9.39.5",
