@@ -65,3 +65,30 @@ NUL
 # graphify knowledge graph — fully generated, regenerate anytime with /graphify.
 # Ignored entirely so the large graph.json/graph.html never churn in commits.
 graphify-out/
+
+# RAG eval harness local artifacts (was apps/api/eval/.gitignore, which only
+# exists on the eval feature branches — kept here so it holds on every branch).
+apps/api/eval/.build/
+apps/api/eval/.data/
+apps/api/eval/results/
+
+# Reference codebases (dify, onyx, r2r, ragflow, surfsense) — nested clones,
+# ~1.5 GB, cloned locally per docs/patterns. Never part of this repo.
+references/
+
+# Zipped policy bundle — regenerate from docs/security/policies/
+docs/security/policies.zip
+
+# Internal security posture docs — NOT for a public repo.
+# These enumerate our controls, assets, data flows, network topology and OPEN
+# findings. Published, they are a map for an attacker. Keep them local or move
+# them to a private repo. Nothing under policies/ belongs in this repo; the
+# public-facing notices are published from the website, not from git.
+docs/security/policies/*
+docs/security/pre-assessment-fix-list.md
+docs/security/questionnaire-answers.md
+
+# Client/vendor security questionnaires and assessment workbooks. These are
+# the client's confidential material as much as ours, and they restate our
+# posture question by question. Never in a public repo.
+docs/assessment/
