@@ -54,6 +54,21 @@ export const componentCSS = `
   transform: scale(0.95);
 }
 
+/* Visible to assistive tech, invisible on screen. The clip-path pattern, not
+   display:none or visibility:hidden, because those remove the text from the
+   accessibility tree as well. */
+.cw-sr-only {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  padding: 0;
+  margin: -1px;
+  overflow: hidden;
+  clip: rect(0, 0, 0, 0);
+  white-space: nowrap;
+  border: 0;
+}
+
 /* Custom icon image */
 .cw-trigger-custom-icon {
   width: 60%;

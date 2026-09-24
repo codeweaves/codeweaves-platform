@@ -483,6 +483,31 @@ export function ChatWidgetSurface({
     [handleSend],
   );
 
+  // A screen reader user gets no notice that the bot replied: the message is
+  // painted into a scroll container, which is a silent DOM change. This holds
+  // the finished reply and lets the live region below read it once (WCAG 4.1.3).
+  // Deliberately waits for streaming to end, otherwise every token retriggers it.
+  const [announcement, setAnnouncement] = useState("");
+  const announcedIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (streaming) return;
+    const last = displayMessages[displayMessages.length - 1];
+    if (!last || last.role !== "assistant") return;
+    // The greeting is on screen before the user can ask anything, so it is not
+    // news. Announcing it would talk over the person as they open the widget.
+    if (last.id === "__greeting__") return;
+    // Claim the message before deciding whether to speak it, so a reply we skip
+    // below can never be picked up again once the voice state settles.
+    if (announcedIdRef.current === last.id) return;
+    announcedIdRef.current = last.id;
+    // A voice turn is already being read aloud by our own audio. Repeating it
+    // here makes a screen reader say the same sentence a second time, slightly
+    // out of step with the audio. Typed turns produce no audio, so they still
+    // get announced.
+    if (voiceState !== "idle") return;
+    setAnnouncement(last.content);
+  }, [displayMessages, streaming, voiceState]);
+
   const handleClose = () => {
     widgetState.value = "closed";
   };
@@ -645,6 +670,17 @@ export function ChatWidgetSurface({
               <XIcon class="h-4 w-4" />
             </button>
           </div>
+        </div>
+
+        {/* Reads the finished bot reply to assistive tech. Visually hidden, so
+            it changes nothing on screen. */}
+        <div
+          class="cw-sr-only"
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+        >
+          {announcement}
         </div>
 
         {/* Messages area */}
@@ -923,7 +959,10 @@ export function ChatWidgetSurface({
 
         {/* Voice error banner */}
         {voiceError && (
-          <div class="cw-voice-error flex items-center gap-2 border-t border-red-100 bg-red-50 px-4 py-2">
+          <div
+            role="alert"
+            class="cw-voice-error flex items-center gap-2 border-t border-red-100 bg-red-50 px-4 py-2"
+          >
             <p
               class="cw-voice-error-text flex-1 text-xs"
               style={{ color: "#ef4444" }}
@@ -979,6 +1018,11 @@ export function ChatWidgetSurface({
                   onKeyDown={handleKeyDown}
                   onFocus={() => setIsInputFocused(true)}
                   onBlur={() => setIsInputFocused(false)}
+                  aria-label={str(
+                    input,
+                    "placeholderText",
+                    "Type your message...",
+                  )}
                   placeholder={str(
                     input,
                     "placeholderText",
