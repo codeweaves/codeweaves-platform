@@ -18,32 +18,33 @@ import {
 const HEX_REGEX = /^#[0-9A-Fa-f]{6}$/;
 
 /**
- * Live WCAG readout. Deliberately quiet on a pass (a small muted line) and loud
- * on a fail, with a one-click on-brand fix so the answer is not "go and pick a
- * different colour yourself".
+ * Failure-only WCAG readout.
+ *
+ * Nothing is rendered when a colour passes: a line under every field just added
+ * noise to rows that were already fine, and pushed the layout around. The point
+ * is to interrupt a bad choice, not to congratulate a good one.
  */
 function ContrastBadge({
   contrast,
   suggestion,
   onApply,
+  className,
 }: {
   contrast: NonNullable<ReturnType<typeof checkContrast>>;
   suggestion: string | null;
   onApply: (hex: string) => void;
+  className?: string;
 }) {
-  if (contrast.passes) {
-    return (
-      <p className="text-xs text-muted-foreground">
-        Contrast {contrast.ratio}:1 — meets WCAG AA (needs {contrast.required}
-        :1)
-      </p>
-    );
-  }
+  if (contrast.passes) return null;
   return (
-    <div className="flex flex-wrap items-center gap-x-2 gap-y-1 text-xs">
+    <p
+      className={cn(
+        "flex flex-wrap items-center gap-x-2 gap-y-1 text-xs",
+        className,
+      )}
+    >
       <span className="font-medium text-destructive">
-        Contrast {contrast.ratio}:1 — below WCAG AA (needs {contrast.required}
-        :1)
+        Contrast {contrast.ratio}:1, needs {contrast.required}:1
       </span>
       {suggestion && (
         <button
@@ -52,14 +53,14 @@ function ContrastBadge({
           className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-0.5 font-medium hover:bg-accent"
         >
           <span
-            className="h-3 w-3 rounded-full border border-border"
+            className="h-3 w-3 shrink-0 rounded-full border border-border"
             style={{ backgroundColor: suggestion }}
             aria-hidden="true"
           />
           Use {suggestion}
         </button>
       )}
-    </div>
+    </p>
   );
 }
 
@@ -151,7 +152,12 @@ export function ColorPicker({
   // When used with a label, render in a grid-cols-3 layout matching the reference
   if (label) {
     return (
-      <div className={cn("grid grid-cols-3 gap-4 items-center", className)}>
+      <div
+        className={cn(
+          "grid grid-cols-3 gap-4 items-center self-start",
+          className,
+        )}
+      >
         <Label htmlFor={id} className="text-sm font-medium text-foreground">
           {label}
         </Label>
@@ -186,17 +192,16 @@ export function ColorPicker({
             />
           </div>
         </div>
-        {contrast && (
-          <div className="col-start-2 col-span-2">
-            <ContrastBadge
-              contrast={contrast}
-              suggestion={suggestion}
-              onApply={(hex) => {
-                setLocalHex(hex);
-                onChange(hex);
-              }}
-            />
-          </div>
+        {contrast && !contrast.passes && (
+          <ContrastBadge
+            className="col-start-2 col-span-2"
+            contrast={contrast}
+            suggestion={suggestion}
+            onApply={(hex) => {
+              setLocalHex(hex);
+              onChange(hex);
+            }}
+          />
         )}
       </div>
     );
@@ -204,7 +209,7 @@ export function ColorPicker({
 
   // Without label: compact inline version (used in branding grid layouts)
   return (
-    <div className={cn("space-y-1.5", className)}>
+    <div className={cn("space-y-1.5 self-start", className)}>
       <div className="flex items-center gap-3">
         <Popover>
           <PopoverTrigger asChild disabled={disabled}>
@@ -235,7 +240,7 @@ export function ColorPicker({
           />
         </div>
       </div>
-      {contrast && (
+      {contrast && !contrast.passes && (
         <ContrastBadge
           contrast={contrast}
           suggestion={suggestion}

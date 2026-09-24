@@ -2,7 +2,7 @@
  * Shadow DOM initialization for CodeWeaves chat widget.
  *
  * Creates an isolated shadow DOM environment with:
- * - Closed mode shadow root (external scripts cannot access internals)
+ * - Open mode shadow root (assistive tech and audit tools can traverse it)
  * - Constructable stylesheets (CSP-safe, no inline <style> tags)
  * - MutationObserver protection against host element tampering
  * - Pointer-events pass-through for non-interactive areas
@@ -11,17 +11,17 @@
  * - SPA-safe destroy() cleanup
  */
 
-import { render } from 'preact';
-import type { ComponentChild } from 'preact';
-import { resetCSS } from './styles/reset';
-import { themeCSS } from './styles/theme';
-import { componentCSS } from './styles/components';
-import tailwindCSS from './styles/tailwind.css?inline';
+import { render } from "preact";
+import type { ComponentChild } from "preact";
+import { resetCSS } from "./styles/reset";
+import { themeCSS } from "./styles/theme";
+import { componentCSS } from "./styles/components";
+import tailwindCSS from "./styles/tailwind.css?inline";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const HOST_ID = 'codeweaves-widget-host';
-const MOUNT_CLASS = 'cw-widget-root';
+const HOST_ID = "codeweaves-widget-host";
+const MOUNT_CLASS = "cw-widget-root";
 const MOBILE_BREAKPOINT = 480;
 const FONT_LOAD_TIMEOUT_MS = 3000;
 const MAX_REAPPENDS = 5;
@@ -34,42 +34,46 @@ const SYSTEM_FONT_STACK =
  * These resist override by host page CSS and are re-applied by MutationObserver.
  */
 const CRITICAL_STYLES = [
-  'position: fixed !important',
-  'z-index: 2147483647 !important',
-  'top: 0 !important',
-  'left: 0 !important',
-  'right: 0 !important',
-  'bottom: 0 !important',
-  'width: 100% !important',
-  'height: 100% !important',
-  'margin: 0 !important',
-  'padding: 0 !important',
-  'border: none !important',
-  'background: transparent !important',
-  'pointer-events: none !important',
-  'isolation: isolate !important',
-  'transform: none !important',
-  'opacity: 0 !important',
-  'transition: opacity 0.2s ease-in !important',
-  'overflow: visible !important',
-  'display: block !important',
-  'visibility: visible !important',
+  "position: fixed !important",
+  "z-index: 2147483647 !important",
+  "top: 0 !important",
+  "left: 0 !important",
+  "right: 0 !important",
+  "bottom: 0 !important",
+  "width: 100% !important",
+  "height: 100% !important",
+  "margin: 0 !important",
+  "padding: 0 !important",
+  "border: none !important",
+  "background: transparent !important",
+  "pointer-events: none !important",
+  "isolation: isolate !important",
+  "transform: none !important",
+  "opacity: 0 !important",
+  "transition: opacity 0.2s ease-in !important",
+  "overflow: visible !important",
+  "display: block !important",
+  "visibility: visible !important",
   'font-family: system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif !important',
-  'font-size: 14px !important',
-  'font-weight: 400 !important',
-  'font-style: normal !important',
-  'line-height: 1.5 !important',
-  'color: #1f2937 !important',
-  'text-transform: none !important',
-  'text-decoration: none !important',
-  'letter-spacing: normal !important',
-  'word-spacing: normal !important',
-  'text-shadow: none !important',
-  'text-align: left !important',
-  'white-space: normal !important',
-  'direction: ltr !important',
-  'cursor: default !important',
-].join('; ');
+  "font-size: 14px !important",
+  "font-weight: 400 !important",
+  "font-style: normal !important",
+  // Text spacing: declared, but NOT !important. An inline declaration already
+  // beats any ordinary host-page rule, while leaving a reader's own text-spacing
+  // override (extension or user stylesheet) able to win. Forcing these with
+  // !important is exactly what WCAG 1.4.12 Text Spacing prohibits.
+  "line-height: 1.5",
+  "color: #1f2937 !important",
+  "text-transform: none !important",
+  "text-decoration: none !important",
+  "letter-spacing: normal",
+  "word-spacing: normal",
+  "text-shadow: none !important",
+  "text-align: left !important",
+  "white-space: normal !important",
+  "direction: ltr !important",
+  "cursor: default !important",
+].join("; ");
 
 /**
  * Apply critical styles using individual setProperty calls.
@@ -77,42 +81,47 @@ const CRITICAL_STYLES = [
  * unlike setAttribute('style', ...) which wipes the entire style attribute.
  */
 function applyCriticalStyles(el: HTMLElement): void {
-  el.style.setProperty('position', 'fixed', 'important');
-  el.style.setProperty('z-index', '2147483647', 'important');
-  el.style.setProperty('top', '0', 'important');
-  el.style.setProperty('left', '0', 'important');
-  el.style.setProperty('right', '0', 'important');
-  el.style.setProperty('bottom', '0', 'important');
-  el.style.setProperty('width', '100%', 'important');
-  el.style.setProperty('height', '100%', 'important');
-  el.style.setProperty('margin', '0', 'important');
-  el.style.setProperty('padding', '0', 'important');
-  el.style.setProperty('border', 'none', 'important');
-  el.style.setProperty('background', 'transparent', 'important');
-  el.style.setProperty('pointer-events', 'none', 'important');
-  el.style.setProperty('isolation', 'isolate', 'important');
-  el.style.setProperty('transform', 'none', 'important');
-  el.style.setProperty('transition', 'opacity 0.2s ease-in', 'important');
-  el.style.setProperty('overflow', 'visible', 'important');
-  el.style.setProperty('display', 'block', 'important');
-  el.style.setProperty('visibility', 'visible', 'important');
-  el.style.setProperty('opacity', revealed ? '1' : '0', 'important');
+  el.style.setProperty("position", "fixed", "important");
+  el.style.setProperty("z-index", "2147483647", "important");
+  el.style.setProperty("top", "0", "important");
+  el.style.setProperty("left", "0", "important");
+  el.style.setProperty("right", "0", "important");
+  el.style.setProperty("bottom", "0", "important");
+  el.style.setProperty("width", "100%", "important");
+  el.style.setProperty("height", "100%", "important");
+  el.style.setProperty("margin", "0", "important");
+  el.style.setProperty("padding", "0", "important");
+  el.style.setProperty("border", "none", "important");
+  el.style.setProperty("background", "transparent", "important");
+  el.style.setProperty("pointer-events", "none", "important");
+  el.style.setProperty("isolation", "isolate", "important");
+  el.style.setProperty("transform", "none", "important");
+  el.style.setProperty("transition", "opacity 0.2s ease-in", "important");
+  el.style.setProperty("overflow", "visible", "important");
+  el.style.setProperty("display", "block", "important");
+  el.style.setProperty("visibility", "visible", "important");
+  el.style.setProperty("opacity", revealed ? "1" : "0", "important");
   // Block inherited CSS properties from host page (these leak through Shadow DOM)
-  el.style.setProperty('font-family', 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif', 'important');
-  el.style.setProperty('font-size', '14px', 'important');
-  el.style.setProperty('font-weight', '400', 'important');
-  el.style.setProperty('font-style', 'normal', 'important');
-  el.style.setProperty('line-height', '1.5', 'important');
-  el.style.setProperty('color', '#1f2937', 'important');
-  el.style.setProperty('text-transform', 'none', 'important');
-  el.style.setProperty('text-decoration', 'none', 'important');
-  el.style.setProperty('letter-spacing', 'normal', 'important');
-  el.style.setProperty('word-spacing', 'normal', 'important');
-  el.style.setProperty('text-shadow', 'none', 'important');
-  el.style.setProperty('text-align', 'left', 'important');
-  el.style.setProperty('white-space', 'normal', 'important');
-  el.style.setProperty('direction', 'ltr', 'important');
-  el.style.setProperty('cursor', 'default', 'important');
+  el.style.setProperty(
+    "font-family",
+    'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    "important",
+  );
+  el.style.setProperty("font-size", "14px", "important");
+  el.style.setProperty("font-weight", "400", "important");
+  el.style.setProperty("font-style", "normal", "important");
+  // See the note in CRITICAL_STYLES: text spacing stays overridable (WCAG 1.4.12).
+  el.style.setProperty("line-height", "1.5");
+  el.style.setProperty("color", "#1f2937", "important");
+  el.style.setProperty("text-transform", "none", "important");
+  el.style.setProperty("text-decoration", "none", "important");
+  el.style.setProperty("letter-spacing", "normal");
+  el.style.setProperty("word-spacing", "normal");
+  el.style.setProperty("text-shadow", "none", "important");
+  el.style.setProperty("text-align", "left", "important");
+  el.style.setProperty("white-space", "normal", "important");
+  el.style.setProperty("direction", "ltr", "important");
+  el.style.setProperty("cursor", "default", "important");
 }
 
 // ── Module State ───────────────────────────────────────────────────────
@@ -137,8 +146,8 @@ let loadedFontFace: FontFace | null = null;
 // ── Web Font Loading (Google Fonts) ────────────────────────────────────
 
 const GOOGLE_FONTS_HREF =
-  'https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Open+Sans:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap';
-const GOOGLE_FONTS_MARKER = 'data-cw-google-fonts';
+  "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Open+Sans:wght@400;500;600;700&family=Roboto:wght@400;500;700&display=swap";
+const GOOGLE_FONTS_MARKER = "data-cw-google-fonts";
 
 /**
  * Inject a Google Fonts stylesheet into document.head so the families
@@ -149,35 +158,42 @@ const GOOGLE_FONTS_MARKER = 'data-cw-google-fonts';
  */
 function injectGoogleFontsLink(): void {
   if (document.querySelector(`link[${GOOGLE_FONTS_MARKER}]`)) return;
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
   link.href = GOOGLE_FONTS_HREF;
-  link.setAttribute(GOOGLE_FONTS_MARKER, '');
-  link.crossOrigin = 'anonymous';
+  link.setAttribute(GOOGLE_FONTS_MARKER, "");
+  link.crossOrigin = "anonymous";
   document.head.appendChild(link);
 }
 
 // ── Task 1: Host Element Creation ──────────────────────────────────────
 
 function createHostElement(): HTMLElement {
-  const el = document.createElement('div');
+  const el = document.createElement("div");
   el.id = HOST_ID;
-  el.setAttribute('style', CRITICAL_STYLES);
+  el.setAttribute("style", CRITICAL_STYLES);
   document.body.appendChild(el);
   return el;
 }
 
-// ── Task 2: Closed Shadow DOM Root ─────────────────────────────────────
+// ── Task 2: Shadow DOM Root ────────────────────────────
 
-function attachClosedShadow(hostEl: HTMLElement): ShadowRoot {
-  const root = hostEl.attachShadow({ mode: 'closed' });
+/**
+ * Open mode, deliberately. A closed root makes `host.shadowRoot` null for
+ * everyone. That blocks the host page, but it also blocks the accessibility
+ * auditing tools our clients run against their own site (axe, Lighthouse,
+ * WAVE, Accessibility Insights). None of them can traverse a closed root, so
+ * the widget reads as an empty div and the client cannot prove it complies.
+ *
+ * Closed mode was never a real security boundary: the widget runs inside the
+ * host page's own JS context, so page script can patch
+ * `Element.prototype.attachShadow` before we load and keep the reference.
+ * See ADR-0003.
+ */
+function attachShadowRoot(hostEl: HTMLElement): ShadowRoot {
+  const root = hostEl.attachShadow({ mode: "open" });
 
-  // Verify closed mode: host.shadowRoot must return null
-  if (hostEl.shadowRoot !== null) {
-    console.warn('[CodeWeaves] Shadow root is not closed — external access possible.');
-  }
-
-  const mount = document.createElement('div');
+  const mount = document.createElement("div");
   mount.className = MOUNT_CLASS;
   root.appendChild(mount);
   mountPoint = mount;
@@ -213,7 +229,7 @@ function setupMutationObservers(hostEl: HTMLElement): void {
   attributeObserver = new MutationObserver((mutations) => {
     if (isReapplying) return;
     for (const mutation of mutations) {
-      if (mutation.type === 'attributes' && mutation.target === hostEl) {
+      if (mutation.type === "attributes" && mutation.target === hostEl) {
         isReapplying = true;
         applyCriticalStyles(hostEl);
         requestAnimationFrame(() => {
@@ -225,18 +241,18 @@ function setupMutationObservers(hostEl: HTMLElement): void {
   });
   attributeObserver.observe(hostEl, {
     attributes: true,
-    attributeFilter: ['style', 'class', 'id'],
+    attributeFilter: ["style", "class", "id"],
   });
 
   // Observe document.body childList to re-append host if removed (with rate limit)
   let reappendCount = 0;
   bodyObserver = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      if (mutation.type === 'childList' && mutation.target === document.body) {
+      if (mutation.type === "childList" && mutation.target === document.body) {
         if (!document.body.contains(hostEl)) {
           if (reappendCount >= MAX_REAPPENDS) {
             console.warn(
-              '[CodeWeaves] Host element removed too many times, giving up.',
+              "[CodeWeaves] Host element removed too many times, giving up.",
             );
             bodyObserver?.disconnect();
             return;
@@ -256,7 +272,7 @@ function setupMutationObservers(hostEl: HTMLElement): void {
 // ── Task 8: @font-face Light DOM Loading ───────────────────────────────
 
 function sanitizeCSSValue(value: string): string {
-  return value.replace(/[\\'";\n\r(){}]/g, '');
+  return value.replace(/[\\'";\n\r(){}]/g, "");
 }
 
 export async function loadCustomFont(
@@ -270,7 +286,7 @@ export async function loadCustomFont(
   let timeoutId: ReturnType<typeof setTimeout> | null = null;
   const timeoutPromise = new Promise<never>((_, reject) => {
     timeoutId = setTimeout(
-      () => reject(new Error('Font load timeout')),
+      () => reject(new Error("Font load timeout")),
       FONT_LOAD_TIMEOUT_MS,
     );
   });
@@ -305,20 +321,20 @@ export function lockScroll(): void {
     right: document.body.style.right,
   };
   savedScrollY = window.scrollY;
-  document.body.style.position = 'fixed';
+  document.body.style.position = "fixed";
   document.body.style.top = `-${savedScrollY}px`;
-  document.body.style.left = '0';
-  document.body.style.right = '0';
+  document.body.style.left = "0";
+  document.body.style.right = "0";
   isScrollLocked = true;
 }
 
 export function unlockScroll(): void {
   if (!isScrollLocked) return;
 
-  document.body.style.position = savedBodyStyles?.position ?? '';
-  document.body.style.top = savedBodyStyles?.top ?? '';
-  document.body.style.left = savedBodyStyles?.left ?? '';
-  document.body.style.right = savedBodyStyles?.right ?? '';
+  document.body.style.position = savedBodyStyles?.position ?? "";
+  document.body.style.top = savedBodyStyles?.top ?? "";
+  document.body.style.left = savedBodyStyles?.left ?? "";
+  document.body.style.right = savedBodyStyles?.right ?? "";
   if (!savedBodyStyles?.position) {
     window.scrollTo(0, savedScrollY);
   }
@@ -404,7 +420,7 @@ export function initShadowDom(): ShadowDomResult {
   host = createHostElement();
 
   // Task 2: Attach closed shadow root + mount point
-  shadowRoot = attachClosedShadow(host);
+  shadowRoot = attachShadowRoot(host);
 
   // Task 3: Adopt constructable stylesheets (reset, theme, components)
   adoptStylesheets(shadowRoot);
@@ -431,7 +447,7 @@ export function initShadowDom(): ShadowDomResult {
 export function renderInShadow(vnode: ComponentChild): void {
   if (!mountPoint) {
     throw new Error(
-      '[CodeWeaves] Shadow DOM not initialized. Call initShadowDom() first.',
+      "[CodeWeaves] Shadow DOM not initialized. Call initShadowDom() first.",
     );
   }
   render(vnode, mountPoint);

@@ -429,7 +429,7 @@ export const componentCSS = `
   display: block;
   margin-top: 4px;
   font-size: 11px;
-  color: var(--cw-timestamp-color, #9ca3af);
+  color: var(--cw-timestamp-color, #6b7280);
   line-height: 1;
 }
 
@@ -473,7 +473,7 @@ export const componentCSS = `
   width: 8px;
   height: 8px;
   border-radius: 50%;
-  background: #9ca3af;
+  background: #6b7280;
   animation: cw-bounce 1s infinite;
 }
 
@@ -510,7 +510,7 @@ export const componentCSS = `
   margin: 0;
   font-size: 12px;
   line-height: 1.4;
-  color: var(--cw-branding-text, #9ca3af);
+  color: var(--cw-branding-text, #6b7280);
 }
 
 .cw-branding-logo {
@@ -570,7 +570,7 @@ export const componentCSS = `
 }
 
 .cw-chat-input-field::placeholder {
-  color: var(--cw-input-placeholder, #9ca3af);
+  color: var(--cw-input-placeholder, #6b7280);
 }
 
 .cw-chat-input-field:focus {
@@ -928,7 +928,7 @@ export const componentCSS = `
 /* processing: gray icon spinner */
 .cw-voice-btn--processing {
   background: transparent;
-  color: #9ca3af;
+  color: #6b7280;
 }
 
 /* playing: orange icon */

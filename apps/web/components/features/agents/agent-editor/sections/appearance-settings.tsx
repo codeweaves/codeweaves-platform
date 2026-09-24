@@ -16,6 +16,7 @@ import { FormSection } from "../form-section";
 import { ColorPicker } from "../color-picker";
 import { TabGroup } from "../tab-group";
 import { NumberField } from "../number-field";
+import { ImageUpload } from "../image-upload";
 
 const appearanceTabs = [
   { id: "icon", label: "Chat Icon", icon: <Palette className="w-4 h-4" /> },
@@ -27,11 +28,26 @@ const appearanceTabs = [
 ];
 
 export function AppearanceSettings() {
-  const { themeData, updateThemeData } = useAgentEditor();
+  const { agent, themeData, updateThemeData } = useAgentEditor();
   const [activeTab, setActiveTab] = useState("icon");
 
   const renderIconSettings = () => (
     <div className="space-y-6">
+      <div className="space-y-3">
+        <Label className="text-sm font-medium text-foreground">
+          Custom Icon Image
+        </Label>
+        <ImageUpload
+          value={themeData.icon.customImageUrl}
+          onUpload={(url) => updateThemeData("icon.customImageUrl", url)}
+          onRemove={() => updateThemeData("icon.customImageUrl", undefined)}
+          agentId={agent.id}
+          purpose="icon-image"
+          previewShape="circle"
+          hint="Optional · 64x64px or larger · replaces the default chat bubble icon"
+        />
+      </div>
+
       <ColorPicker
         label="Icon Background Color"
         value={themeData.icon.backgroundColor}
