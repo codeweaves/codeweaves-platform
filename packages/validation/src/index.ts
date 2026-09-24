@@ -2,44 +2,47 @@
  * @repo/validation
  * Shared Zod schemas for validation across frontend and backend
  */
-import { z } from 'zod';
-import { agentAiConfigUpdateSchema } from './agent-ai-config.js';
-import { voiceConfigSchema } from './voice.js';
+import { z } from "zod";
+import { agentAiConfigUpdateSchema } from "./agent-ai-config.js";
+import { voiceConfigSchema } from "./voice.js";
 
 // Re-export zod for convenience
-export { z } from 'zod';
+export { z } from "zod";
 
 // Re-export theme schemas and types
-export * from './theme.js';
+export * from "./theme.js";
+
+// WCAG contrast maths, shared by the theme editor's colour pickers
+export * from "./contrast.js";
 
 // Re-export chat schemas and types
-export * from './chat.js';
+export * from "./chat.js";
 
 // Re-export analytics schemas and types
-export * from './analytics.js';
+export * from "./analytics.js";
 
 // Re-export conversations schemas and types
-export * from './conversations.js';
+export * from "./conversations.js";
 
 // Re-export voice schemas and types
-export * from './voice.js';
+export * from "./voice.js";
 
 // Re-export agent AI configuration schemas and types
-export * from './agent-ai-config.js';
+export * from "./agent-ai-config.js";
 
 // Re-export agent knowledge schemas and types
-export * from './agent-knowledge.js';
+export * from "./agent-knowledge.js";
 
 // Re-export agent data-capture (field definitions) schemas and types
-export * from './agent-data-fields.js';
+export * from "./agent-data-fields.js";
 
 // ============================================
 // Common Schemas
 // ============================================
 
-export const emailSchema = z.string().email('Invalid email address');
+export const emailSchema = z.string().email("Invalid email address");
 
-export const uuidSchema = z.string().uuid('Invalid UUID');
+export const uuidSchema = z.string().uuid("Invalid UUID");
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -53,7 +56,9 @@ export type Pagination = z.infer<typeof paginationSchema>;
 // ============================================
 
 export const envSchema = z.object({
-  NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
+  NODE_ENV: z
+    .enum(["development", "test", "production"])
+    .default("development"),
   PORT: z.coerce.number().default(3001),
   DATABASE_URL: z.string().url().optional(),
 });
@@ -74,7 +79,9 @@ export const apiErrorSchema = z.object({
 
 export type ApiError = z.infer<typeof apiErrorSchema>;
 
-export const paginatedResponseSchema = <T extends z.ZodTypeAny>(itemSchema: T) =>
+export const paginatedResponseSchema = <T extends z.ZodTypeAny>(
+  itemSchema: T,
+) =>
   z.object({
     data: z.array(itemSchema),
     meta: z.object({
@@ -89,7 +96,7 @@ export const paginatedResponseSchema = <T extends z.ZodTypeAny>(itemSchema: T) =
 // Role Enum (mirrors Prisma Role enum)
 // ============================================
 
-export const roleEnum = z.enum(['SUPER_ADMIN', 'ADMIN', 'CLIENT']);
+export const roleEnum = z.enum(["SUPER_ADMIN", "ADMIN", "CLIENT"]);
 export type RoleEnum = z.infer<typeof roleEnum>;
 
 // ============================================
@@ -97,7 +104,11 @@ export type RoleEnum = z.infer<typeof roleEnum>;
 // ============================================
 
 export const updateUserProfileSchema = z.object({
-  name: z.string().min(1, 'Name must be at least 1 character').max(100, 'Name must be at most 100 characters').optional(),
+  name: z
+    .string()
+    .min(1, "Name must be at least 1 character")
+    .max(100, "Name must be at most 100 characters")
+    .optional(),
 });
 
 export type UpdateUserProfileDto = z.infer<typeof updateUserProfileSchema>;
@@ -110,7 +121,7 @@ export const organizationSummarySchema = z.object({
 
 export type OrganizationSummary = z.infer<typeof organizationSummarySchema>;
 
-export const accessScopeEnum = z.enum(['PLATFORM', 'ORG']);
+export const accessScopeEnum = z.enum(["PLATFORM", "ORG"]);
 export type AccessScope = z.infer<typeof accessScopeEnum>;
 
 export const userProfileResponseSchema = z.object({
@@ -143,21 +154,26 @@ export const slugSchema = z
   .string()
   .regex(
     /^[a-z0-9]+(-[a-z0-9]+)*$/,
-    'Slug must start/end with a letter or number, and contain only lowercase letters, numbers, and hyphens',
+    "Slug must start/end with a letter or number, and contain only lowercase letters, numbers, and hyphens",
   )
-  .min(2, 'Slug must be at least 2 characters')
-  .max(100, 'Slug must be at most 100 characters');
+  .min(2, "Slug must be at least 2 characters")
+  .max(100, "Slug must be at most 100 characters");
 
 export const organizationListQuerySchema = paginationSchema.extend({
   search: z.string().optional(),
-  sortBy: z.enum(['name', 'slug', 'createdAt', 'usersCount', 'agentsCount']).default('createdAt'),
-  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+  sortBy: z
+    .enum(["name", "slug", "createdAt", "usersCount", "agentsCount"])
+    .default("createdAt"),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
 export type OrganizationListQuery = z.infer<typeof organizationListQuerySchema>;
 
 export const createOrganizationSchema = z.object({
-  name: z.string().min(3, 'Name must be at least 3 characters').max(100, 'Name must be at most 100 characters'),
+  name: z
+    .string()
+    .min(3, "Name must be at least 3 characters")
+    .max(100, "Name must be at most 100 characters"),
   slug: slugSchema.optional(),
 });
 
@@ -165,11 +181,15 @@ export type CreateOrganizationDto = z.infer<typeof createOrganizationSchema>;
 
 export const updateOrganizationSchema = z
   .object({
-    name: z.string().min(3, 'Name must be at least 3 characters').max(100, 'Name must be at most 100 characters').optional(),
+    name: z
+      .string()
+      .min(3, "Name must be at least 3 characters")
+      .max(100, "Name must be at most 100 characters")
+      .optional(),
     slug: slugSchema.optional(),
   })
   .refine((data) => data.name !== undefined || data.slug !== undefined, {
-    message: 'At least one field (name or slug) must be provided',
+    message: "At least one field (name or slug) must be provided",
   });
 
 export type UpdateOrganizationDto = z.infer<typeof updateOrganizationSchema>;
@@ -178,31 +198,34 @@ export type UpdateOrganizationDto = z.infer<typeof updateOrganizationSchema>;
 // Agent Management Schemas
 // ============================================
 
-export const agentStatusEnum = z.enum(['ACTIVE', 'INACTIVE']);
+export const agentStatusEnum = z.enum(["ACTIVE", "INACTIVE"]);
 export type AgentStatusEnum = z.infer<typeof agentStatusEnum>;
 
 // Domain validation schemas
 export const domainSchema = z
   .string()
-  .min(1, 'Domain cannot be empty')
-  .max(253, 'Domain too long')
+  .min(1, "Domain cannot be empty")
+  .max(253, "Domain too long")
   .transform((val) =>
     val
       .trim()
       .toLowerCase()
-      .replace(/^https?:\/\//, '')
-      .replace(/\/.*/, '')
-      .replace(/\/$/, ''),
+      .replace(/^https?:\/\//, "")
+      .replace(/\/.*/, "")
+      .replace(/\/$/, ""),
   );
 
 export const allowedDomainsSchema = z
   .array(domainSchema)
-  .max(50, 'Maximum 50 domains allowed')
+  .max(50, "Maximum 50 domains allowed")
   .default([]);
 
 export const createAgentSchema = z.object({
-  name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters'),
-  organizationId: z.string().uuid('Invalid organization ID'),
+  name: z
+    .string()
+    .min(2, "Name must be at least 2 characters")
+    .max(100, "Name must be at most 100 characters"),
+  organizationId: z.string().uuid("Invalid organization ID"),
 });
 
 export type CreateAgentDto = z.infer<typeof createAgentSchema>;
@@ -214,12 +237,12 @@ export type CreateAgentDto = z.infer<typeof createAgentSchema>;
 export const categoryKeywordSchema = z
   .string()
   .trim()
-  .min(1, 'Category cannot be empty')
-  .max(60, 'Category must be at most 60 characters');
+  .min(1, "Category cannot be empty")
+  .max(60, "Category must be at most 60 characters");
 
 export const categoryKeywordsSchema = z
   .array(categoryKeywordSchema)
-  .max(24, 'At most 24 categories per agent')
+  .max(24, "At most 24 categories per agent")
   .default([]);
 
 // Phrases the agent replies with when it can't answer from its knowledge.
@@ -228,12 +251,12 @@ export const categoryKeywordsSchema = z
 export const fallbackPhraseSchema = z
   .string()
   .trim()
-  .min(1, 'Phrase cannot be empty')
-  .max(200, 'Phrase must be at most 200 characters');
+  .min(1, "Phrase cannot be empty")
+  .max(200, "Phrase must be at most 200 characters");
 
 export const fallbackPhrasesSchema = z
   .array(fallbackPhraseSchema)
-  .max(3, 'At most 3 fallback phrases per agent')
+  .max(3, "At most 3 fallback phrases per agent")
   .default([]);
 
 // Languages the agent owner wants conversations classified against. Mostly
@@ -242,21 +265,40 @@ export const fallbackPhrasesSchema = z
 // editor's multi-select and the AI classifier's response schema both
 // reference a single source of truth.
 export const supportedLanguageEnum = z.enum([
-  'en', 'hi', 'mr', 'bn', 'ta', 'te', 'gu', 'pa', 'kn', 'ml', 'ur',
-  'es', 'fr', 'de', 'pt', 'it', 'nl', 'ja', 'ko', 'zh', 'ar', 'ru',
-  'hinglish',
+  "en",
+  "hi",
+  "mr",
+  "bn",
+  "ta",
+  "te",
+  "gu",
+  "pa",
+  "kn",
+  "ml",
+  "ur",
+  "es",
+  "fr",
+  "de",
+  "pt",
+  "it",
+  "nl",
+  "ja",
+  "ko",
+  "zh",
+  "ar",
+  "ru",
+  "hinglish",
 ]);
 export type SupportedLanguage = z.infer<typeof supportedLanguageEnum>;
 
 export const supportedLanguagesSchema = z
   .array(supportedLanguageEnum)
-  .max(15, 'At most 15 languages per agent')
+  .max(15, "At most 15 languages per agent")
   // The classifier de-dupes server-side anyway, but rejecting up front gives
   // a clearer error than a silent dedupe on save.
-  .refine(
-    (langs) => new Set(langs).size === langs.length,
-    { message: 'Duplicate languages are not allowed' },
-  )
+  .refine((langs) => new Set(langs).size === langs.length, {
+    message: "Duplicate languages are not allowed",
+  })
   .default([]);
 
 // Maximum age of a single chat session (from createdAt) before the backend
@@ -267,8 +309,8 @@ export const supportedLanguagesSchema = z
 export const sessionLifetimeHoursSchema = z
   .number()
   .int()
-  .min(6, 'Session lifetime must be at least 6 hours')
-  .max(24, 'Session lifetime must be at most 24 hours');
+  .min(6, "Session lifetime must be at least 6 hours")
+  .max(24, "Session lifetime must be at most 24 hours");
 
 /**
  * Extra addresses to notify when a visitor asks for a human. Empty = fall back
@@ -280,13 +322,17 @@ export const sessionLifetimeHoursSchema = z
  * ever become self-serve at scale.
  */
 export const handoverEmailRecipientsSchema = z
-  .array(z.string().trim().toLowerCase().email('Enter a valid email address'))
-  .max(20, 'At most 20 recipients')
+  .array(z.string().trim().toLowerCase().email("Enter a valid email address"))
+  .max(20, "At most 20 recipients")
   .transform((emails) => [...new Set(emails)]);
 
 export const updateAgentSchema = z
   .object({
-    name: z.string().min(2, 'Name must be at least 2 characters').max(100, 'Name must be at most 100 characters').optional(),
+    name: z
+      .string()
+      .min(2, "Name must be at least 2 characters")
+      .max(100, "Name must be at most 100 characters")
+      .optional(),
     status: agentStatusEnum.optional(),
     allowedDomains: allowedDomainsSchema.optional(),
     voiceEnabled: z.boolean().optional(),
@@ -327,7 +373,7 @@ export const updateAgentSchema = z
       data.humanConnectedLabel !== undefined ||
       data.handoverEmailEnabled !== undefined ||
       data.handoverEmailRecipients !== undefined,
-    { message: 'At least one field must be provided' },
+    { message: "At least one field must be provided" },
   );
 
 export type UpdateAgentDto = z.infer<typeof updateAgentSchema>;
@@ -336,15 +382,15 @@ export const agentListQuerySchema = paginationSchema.extend({
   search: z.string().optional(),
   organizationId: z.string().uuid().optional(),
   status: agentStatusEnum.optional(),
-  sortBy: z.enum(['name', 'createdAt', 'updatedAt']).default('createdAt'),
-  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+  sortBy: z.enum(["name", "createdAt", "updatedAt"]).default("createdAt"),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
 export type AgentListQuery = z.infer<typeof agentListQuerySchema>;
 
 // Webhook configuration schemas
 export const updateWebhookSchema = z.object({
-  webhookUrl: z.string().url('Must be a valid URL'),
+  webhookUrl: z.string().url("Must be a valid URL"),
 });
 
 export type UpdateWebhookDto = z.infer<typeof updateWebhookSchema>;
@@ -358,7 +404,7 @@ export type UpdateWebhookDto = z.infer<typeof updateWebhookSchema>;
  */
 export function validate<T extends z.ZodTypeAny>(
   schema: T,
-  data: unknown
+  data: unknown,
 ): z.infer<T> {
   return schema.parse(data);
 }
@@ -368,7 +414,7 @@ export function validate<T extends z.ZodTypeAny>(
  */
 export function safeValidate<T extends z.ZodTypeAny>(
   schema: T,
-  data: unknown
+  data: unknown,
 ): z.SafeParseReturnType<unknown, z.infer<T>> {
   return schema.safeParse(data);
 }

@@ -1,28 +1,35 @@
-import { useEffect, useRef, useState, useCallback } from 'preact/hooks';
-import type { LoadedWidgetConfig } from '../types';
-import { ChatWidgetSurface } from './ChatWidgetSurface';
-import { MessageCircleIcon, XIcon } from './icons';
-import { loadConfig } from '../services/config-loader';
-import { applyTheme, setupPreviewMode, teardownPreviewMode } from '../services/theme-engine';
-import { revealWidget } from '../shadow-dom';
-import { isDomainAllowed } from '../utils/domain-validator';
-import { debug, warn } from '../utils/debug';
-import { initApiClient, warmupAgent } from '../services/api-client';
-import { initVoiceClient } from '../services/voice-client';
-import { initSession } from '../services/session-manager';
+import { useEffect, useRef, useState, useCallback } from "preact/hooks";
+import type { LoadedWidgetConfig } from "../types";
+import { ChatWidgetSurface } from "./ChatWidgetSurface";
+import { MessageCircleIcon, XIcon } from "./icons";
+import { loadConfig } from "../services/config-loader";
+import {
+  applyTheme,
+  setupPreviewMode,
+  teardownPreviewMode,
+} from "../services/theme-engine";
+import { revealWidget } from "../shadow-dom";
+import { isDomainAllowed } from "../utils/domain-validator";
+import { debug, warn } from "../utils/debug";
+import { initApiClient, warmupAgent } from "../services/api-client";
+import { initVoiceClient } from "../services/voice-client";
+import { initSession } from "../services/session-manager";
 import {
   widgetState,
   setStarterCount,
   clearLegacyPersistedMessages,
   resetStore,
-} from '../state/chat-store';
-import { signal } from '@preact/signals';
+} from "../state/chat-store";
+import { signal } from "@preact/signals";
 
 /** Callback registration for external control (global API) */
 let externalOpenFn: (() => void) | null = null;
 let externalCloseFn: (() => void) | null = null;
 
-export function registerWidgetControls(open: () => void, close: () => void): void {
+export function registerWidgetControls(
+  open: () => void,
+  close: () => void,
+): void {
   externalOpenFn = open;
   externalCloseFn = close;
 }
@@ -48,19 +55,18 @@ interface WidgetProps {
 
 /** Extract icon-specific config from theme object */
 function extractIconConfig(theme: Record<string, unknown> | null): {
-  position: 'left' | 'right';
+  position: "left" | "right";
   customImage: string | undefined;
   pulse: boolean;
 } {
-  if (!theme) return { position: 'right', customImage: undefined, pulse: false };
+  if (!theme)
+    return { position: "right", customImage: undefined, pulse: false };
 
   const icon = theme.icon as Record<string, unknown> | undefined;
-  const position = icon?.position === 'left' ? 'left' : 'right';
+  const position = icon?.position === "left" ? "left" : "right";
   const rawUrl = icon?.customImageUrl;
   const customImage =
-    typeof rawUrl === 'string' && rawUrl.trim()
-      ? rawUrl.trim()
-      : undefined;
+    typeof rawUrl === "string" && rawUrl.trim() ? rawUrl.trim() : undefined;
   const pulse = icon?.pulse === true;
 
   return { position, customImage, pulse };
@@ -77,11 +83,14 @@ function extractBubbleConfig(theme: Record<string, unknown> | null): {
   // saved a theme still shows the default prompt, exactly like the preview.
   const bubble = (theme?.bubble ?? {}) as Record<string, unknown>;
 
-  const rawText = typeof bubble.text === 'string' ? bubble.text.trim() : '';
-  const text = rawText || 'Hi there! How can I help?';
+  const rawText = typeof bubble.text === "string" ? bubble.text.trim() : "";
+  const text = rawText || "Hi there! How can I help?";
   // Default to enabled; only an explicit `false` turns the bubble off.
   const enabled = bubble.enabled !== false && text.length > 0;
-  const delayMs = typeof bubble.delayMs === 'number' && bubble.delayMs >= 0 ? bubble.delayMs : 3000;
+  const delayMs =
+    typeof bubble.delayMs === "number" && bubble.delayMs >= 0
+      ? bubble.delayMs
+      : 3000;
 
   return { enabled, text, delayMs };
 }
@@ -95,9 +104,13 @@ const domainBlocked = signal(false);
 let widgetMounted = false;
 
 /** Main widget container — renders trigger button and conditionally renders chat window */
-export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
-  const handleOpen = () => { widgetState.value = 'expanded'; };
-  const handleClose = () => { widgetState.value = 'closed'; };
+export function Widget({ agentId, apiBaseUrl = "", hostElement }: WidgetProps) {
+  const handleOpen = () => {
+    widgetState.value = "expanded";
+  };
+  const handleClose = () => {
+    widgetState.value = "closed";
+  };
 
   // Use refs so registered callbacks always point to latest handlers
   const openRef = useRef(handleOpen);
@@ -107,7 +120,9 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
 
   useEffect(() => {
     if (widgetMounted) {
-      warn('Multiple Widget instances detected — store signals are shared singletons. Only one Widget instance is supported.');
+      warn(
+        "Multiple Widget instances detected — store signals are shared singletons. Only one Widget instance is supported.",
+      );
     }
     widgetMounted = true;
 
@@ -135,13 +150,18 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
       .then((result) => {
         if (cancelled) return;
         if (result) {
-          debug('Config loaded for agent:', agentId);
+          debug("Config loaded for agent:", agentId);
 
           // Domain validation
           const hostname = window.location.hostname;
-          const allowed = isDomainAllowed(hostname, result.allowedDomains ?? []);
+          const allowed = isDomainAllowed(
+            hostname,
+            result.allowedDomains ?? [],
+          );
           if (!allowed) {
-            debug(`Domain "${hostname}" is not in the allowed domains list for agent "${agentId}"`);
+            debug(
+              `Domain "${hostname}" is not in the allowed domains list for agent "${agentId}"`,
+            );
             blocked = true;
             domainBlocked.value = true;
             return;
@@ -181,13 +201,13 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
 
           config.value = result;
         } else {
-          warn('No config available for agent:', agentId);
+          warn("No config available for agent:", agentId);
           configError.value = true;
         }
       })
       .catch((err) => {
         if (cancelled) return;
-        warn('Config loading failed:', err);
+        warn("Config loading failed:", err);
         configError.value = true;
       })
       .finally(() => {
@@ -205,6 +225,19 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
 
   // Read store signal for widget state
   const state = widgetState.value;
+
+  // Send focus back to the launcher when the chat closes, so a keyboard user
+  // lands where they left off instead of at the top of the host page
+  // (WCAG 2.4.3 Focus Order). Only on the open -> closed edge, so we never
+  // steal focus on first paint or while the widget sits closed.
+  const launcherRef = useRef<HTMLDivElement>(null);
+  const wasOpen = useRef(false);
+  useEffect(() => {
+    if (wasOpen.current && state === "closed") {
+      requestAnimationFrame(() => launcherRef.current?.focus());
+    }
+    wasOpen.current = state !== "closed";
+  }, [state]);
   const currentConfig = config.value;
 
   // Hooks must be called unconditionally (before any early returns)
@@ -219,11 +252,12 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   // The lock follows the matchMedia change event so rotation in/out of mobile
   // breakpoint (e.g. tablet/foldable in landscape) applies/releases correctly.
   useEffect(() => {
-    if (state !== 'expanded') return;
+    if (state !== "expanded") return;
 
-    const mql = window.matchMedia('(max-width: 480px)');
+    const mql = window.matchMedia("(max-width: 480px)");
     type VK = { overlaysContent: boolean };
-    const vk = (navigator as Navigator & { virtualKeyboard?: VK }).virtualKeyboard;
+    const vk = (navigator as Navigator & { virtualKeyboard?: VK })
+      .virtualKeyboard;
 
     let locked = false;
     let savedScrollY = 0;
@@ -247,11 +281,11 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
         overflow: html.style.overflow,
       };
       // Lock <html> (not <body>) — Stripearmy/Jay Freestone pattern, more reliable on iOS 16+.
-      html.style.position = 'fixed';
+      html.style.position = "fixed";
       html.style.top = `-${savedScrollY}px`;
-      html.style.left = '0';
-      html.style.right = '0';
-      html.style.overflow = 'hidden';
+      html.style.left = "0";
+      html.style.right = "0";
+      html.style.overflow = "hidden";
       // Chromium VirtualKeyboard API: opting in makes env(keyboard-inset-height)
       // expand to the keyboard's height when it's open. iOS Safari ignores this;
       // it relies on dvh shrinking on keyboard open instead.
@@ -279,25 +313,27 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
     };
 
     sync();
-    mql.addEventListener('change', sync);
+    mql.addEventListener("change", sync);
 
     return () => {
-      mql.removeEventListener('change', sync);
+      mql.removeEventListener("change", sync);
       unlock();
     };
   }, [state]);
 
-  const themeObj = currentConfig?.theme as Record<string, unknown> | null ?? null;
+  const themeObj =
+    (currentConfig?.theme as Record<string, unknown> | null) ?? null;
   const bubbleConfig = extractBubbleConfig(themeObj);
 
   useEffect(() => {
-    if (!bubbleConfig.enabled || state !== 'closed' || bubbleDismissed.current) return;
+    if (!bubbleConfig.enabled || state !== "closed" || bubbleDismissed.current)
+      return;
     const t = setTimeout(() => setShowBubble(true), bubbleConfig.delayMs);
     return () => clearTimeout(t);
   }, [bubbleConfig.enabled, bubbleConfig.delayMs, state]);
 
   useEffect(() => {
-    if (state !== 'closed') setShowBubble(false);
+    if (state !== "closed") setShowBubble(false);
   }, [state]);
 
   const dismissBubble = useCallback((e?: MouseEvent) => {
@@ -315,51 +351,71 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
   if (!currentConfig) return null;
 
   const iconConfig = extractIconConfig(themeObj);
-  const iconOnRight = iconConfig.position === 'right';
+  const iconOnRight = iconConfig.position === "right";
 
   // Icon theme
   const iconTheme = themeObj?.icon as Record<string, unknown> | undefined;
-  const iconBg = typeof iconTheme?.backgroundColor === 'string' ? iconTheme.backgroundColor : '#3b82f6';
-  const iconRadius = typeof iconTheme?.borderRadius === 'number' ? iconTheme.borderRadius : 50;
-  const iconSize = typeof iconTheme?.size === 'number' ? iconTheme.size : 60;
-  const iconShadow = typeof iconTheme?.shadow === 'string' ? iconTheme.shadow : '0 4px 12px rgba(0,0,0,0.15)';
+  const iconBg =
+    typeof iconTheme?.backgroundColor === "string"
+      ? iconTheme.backgroundColor
+      : "#3b82f6";
+  const iconRadius =
+    typeof iconTheme?.borderRadius === "number" ? iconTheme.borderRadius : 50;
+  const iconSize = typeof iconTheme?.size === "number" ? iconTheme.size : 60;
+  const iconShadow =
+    typeof iconTheme?.shadow === "string"
+      ? iconTheme.shadow
+      : "0 4px 12px rgba(0,0,0,0.15)";
 
   // Bubble theme
   const bubbleTheme = themeObj?.bubble as Record<string, unknown> | undefined;
-  const bubbleBg = typeof bubbleTheme?.backgroundColor === 'string' ? bubbleTheme.backgroundColor : '#ffffff';
-  const bubbleTextColor = typeof bubbleTheme?.textColor === 'string' ? bubbleTheme.textColor : '#1f2937';
+  const bubbleBg =
+    typeof bubbleTheme?.backgroundColor === "string"
+      ? bubbleTheme.backgroundColor
+      : "#ffffff";
+  const bubbleTextColor =
+    typeof bubbleTheme?.textColor === "string"
+      ? bubbleTheme.textColor
+      : "#1f2937";
 
   return (
     <div
       class="cw-widget-root pointer-events-none"
       style={{
-        fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
-        fontSize: '14px',
-        lineHeight: '1.5',
-        color: '#1f2937',
-        textTransform: 'none',
-        textDecoration: 'none',
-        fontWeight: '400',
-        fontStyle: 'normal',
-        letterSpacing: 'normal',
-        wordSpacing: 'normal',
-        textShadow: 'none',
+        fontFamily:
+          'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+        fontSize: "14px",
+        lineHeight: "1.5",
+        color: "#1f2937",
+        textTransform: "none",
+        textDecoration: "none",
+        fontWeight: "400",
+        fontStyle: "normal",
+        letterSpacing: "normal",
+        wordSpacing: "normal",
+        textShadow: "none",
         zIndex: 2147483647,
       }}
     >
       {/* Bubble notification */}
-      {showBubble && state === 'closed' && (
+      {showBubble && state === "closed" && (
         <div
-          class={`cw-bubble pointer-events-auto absolute ${iconOnRight ? 'bottom-22 right-5' : 'bottom-22 left-5'} z-10 max-w-xs cursor-pointer rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 hover:scale-105`}
+          class={`cw-bubble pointer-events-auto absolute ${iconOnRight ? "bottom-22 right-5" : "bottom-22 left-5"} z-10 max-w-xs cursor-pointer rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 hover:scale-105`}
           style={{
             backgroundColor: bubbleBg,
             color: bubbleTextColor,
-            boxShadow: '0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)',
+            boxShadow:
+              "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)",
           }}
-          onClick={() => { dismissBubble(); handleOpen(); }}
+          onClick={() => {
+            dismissBubble();
+            handleOpen();
+          }}
         >
           <div class="cw-bubble-content">
-            <span class="cw-bubble-text text-sm font-medium leading-snug">{bubbleConfig.text}</span>
+            <span class="cw-bubble-text text-sm font-medium leading-snug">
+              {bubbleConfig.text}
+            </span>
           </div>
           <button
             onClick={(e) => dismissBubble(e as unknown as MouseEvent)}
@@ -367,26 +423,26 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
             type="button"
             aria-label="Dismiss"
             style={{
-              position: 'absolute',
-              top: '-4px',
-              right: '-4px',
-              width: '20px',
-              height: '20px',
-              display: 'flex',
-              alignItems: 'center',
-              justifyContent: 'center',
-              borderRadius: '50%',
+              position: "absolute",
+              top: "-4px",
+              right: "-4px",
+              width: "20px",
+              height: "20px",
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              borderRadius: "50%",
               backgroundColor: bubbleBg,
-              border: 'none',
+              border: "none",
               color: bubbleTextColor,
-              cursor: 'pointer',
+              cursor: "pointer",
               padding: 0,
             }}
           >
             <XIcon class="block h-3 w-3" />
           </button>
           <div
-            class={`cw-bubble-arrow absolute -bottom-2 h-0 w-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent ${iconOnRight ? 'right-6' : 'left-6'}`}
+            class={`cw-bubble-arrow absolute -bottom-2 h-0 w-0 border-l-[8px] border-r-[8px] border-t-[8px] border-l-transparent border-r-transparent ${iconOnRight ? "right-6" : "left-6"}`}
             style={{ borderTopColor: bubbleBg }}
             aria-hidden="true"
           />
@@ -394,12 +450,13 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
       )}
 
       {/* Trigger icon */}
-      {state === 'closed' && (
+      {state === "closed" && (
         <div
+          ref={launcherRef}
           role="button"
           tabIndex={0}
           aria-label="Open chat widget"
-          class={`cw-launcher pointer-events-auto absolute ${iconOnRight ? 'bottom-5 right-5' : 'bottom-5 left-5'} z-20 flex cursor-pointer items-center justify-center transition-all duration-300 hover:scale-110`}
+          class={`cw-launcher pointer-events-auto absolute ${iconOnRight ? "bottom-5 right-5" : "bottom-5 left-5"} z-20 flex cursor-pointer items-center justify-center transition-all duration-300 hover:scale-110`}
           style={{
             backgroundColor: iconBg,
             borderRadius: `${iconRadius}%`,
@@ -408,10 +465,24 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
             boxShadow: iconShadow,
           }}
           onClick={handleOpen}
-          onKeyDown={(e) => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); handleOpen(); } }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              handleOpen();
+            }
+          }}
         >
           {iconConfig.customImage ? (
-            <img src={iconConfig.customImage} alt="Chat" class="cw-launcher-image h-3/5 w-3/5 rounded-full object-cover" />
+            /* Fills the button. An uploaded icon is a finished logo, so insetting
+               it just looks shrunken with a ring of background colour around it.
+               Inherits the launcher's radius rather than forcing a circle, so a
+               square launcher gets a square icon. */
+            <img
+              src={iconConfig.customImage}
+              alt=""
+              class="cw-launcher-image h-full w-full object-cover"
+              style={{ borderRadius: `${iconRadius}%` }}
+            />
           ) : (
             <MessageCircleIcon class="cw-launcher-icon h-7 w-7 text-white" />
           )}
@@ -419,7 +490,7 @@ export function Widget({ agentId, apiBaseUrl = '', hostElement }: WidgetProps) {
       )}
 
       {/* Expanded chat */}
-      {state !== 'closed' && (
+      {state !== "closed" && (
         <ChatWidgetSurface
           agentId={agentId}
           agentConfig={currentConfig.agent}

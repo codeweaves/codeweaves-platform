@@ -2,13 +2,16 @@
  * WidgetTheme Zod Schemas and Default Values
  * Defines the complete theme configuration for the embeddable chat widget.
  */
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================
 // Shared Validators
 // ============================================
 
-const colorString = z.string().min(1, 'Color cannot be empty').max(50, 'Color string too long');
+const colorString = z
+  .string()
+  .min(1, "Color cannot be empty")
+  .max(50, "Color string too long");
 const cssValueString = z.string().min(1).max(200);
 
 // URL that must use https. Zod's `.url()` alone accepts `javascript:` and
@@ -20,7 +23,7 @@ const httpsUrlString = z
   .string()
   .url()
   .refine((v) => /^https:\/\//i.test(v), {
-    message: 'URL must use https://',
+    message: "URL must use https://",
   });
 
 // ============================================
@@ -28,7 +31,7 @@ const httpsUrlString = z
 // ============================================
 
 export const iconConfigSchema = z.object({
-  position: z.enum(['left', 'right']),
+  position: z.enum(["left", "right"]),
   backgroundColor: colorString,
   hoverBackgroundColor: colorString,
   size: z.number().int().min(40).max(80),
@@ -59,8 +62,8 @@ export type MessageConfig = z.infer<typeof messageConfigSchema>;
 
 export const avatarConfigSchema = z.object({
   show: z.boolean().default(false),
-  type: z.enum(['robot', 'machine', 'bot', 'support', 'custom', 'user']),
-  shape: z.enum(['circle', 'square', 'rounded']),
+  type: z.enum(["robot", "machine", "bot", "support", "custom", "user"]),
+  shape: z.enum(["circle", "square", "rounded"]),
   backgroundColor: colorString,
   color: colorString,
   customImageUrl: z.string().url().optional(),
@@ -113,7 +116,7 @@ export type AnimationsConfig = z.infer<typeof animationsConfigSchema>;
 
 export const timestampsConfigSchema = z.object({
   show: z.boolean(),
-  format: z.enum(['12h', '24h']),
+  format: z.enum(["12h", "24h"]),
   color: colorString,
 });
 export type TimestampsConfig = z.infer<typeof timestampsConfigSchema>;
@@ -152,10 +155,14 @@ export const handoverConfigSchema = z.object({
     .string()
     .min(1)
     .max(160)
-    .default('Connecting you with our team. Someone will be with you shortly.'),
-  requestedLineColor: colorString.default('#9ca3af'),
-  endedLabel: z.string().min(1).max(160).default("You're back with our assistant"),
-  endedLineColor: colorString.default('#3b82f6'),
+    .default("Connecting you with our team. Someone will be with you shortly."),
+  requestedLineColor: colorString.default("#9ca3af"),
+  endedLabel: z
+    .string()
+    .min(1)
+    .max(160)
+    .default("You're back with our assistant"),
+  endedLineColor: colorString.default("#3b82f6"),
 });
 export type HandoverConfig = z.infer<typeof handoverConfigSchema>;
 
@@ -182,14 +189,15 @@ export const widgetThemeSchema = z.object({
   // Defaulted so existing stored themes (which predate this key) validate and
   // get sensible handover styling without a migration.
   handover: handoverConfigSchema.default({
-    buttonLabel: 'Talk to a human',
-    buttonBackgroundColor: '#ffffff',
-    buttonTextColor: '#3b82f6',
-    connectedLineColor: '#10b981',
-    requestedLabel: 'Connecting you with our team. Someone will be with you shortly.',
-    requestedLineColor: '#9ca3af',
+    buttonLabel: "Talk to a human",
+    buttonBackgroundColor: "#ffffff",
+    buttonTextColor: "#3b82f6",
+    connectedLineColor: "#10b981",
+    requestedLabel:
+      "Connecting you with our team. Someone will be with you shortly.",
+    requestedLineColor: "#9ca3af",
     endedLabel: "You're back with our assistant",
-    endedLineColor: '#3b82f6',
+    endedLineColor: "#3b82f6",
   }),
 });
 
@@ -205,72 +213,73 @@ export type PartialWidgetTheme = z.infer<typeof partialWidgetThemeSchema>;
 
 export const defaultWidgetTheme: WidgetTheme = {
   icon: {
-    position: 'right',
-    backgroundColor: '#3b82f6',
-    hoverBackgroundColor: '#2563eb',
+    position: "right",
+    backgroundColor: "#3b82f6",
+    hoverBackgroundColor: "#2563eb",
     size: 56,
     borderRadius: 50,
-    shadow: '0 4px 12px rgba(0, 0, 0, 0.15)',
+    shadow: "0 4px 12px rgba(0, 0, 0, 0.15)",
   },
   header: {
-    title: 'Chat with us',
-    subtitle: 'We usually reply within a few minutes',
-    backgroundColor: '#3b82f6',
-    textColor: '#ffffff',
-    subtitleColor: '#e0e7ff',
+    title: "Chat with us",
+    subtitle: "We usually reply within a few minutes",
+    backgroundColor: "#3b82f6",
+    textColor: "#ffffff",
+    subtitleColor: "#e0e7ff",
     showLogo: false,
     borderRadius: 14,
   },
   userMessage: {
-    backgroundColor: '#3b82f6',
-    textColor: '#ffffff',
+    backgroundColor: "#3b82f6",
+    textColor: "#ffffff",
     borderRadius: 16,
   },
   botMessage: {
-    backgroundColor: '#f3f4f6',
-    textColor: '#1f2937',
+    backgroundColor: "#f3f4f6",
+    textColor: "#1f2937",
     borderRadius: 16,
   },
   botAvatar: {
     show: false,
-    type: 'robot',
-    shape: 'circle',
-    backgroundColor: '#e0e7ff',
-    color: '#3b82f6',
+    type: "robot",
+    shape: "circle",
+    backgroundColor: "#e0e7ff",
+    color: "#3b82f6",
   },
   userAvatar: {
     show: false,
-    type: 'user',
-    shape: 'circle',
-    backgroundColor: '#dbeafe',
-    color: '#3b82f6',
+    type: "user",
+    shape: "circle",
+    backgroundColor: "#dbeafe",
+    color: "#3b82f6",
   },
   input: {
-    backgroundColor: '#ffffff',
-    textColor: '#1f2937',
-    placeholderText: 'Type your message...',
-    placeholderColor: '#9ca3af',
-    borderColor: '#e5e7eb',
+    backgroundColor: "#ffffff",
+    textColor: "#1f2937",
+    placeholderText: "Type your message...",
+    placeholderColor: "#6b7280",
+    borderColor: "#e5e7eb",
     borderRadius: 12,
   },
   sendButton: {
-    backgroundColor: '#3b82f6',
-    hoverBackgroundColor: '#2563eb',
-    iconColor: '#ffffff',
+    backgroundColor: "#3b82f6",
+    hoverBackgroundColor: "#2563eb",
+    iconColor: "#ffffff",
     borderRadius: 12,
   },
   body: {
-    backgroundColor: '#ffffff',
+    backgroundColor: "#ffffff",
   },
   bubble: {
     enabled: true,
-    text: 'Hi there! How can I help?',
-    backgroundColor: '#ffffff',
-    textColor: '#1f2937',
+    text: "Hi there! How can I help?",
+    backgroundColor: "#ffffff",
+    textColor: "#1f2937",
     delayMs: 3000,
   },
   typography: {
-    fontFamily: 'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
+    fontFamily:
+      'system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif',
     baseFontSize: 14,
   },
   animations: {
@@ -279,27 +288,28 @@ export const defaultWidgetTheme: WidgetTheme = {
   },
   timestamps: {
     show: true,
-    format: '12h',
-    color: '#9ca3af',
+    format: "12h",
+    color: "#6b7280",
   },
   starters: [],
   branding: {
     enabled: true,
-    textPrefix: 'Powered by',
+    textPrefix: "Powered by",
     useLogo: false,
-    linkText: 'Klivo',
-    linkUrl: 'https://codeweaves.com',
-    textColor: '#9ca3af',
-    linkColor: '#3b82f6',
+    linkText: "Klivo",
+    linkUrl: "https://codeweaves.com",
+    textColor: "#6b7280",
+    linkColor: "#2563eb",
   },
   handover: {
-    buttonLabel: 'Talk to a human',
-    buttonBackgroundColor: '#ffffff',
-    buttonTextColor: '#3b82f6',
-    connectedLineColor: '#10b981',
-    requestedLabel: 'Connecting you with our team. Someone will be with you shortly.',
-    requestedLineColor: '#9ca3af',
+    buttonLabel: "Talk to a human",
+    buttonBackgroundColor: "#ffffff",
+    buttonTextColor: "#3b82f6",
+    connectedLineColor: "#10b981",
+    requestedLabel:
+      "Connecting you with our team. Someone will be with you shortly.",
+    requestedLineColor: "#9ca3af",
     endedLabel: "You're back with our assistant",
-    endedLineColor: '#3b82f6',
+    endedLineColor: "#3b82f6",
   },
 };

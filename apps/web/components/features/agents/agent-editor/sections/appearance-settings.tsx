@@ -1,58 +1,87 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { CornerDownLeft, CornerDownRight, Palette, MessageCircle } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { useAgentEditor } from '../agent-editor-context';
-import { FormSection } from '../form-section';
-import { ColorPicker } from '../color-picker';
-import { TabGroup } from '../tab-group';
-import { NumberField } from '../number-field';
+import { useState } from "react";
+import {
+  CornerDownLeft,
+  CornerDownRight,
+  Palette,
+  MessageCircle,
+} from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useAgentEditor } from "../agent-editor-context";
+import { FormSection } from "../form-section";
+import { ColorPicker } from "../color-picker";
+import { TabGroup } from "../tab-group";
+import { NumberField } from "../number-field";
+import { ImageUpload } from "../image-upload";
 
 const appearanceTabs = [
-  { id: 'icon', label: 'Chat Icon', icon: <Palette className="w-4 h-4" /> },
-  { id: 'bubble', label: 'Bubble Prompt', icon: <MessageCircle className="w-4 h-4" /> },
+  { id: "icon", label: "Chat Icon", icon: <Palette className="w-4 h-4" /> },
+  {
+    id: "bubble",
+    label: "Bubble Prompt",
+    icon: <MessageCircle className="w-4 h-4" />,
+  },
 ];
 
 export function AppearanceSettings() {
-  const { themeData, updateThemeData } = useAgentEditor();
-  const [activeTab, setActiveTab] = useState('icon');
+  const { agent, themeData, updateThemeData } = useAgentEditor();
+  const [activeTab, setActiveTab] = useState("icon");
 
   const renderIconSettings = () => (
     <div className="space-y-6">
+      <div className="space-y-3">
+        <Label className="text-sm font-medium text-foreground">
+          Custom Icon Image
+        </Label>
+        <ImageUpload
+          value={themeData.icon.customImageUrl}
+          onUpload={(url) => updateThemeData("icon.customImageUrl", url)}
+          onRemove={() => updateThemeData("icon.customImageUrl", undefined)}
+          agentId={agent.id}
+          purpose="icon-image"
+          previewShape="circle"
+          hint="Optional · 64x64px or larger · replaces the default chat bubble icon"
+        />
+      </div>
+
       <ColorPicker
         label="Icon Background Color"
         value={themeData.icon.backgroundColor}
-        onChange={(color) => updateThemeData('icon.backgroundColor', color)}
+        onChange={(color) => updateThemeData("icon.backgroundColor", color)}
         id="iconBg"
       />
 
       <NumberField
         label="Icon Border Radius"
         value={themeData.icon.borderRadius}
-        onChange={(val) => updateThemeData('icon.borderRadius', val)}
+        onChange={(val) => updateThemeData("icon.borderRadius", val)}
         min={0}
         max={50}
         unit="px"
       />
 
       <div className="space-y-3">
-        <Label className="text-sm font-medium text-foreground">Icon Position</Label>
+        <Label className="text-sm font-medium text-foreground">
+          Icon Position
+        </Label>
         <div className="flex gap-3">
           <Button
-            variant={themeData.icon.position === 'left' ? 'default' : 'outline'}
-            onClick={() => updateThemeData('icon.position', 'left')}
+            variant={themeData.icon.position === "left" ? "default" : "outline"}
+            onClick={() => updateThemeData("icon.position", "left")}
             className="flex-1 flex items-center justify-center gap-2 h-12"
           >
             <CornerDownLeft className="w-4 h-4" />
             Bottom Left
           </Button>
           <Button
-            variant={themeData.icon.position === 'right' ? 'default' : 'outline'}
-            onClick={() => updateThemeData('icon.position', 'right')}
+            variant={
+              themeData.icon.position === "right" ? "default" : "outline"
+            }
+            onClick={() => updateThemeData("icon.position", "right")}
             className="flex-1 flex items-center justify-center gap-2 h-12"
           >
             <CornerDownRight className="w-4 h-4" />
@@ -66,10 +95,12 @@ export function AppearanceSettings() {
   const renderBubbleSettings = () => (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-4 items-center">
-        <Label className="text-sm font-medium text-foreground">Bubble Text</Label>
+        <Label className="text-sm font-medium text-foreground">
+          Bubble Text
+        </Label>
         <Input
           value={themeData.bubble.text}
-          onChange={(e) => updateThemeData('bubble.text', e.target.value)}
+          onChange={(e) => updateThemeData("bubble.text", e.target.value)}
           placeholder="Need help?"
           className="col-span-2 rounded-md focus:ring-2 focus:ring-ring"
         />
@@ -78,21 +109,22 @@ export function AppearanceSettings() {
       <ColorPicker
         label="Bubble Background Color"
         value={themeData.bubble.backgroundColor}
-        onChange={(color) => updateThemeData('bubble.backgroundColor', color)}
+        onChange={(color) => updateThemeData("bubble.backgroundColor", color)}
         id="bubbleBg"
       />
 
       <ColorPicker
         label="Bubble Text Color"
         value={themeData.bubble.textColor}
-        onChange={(color) => updateThemeData('bubble.textColor', color)}
+        contrastAgainst={themeData.bubble.backgroundColor}
+        onChange={(color) => updateThemeData("bubble.textColor", color)}
         id="bubbleTextColor"
       />
 
       <NumberField
         label="Show Delay"
         value={Math.round(themeData.bubble.delayMs / 1000)}
-        onChange={(val) => updateThemeData('bubble.delayMs', val * 1000)}
+        onChange={(val) => updateThemeData("bubble.delayMs", val * 1000)}
         min={0}
         max={30}
         unit="s"
@@ -100,12 +132,18 @@ export function AppearanceSettings() {
 
       <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
         <div>
-          <Label className="text-sm font-medium text-foreground">Enable Bubble</Label>
-          <p className="text-xs text-muted-foreground mt-1">Show a prompt bubble near the chat icon</p>
+          <Label className="text-sm font-medium text-foreground">
+            Enable Bubble
+          </Label>
+          <p className="text-xs text-muted-foreground mt-1">
+            Show a prompt bubble near the chat icon
+          </p>
         </div>
         <Switch
           checked={themeData.bubble.enabled}
-          onCheckedChange={(checked) => updateThemeData('bubble.enabled', checked)}
+          onCheckedChange={(checked) =>
+            updateThemeData("bubble.enabled", checked)
+          }
         />
       </div>
     </div>
@@ -124,8 +162,8 @@ export function AppearanceSettings() {
           aria-label="Appearance section"
         />
 
-        {activeTab === 'icon' && renderIconSettings()}
-        {activeTab === 'bubble' && renderBubbleSettings()}
+        {activeTab === "icon" && renderIconSettings()}
+        {activeTab === "bubble" && renderBubbleSettings()}
       </FormSection>
     </div>
   );
