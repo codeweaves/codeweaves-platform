@@ -1,19 +1,19 @@
-'use client';
+"use client";
 
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
-import { useAgentEditor } from '../agent-editor-context';
-import { usePermissions } from '@/hooks/use-permissions';
-import { FormSection } from '../form-section';
-import { ColorPicker } from '../color-picker';
-import { ImageUpload } from '../image-upload';
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
+import { useAgentEditor } from "../agent-editor-context";
+import { usePermissions } from "@/hooks/use-permissions";
+import { FormSection } from "../form-section";
+import { ColorPicker } from "../color-picker";
+import { ImageUpload } from "../image-upload";
 
 export function BrandingSettings() {
   const { can } = usePermissions();
   const { agent, themeData, updateThemeData } = useAgentEditor();
 
-  const isAdmin = can('AgentTheme:UpdateBranding');
+  const isAdmin = can("AgentTheme:UpdateBranding");
 
   if (!isAdmin) return null;
 
@@ -39,7 +39,7 @@ export function BrandingSettings() {
             <Switch
               checked={branding.enabled}
               onCheckedChange={(checked) =>
-                updateThemeData('branding.enabled', checked)
+                updateThemeData("branding.enabled", checked)
               }
             />
           </div>
@@ -58,7 +58,7 @@ export function BrandingSettings() {
               <Input
                 value={branding.textPrefix}
                 onChange={(e) =>
-                  updateThemeData('branding.textPrefix', e.target.value)
+                  updateThemeData("branding.textPrefix", e.target.value)
                 }
                 placeholder="Powered by"
                 className="col-span-2"
@@ -77,7 +77,7 @@ export function BrandingSettings() {
                 <Switch
                   checked={branding.useLogo}
                   onCheckedChange={(checked) =>
-                    updateThemeData('branding.useLogo', checked)
+                    updateThemeData("branding.useLogo", checked)
                   }
                 />
               </div>
@@ -89,8 +89,8 @@ export function BrandingSettings() {
                 <div className="col-span-2">
                   <ImageUpload
                     value={branding.logo}
-                    onUpload={(url) => updateThemeData('branding.logo', url)}
-                    onRemove={() => updateThemeData('branding.logo', undefined)}
+                    onUpload={(url) => updateThemeData("branding.logo", url)}
+                    onRemove={() => updateThemeData("branding.logo", undefined)}
                     agentId={agent.id}
                     purpose="brand-logo"
                     previewShape="square"
@@ -105,7 +105,7 @@ export function BrandingSettings() {
                   <Input
                     value={branding.linkText}
                     onChange={(e) =>
-                      updateThemeData('branding.linkText', e.target.value)
+                      updateThemeData("branding.linkText", e.target.value)
                     }
                     placeholder="Klivo"
                     className="col-span-2"
@@ -116,7 +116,7 @@ export function BrandingSettings() {
                   <Input
                     value={branding.linkUrl}
                     onChange={(e) =>
-                      updateThemeData('branding.linkUrl', e.target.value)
+                      updateThemeData("branding.linkUrl", e.target.value)
                     }
                     placeholder="https://codeweaves.com"
                     type="url"
@@ -136,8 +136,9 @@ export function BrandingSettings() {
               <Label className="text-sm font-medium">Text Color</Label>
               <ColorPicker
                 value={branding.textColor}
+                contrastAgainst={themeData.body.backgroundColor}
                 onChange={(color) =>
-                  updateThemeData('branding.textColor', color)
+                  updateThemeData("branding.textColor", color)
                 }
                 className="col-span-2"
               />
@@ -146,8 +147,9 @@ export function BrandingSettings() {
               <Label className="text-sm font-medium">Link Color</Label>
               <ColorPicker
                 value={branding.linkColor}
+                contrastAgainst={themeData.body.backgroundColor}
                 onChange={(color) =>
-                  updateThemeData('branding.linkColor', color)
+                  updateThemeData("branding.linkColor", color)
                 }
                 className="col-span-2"
               />

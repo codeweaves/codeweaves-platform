@@ -1,21 +1,22 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { useAgentEditor } from '../agent-editor-context';
-import { FormSection } from '../form-section';
-import { ColorPicker } from '../color-picker';
-import { FieldLabel } from '../field-label';
-import { ToggleRow } from '../toggle-row';
+import { useState } from "react";
+import { X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { useAgentEditor } from "../agent-editor-context";
+import { FormSection } from "../form-section";
+import { ColorPicker } from "../color-picker";
+import { FieldLabel } from "../field-label";
+import { ToggleRow } from "../toggle-row";
 
 /** Mirrors the backend cap in `handoverEmailRecipientsSchema`. */
 const MAX_RECIPIENTS = 20;
 const EMAIL_RE = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
 export function HumanHandoverSettings() {
-  const { formData, updateFormData, themeData, updateThemeData } = useAgentEditor();
+  const { formData, updateFormData, themeData, updateThemeData } =
+    useAgentEditor();
   const enabled = formData.humanTakeoverEnabled;
   const showButton = formData.showTalkToHumanButton;
   const emailEnabled = formData.handoverEmailEnabled;
@@ -28,12 +29,12 @@ export function HumanHandoverSettings() {
       info={
         <>
           <p>
-            When a visitor needs a person, a teammate can take the conversation over
-            from the AI.
+            When a visitor needs a person, a teammate can take the conversation
+            over from the AI.
           </p>
           <p>
-            The AI <strong>pauses</strong> while a human is replying, then resumes once
-            the chat is resolved.
+            The AI <strong>pauses</strong> while a human is replying, then
+            resumes once the chat is resolved.
           </p>
         </>
       }
@@ -43,12 +44,12 @@ export function HumanHandoverSettings() {
         label="Enable human takeover"
         info={
           <p>
-            Flags chats that need a human in your Inbox, and lets teammates take them
-            over. This is the master switch for the whole feature.
+            Flags chats that need a human in your Inbox, and lets teammates take
+            them over. This is the master switch for the whole feature.
           </p>
         }
         checked={enabled}
-        onChange={(v) => updateFormData('humanTakeoverEnabled', v)}
+        onChange={(v) => updateFormData("humanTakeoverEnabled", v)}
       />
 
       {enabled && (
@@ -61,15 +62,17 @@ export function HumanHandoverSettings() {
                 label="Connected message"
                 info={
                   <p>
-                    Shown to the visitor on the divider line when a teammate joins.
-                    Leave blank for a sensible default.
+                    Shown to the visitor on the divider line when a teammate
+                    joins. Leave blank for a sensible default.
                   </p>
                 }
               />
               <Input
                 id="humanConnectedLabel"
                 value={formData.humanConnectedLabel}
-                onChange={(e) => updateFormData('humanConnectedLabel', e.target.value)}
+                onChange={(e) =>
+                  updateFormData("humanConnectedLabel", e.target.value)
+                }
                 placeholder="You're now connected with our team"
                 maxLength={160}
               />
@@ -77,7 +80,9 @@ export function HumanHandoverSettings() {
             <ColorPicker
               label="Connected line color"
               value={handover.connectedLineColor}
-              onChange={(color) => updateThemeData('handover.connectedLineColor', color)}
+              onChange={(color) =>
+                updateThemeData("handover.connectedLineColor", color)
+              }
               id="handoverLineColor"
             />
           </div>
@@ -90,15 +95,17 @@ export function HumanHandoverSettings() {
                 label="Connecting message"
                 info={
                   <p>
-                    Shown to the visitor while a teammate is being connected, before
-                    anyone has actually taken over.
+                    Shown to the visitor while a teammate is being connected,
+                    before anyone has actually taken over.
                   </p>
                 }
               />
               <Input
                 id="handoverRequestedLabel"
                 value={handover.requestedLabel}
-                onChange={(e) => updateThemeData('handover.requestedLabel', e.target.value)}
+                onChange={(e) =>
+                  updateThemeData("handover.requestedLabel", e.target.value)
+                }
                 placeholder="Connecting you with our team. Someone will be with you shortly."
                 maxLength={160}
               />
@@ -106,7 +113,9 @@ export function HumanHandoverSettings() {
             <ColorPicker
               label="Connecting line color"
               value={handover.requestedLineColor}
-              onChange={(color) => updateThemeData('handover.requestedLineColor', color)}
+              onChange={(color) =>
+                updateThemeData("handover.requestedLineColor", color)
+              }
               id="handoverRequestedLineColor"
             />
           </div>
@@ -119,15 +128,17 @@ export function HumanHandoverSettings() {
                 label="Handed-back message"
                 info={
                   <p>
-                    Shown to the visitor when the teammate resolves the chat and the AI
-                    takes back over.
+                    Shown to the visitor when the teammate resolves the chat and
+                    the AI takes back over.
                   </p>
                 }
               />
               <Input
                 id="handoverEndedLabel"
                 value={handover.endedLabel}
-                onChange={(e) => updateThemeData('handover.endedLabel', e.target.value)}
+                onChange={(e) =>
+                  updateThemeData("handover.endedLabel", e.target.value)
+                }
                 placeholder="You're back with our assistant"
                 maxLength={160}
               />
@@ -135,7 +146,9 @@ export function HumanHandoverSettings() {
             <ColorPicker
               label="Handed-back line color"
               value={handover.endedLineColor}
-              onChange={(color) => updateThemeData('handover.endedLineColor', color)}
+              onChange={(color) =>
+                updateThemeData("handover.endedLineColor", color)
+              }
               id="handoverEndedLineColor"
             />
           </div>
@@ -147,12 +160,12 @@ export function HumanHandoverSettings() {
               label='Show "Talk to a human" button'
               info={
                 <p>
-                  Adds a headset button next to send, so visitors can ask for a person
-                  directly instead of waiting for the bot to offer.
+                  Adds a headset button next to send, so visitors can ask for a
+                  person directly instead of waiting for the bot to offer.
                 </p>
               }
               checked={showButton}
-              onChange={(v) => updateFormData('showTalkToHumanButton', v)}
+              onChange={(v) => updateFormData("showTalkToHumanButton", v)}
             />
 
             {showButton && (
@@ -163,15 +176,17 @@ export function HumanHandoverSettings() {
                     label="Button tooltip"
                     info={
                       <p>
-                        The button is a headset icon next to send; this text shows when
-                        the visitor hovers it.
+                        The button is a headset icon next to send; this text
+                        shows when the visitor hovers it.
                       </p>
                     }
                   />
                   <Input
                     id="handoverButtonLabel"
                     value={handover.buttonLabel}
-                    onChange={(e) => updateThemeData('handover.buttonLabel', e.target.value)}
+                    onChange={(e) =>
+                      updateThemeData("handover.buttonLabel", e.target.value)
+                    }
                     placeholder="Talk to a human"
                     maxLength={40}
                   />
@@ -179,13 +194,18 @@ export function HumanHandoverSettings() {
                 <ColorPicker
                   label="Icon background"
                   value={handover.buttonBackgroundColor}
-                  onChange={(color) => updateThemeData('handover.buttonBackgroundColor', color)}
+                  onChange={(color) =>
+                    updateThemeData("handover.buttonBackgroundColor", color)
+                  }
                   id="handoverButtonBg"
                 />
                 <ColorPicker
                   label="Icon & border color"
                   value={handover.buttonTextColor}
-                  onChange={(color) => updateThemeData('handover.buttonTextColor', color)}
+                  contrastAgainst={handover.buttonBackgroundColor}
+                  onChange={(color) =>
+                    updateThemeData("handover.buttonTextColor", color)
+                  }
                   id="handoverButtonText"
                 />
               </div>
@@ -200,19 +220,22 @@ export function HumanHandoverSettings() {
               description="Sent immediately."
               info={
                 <p>
-                  The in-app alert, sound and browser popup <strong>always</strong>
-                  fire when a visitor asks for a human. This toggle only controls the
-                  email on top of that.
+                  The in-app alert, sound and browser popup{" "}
+                  <strong>always</strong>
+                  fire when a visitor asks for a human. This toggle only
+                  controls the email on top of that.
                 </p>
               }
               checked={emailEnabled}
-              onChange={(v) => updateFormData('handoverEmailEnabled', v)}
+              onChange={(v) => updateFormData("handoverEmailEnabled", v)}
             />
 
             {emailEnabled && (
               <EmailRecipientsField
                 recipients={formData.handoverEmailRecipients}
-                onChange={(next) => updateFormData('handoverEmailRecipients', next)}
+                onChange={(next) =>
+                  updateFormData("handoverEmailRecipients", next)
+                }
               />
             )}
           </div>
@@ -235,18 +258,18 @@ function EmailRecipientsField({
   recipients: string[];
   onChange: (next: string[]) => void;
 }) {
-  const [draft, setDraft] = useState('');
+  const [draft, setDraft] = useState("");
   const [error, setError] = useState<string | null>(null);
 
   const add = () => {
     const email = draft.trim().toLowerCase();
     if (!email) return;
     if (!EMAIL_RE.test(email)) {
-      setError('Enter a valid email address');
+      setError("Enter a valid email address");
       return;
     }
     if (recipients.includes(email)) {
-      setError('That address is already on the list');
+      setError("That address is already on the list");
       return;
     }
     if (recipients.length >= MAX_RECIPIENTS) {
@@ -254,7 +277,7 @@ function EmailRecipientsField({
       return;
     }
     onChange([...recipients, email]);
-    setDraft('');
+    setDraft("");
     setError(null);
   };
 
@@ -267,13 +290,13 @@ function EmailRecipientsField({
         info={
           <>
             <p>
-              Empty means every member of your organization gets it at their login
-              email.
+              Empty means every member of your organization gets it at their
+              login email.
             </p>
             <p>
-              Adding addresses sends to <strong>those only, instead</strong>. Useful
-              for a shared support inbox, or people without a dashboard login. Add your
-              own address too if you still want it.
+              Adding addresses sends to <strong>those only, instead</strong>.
+              Useful for a shared support inbox, or people without a dashboard
+              login. Add your own address too if you still want it.
             </p>
           </>
         }
@@ -312,7 +335,7 @@ function EmailRecipientsField({
           onKeyDown={(e) => {
             // Enter must not bubble into a form submit — this is an
             // add-to-list action, not a save.
-            if (e.key === 'Enter' || e.key === ',') {
+            if (e.key === "Enter" || e.key === ",") {
               e.preventDefault();
               add();
             }
@@ -320,7 +343,12 @@ function EmailRecipientsField({
           placeholder="support@yourcompany.com"
           maxLength={200}
         />
-        <Button type="button" variant="outline" onClick={add} disabled={!draft.trim()}>
+        <Button
+          type="button"
+          variant="outline"
+          onClick={add}
+          disabled={!draft.trim()}
+        >
           Add
         </Button>
       </div>

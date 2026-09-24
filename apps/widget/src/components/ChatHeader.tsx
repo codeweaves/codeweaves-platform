@@ -1,7 +1,7 @@
-import { useState, useEffect } from 'preact/hooks';
-import { forwardRef } from 'preact/compat';
-import type { AgentConfig } from '../types';
-import { isSafeUrl } from '../utils/url';
+import { useState, useEffect } from "preact/hooks";
+import { forwardRef } from "preact/compat";
+import type { AgentConfig } from "../types";
+import { isSafeUrl } from "../utils/url";
 
 export interface ChatHeaderProps {
   /** Agent configuration with name */
@@ -27,16 +27,15 @@ function getHeaderFields(theme: Record<string, unknown> | null): {
   logoUrl: string;
   showLogo: boolean;
 } {
-  if (!theme) return { title: '', subtitle: '', logoUrl: '', showLogo: false };
+  if (!theme) return { title: "", subtitle: "", logoUrl: "", showLogo: false };
 
   const header = theme.header as Record<string, unknown> | undefined;
-  const title =
-    typeof header?.title === 'string' ? header.title.trim() : '';
+  const title = typeof header?.title === "string" ? header.title.trim() : "";
   const subtitle =
-    typeof header?.subtitle === 'string' ? header.subtitle.trim() : '';
+    typeof header?.subtitle === "string" ? header.subtitle.trim() : "";
   const rawLogoUrl =
-    typeof header?.logoUrl === 'string' ? header.logoUrl.trim() : '';
-  const logoUrl = rawLogoUrl && isSafeUrl(rawLogoUrl) ? rawLogoUrl : '';
+    typeof header?.logoUrl === "string" ? header.logoUrl.trim() : "";
+  const logoUrl = rawLogoUrl && isSafeUrl(rawLogoUrl) ? rawLogoUrl : "";
   const showLogo = header?.showLogo === true;
 
   return { title, subtitle, logoUrl, showLogo };
@@ -56,11 +55,18 @@ export const ChatHeader = forwardRef<HTMLDivElement, ChatHeaderProps>(
     },
     ref,
   ) {
-    const { title: themeTitle, subtitle, logoUrl, showLogo: showLogoConfig } = getHeaderFields(theme);
+    const {
+      title: themeTitle,
+      subtitle,
+      logoUrl,
+      showLogo: showLogoConfig,
+    } = getHeaderFields(theme);
     const [logoFailed, setLogoFailed] = useState(false);
 
     // Reset failure state when the logo URL changes (e.g. theme update)
-    useEffect(() => { setLogoFailed(false); }, [logoUrl]);
+    useEffect(() => {
+      setLogoFailed(false);
+    }, [logoUrl]);
 
     const showLogo = showLogoConfig && logoUrl && !logoFailed;
 
@@ -68,13 +74,15 @@ export const ChatHeader = forwardRef<HTMLDivElement, ChatHeaderProps>(
       <div
         ref={ref}
         class="cw-chat-header"
-        role={isMinimized ? 'button' : undefined}
+        role={isMinimized ? "button" : undefined}
         tabIndex={isMinimized ? 0 : undefined}
         aria-expanded={!isMinimized}
-        aria-label={isMinimized ? `Expand chat with ${agentConfig.name}` : undefined}
+        aria-label={
+          isMinimized ? `Expand chat with ${agentConfig.name}` : undefined
+        }
         onClick={onHeaderClick}
         onKeyDown={onHeaderKeyDown}
-        style={isMinimized ? { cursor: 'pointer' } : undefined}
+        style={isMinimized ? { cursor: "pointer" } : undefined}
       >
         <div class="cw-header-info">
           {showLogo && (
@@ -87,10 +95,14 @@ export const ChatHeader = forwardRef<HTMLDivElement, ChatHeaderProps>(
             />
           )}
           <div class="cw-header-text">
-            <span class="cw-header-name">{themeTitle || agentConfig.name}</span>
-            {subtitle && (
-              <span class="cw-header-subtitle">{subtitle}</span>
-            )}
+            {/* A heading, not a span: screen-reader users navigate by heading,
+                and the dialog title is the landmark they jump to. role+aria-level
+                rather than <h2> so the widget never fights the host page's
+                heading outline. */}
+            <span class="cw-header-name" role="heading" aria-level={2}>
+              {themeTitle || agentConfig.name}
+            </span>
+            {subtitle && <span class="cw-header-subtitle">{subtitle}</span>}
           </div>
         </div>
         <div class="cw-header-actions">

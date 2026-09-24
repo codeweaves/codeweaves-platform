@@ -2,8 +2,8 @@
  * Branding footer — renders "Powered by [logo|link]" below the chat input.
  * Only visible when branding.enabled is true in the theme config.
  */
-import { useState } from 'preact/hooks';
-import { isSafeUrl } from '../utils/url';
+import { useState } from "preact/hooks";
+import { isSafeUrl } from "../utils/url";
 
 export interface BrandingFooterProps {
   enabled: boolean;
@@ -30,8 +30,8 @@ export function BrandingFooter({
 
   if (!enabled) return null;
 
-  const safeLogo = logo && isSafeUrl(logo) ? logo : '';
-  const safeLink = linkUrl && isSafeUrl(linkUrl) ? linkUrl : '';
+  const safeLogo = logo && isSafeUrl(logo) ? logo : "";
+  const safeLink = linkUrl && isSafeUrl(linkUrl) ? linkUrl : "";
 
   // Determine what content to show after the prefix
   const showLogo = useLogo && safeLogo && !logoFailed;
@@ -43,8 +43,11 @@ export function BrandingFooter({
 
   return (
     <div class="cw-branding" aria-label="Branding">
-      <p class="cw-branding-text" style={textColor ? { color: textColor } : undefined}>
-        {textPrefix}{' '}
+      <p
+        class="cw-branding-text"
+        style={textColor ? { color: textColor } : undefined}
+      >
+        {textPrefix}{" "}
         {showLogo ? (
           <img
             class="cw-branding-logo"
@@ -58,6 +61,9 @@ export function BrandingFooter({
             href={safeLink}
             target="_blank"
             rel="noopener noreferrer"
+            // target="_blank" moves the user out of context without warning.
+            // Screen readers do not announce that on their own.
+            aria-label={`${linkText || safeLink} (opens in a new tab)`}
             style={linkColor ? { color: linkColor } : undefined}
           >
             {linkText || safeLink}

@@ -529,6 +529,15 @@ export const componentCSS = `
   text-decoration: underline;
 }
 
+/* WCAG 2.4.7 Focus Visible. Every other control here has one; this link was the
+   only interactive element without, so a keyboard user tabbing to it had no idea
+   where they were. Matches the outline used by the send button. */
+.cw-branding-link:focus-visible {
+  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
 .cw-branding-link-text {
   font-weight: 500;
   color: var(--cw-branding-link, #3b82f6);
