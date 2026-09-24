@@ -1,0 +1,22 @@
+{
+  "extends": "./tsconfig.json",
+  // Build/run config. tsconfig.json stays wide so the editor and jest still see
+  // test/**, but compiling tests on every watch rebuild made `bun run dev`
+  // recompile all 129 suites per keystroke. That slow rebuild is what opened the
+  // window for Node to start against a half-written dist/ and die on
+  // "Cannot find module './modules/app.module'".
+  //
+  // Excluding test/** also makes src/ the only input, so TypeScript infers
+  // rootDir as src/ and emits dist/main.js instead of dist/src/main.js. That is
+  // the path nest-cli and `start:prod` have always expected.
+  "exclude": [
+    "node_modules",
+    "dist",
+    "test",
+    "prisma.config.ts",
+    "prisma",
+    "eval",
+    "**/*.spec.ts",
+    "**/*.e2e-spec.ts"
+  ]
+}
