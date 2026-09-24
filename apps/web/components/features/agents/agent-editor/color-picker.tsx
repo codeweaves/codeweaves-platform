@@ -49,7 +49,7 @@ function ContrastBadge({
         <button
           type="button"
           onClick={() => onApply(suggestion)}
-          className="inline-flex items-center gap-1.5 rounded-md border border-border px-2 py-0.5 font-medium hover:bg-accent"
+          className="inline-flex cursor-pointer items-center gap-1.5 rounded-md border border-border px-2 py-0.5 font-medium hover:bg-accent"
         >
           <span
             className="h-3 w-3 rounded-full border border-border"
