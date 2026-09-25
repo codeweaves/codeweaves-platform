@@ -1,23 +1,43 @@
-import { Controller, Post, Get, Body, Param, Query, Res, Req, HttpException, HttpCode } from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiResponse } from '@nestjs/swagger';
-import { AppLogger } from '../../common/logger/app-logger';
-import { WidgetEventLogger } from '../../common/events/widget.logger';
-import type { Request, Response } from 'express';
-import { randomUUID } from 'node:crypto';
-import { z } from 'zod';
-import { Public } from '../../decorators/public.decorator';
-import { ChatService } from '../../services/chat.service';
-import { PrismaService } from '../../services/prisma.service';
-import { AgentsService } from '../../services/agents.service';
-import { N8nStreamingService } from '../../services/n8n-streaming.service';
-import { MessageRateLimitService } from '../../services/message-rate-limit.service';
-import { DirectChatService } from '../../modules/ai/direct-chat.service';
-import { HandoverService } from '../../services/handover.service';
-import { CryptoService } from '../../common/crypto/crypto.service';
-import { ZodValidationPipe } from '../../pipes/zod-validation.pipe';
-import { sendMessageSchema, type SendMessageDto, resolveRoutingMode } from '@repo/validation';
-import type { ChatMessageMetadata } from '../../services/chat-metadata.interface';
-import { detectFallback } from '../../utils/fallback-detection';
+import {
+  Controller,
+  Post,
+  Get,
+  Body,
+  Param,
+  Query,
+  Res,
+  Req,
+  HttpException,
+  HttpCode,
+} from "@nestjs/common";
+import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
+import { AppLogger } from "../../common/logger/app-logger";
+import { WidgetEventLogger } from "../../common/events/widget.logger";
+import type { Request, Response } from "express";
+import { randomUUID } from "node:crypto";
+import { z } from "zod";
+import { Public } from "../../decorators/public.decorator";
+import { ChatService } from "../../services/chat.service";
+import { PrismaService } from "../../services/prisma.service";
+import { AgentsService } from "../../services/agents.service";
+import { N8nStreamingService } from "../../services/n8n-streaming.service";
+import { MessageRateLimitService } from "../../services/message-rate-limit.service";
+import { DirectChatService } from "../../modules/ai/direct-chat.service";
+import { HandoverService } from "../../services/handover.service";
+import { CryptoService } from "../../common/crypto/crypto.service";
+import {
+  resolveWebVisitor,
+  type VisitorIdentity,
+} from "../../services/web-visitor";
+import { ConsentRequiredException } from "../../services/consent.service";
+import { ZodValidationPipe } from "../../pipes/zod-validation.pipe";
+import {
+  sendMessageSchema,
+  type SendMessageDto,
+  resolveRoutingMode,
+} from "@repo/validation";
+import type { ChatMessageMetadata } from "../../services/chat-metadata.interface";
+import { detectFallback } from "../../utils/fallback-detection";
 
 const STREAM_TIMEOUT_MS = 30_000;
 
@@ -29,13 +49,13 @@ type WarmupDto = z.infer<typeof warmupSchema>;
 const requestHumanSchema = z.object({
   agentId: z.string().min(1).max(128),
   sessionId: z.string().min(1).max(128).optional(),
-  source: z.enum(['WIDGET', 'WHATSAPP', 'DEMO']).optional(),
+  source: z.enum(["WIDGET", "WHATSAPP", "DEMO"]).optional(),
 });
 type RequestHumanDto = z.infer<typeof requestHumanSchema>;
 
-@ApiTags('Public Chat')
+@ApiTags("Public Chat")
 @Public()
-@Controller('public/chat')
+@Controller("public/chat")
 export class PublicChatController {
   private readonly log = new AppLogger(PublicChatController.name);
 
@@ -52,12 +72,12 @@ export class PublicChatController {
   ) {}
 
   /**
-   * Visitor identifier for storage: keyed hash of the client IP (S1 — DPDP
-   * data minimisation). The raw IP never travels past this line; loopback
-   * resolves to undefined so the session backfill can fill it in later.
+   * Visitor identity for storage (ADR-0004): the hashed device ID is the
+   * identity, the hashed IP only an attribute. Neither raw value travels past
+   * this line (DPDP data minimisation).
    */
-  private visitorIdFrom(req: Request): string | undefined {
-    return this.crypto.hashVisitorIp(ChatService.extractVisitorIp(req));
+  private visitorFrom(req: Request): VisitorIdentity {
+    return resolveWebVisitor(this.crypto, req);
   }
 
   /**
@@ -78,28 +98,29 @@ export class PublicChatController {
    * Rate-limit via the existing per-device message rate limiter — abuse here
    * would translate to LLM cost, so we cap it.
    */
-  @Post('warmup')
+  @Post("warmup")
   @HttpCode(204)
-  @ApiOperation({ summary: 'Pre-warm the agent\'s LLM prompt cache' })
-  @ApiResponse({ status: 204, description: 'Warmup queued' })
+  @ApiOperation({ summary: "Pre-warm the agent's LLM prompt cache" })
+  @ApiResponse({ status: 204, description: "Warmup queued" })
   async warmup(
     @Body(new ZodValidationPipe(warmupSchema)) dto: WarmupDto,
     @Req() req: Request,
   ): Promise<void> {
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
     const clientIp = this.messageRateLimitService.getClientIp(req);
-    const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
-      deviceId,
-      dto.agentId,
-      clientIp,
-    );
+    const rateLimitResult =
+      await this.messageRateLimitService.checkMessageRateLimit(
+        deviceId,
+        dto.agentId,
+        clientIp,
+      );
     // Silently skip if rate-limited — warmup is a perf hint, not a real action.
     if (!rateLimitResult.allowed) return;
 
     // Resolve agent first (cheap, will hit allowedDomains middleware cache too).
     // If the agent doesn't exist we silently no-op — never leak existence info
     // via the warmup endpoint.
-    let agent: Awaited<ReturnType<ChatService['resolveAgent']>>;
+    let agent: Awaited<ReturnType<ChatService["resolveAgent"]>>;
     try {
       agent = await this.chatService.resolveAgent(dto.agentId);
     } catch {
@@ -108,7 +129,7 @@ export class PublicChatController {
 
     const routingMode = resolveRoutingMode(agent.aiConfig);
     // Only OpenAI-backed agents benefit from auto-cache. n8n mode is a no-op.
-    if (routingMode !== 'direct') return;
+    if (routingMode !== "direct") return;
 
     // Fire-and-forget the LLM call. Use the streaming path so the actual wire
     // format matches what the real chat endpoint sends — that's what OpenAI's
@@ -122,11 +143,11 @@ export class PublicChatController {
         if (!fullAgent) return;
         const stream = this.directChatService.stream({
           agent: fullAgent,
-          chatSessionId: 'warmup',
-          externalSessionId: 'warmup',
-          newUserMessage: 'ping',
+          chatSessionId: "warmup",
+          externalSessionId: "warmup",
+          newUserMessage: "ping",
           recentHistory: [],
-          feature: 'warmup',
+          feature: "warmup",
         });
         // eslint-disable-next-line @typescript-eslint/no-unused-vars
         for await (const _chunk of stream) {
@@ -135,51 +156,70 @@ export class PublicChatController {
           // the LLM call progresses, independent of whether we read chunks.
         }
       } catch (err) {
-        this.log.warn('warmup', `background LLM warmup failed for agent ${agent.id}`, {
-          err: err instanceof Error ? err.message : String(err),
-        });
+        this.log.warn(
+          "warmup",
+          `background LLM warmup failed for agent ${agent.id}`,
+          {
+            err: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     })();
   }
 
-  @Post('send')
-  @ApiOperation({ summary: 'Send a chat message to an agent' })
-  @ApiResponse({ status: 200, description: 'Message sent and AI response received' })
-  @ApiResponse({ status: 400, description: 'Invalid input' })
-  @ApiResponse({ status: 404, description: 'Agent not found or inactive' })
-  @ApiResponse({ status: 502, description: 'AI service error (timeout, network, or unexpected response)' })
+  @Post("send")
+  @ApiOperation({ summary: "Send a chat message to an agent" })
+  @ApiResponse({
+    status: 200,
+    description: "Message sent and AI response received",
+  })
+  @ApiResponse({ status: 400, description: "Invalid input" })
+  @ApiResponse({ status: 404, description: "Agent not found or inactive" })
+  @ApiResponse({
+    status: 502,
+    description: "AI service error (timeout, network, or unexpected response)",
+  })
   async sendMessage(
     @Body(new ZodValidationPipe(sendMessageSchema)) dto: SendMessageDto,
     @Req() req: Request,
   ) {
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
     const clientIp = this.messageRateLimitService.getClientIp(req);
-    const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
-      deviceId,
-      dto.agentId,
-      clientIp,
-    );
+    const rateLimitResult =
+      await this.messageRateLimitService.checkMessageRateLimit(
+        deviceId,
+        dto.agentId,
+        clientIp,
+      );
 
     if (!rateLimitResult.allowed) {
-      return { error: true, message: rateLimitResult.message, retryAfterSeconds: rateLimitResult.retryAfterSeconds };
+      return {
+        error: true,
+        message: rateLimitResult.message,
+        retryAfterSeconds: rateLimitResult.retryAfterSeconds,
+      };
     }
 
-    const visitorIp = this.visitorIdFrom(req);
-    return this.chatService.sendMessage(dto, visitorIp);
+    const visitor = this.visitorFrom(req);
+    return this.chatService.sendMessage(dto, visitor);
   }
 
-  @Get(':sessionId/poll')
-  @ApiOperation({ summary: 'Poll a session for new messages + handover state' })
-  @ApiResponse({ status: 200, description: 'Messages after `after` + current handoverState' })
-  @ApiResponse({ status: 404, description: 'Session not found' })
+  @Get(":sessionId/poll")
+  @ApiOperation({ summary: "Poll a session for new messages + handover state" })
+  @ApiResponse({
+    status: 200,
+    description: "Messages after `after` + current handoverState",
+  })
+  @ApiResponse({ status: 404, description: "Session not found" })
   async poll(
-    @Param('sessionId') sessionId: string,
-    @Query('after') after?: string,
+    @Param("sessionId") sessionId: string,
+    @Query("after") after?: string,
   ) {
     // The widget polls this only while escalated, to receive the human's
     // replies + know when the handover ends (handoverState back to NONE).
     // Public: the unguessable sessionId is the bearer (same model as the chat).
-    const afterDate = after && !Number.isNaN(Date.parse(after)) ? new Date(after) : undefined;
+    const afterDate =
+      after && !Number.isNaN(Date.parse(after)) ? new Date(after) : undefined;
     return this.chatService.pollPublicSession(sessionId, afterDate);
   }
 
@@ -194,40 +234,50 @@ export class PublicChatController {
    * before sending anything. Rate-limited (shares the message limiter) so a
    * no-session spam can't churn out sessions.
    */
-  @Post('request-human')
-  @ApiOperation({ summary: 'Request a human teammate (deterministic, no LLM)' })
-  @ApiResponse({ status: 200, description: 'Handover requested (or current state)' })
+  @Post("request-human")
+  @ApiOperation({ summary: "Request a human teammate (deterministic, no LLM)" })
+  @ApiResponse({
+    status: 200,
+    description: "Handover requested (or current state)",
+  })
   async requestHuman(
     @Body(new ZodValidationPipe(requestHumanSchema)) dto: RequestHumanDto,
     @Req() req: Request,
   ) {
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
     const clientIp = this.messageRateLimitService.getClientIp(req);
-    const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
-      deviceId,
-      dto.agentId,
-      clientIp,
-    );
+    const rateLimitResult =
+      await this.messageRateLimitService.checkMessageRateLimit(
+        deviceId,
+        dto.agentId,
+        clientIp,
+      );
     if (!rateLimitResult.allowed) {
-      return { error: true, message: rateLimitResult.message, retryAfterSeconds: rateLimitResult.retryAfterSeconds };
+      return {
+        error: true,
+        message: rateLimitResult.message,
+        retryAfterSeconds: rateLimitResult.retryAfterSeconds,
+      };
     }
 
     const agent = await this.chatService.resolveAgent(dto.agentId);
-    const fullAgent = await this.prisma.agent.findUniqueOrThrow({ where: { id: agent.id } });
-    const visitorIp = this.visitorIdFrom(req);
+    const fullAgent = await this.prisma.agent.findUniqueOrThrow({
+      where: { id: agent.id },
+    });
+    const visitor = this.visitorFrom(req);
     const session = await this.chatService.resolveOrCreateSession(
       agent.id,
       dto.sessionId,
-      dto.source ?? 'WIDGET',
-      visitorIp,
+      dto.source ?? "WIDGET",
+      visitor,
     );
 
     let handoverState: string = session.handoverState;
     // Demo/preview chats never raise a real handover.
     if (
       fullAgent.humanTakeoverEnabled &&
-      session.source !== 'DEMO' &&
-      session.handoverState === 'NONE'
+      session.source !== "DEMO" &&
+      session.handoverState === "NONE"
     ) {
       await this.handoverService.raiseRequested(
         {
@@ -235,27 +285,35 @@ export class PublicChatController {
           publicSessionId: session.sessionId,
           organizationId: fullAgent.organizationId,
         },
-        'USER_REQUESTED',
+        "USER_REQUESTED",
       );
-      handoverState = 'REQUESTED';
+      handoverState = "REQUESTED";
     }
 
     return { sessionId: session.sessionId, handoverState };
   }
 
-  @Post('stream')
-  @ApiOperation({ summary: 'Stream a chat response via Server-Sent Events' })
-  @ApiResponse({ status: 200, description: 'SSE stream of AI response chunks (errors sent as SSE events, not HTTP status codes)' })
-  @ApiResponse({ status: 400, description: 'Invalid input (only error returned as HTTP status; all other errors are SSE events)' })
+  @Post("stream")
+  @ApiOperation({ summary: "Stream a chat response via Server-Sent Events" })
+  @ApiResponse({
+    status: 200,
+    description:
+      "SSE stream of AI response chunks (errors sent as SSE events, not HTTP status codes)",
+  })
+  @ApiResponse({
+    status: 400,
+    description:
+      "Invalid input (only error returned as HTTP status; all other errors are SSE events)",
+  })
   async stream(
     @Body(new ZodValidationPipe(sendMessageSchema)) dto: SendMessageDto,
     @Req() req: Request,
     @Res() res: Response,
   ) {
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
     // Flush headers immediately so the browser stops the "Waiting for server
     // response" timer right away instead of waiting until the first text-delta
     // chunk arrives ~2-3s later. Without this the DevTools network panel shows
@@ -264,18 +322,21 @@ export class PublicChatController {
 
     const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
     const clientIp = this.messageRateLimitService.getClientIp(req);
-    const rateLimitResult = await this.messageRateLimitService.checkMessageRateLimit(
-      deviceId,
-      dto.agentId,
-      clientIp,
-    );
+    const rateLimitResult =
+      await this.messageRateLimitService.checkMessageRateLimit(
+        deviceId,
+        dto.agentId,
+        clientIp,
+      );
 
     if (!rateLimitResult.allowed) {
-      this.log.warn('stream', `rate limited agent=${dto.agentId}`);
+      this.log.warn("stream", `rate limited agent=${dto.agentId}`);
       // Pre-resolution: only the widget publicId is known, so keep it in metadata
       // rather than storing a publicId in the UUID-keyed agentId column.
       this.widgetLog.logRateLimited({ metadata: { publicId: dto.agentId } });
-      res.write(`data: ${JSON.stringify({ type: 'error', message: rateLimitResult.message })}\n\n`);
+      res.write(
+        `data: ${JSON.stringify({ type: "error", message: rateLimitResult.message })}\n\n`,
+      );
       res.end();
       return;
     }
@@ -285,14 +346,16 @@ export class PublicChatController {
 
     let closed = false;
     const abortController = new AbortController();
-    res.on('close', () => {
+    res.on("close", () => {
       closed = true;
       abortController.abort();
     });
 
     const timeout = setTimeout(() => {
       if (!closed) {
-        res.write(`data: ${JSON.stringify({ type: 'error', message: 'Stream timeout - response took too long' })}\n\n`);
+        res.write(
+          `data: ${JSON.stringify({ type: "error", message: "Stream timeout - response took too long" })}\n\n`,
+        );
         res.end();
         closed = true;
         abortController.abort();
@@ -305,14 +368,14 @@ export class PublicChatController {
     try {
       const agent = await this.chatService.resolveAgent(dto.agentId);
       resolvedAgentId = agent.id;
-      const visitorIp = this.visitorIdFrom(req);
+      const visitor = this.visitorFrom(req);
       const routingMode = resolveRoutingMode(agent.aiConfig);
 
       // IG1: Warn when HMAC is enabled — streaming responses cannot be HMAC-verified.
       // Direct mode has no webhook so HMAC is moot; only warn for n8n mode.
-      if (agent.hmacEnabled && routingMode === 'n8n') {
+      if (agent.hmacEnabled && routingMode === "n8n") {
         this.log.warn(
-          'stream',
+          "stream",
           `agent ${agent.id} has HMAC enabled but streaming responses cannot be verified (applies to sendMessage path only)`,
         );
       }
@@ -325,24 +388,36 @@ export class PublicChatController {
       const sessionPromise = this.chatService.resolveOrCreateSession(
         agent.id,
         dto.sessionId,
-        dto.source ?? 'WIDGET',
-        visitorIp,
+        dto.source ?? "WIDGET",
+        visitor,
       );
-      const fullAgentPromise = routingMode === 'direct'
-        ? this.prisma.agent.findUniqueOrThrow({ where: { id: agent.id } })
-        : Promise.resolve(null);
+      const fullAgentPromise =
+        routingMode === "direct"
+          ? this.prisma.agent.findUniqueOrThrow({ where: { id: agent.id } })
+          : Promise.resolve(null);
 
-      const [session, fullAgentResult] = await Promise.all([sessionPromise, fullAgentPromise]);
+      const [session, fullAgentResult] = await Promise.all([
+        sessionPromise,
+        fullAgentPromise,
+      ]);
 
-      this.log.info('stream', `message received agent=${agent.id} mode=${routingMode}`, {
-        sessionId: session.sessionId,
-        chars: dto.chatInput.length,
-      });
+      this.log.info(
+        "stream",
+        `message received agent=${agent.id} mode=${routingMode}`,
+        {
+          sessionId: session.sessionId,
+          chars: dto.chatInput.length,
+        },
+      );
       this.widgetLog.logMessageReceived({
         agentId: agent.id,
         sessionId: session.sessionId,
-        visitorId: visitorIp,
-        payload: { chars: dto.chatInput.length, source: dto.source ?? 'WIDGET', routingMode },
+        visitorId: visitor.visitorId,
+        payload: {
+          chars: dto.chatInput.length,
+          source: dto.source ?? "WIDGET",
+          routingMode,
+        },
       });
 
       // Push an early `session` event so the client knows the connection is
@@ -350,7 +425,9 @@ export class PublicChatController {
       // clients see dead air until the LLM responds. Mirrors the dev test
       // endpoint pattern.
       if (!closed) {
-        res.write(`data: ${JSON.stringify({ type: 'session', sessionId: session.sessionId })}\n\n`);
+        res.write(
+          `data: ${JSON.stringify({ type: "session", sessionId: session.sessionId })}\n\n`,
+        );
       }
 
       // ----- Human handover: AI paused -------------------------------------
@@ -359,7 +436,7 @@ export class PublicChatController {
       // receives the human's replies over its realtime subscription, not here.
       // (fullAgentResult is only fetched in direct mode, the chat path; n8n —
       // legacy, not used for chat — falls through to its normal reply.)
-      if (session.handoverState === 'ACTIVE_HUMAN' && fullAgentResult) {
+      if (session.handoverState === "ACTIVE_HUMAN" && fullAgentResult) {
         void this.handoverService.onVisitorMessageWhilePaused(
           {
             sessionDbId: session.id,
@@ -369,13 +446,19 @@ export class PublicChatController {
           dto.chatInput,
         );
         if (!closed) {
-          res.write(`data: ${JSON.stringify({
-            type: 'paused',
-            reason: 'human',
-            handoverState: 'ACTIVE_HUMAN',
-            message: fullAgentResult.humanConnectedLabel ?? 'A member of our team is with you.',
-          })}\n\n`);
-          res.write(`data: ${JSON.stringify({ type: 'done', sessionId: session.sessionId, messageId: null, handoverState: 'ACTIVE_HUMAN' })}\n\n`);
+          res.write(
+            `data: ${JSON.stringify({
+              type: "paused",
+              reason: "human",
+              handoverState: "ACTIVE_HUMAN",
+              message:
+                fullAgentResult.humanConnectedLabel ??
+                "A member of our team is with you.",
+            })}\n\n`,
+          );
+          res.write(
+            `data: ${JSON.stringify({ type: "done", sessionId: session.sessionId, messageId: null, handoverState: "ACTIVE_HUMAN" })}\n\n`,
+          );
         }
         return; // finally{} clears the timeout + ends the response
       }
@@ -395,11 +478,13 @@ export class PublicChatController {
           session.id,
           dto.chatInput,
           userMessageId,
-          ChatService.isPiiRedactionEnabled(agent.aiConfig) ? agent.organizationId : undefined,
+          ChatService.isPiiRedactionEnabled(agent.aiConfig)
+            ? agent.organizationId
+            : undefined,
         )
         .catch((err) => {
           this.log.warn(
-            'stream',
+            "stream",
             `saveUserMessage failed sessionId=${session.sessionId} messageId=${userMessageId}`,
             { err: err instanceof Error ? err.message : String(err) },
           );
@@ -410,10 +495,10 @@ export class PublicChatController {
       // same key names so analytics queries don't need to know which engine
       // served the reply. The direct branch populates the richer native fields
       // (traceId, cost, cachedInputTokens, ...) in addition.
-      let fullResponse = '';
+      let fullResponse = "";
       let metadata: ChatMessageMetadata;
 
-      if (routingMode === 'direct') {
+      if (routingMode === "direct") {
         const fullAgent = fullAgentResult!;
 
         // ----- Human handover: trigger + stall ----------------------------
@@ -427,16 +512,20 @@ export class PublicChatController {
         };
         // Demo/preview chats never trigger handover.
         const handoverAllowed =
-          fullAgent.humanTakeoverEnabled && session.source !== 'DEMO';
+          fullAgent.humanTakeoverEnabled && session.source !== "DEMO";
         const justRequested =
           handoverAllowed &&
-          session.handoverState === 'NONE' &&
+          session.handoverState === "NONE" &&
           this.handoverService.detectKeyword(dto.chatInput);
-        const inRequested = session.handoverState === 'REQUESTED' || justRequested;
+        const inRequested =
+          session.handoverState === "REQUESTED" || justRequested;
         if (justRequested) {
-          void this.handoverService.raiseRequested(handoverCtx, 'USER_REQUESTED');
+          void this.handoverService.raiseRequested(
+            handoverCtx,
+            "USER_REQUESTED",
+          );
         }
-        clientHandoverState = inRequested ? 'REQUESTED' : 'NONE';
+        clientHandoverState = inRequested ? "REQUESTED" : "NONE";
 
         // On bot-handled turns (takeover on, not already escalated) hand the
         // model the connect_to_human tool + an instruction to offer/escalate.
@@ -460,12 +549,19 @@ export class PublicChatController {
         let firstTokenTime: number | null = null;
         let lastTokenTime: number | null = null;
         let chunkCount = 0;
-        let finishPayload:
-          | { traceId: string; model: string | null; cost: number | null;
-              inputTokens: number; outputTokens: number; totalTokens: number;
-              cachedInputTokens: number | null; reasoningTokens: number | null;
-              finishReason: string | null; historyCount: number; historyTruncated: boolean }
-          | null = null;
+        let finishPayload: {
+          traceId: string;
+          model: string | null;
+          cost: number | null;
+          inputTokens: number;
+          outputTokens: number;
+          totalTokens: number;
+          cachedInputTokens: number | null;
+          reasoningTokens: number | null;
+          finishReason: string | null;
+          historyCount: number;
+          historyTruncated: boolean;
+        } | null = null;
 
         const directStream = this.directChatService.stream({
           agent: fullAgent,
@@ -478,12 +574,14 @@ export class PublicChatController {
           // to `aiConfig.maxContextMessages` and fits into `maxInputTokens`.
           recentHistory: dto.recentHistory,
           abortSignal: abortController.signal,
-          feature: 'chat-stream',
+          feature: "chat-stream",
           // While a human is being connected (REQUESTED) the bot keeps replying
           // but is told to stall politely. On bot-handled turns it instead gets
           // the offer/escalate instruction that pairs with connect_to_human.
           extraSystemInstruction: inRequested
-            ? this.handoverService.stallInstruction(fullAgent.humanConnectedLabel)
+            ? this.handoverService.stallInstruction(
+                fullAgent.humanConnectedLabel,
+              )
             : offerHumanTools
               ? this.handoverService.offerInstruction()
               : undefined,
@@ -493,14 +591,16 @@ export class PublicChatController {
 
         for await (const chunk of directStream) {
           if (closed) break;
-          if (chunk.type === 'text-delta' && chunk.content) {
+          if (chunk.type === "text-delta" && chunk.content) {
             const now = Date.now();
             if (firstTokenTime === null) firstTokenTime = now;
             lastTokenTime = now;
             chunkCount++;
             fullResponse += chunk.content;
-            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.content })}\n\n`);
-          } else if (chunk.type === 'finish') {
+            res.write(
+              `data: ${JSON.stringify({ type: "chunk", content: chunk.content })}\n\n`,
+            );
+          } else if (chunk.type === "finish") {
             finishPayload = {
               traceId: chunk.result.traceId,
               model: chunk.result.model,
@@ -514,18 +614,18 @@ export class PublicChatController {
               historyCount: chunk.result.historyCount,
               historyTruncated: chunk.result.historyTruncated,
             };
-          } else if (chunk.type === 'error') {
+          } else if (chunk.type === "error") {
             // DirectChatService already logged + ended the trace. Keep the raw
             // upstream provider error server-side only (it reveals model/provider
             // identity and routing internals) and surface a generic message to
             // the unauthenticated widget via the outer catch.
             this.log.error(
-              'stream',
+              "stream",
               `direct chat provider error agent=${agent.id}`,
               { providerError: chunk.error },
             );
             throw new HttpException(
-              'The assistant is temporarily unavailable. Please try again.',
+              "The assistant is temporarily unavailable. Please try again.",
               502,
             );
           }
@@ -535,18 +635,28 @@ export class PublicChatController {
         // The model called connect_to_human mid-stream → session is now
         // REQUESTED. Reflect it so the `done`/`paused` event tells the widget to
         // start polling for the human's replies.
-        if (toolEscalated) clientHandoverState = 'REQUESTED';
+        if (toolEscalated) clientHandoverState = "REQUESTED";
 
-        const fallback = detectFallback(fullResponse, fullAgent.fallbackPhrases);
+        const fallback = detectFallback(
+          fullResponse,
+          fullAgent.fallbackPhrases,
+        );
         metadata = {
-          streamingMode: 'direct',
+          streamingMode: "direct",
           backendReceivedAt: backendReceivedAt.toISOString(),
           backendRespondedAt: new Date().toISOString(),
           responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
-          timeToFirstToken: firstTokenTime ? firstTokenTime - backendReceivedAt.getTime() : null,
-          timeToLastToken: lastTokenTime ? lastTokenTime - backendReceivedAt.getTime() : null,
+          timeToFirstToken: firstTokenTime
+            ? firstTokenTime - backendReceivedAt.getTime()
+            : null,
+          timeToLastToken: lastTokenTime
+            ? lastTokenTime - backendReceivedAt.getTime()
+            : null,
           totalChunks: chunkCount,
-          streamDurationMs: firstTokenTime && lastTokenTime ? lastTokenTime - firstTokenTime : null,
+          streamDurationMs:
+            firstTokenTime && lastTokenTime
+              ? lastTokenTime - firstTokenTime
+              : null,
           // Direct-native richer fields (null-safe if `finish` never arrived
           // because of early abort).
           traceId: finishPayload?.traceId ?? null,
@@ -574,7 +684,9 @@ export class PublicChatController {
         }
       } else {
         // n8n streaming path — unchanged behaviour, unified metadata shape.
-        const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
+        const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(
+          agent.id,
+        );
 
         let n8nReceivedAt: number | null = null;
         let agentRepliedAt: number | null = null;
@@ -591,31 +703,44 @@ export class PublicChatController {
 
         for await (const chunk of generator) {
           if (closed) break;
-          if (chunk.type === 'begin') {
+          if (chunk.type === "begin") {
             n8nReceivedAt = chunk.metadata?.timestamp ?? null;
-          } else if (chunk.type === 'item' && chunk.content) {
+          } else if (chunk.type === "item" && chunk.content) {
             const now = Date.now();
             if (firstTokenTime === null) firstTokenTime = now;
             lastTokenTime = now;
             chunkCount++;
             fullResponse += chunk.content;
-            res.write(`data: ${JSON.stringify({ type: 'chunk', content: chunk.content })}\n\n`);
-          } else if (chunk.type === 'end') {
+            res.write(
+              `data: ${JSON.stringify({ type: "chunk", content: chunk.content })}\n\n`,
+            );
+          } else if (chunk.type === "end") {
             agentRepliedAt = chunk.metadata?.timestamp ?? null;
           }
         }
 
         metadata = {
-          streamingMode: 'real',
+          streamingMode: "real",
           backendReceivedAt: backendReceivedAt.toISOString(),
-          n8nReceivedAt: n8nReceivedAt ? new Date(n8nReceivedAt).toISOString() : null,
-          agentRepliedAt: agentRepliedAt ? new Date(agentRepliedAt).toISOString() : null,
+          n8nReceivedAt: n8nReceivedAt
+            ? new Date(n8nReceivedAt).toISOString()
+            : null,
+          agentRepliedAt: agentRepliedAt
+            ? new Date(agentRepliedAt).toISOString()
+            : null,
           backendRespondedAt: new Date().toISOString(),
           responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
-          timeToFirstToken: firstTokenTime ? firstTokenTime - backendReceivedAt.getTime() : null,
-          timeToLastToken: lastTokenTime ? lastTokenTime - backendReceivedAt.getTime() : null,
+          timeToFirstToken: firstTokenTime
+            ? firstTokenTime - backendReceivedAt.getTime()
+            : null,
+          timeToLastToken: lastTokenTime
+            ? lastTokenTime - backendReceivedAt.getTime()
+            : null,
           totalChunks: chunkCount,
-          streamDurationMs: agentRepliedAt && n8nReceivedAt ? agentRepliedAt - n8nReceivedAt : null,
+          streamDurationMs:
+            agentRepliedAt && n8nReceivedAt
+              ? agentRepliedAt - n8nReceivedAt
+              : null,
         };
       }
 
@@ -634,27 +759,29 @@ export class PublicChatController {
         // below for server-side logging/tracing only.
         const publicMetadata = { ...(metadata as Record<string, unknown>) };
         for (const internalField of [
-          'traceId',
-          'cost',
-          'model',
-          'inputTokens',
-          'outputTokens',
-          'totalTokens',
-          'cachedInputTokens',
-          'reasoningTokens',
+          "traceId",
+          "cost",
+          "model",
+          "inputTokens",
+          "outputTokens",
+          "totalTokens",
+          "cachedInputTokens",
+          "reasoningTokens",
         ]) {
           delete publicMetadata[internalField];
         }
 
-        res.write(`data: ${JSON.stringify({
-          type: 'done',
-          sessionId: session.sessionId,
-          messageId: assistantMessageId,
-          metadata: publicMetadata,
-          handoverState: clientHandoverState,
-        })}\n\n`);
+        res.write(
+          `data: ${JSON.stringify({
+            type: "done",
+            sessionId: session.sessionId,
+            messageId: assistantMessageId,
+            metadata: publicMetadata,
+            handoverState: clientHandoverState,
+          })}\n\n`,
+        );
 
-        this.log.info('stream', `reply sent agent=${agent.id}`, {
+        this.log.info("stream", `reply sent agent=${agent.id}`, {
           sessionId: session.sessionId,
           chars: fullResponse.length,
           ms: metadata.responseLatencyMs,
@@ -664,7 +791,7 @@ export class PublicChatController {
         this.widgetLog.logReplySent({
           agentId: agent.id,
           sessionId: session.sessionId,
-          visitorId: visitorIp,
+          visitorId: visitor.visitorId,
           response: { chars: fullResponse.length },
           latencyMs: metadata.responseLatencyMs,
           metadata: metadata as unknown as Record<string, unknown>,
@@ -675,10 +802,15 @@ export class PublicChatController {
         // the trace + pino logs still have the response so analytics isn't
         // blind.
         void this.chatService
-          .saveAssistantMessage(session.id, fullResponse, metadata, assistantMessageId)
+          .saveAssistantMessage(
+            session.id,
+            fullResponse,
+            metadata,
+            assistantMessageId,
+          )
           .catch((err) => {
             this.log.warn(
-              'stream',
+              "stream",
               `assistant message persist failed sessionId=${session.sessionId} messageId=${assistantMessageId}`,
               { err: err instanceof Error ? err.message : String(err) },
             );
@@ -686,26 +818,63 @@ export class PublicChatController {
         void this.chatService
           .updateSessionTimestamp(session.id)
           .catch((err) => {
-            this.log.warn('stream', `session timestamp update failed sessionId=${session.sessionId}`, {
-              err: err instanceof Error ? err.message : String(err),
-            });
+            this.log.warn(
+              "stream",
+              `session timestamp update failed sessionId=${session.sessionId}`,
+              {
+                err: err instanceof Error ? err.message : String(err),
+              },
+            );
           });
       }
     } catch (error) {
-      this.log.error('stream', `chat stream failed agent=${dto.agentId}`, error);
-      this.widgetLog.logException({ agentId: resolvedAgentId, error });
+      // A consent refusal is expected behaviour, already recorded as a
+      // WIDGET_CONSENT_REQUIRED event. Logging it as an error would bury real
+      // stream failures under normal locked-visitor traffic.
+      if (!(error instanceof ConsentRequiredException)) {
+        this.log.error(
+          "stream",
+          `chat stream failed agent=${dto.agentId}`,
+          error,
+        );
+        this.widgetLog.logException({ agentId: resolvedAgentId, error });
+      }
       if (!closed) {
         // IG2: Map service timeout errors to the friendly controller timeout message
-        const isTimeout = error instanceof Error && error.message.includes('timed out');
+        const isTimeout =
+          error instanceof Error && error.message.includes("timed out");
         const rawMessage = isTimeout
-          ? 'Stream timeout - response took too long'
+          ? "Stream timeout - response took too long"
           : error instanceof HttpException
             ? error.message
-            : 'An unexpected error occurred';
+            : "An unexpected error occurred";
         // Defence in depth: an exception message must not carry markup to the
         // widget's renderer — strip angle brackets (xss-through-exception).
-        const message = rawMessage.replace(/[<>]/g, '');
-        res.write(`data: ${JSON.stringify({ type: 'error', message })}\n\n`);
+        const message = rawMessage.replace(/[<>]/g, "");
+        // A machine-readable code lets the widget react (e.g. CONSENT_REQUIRED
+        // shows the consent prompt again). Only codes we set ourselves.
+        const body =
+          error instanceof HttpException ? error.getResponse() : undefined;
+        const code =
+          body &&
+          typeof body === "object" &&
+          typeof (body as { code?: unknown }).code === "string"
+            ? (body as { code: string }).code
+            : undefined;
+        // The live notice rides along on a consent refusal, so a widget with a
+        // stale "notice off" config can show it at once.
+        const consentExtra =
+          error instanceof ConsentRequiredException &&
+          body &&
+          typeof body === "object"
+            ? {
+                notice: (body as { notice?: unknown }).notice,
+                noticeHash: (body as { noticeHash?: unknown }).noticeHash,
+              }
+            : {};
+        res.write(
+          `data: ${JSON.stringify({ type: "error", message, ...(code ? { code } : {}), ...consentExtra })}\n\n`,
+        );
       }
     } finally {
       clearTimeout(timeout);

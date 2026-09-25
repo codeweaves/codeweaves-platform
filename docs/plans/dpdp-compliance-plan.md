@@ -78,7 +78,7 @@ compliant because event_logs is brought into the lifecycle, NOT by stripping con
 - Verify the payload size cap (`capJson`) is generous enough not to truncate real chat messages.
   Principle: duplication is fine when every copy is access-controlled + deletable + time-bounded.
 
-### S5 — Widget notice + consent — **DEFERRED (parked 2026-07-24 at user request)**
+### S5 — Widget notice + consent — **BUILT 2026-09-25 (web widget + voice; WhatsApp is phase 2). See ADR-0004.**
 
 - One-line notice + Privacy Policy link at chat start (per-agent config toggle, default on). Optional
   affirmative "start chat" acknowledgement.

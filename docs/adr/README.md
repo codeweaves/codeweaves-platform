@@ -6,11 +6,12 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 
 ## Index
 
-| #                                                | Title                            | Status   | Date       |
-| ------------------------------------------------ | -------------------------------- | -------- | ---------- |
-| [0001](0001-environments-and-deploy-pipeline.md) | Environments and deploy pipeline | Accepted | 2026-09-16 |
-| [0002](0002-production-hosting-and-region.md)    | Production hosting and region    | Accepted | 2026-09-16 |
-| [0003](0003-widget-shadow-dom-open-mode.md)      | Widget Shadow DOM open mode      | Accepted | 2026-09-24 |
+| #                                                        | Title                                    | Status   | Date       |
+| -------------------------------------------------------- | ---------------------------------------- | -------- | ---------- |
+| [0001](0001-environments-and-deploy-pipeline.md)         | Environments and deploy pipeline         | Accepted | 2026-09-16 |
+| [0002](0002-production-hosting-and-region.md)            | Production hosting and region            | Accepted | 2026-09-16 |
+| [0003](0003-widget-shadow-dom-open-mode.md)              | Widget Shadow DOM open mode              | Accepted | 2026-09-24 |
+| [0004](0004-web-visitor-identity-and-consent-records.md) | Web visitor identity and consent records | Accepted | 2026-09-25 |
 
 ## When to write one
 

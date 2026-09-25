@@ -12,52 +12,52 @@
  */
 export enum Resource {
   // Agent and configuration
-  Agent = 'Agent',
-  AgentTheme = 'AgentTheme',
-  AgentKnowledge = 'AgentKnowledge',
-  AgentSecret = 'AgentSecret',
-  AgentDataField = 'AgentDataField',
-  WhatsappChannel = 'WhatsappChannel',
-  File = 'File',
-  Voice = 'Voice',
+  Agent = "Agent",
+  AgentTheme = "AgentTheme",
+  AgentKnowledge = "AgentKnowledge",
+  AgentSecret = "AgentSecret",
+  AgentDataField = "AgentDataField",
+  WhatsappChannel = "WhatsappChannel",
+  File = "File",
+  Voice = "Voice",
 
   // Operations
-  CollectedData = 'CollectedData',
-  ChatSession = 'ChatSession',
-  ChatMessage = 'ChatMessage',
-  Handover = 'Handover',
-  Analytics = 'Analytics',
-  Notification = 'Notification',
+  CollectedData = "CollectedData",
+  ChatSession = "ChatSession",
+  ChatMessage = "ChatMessage",
+  Handover = "Handover",
+  Analytics = "Analytics",
+  Notification = "Notification",
 
   // Administration
-  Organization = 'Organization',
-  User = 'User',
-  Member = 'Member',
-  Role = 'Role',
-  Invitation = 'Invitation',
-  Privacy = 'Privacy',
-  EmailTemplate = 'EmailTemplate',
-  AuditLog = 'AuditLog',
+  Organization = "Organization",
+  User = "User",
+  Member = "Member",
+  Role = "Role",
+  Invitation = "Invitation",
+  Privacy = "Privacy",
+  EmailTemplate = "EmailTemplate",
+  AuditLog = "AuditLog",
 }
 
 export enum Action {
-  Create = 'Create',
-  Read = 'Read',
+  Create = "Create",
+  Read = "Read",
   /** Read across organizations, i.e. beyond the caller's own tenant. */
-  ReadAll = 'ReadAll',
-  Update = 'Update',
-  Delete = 'Delete',
-  Export = 'Export',
+  ReadAll = "ReadAll",
+  Update = "Update",
+  Delete = "Delete",
+  Export = "Export",
 
   // Verbs that do not map onto CRUD.
   /** Take over a live conversation. */
-  Take = 'Take',
+  Take = "Take",
   /** Reply as a human agent. */
-  Reply = 'Reply',
+  Reply = "Reply",
   /** Close out a handover. */
-  Resolve = 'Resolve',
+  Resolve = "Resolve",
   /** Administer other people's roles. */
-  Manage = 'Manage',
+  Manage = "Manage",
 
   /*
    * Section-level writes on the agent.
@@ -68,14 +68,16 @@ export enum Action {
    * caller may set. So these are checked field-by-field in the services, which is
    * why they read as verbs on a slice rather than plain Update.
    */
-  UpdatePrompt = 'UpdatePrompt',
-  UpdateHandover = 'UpdateHandover',
-  UpdateIntegration = 'UpdateIntegration',
-  UpdateBranding = 'UpdateBranding',
+  UpdatePrompt = "UpdatePrompt",
+  UpdateHandover = "UpdateHandover",
+  UpdateIntegration = "UpdateIntegration",
+  UpdateBranding = "UpdateBranding",
+  /** The chat-start privacy notice inside the widget theme (ADR-0004). */
+  UpdateConsent = "UpdateConsent",
   /** Change a user's access scope. Platform-only. */
-  ManageScope = 'ManageScope',
+  ManageScope = "ManageScope",
   /** Erase an entire organization. Distinct from Delete on a single subject. */
-  DeleteOrg = 'DeleteOrg',
+  DeleteOrg = "DeleteOrg",
 }
 
 /**
@@ -97,7 +99,7 @@ export type PermissionKey = `${Resource}:${Action}`;
  * `User.role` column: a role set tracks what an account holds today, and
  * `PATCH /users/:id/scope` leaves that old column stale on purpose.
  */
-export const SUPER_ADMIN_ROLE_KEY = 'platform.super_admin';
+export const SUPER_ADMIN_ROLE_KEY = "platform.super_admin";
 
 /** Does this account hold the super-admin role right now? */
 export function isSuperAdmin(user: { roleKeys?: string[] | null }): boolean {

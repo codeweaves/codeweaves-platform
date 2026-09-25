@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import {
   FileText,
@@ -13,23 +13,25 @@ import {
   MessageSquareText,
   ClipboardList,
   Headset,
-} from 'lucide-react';
-import { cn } from '@/lib/utils';
-import { usePermissions } from '@/hooks/use-permissions';
+  ShieldCheck,
+} from "lucide-react";
+import { cn } from "@/lib/utils";
+import { usePermissions } from "@/hooks/use-permissions";
 
 export type CategoryId =
-  | 'general'
-  | 'appearance'
-  | 'chat'
-  | 'behavior'
-  | 'voice'
-  | 'prompt'
-  | 'classification'
-  | 'dataCapture'
-  | 'integration'
-  | 'whatsapp'
-  | 'branding'
-  | 'humanHandover';
+  | "general"
+  | "appearance"
+  | "chat"
+  | "behavior"
+  | "voice"
+  | "prompt"
+  | "classification"
+  | "dataCapture"
+  | "integration"
+  | "whatsapp"
+  | "branding"
+  | "humanHandover"
+  | "consent";
 
 interface Category {
   id: CategoryId;
@@ -46,88 +48,97 @@ interface Category {
 
 const allCategories: Category[] = [
   {
-    id: 'general',
-    title: 'General',
+    id: "general",
+    title: "General",
     icon: <FileText className="h-5 w-5" />,
-    description: 'Name and client mapping',
-    requires: 'Agent:Update',
+    description: "Name and client mapping",
+    requires: "Agent:Update",
   },
   {
-    id: 'appearance',
-    title: 'Appearance',
+    id: "appearance",
+    title: "Appearance",
     icon: <Palette className="h-5 w-5" />,
-    description: 'Colors, icons, and visual styling',
-    requires: 'AgentTheme:Update',
+    description: "Colors, icons, and visual styling",
+    requires: "AgentTheme:Update",
   },
   {
-    id: 'chat',
-    title: 'Chat Interface',
+    id: "chat",
+    title: "Chat Interface",
     icon: <MessageCircle className="h-5 w-5" />,
-    description: 'Messages, avatars, and chat layout',
-    requires: 'AgentTheme:Update',
+    description: "Messages, avatars, and chat layout",
+    requires: "AgentTheme:Update",
   },
   {
-    id: 'behavior',
-    title: 'Behavior',
+    id: "behavior",
+    title: "Behavior",
     icon: <Settings className="h-5 w-5" />,
-    description: 'Interactions and user experience',
-    requires: 'Agent:Update',
+    description: "Interactions and user experience",
+    requires: "Agent:Update",
   },
   {
-    id: 'voice',
-    title: 'Voice',
+    id: "voice",
+    title: "Voice",
     icon: <Mic className="h-5 w-5" />,
-    description: 'Voice input and output settings',
-    requires: 'Agent:Update',
+    description: "Voice input and output settings",
+    requires: "Agent:Update",
   },
   {
-    id: 'prompt',
-    title: 'Prompt',
+    id: "prompt",
+    title: "Prompt",
     icon: <ScrollText className="h-5 w-5" />,
-    description: 'Initial context and knowledge base',
-    requires: 'Agent:UpdatePrompt',
+    description: "Initial context and knowledge base",
+    requires: "Agent:UpdatePrompt",
   },
   {
-    id: 'classification',
-    title: 'Classification',
+    id: "classification",
+    title: "Classification",
     icon: <Sparkles className="h-5 w-5" />,
-    description: 'AI tagging: conversation topics & language detection',
-    requires: 'Agent:Update',
+    description: "AI tagging: conversation topics & language detection",
+    requires: "Agent:Update",
   },
   {
-    id: 'dataCapture',
-    title: 'Data Capture',
+    id: "dataCapture",
+    title: "Data Capture",
     icon: <ClipboardList className="h-5 w-5" />,
-    description: 'Collect fields (name, email, …) from conversations',
-    requires: 'AgentDataField:Read',
+    description: "Collect fields (name, email, …) from conversations",
+    requires: "AgentDataField:Read",
   },
   {
-    id: 'integration',
-    title: 'Integration',
+    id: "integration",
+    title: "Integration",
     icon: <Plug className="h-5 w-5" />,
-    description: 'Routing: n8n webhook or native AI orchestrator',
-    requires: 'AgentSecret:Read',
+    description: "Routing: n8n webhook or native AI orchestrator",
+    requires: "AgentSecret:Read",
   },
   {
-    id: 'whatsapp',
-    title: 'WhatsApp',
+    id: "whatsapp",
+    title: "WhatsApp",
     icon: <MessageSquareText className="h-5 w-5" />,
-    description: 'Connect a WhatsApp number to this agent',
-    requires: 'WhatsappChannel:Read',
+    description: "Connect a WhatsApp number to this agent",
+    requires: "WhatsappChannel:Read",
   },
   {
-    id: 'branding',
-    title: 'Branding',
+    id: "branding",
+    title: "Branding",
     icon: <BadgeInfo className="h-5 w-5" />,
-    description: 'Powered by / logo footer',
-    requires: 'AgentTheme:UpdateBranding',
+    description: "Powered by / logo footer",
+    requires: "AgentTheme:UpdateBranding",
   },
   {
-    id: 'humanHandover',
-    title: 'Human Handover',
+    id: "humanHandover",
+    title: "Human Handover",
     icon: <Headset className="h-5 w-5" />,
-    description: 'Let a teammate take over live chats',
-    requires: 'Agent:UpdateHandover',
+    description: "Let a teammate take over live chats",
+    requires: "Agent:UpdateHandover",
+  },
+  {
+    id: "consent",
+    title: "Privacy Notice",
+    icon: <ShieldCheck className="h-5 w-5" />,
+    description: "Privacy notice, policy link and consent",
+    // Its own grant (org.agent_privacy), like branding: the notice is the
+    // client's legal wording, not styling.
+    requires: "AgentTheme:UpdateConsent",
   },
 ];
 
@@ -159,18 +170,18 @@ export function AgentEditorSidebar({
               type="button"
               onClick={() => onCategoryChange(category.id)}
               className={cn(
-                'flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors',
+                "flex w-full cursor-pointer items-center gap-3 rounded-lg p-3 text-left transition-colors",
                 selectedCategory === category.id
-                  ? 'bg-primary text-primary-foreground shadow-sm'
-                  : 'text-foreground hover:bg-muted',
+                  ? "bg-primary text-primary-foreground shadow-sm"
+                  : "text-foreground hover:bg-muted",
               )}
             >
               <div
                 className={cn(
-                  'flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors',
+                  "flex h-8 w-8 shrink-0 items-center justify-center rounded-lg transition-colors",
                   selectedCategory === category.id
-                    ? 'bg-white/15 text-primary-foreground'
-                    : 'bg-muted text-muted-foreground',
+                    ? "bg-white/15 text-primary-foreground"
+                    : "bg-muted text-muted-foreground",
                 )}
               >
                 {category.icon}

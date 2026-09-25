@@ -1,4 +1,4 @@
-export type ChatSourceLike = 'WIDGET' | 'WHATSAPP' | 'DEMO' | string;
+export type ChatSourceLike = "WIDGET" | "WHATSAPP" | "DEMO" | string;
 
 /**
  * How to label a visitor in the Inbox and Conversations lists.
@@ -6,7 +6,8 @@ export type ChatSourceLike = 'WIDGET' | 'WHATSAPP' | 'DEMO' | string;
  * `ChatSession.visitorId` means two different things depending on the channel,
  * which is easy to get wrong (and was):
  *
- *  - WIDGET / DEMO / VOICE → a hashed IP (`vh_…`, see CryptoService.hashVisitorIp).
+ *  - WIDGET / DEMO / VOICE → a hashed device ID (`vd_…`, see CryptoService.hashVisitorDevice;
+ *    older rows hold a hashed IP, `vh_…`).
  *    Unreadable, not an identifier anyone can act on, so it is not shown.
  *  - WHATSAPP → the customer's actual phone number. That IS useful: it's who
  *    you're talking to, it's what the outbound reply is addressed to
@@ -21,6 +22,6 @@ export function visitorLabel(
   source: ChatSourceLike | null | undefined,
   visitorId: string | null | undefined,
 ): string {
-  if (source === 'WHATSAPP' && visitorId?.trim()) return visitorId.trim();
-  return 'Visitor';
+  if (source === "WHATSAPP" && visitorId?.trim()) return visitorId.trim();
+  return "Visitor";
 }

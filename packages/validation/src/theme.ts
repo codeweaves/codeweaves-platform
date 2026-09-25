@@ -166,6 +166,41 @@ export const handoverConfigSchema = z.object({
 });
 export type HandoverConfig = z.infer<typeof handoverConfigSchema>;
 
+// Chat-start privacy notice (DPDP s.5 / Rule 3). The business that embeds the
+// widget is the data fiduciary, so the wording, the policy link and the mode
+// are THEIR choice; we only give them the space and record proof. Every field
+// is defaulted so stored themes that predate this key validate unchanged, and
+// `enabled` defaults to false: a notice without the client's own policy link
+// would not meet Rule 3(c), and turning it on for live widgets would lock them.
+//
+//   notice  = an informational line + link, chat works at once (s.7(a) use)
+//   consent = the input stays locked until the visitor clicks the button, and
+//             the server records a GRANTED event (s.6 consent)
+//
+// "enabled requires privacyPolicyUrl" is checked after the merge in
+// AgentThemesService, because a PATCH can set the two keys in separate calls.
+export const CONSENT_DEFAULT_NOTICE_TEXT =
+  "We use the details you share in this chat to answer your questions. Read our Privacy Policy to learn how we handle your data and how to exercise your rights.";
+
+export const consentConfigSchema = z.object({
+  enabled: z.boolean().default(false),
+  mode: z.enum(["notice", "consent"]).default("consent"),
+  noticeText: z
+    .string()
+    .trim()
+    .min(1)
+    .max(500)
+    .default(CONSENT_DEFAULT_NOTICE_TEXT),
+  linkText: z.string().trim().min(1).max(40).default("Privacy Policy"),
+  // Empty until the client sets it. https only, same XSS rule as branding.
+  privacyPolicyUrl: z.union([httpsUrlString, z.literal("")]).default(""),
+  buttonLabel: z.string().trim().min(1).max(30).default("Start chat"),
+  withdrawLabel: z.string().trim().min(1).max(40).default("Withdraw consent"),
+  textColor: colorString.default("#6b7280"),
+  linkColor: colorString.default("#2563eb"),
+});
+export type ConsentConfig = z.infer<typeof consentConfigSchema>;
+
 // ============================================
 // Root Widget Theme Schema
 // ============================================
@@ -199,12 +234,21 @@ export const widgetThemeSchema = z.object({
     endedLabel: "You're back with our assistant",
     endedLineColor: "#3b82f6",
   }),
+  // Defaulted (all fields) so stored themes without this key validate.
+  consent: consentConfigSchema.default({}),
 });
 
 export type WidgetTheme = z.infer<typeof widgetThemeSchema>;
 
 /** Deep-partial schema for PATCH/update operations (all fields optional) */
-export const partialWidgetThemeSchema = widgetThemeSchema.deepPartial();
+// `deepPartial()` does not reach inside a `.default()` section, so on its own a
+// PATCH of `{ consent: { enabled: true } }` would fill every other consent field
+// with its default and the merge would overwrite the client's saved wording.
+// `.partial()` wraps each field in Optional, which returns undefined before the
+// field default runs, so a PATCH carries only the keys it sent.
+export const partialWidgetThemeSchema = widgetThemeSchema.deepPartial().extend({
+  consent: consentConfigSchema.partial().optional(),
+});
 export type PartialWidgetTheme = z.infer<typeof partialWidgetThemeSchema>;
 
 // ============================================
@@ -311,5 +355,16 @@ export const defaultWidgetTheme: WidgetTheme = {
     requestedLineColor: "#9ca3af",
     endedLabel: "You're back with our assistant",
     endedLineColor: "#3b82f6",
+  },
+  consent: {
+    enabled: false,
+    mode: "consent",
+    noticeText: CONSENT_DEFAULT_NOTICE_TEXT,
+    linkText: "Privacy Policy",
+    privacyPolicyUrl: "",
+    buttonLabel: "Start chat",
+    withdrawLabel: "Withdraw consent",
+    textColor: "#6b7280",
+    linkColor: "#2563eb",
   },
 };

@@ -1,22 +1,28 @@
-import { Injectable, NotFoundException, BadGatewayException } from '@nestjs/common';
-import { PrismaService } from './prisma.service';
-import { AgentsService } from './agents.service';
-import { HmacService } from '../common/security/hmac.service';
-import { CryptoService } from '../common/crypto/crypto.service';
-import { TracerService } from '../common/tracer/tracer.service';
-import { WidgetEventLogger } from '../common/events/widget.logger';
-import { AppLogger } from '../common/logger/app-logger';
-import { DirectChatService } from '../modules/ai/direct-chat.service';
-import { PiiDetectionService } from '../modules/pii/pii-detection.service';
-import { PiiTokenizerService } from '../modules/pii/pii-tokenizer.service';
-import { HandoverService } from './handover.service';
-import type { SendMessageDto } from '@repo/validation';
-import { resolveRoutingMode } from '@repo/validation';
-import type { ChatSession, Prisma, HandoverReason } from '@prisma/client';
-import type { ChatMessageMetadata } from './chat-metadata.interface';
-import { MessageMetricsService } from './message-metrics.service';
-import { detectFallback } from '../utils/fallback-detection';
-import { randomUUID } from 'crypto';
+import {
+  Injectable,
+  NotFoundException,
+  BadGatewayException,
+} from "@nestjs/common";
+import { PrismaService } from "./prisma.service";
+import { AgentsService } from "./agents.service";
+import { HmacService } from "../common/security/hmac.service";
+import { CryptoService } from "../common/crypto/crypto.service";
+import { TracerService } from "../common/tracer/tracer.service";
+import { WidgetEventLogger } from "../common/events/widget.logger";
+import { AppLogger } from "../common/logger/app-logger";
+import { DirectChatService } from "../modules/ai/direct-chat.service";
+import { PiiDetectionService } from "../modules/pii/pii-detection.service";
+import { PiiTokenizerService } from "../modules/pii/pii-tokenizer.service";
+import { HandoverService } from "./handover.service";
+import { ConsentService } from "./consent.service";
+import type { VisitorIdentity } from "./web-visitor";
+import type { SendMessageDto } from "@repo/validation";
+import { resolveRoutingMode } from "@repo/validation";
+import type { ChatSession, Prisma, HandoverReason } from "@prisma/client";
+import type { ChatMessageMetadata } from "./chat-metadata.interface";
+import { MessageMetricsService } from "./message-metrics.service";
+import { detectFallback } from "../utils/fallback-detection";
+import { randomUUID } from "crypto";
 
 const N8N_TIMEOUT_MS = 10_000;
 const MAX_LOG_RESPONSE_LENGTH = 500;
@@ -37,6 +43,7 @@ export class ChatService {
     private readonly piiDetection: PiiDetectionService,
     private readonly piiTokenizer: PiiTokenizerService,
     private readonly widgetLog: WidgetEventLogger,
+    private readonly consentService: ConsentService,
   ) {}
 
   /**
@@ -45,7 +52,7 @@ export class ChatService {
    * the pause is enforced in exactly one place.
    */
   isPausedForHuman(session: { handoverState: string }): boolean {
-    return session.handoverState === 'ACTIVE_HUMAN';
+    return session.handoverState === "ACTIVE_HUMAN";
   }
 
   /**
@@ -60,7 +67,11 @@ export class ChatService {
     content: string,
   ): Promise<void> {
     await this.handoverService.onVisitorMessageWhilePaused(
-      { sessionDbId: session.id, publicSessionId: session.sessionId, organizationId },
+      {
+        sessionDbId: session.id,
+        publicSessionId: session.sessionId,
+        organizationId,
+      },
       content,
     );
   }
@@ -74,13 +85,18 @@ export class ChatService {
    * turn. Best-effort: `raiseRequested` swallows its own errors.
    */
   async maybeEscalateToHuman(
-    session: { id: string; sessionId: string; handoverState: string; source?: string },
+    session: {
+      id: string;
+      sessionId: string;
+      handoverState: string;
+      source?: string;
+    },
     agent: { humanTakeoverEnabled?: boolean | null; organizationId: string },
     text: string,
   ): Promise<boolean> {
     if (!agent.humanTakeoverEnabled) return false;
-    if (session.source === 'DEMO') return false; // demo/preview never raises a real handover
-    if (session.handoverState !== 'NONE') return false;
+    if (session.source === "DEMO") return false; // demo/preview never raises a real handover
+    if (session.handoverState !== "NONE") return false;
     if (!this.handoverService.detectKeyword(text)) return false;
     await this.handoverService.raiseRequested(
       {
@@ -88,7 +104,7 @@ export class ChatService {
         publicSessionId: session.sessionId,
         organizationId: agent.organizationId,
       },
-      'USER_REQUESTED',
+      "USER_REQUESTED",
     );
     return true;
   }
@@ -114,7 +130,9 @@ export class ChatService {
    * being connected (handoverState = REQUESTED). Passed as `extraSystemInstruction`
    * by every route (widget text, voice, WhatsApp) when the chat is mid-handover.
    */
-  handoverStallInstruction(agent: { humanConnectedLabel?: string | null }): string {
+  handoverStallInstruction(agent: {
+    humanConnectedLabel?: string | null;
+  }): string {
     return this.handoverService.stallInstruction(agent.humanConnectedLabel);
   }
 
@@ -130,7 +148,11 @@ export class ChatService {
     onEscalate: (reason: HandoverReason) => void,
   ) {
     return this.handoverService.buildConnectTool(
-      { sessionDbId: session.id, publicSessionId: session.sessionId, organizationId },
+      {
+        sessionDbId: session.id,
+        publicSessionId: session.sessionId,
+        organizationId,
+      },
       onEscalate,
     );
   }
@@ -145,12 +167,13 @@ export class ChatService {
     n8nResponse: { n8nReceivedAt?: string; agentRepliedAt?: string },
   ): ChatMessageMetadata {
     return {
-      streamingMode: 'simulated',
+      streamingMode: "simulated",
       backendReceivedAt: backendReceivedAt.toISOString(),
       n8nReceivedAt: n8nResponse.n8nReceivedAt ?? null,
       agentRepliedAt: n8nResponse.agentRepliedAt ?? null,
       backendRespondedAt: backendRespondedAt.toISOString(),
-      responseLatencyMs: backendRespondedAt.getTime() - backendReceivedAt.getTime(),
+      responseLatencyMs:
+        backendRespondedAt.getTime() - backendReceivedAt.getTime(),
       // Streaming fields are null on the simulated-sync path — analytics can
       // `COALESCE(timeToFirstToken, responseLatencyMs)` if it wants a unified
       // "time-to-usable-output" metric across modes.
@@ -163,17 +186,25 @@ export class ChatService {
 
   async resolveAgent(agentId: string) {
     // Support both internal UUID and public short ID (widget sends publicId)
-    const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(agentId);
+    const isUuid =
+      /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(
+        agentId,
+      );
     const agent = await this.prisma.agent.findFirst({
       where: {
         ...(isUuid ? { id: agentId } : { publicId: agentId }),
         deletedAt: null,
-        status: 'ACTIVE',
+        status: "ACTIVE",
       },
-      select: { id: true, hmacEnabled: true, aiConfig: true, organizationId: true },
+      select: {
+        id: true,
+        hmacEnabled: true,
+        aiConfig: true,
+        organizationId: true,
+      },
     });
     if (!agent) {
-      throw new NotFoundException('Agent not found or inactive');
+      throw new NotFoundException("Agent not found or inactive");
     }
     return agent;
   }
@@ -191,19 +222,21 @@ export class ChatService {
   async resolveOrCreateSession(
     agentId: string,
     sessionId?: string,
-    source: 'DEMO' | 'WIDGET' | 'WHATSAPP' = 'DEMO',
-    visitorId?: string,
+    source: "DEMO" | "WIDGET" | "WHATSAPP" = "DEMO",
+    visitor: VisitorIdentity = {},
   ): Promise<ChatSession> {
     if (sessionId) {
       const existing = await this.prisma.chatSession.findFirst({
-        where: { sessionId, agentId, status: 'ACTIVE' },
+        where: { sessionId, agentId, status: "ACTIVE" },
         // Pull the agent's per-row lifetime alongside the session so the
         // expiry check uses the agent's configured value (6-24h range,
         // default 6h) rather than a hardcoded constant.
         include: { agent: { select: { sessionLifetimeHours: true } } },
       });
       if (!existing) {
-        throw new NotFoundException('Session not found or does not belong to this agent');
+        throw new NotFoundException(
+          "Session not found or does not belong to this agent",
+        );
       }
 
       // Auto-rotate when the session has lived past its lifetime cap. We
@@ -217,20 +250,18 @@ export class ChatService {
       // crossing its lifetime cap must NOT split into two sessions. The instant
       // it's resolved (handoverState back to NONE), normal rotation resumes.
       const isExpired =
-        existing.handoverState === 'NONE' &&
+        existing.handoverState === "NONE" &&
         Date.now() - existing.createdAt.getTime() > lifetimeMs;
       if (isExpired) {
         await this.prisma.chatSession.update({
           where: { id: existing.id },
-          data: { status: 'EXPIRED' },
+          data: { status: "EXPIRED" },
         });
-        return this.createWidgetAwareSession(agentId, source, visitorId);
+        return this.createWidgetAwareSession(agentId, source, visitor);
       }
 
-      // Backfill visitorId on an existing session when missing, OR when the
-      // stored value is a loopback address (::1, 127.0.0.1) — this happens
-      // when the first request arrived before the widget's public-IP lookup
-      // resolved, so req.ip fell back to localhost.
+      // Backfill the visitor on an existing session that was created without
+      // one (e.g. a request that carried no device ID, or a loopback IP).
       //
       // Fire-and-forget: the chat hot-path doesn't read session.visitorId, so
       // we don't need to await the write. The UPDATE lands ~300-500ms after
@@ -238,18 +269,19 @@ export class ChatService {
       // value on the next query. In local testing where req.ip is always
       // loopback, this was triggering an extra serial Prisma write on EVERY
       // turn — the dominant remaining controller pre-stream cost.
-      const isLoopback = existing.visitorId === '::1'
-        || existing.visitorId === '127.0.0.1'
-        || existing.visitorId?.startsWith('::ffff:127.');
-      if (visitorId && (!existing.visitorId || isLoopback)) {
+      const backfill: Prisma.ChatSessionUpdateInput = {};
+      if (visitor.visitorId && !existing.visitorId)
+        backfill.visitorId = visitor.visitorId;
+      if (visitor.ipHash && !existing.ipHash) backfill.ipHash = visitor.ipHash;
+      if (Object.keys(backfill).length > 0) {
         void this.prisma.chatSession
           .update({
             where: { id: existing.id },
-            data: { visitorId },
+            data: backfill,
           })
           .catch((err) => {
             this.log.warn(
-              'resolveOrCreateSession',
+              "resolveOrCreateSession",
               `visitorId backfill failed (session=${existing.id})`,
               { err: err instanceof Error ? err.message : String(err) },
             );
@@ -257,7 +289,7 @@ export class ChatService {
       }
       return existing;
     }
-    return this.createWidgetAwareSession(agentId, source, visitorId);
+    return this.createWidgetAwareSession(agentId, source, visitor);
   }
 
   /**
@@ -265,25 +297,36 @@ export class ChatService {
    * sessions (the first-contact observability signal). DEMO is preview-only and
    * WhatsApp session starts are covered by its own inbound-message event, so
    * only WIDGET emits here.
+   *
+   * The consent gate runs here, at session creation only: in consent mode a
+   * visitor without a current GRANTED decision gets ConsentRequiredException
+   * (403, code CONSENT_REQUIRED) and no session is created.
    */
   private async createWidgetAwareSession(
     agentId: string,
-    source: 'DEMO' | 'WIDGET' | 'WHATSAPP',
-    visitorId?: string,
+    source: "DEMO" | "WIDGET" | "WHATSAPP",
+    visitor: VisitorIdentity,
   ): Promise<ChatSession> {
+    const consentId = await this.consentService.assertConsented(
+      agentId,
+      source,
+      visitor.visitorId,
+    );
     const session = await this.prisma.chatSession.create({
       data: {
         agentId,
         sessionId: randomUUID(),
         source,
-        visitorId: visitorId ?? null,
+        visitorId: visitor.visitorId ?? null,
+        ipHash: visitor.ipHash ?? null,
+        consentId,
       },
     });
-    if (source === 'WIDGET') {
+    if (source === "WIDGET") {
       this.widgetLog.logSessionStarted({
         agentId,
         sessionId: session.sessionId,
-        visitorId: visitorId ?? undefined,
+        visitorId: visitor.visitorId,
       });
     }
     return session;
@@ -304,12 +347,12 @@ export class ChatService {
    */
   async resolveOrCreateVisitorSession(
     agentId: string,
-    source: 'WHATSAPP',
+    source: "WHATSAPP",
     visitorKey: string,
   ): Promise<ChatSession> {
     const existing = await this.prisma.chatSession.findFirst({
-      where: { agentId, source, visitorId: visitorKey, status: 'ACTIVE' },
-      orderBy: { createdAt: 'desc' },
+      where: { agentId, source, visitorId: visitorKey, status: "ACTIVE" },
+      orderBy: { createdAt: "desc" },
       include: { agent: { select: { sessionLifetimeHours: true } } },
     });
 
@@ -317,14 +360,14 @@ export class ChatService {
       const lifetimeMs = existing.agent.sessionLifetimeHours * 60 * 60 * 1000;
       // Mid-handover sessions never rotate (see resolveOrCreateSession).
       const isExpired =
-        existing.handoverState === 'NONE' &&
+        existing.handoverState === "NONE" &&
         Date.now() - existing.createdAt.getTime() > lifetimeMs;
       if (!isExpired) return existing;
       // Past its lifetime — close it (the dashboard + classifier rely on EXPIRED
       // to tell finished conversations apart), then fall through to a fresh one.
       await this.prisma.chatSession.update({
         where: { id: existing.id },
-        data: { status: 'EXPIRED' },
+        data: { status: "EXPIRED" },
       });
     }
 
@@ -339,11 +382,16 @@ export class ChatService {
   }
 
   /** Extract client IP from an Express request (req.ip → X-Forwarded-For). */
-  static extractVisitorIp(request: { headers: Record<string, string | string[] | undefined>; ip?: string }): string | undefined {
+  static extractVisitorIp(request: {
+    headers: Record<string, string | string[] | undefined>;
+    ip?: string;
+  }): string | undefined {
     if (request.ip) return request.ip;
-    const forwarded = request.headers['x-forwarded-for'];
+    const forwarded = request.headers["x-forwarded-for"];
     if (forwarded) {
-      const first = Array.isArray(forwarded) ? forwarded[0]! : String(forwarded).split(',')[0]!;
+      const first = Array.isArray(forwarded)
+        ? forwarded[0]!
+        : String(forwarded).split(",")[0]!;
       return first.trim() || undefined;
     }
     return undefined;
@@ -366,8 +414,12 @@ export class ChatService {
       data: {
         ...(id ? { id } : {}),
         chatSessionId,
-        role: 'USER',
-        content: await this.redactUserContent(content, chatSessionId, organizationId),
+        role: "USER",
+        content: await this.redactUserContent(
+          content,
+          chatSessionId,
+          organizationId,
+        ),
       },
     });
   }
@@ -389,7 +441,11 @@ export class ChatService {
     organizationId?: string,
   ): Promise<string> {
     return organizationId
-      ? this.piiTokenizer.redactForStorage(organizationId, chatSessionId, content)
+      ? this.piiTokenizer.redactForStorage(
+          organizationId,
+          chatSessionId,
+          content,
+        )
       : this.piiDetection.maskHardDrop(content);
   }
 
@@ -399,11 +455,15 @@ export class ChatService {
    * full Zod parse on the persist path. Callers use it to decide whether to pass
    * `organizationId` into `saveUserMessage`/`redactUserContent` (→ vault).
    */
-  static isPiiRedactionEnabled(aiConfig: Prisma.JsonValue | null | undefined): boolean {
+  static isPiiRedactionEnabled(
+    aiConfig: Prisma.JsonValue | null | undefined,
+  ): boolean {
     // Default ON (compliance floor, mirrors the aiConfig schema default). Off
     // only when an agent EXPLICITLY sets piiRedactionEnabled=false.
-    if (aiConfig && typeof aiConfig === 'object' && !Array.isArray(aiConfig)) {
-      return (aiConfig as Record<string, unknown>).piiRedactionEnabled !== false;
+    if (aiConfig && typeof aiConfig === "object" && !Array.isArray(aiConfig)) {
+      return (
+        (aiConfig as Record<string, unknown>).piiRedactionEnabled !== false
+      );
     }
     return true;
   }
@@ -427,7 +487,7 @@ export class ChatService {
       data: {
         ...(id ? { id } : {}),
         chatSessionId,
-        role: 'ASSISTANT',
+        role: "ASSISTANT",
         content,
         metadata,
       },
@@ -471,16 +531,22 @@ export class ChatService {
       select: { id: true, handoverState: true },
     });
     if (!session) {
-      throw new NotFoundException('Session not found');
+      throw new NotFoundException("Session not found");
     }
     const messages = await this.prisma.chatMessage.findMany({
       where: {
         chatSessionId: session.id,
         ...(after ? { createdAt: { gt: after } } : {}),
       },
-      orderBy: { createdAt: 'asc' },
+      orderBy: { createdAt: "asc" },
       take: 100,
-      select: { id: true, role: true, content: true, createdAt: true, metadata: true },
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        createdAt: true,
+        metadata: true,
+      },
     });
     return {
       handoverState: session.handoverState,
@@ -495,12 +561,14 @@ export class ChatService {
   }
 
   /** Pull the human agent's display name out of a HUMAN_AGENT message's metadata. */
-  private static extractHumanAuthor(metadata: Prisma.JsonValue | null): string | null {
-    if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+  private static extractHumanAuthor(
+    metadata: Prisma.JsonValue | null,
+  ): string | null {
+    if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
       const ha = (metadata as Record<string, unknown>).humanAgent;
-      if (ha && typeof ha === 'object' && 'name' in ha) {
+      if (ha && typeof ha === "object" && "name" in ha) {
         const name = (ha as Record<string, unknown>).name;
-        if (typeof name === 'string') return name;
+        if (typeof name === "string") return name;
       }
     }
     return null;
@@ -527,14 +595,14 @@ export class ChatService {
    * analytics (`responseLatencyMs`, `timeToFirstToken`, `streamingMode`) work
    * identically regardless of which engine served the reply.
    */
-  async sendMessage(dto: SendMessageDto, visitorIp?: string) {
+  async sendMessage(dto: SendMessageDto, visitor: VisitorIdentity = {}) {
     const agent = await this.resolveAgent(dto.agentId);
     const routingMode = resolveRoutingMode(agent.aiConfig);
 
-    if (routingMode === 'direct') {
-      return this.sendDirectMessage(dto, agent.id, visitorIp);
+    if (routingMode === "direct") {
+      return this.sendDirectMessage(dto, agent.id, visitor);
     }
-    return this.sendN8nMessage(dto, agent, visitorIp);
+    return this.sendN8nMessage(dto, agent, visitor);
   }
 
   /**
@@ -542,19 +610,34 @@ export class ChatService {
    * the resulting message with metadata that mirrors the n8n shape plus our
    * richer native fields (cachedInputTokens, traceId, cost, etc.).
    */
-  private async sendDirectMessage(dto: SendMessageDto, agentId: string, visitorIp?: string) {
+  private async sendDirectMessage(
+    dto: SendMessageDto,
+    agentId: string,
+    visitor: VisitorIdentity,
+  ) {
     const backendReceivedAt = new Date();
     // Need the full Agent entity (with systemPrompt + organizationId) for
     // the orchestrator — `resolveAgent` only returns a stripped projection.
-    const fullAgent = await this.prisma.agent.findUniqueOrThrow({ where: { id: agentId } });
-    const session = await this.resolveOrCreateSession(agentId, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
+    const fullAgent = await this.prisma.agent.findUniqueOrThrow({
+      where: { id: agentId },
+    });
+    const session = await this.resolveOrCreateSession(
+      agentId,
+      dto.sessionId,
+      dto.source ?? "DEMO",
+      visitor,
+    );
 
     // Human handover: a teammate is handling this chat → no AI reply. Persist
     // the visitor's message + push it to the dashboard, then return paused.
     if (this.isPausedForHuman(session)) {
-      await this.recordPausedInbound(session, fullAgent.organizationId, dto.chatInput);
+      await this.recordPausedInbound(
+        session,
+        fullAgent.organizationId,
+        dto.chatInput,
+      );
       const pausedMetadata: ChatMessageMetadata = {
-        streamingMode: 'direct',
+        streamingMode: "direct",
         backendReceivedAt: backendReceivedAt.toISOString(),
         backendRespondedAt: new Date().toISOString(),
         responseLatencyMs: 0,
@@ -565,9 +648,9 @@ export class ChatService {
       };
       return {
         sessionId: session.sessionId,
-        messageId: '',
-        reply: '',
-        assistantMessageId: '',
+        messageId: "",
+        reply: "",
+        assistantMessageId: "",
         metadata: pausedMetadata,
         paused: true as const,
       };
@@ -579,15 +662,16 @@ export class ChatService {
       externalSessionId: session.sessionId,
       newUserMessage: dto.chatInput,
       recentHistory: dto.recentHistory,
-      feature: 'chat',
+      feature: "chat",
     });
     const backendRespondedAt = new Date();
 
     const metadata: ChatMessageMetadata = {
-      streamingMode: 'direct',
+      streamingMode: "direct",
       backendReceivedAt: backendReceivedAt.toISOString(),
       backendRespondedAt: backendRespondedAt.toISOString(),
-      responseLatencyMs: backendRespondedAt.getTime() - backendReceivedAt.getTime(),
+      responseLatencyMs:
+        backendRespondedAt.getTime() - backendReceivedAt.getTime(),
       // Non-streaming direct call: no per-token timing available, but we still
       // populate the shape so downstream queries can `COALESCE` consistently.
       timeToFirstToken: null,
@@ -621,14 +705,14 @@ export class ChatService {
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
-          role: 'USER',
+          role: "USER",
           content: storedUserContent,
         },
       }),
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
-          role: 'ASSISTANT',
+          role: "ASSISTANT",
           content: result.text,
           metadata,
         },
@@ -662,13 +746,20 @@ export class ChatService {
   private async sendN8nMessage(
     dto: SendMessageDto,
     agent: { id: string; hmacEnabled: boolean },
-    visitorIp?: string,
+    visitor: VisitorIdentity,
   ) {
     const backendReceivedAt = new Date();
-    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
+    const session = await this.resolveOrCreateSession(
+      agent.id,
+      dto.sessionId,
+      dto.source ?? "DEMO",
+      visitor,
+    );
 
     // Call n8n webhook BEFORE storing messages to avoid orphaned user messages on failure
-    const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(agent.id);
+    const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(
+      agent.id,
+    );
     const n8nResponse = await this.callN8nWebhook(
       webhookUrl,
       dto.chatInput,
@@ -678,23 +769,30 @@ export class ChatService {
     );
 
     const backendRespondedAt = new Date();
-    const metadata = this.buildMetadata(backendReceivedAt, backendRespondedAt, n8nResponse);
+    const metadata = this.buildMetadata(
+      backendReceivedAt,
+      backendRespondedAt,
+      n8nResponse,
+    );
 
     // n8n is retired; no org threaded here, so VAULT-tier is masked (never raw).
-    const storedUserContent = await this.redactUserContent(dto.chatInput, session.id);
+    const storedUserContent = await this.redactUserContent(
+      dto.chatInput,
+      session.id,
+    );
     // Store user message + AI response + update session atomically
     const [userMessage, assistantMessage] = await this.prisma.$transaction([
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
-          role: 'USER',
+          role: "USER",
           content: storedUserContent,
         },
       }),
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
-          role: 'ASSISTANT',
+          role: "ASSISTANT",
           content: n8nResponse.agentReply,
           metadata,
         },
@@ -724,9 +822,9 @@ export class ChatService {
 
     const chunks: string[] = [];
     for (let i = 0; i < words.length; i += chunkSize) {
-      const chunk = words.slice(i, i + chunkSize).join(' ');
+      const chunk = words.slice(i, i + chunkSize).join(" ");
       // Add trailing space between chunks so they concatenate correctly
-      chunks.push(i + chunkSize < words.length ? chunk + ' ' : chunk);
+      chunks.push(i + chunkSize < words.length ? chunk + " " : chunk);
     }
 
     return chunks;
@@ -737,23 +835,30 @@ export class ChatService {
    * Stores user message before calling n8n, stores AI message after response.
    * Returns data for SSE streaming by the controller.
    */
-  async streamMessage(dto: SendMessageDto, visitorIp?: string) {
+  async streamMessage(dto: SendMessageDto, visitor: VisitorIdentity = {}) {
     const backendReceivedAt = new Date();
 
     const agent = await this.resolveAgent(dto.agentId);
-    const session = await this.resolveOrCreateSession(agent.id, dto.sessionId, dto.source ?? 'DEMO', visitorIp);
+    const session = await this.resolveOrCreateSession(
+      agent.id,
+      dto.sessionId,
+      dto.source ?? "DEMO",
+      visitor,
+    );
 
     // Store user message BEFORE calling n8n (n8n retired; no org → VAULT masked).
     const userMessage = await this.prisma.chatMessage.create({
       data: {
         chatSessionId: session.id,
-        role: 'USER',
+        role: "USER",
         content: await this.redactUserContent(dto.chatInput, session.id),
       },
     });
 
     // Call n8n webhook to get full response
-    const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(dto.agentId);
+    const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(
+      dto.agentId,
+    );
     const n8nResponse = await this.callN8nWebhook(
       webhookUrl,
       dto.chatInput,
@@ -763,13 +868,17 @@ export class ChatService {
     );
 
     const backendRespondedAt = new Date();
-    const metadata = this.buildMetadata(backendReceivedAt, backendRespondedAt, n8nResponse);
+    const metadata = this.buildMetadata(
+      backendReceivedAt,
+      backendRespondedAt,
+      n8nResponse,
+    );
 
     // Store AI message AFTER full response received (before streaming starts)
     const assistantMessage = await this.prisma.chatMessage.create({
       data: {
         chatSessionId: session.id,
-        role: 'ASSISTANT',
+        role: "ASSISTANT",
         content: n8nResponse.agentReply,
         metadata,
       },
@@ -805,7 +914,7 @@ export class ChatService {
     const secret = await this.getAgentHmacSecret(agentId);
     if (!secret) {
       this.log.warn(
-        'verifyHmacSignature',
+        "verifyHmacSignature",
         `HMAC enabled but no secret found for agent ${agentId}, skipping verification`,
         { agentId, sessionId },
       );
@@ -815,21 +924,21 @@ export class ChatService {
     if (!signature) {
       await this.tracerService.logAuditEvent(
         agentId,
-        'HMAC_VERIFICATION_FAILED',
-        { sessionId, reason: 'missing_signature_header' },
+        "HMAC_VERIFICATION_FAILED",
+        { sessionId, reason: "missing_signature_header" },
         { agentId },
       );
-      throw new BadGatewayException('Response verification failed');
+      throw new BadGatewayException("Response verification failed");
     }
 
     if (!this.hmacService.verifySignature(responseText, signature, secret)) {
       await this.tracerService.logAuditEvent(
         agentId,
-        'HMAC_VERIFICATION_FAILED',
-        { sessionId, reason: 'invalid_signature' },
+        "HMAC_VERIFICATION_FAILED",
+        { sessionId, reason: "invalid_signature" },
         { agentId },
       );
-      throw new BadGatewayException('Response verification failed');
+      throw new BadGatewayException("Response verification failed");
     }
   }
 
@@ -843,37 +952,51 @@ export class ChatService {
     sessionId: string,
     agentId: string,
     hmacEnabled: boolean,
-  ): Promise<{ agentReply: string; n8nReceivedAt?: string; agentRepliedAt?: string }> {
+  ): Promise<{
+    agentReply: string;
+    n8nReceivedAt?: string;
+    agentRepliedAt?: string;
+  }> {
     let response: Response;
     try {
       response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chatInput, sessionId }),
         signal: AbortSignal.timeout(N8N_TIMEOUT_MS),
       });
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'TimeoutError') {
-        this.log.warn('callN8nWebhook', `n8n webhook timeout for session ${sessionId}`, { sessionId });
-        throw new BadGatewayException('Response is taking too long, please try again');
+      if (error instanceof DOMException && error.name === "TimeoutError") {
+        this.log.warn(
+          "callN8nWebhook",
+          `n8n webhook timeout for session ${sessionId}`,
+          { sessionId },
+        );
+        throw new BadGatewayException(
+          "Response is taking too long, please try again",
+        );
       }
       this.log.error(
-        'callN8nWebhook',
+        "callN8nWebhook",
         `n8n webhook network error for session ${sessionId}`,
         error,
         { sessionId },
       );
-      throw new BadGatewayException('Unable to connect to AI service, please try again');
+      throw new BadGatewayException(
+        "Unable to connect to AI service, please try again",
+      );
     }
 
     if (!response.ok) {
       this.log.error(
-        'callN8nWebhook',
+        "callN8nWebhook",
         `n8n webhook returned ${response.status} for session ${sessionId}`,
         undefined,
         { sessionId, status: response.status },
       );
-      throw new BadGatewayException('AI service returned an error, please try again');
+      throw new BadGatewayException(
+        "AI service returned an error, please try again",
+      );
     }
 
     try {
@@ -882,8 +1005,13 @@ export class ChatService {
 
       // Verify HMAC signature if enabled for this agent
       if (hmacEnabled) {
-        const signature = response.headers.get('x-signature');
-        await this.verifyHmacSignature(responseText, signature, agentId, sessionId);
+        const signature = response.headers.get("x-signature");
+        await this.verifyHmacSignature(
+          responseText,
+          signature,
+          agentId,
+          sessionId,
+        );
       }
 
       const data = JSON.parse(responseText);
@@ -892,15 +1020,20 @@ export class ChatService {
       const payload = Array.isArray(data) ? data[0] : data;
 
       const agentReply = payload?.agentReply ?? payload?.output;
-      if (!agentReply || typeof agentReply !== 'string') {
-        const truncated = JSON.stringify(data).slice(0, MAX_LOG_RESPONSE_LENGTH);
+      if (!agentReply || typeof agentReply !== "string") {
+        const truncated = JSON.stringify(data).slice(
+          0,
+          MAX_LOG_RESPONSE_LENGTH,
+        );
         this.log.error(
-          'callN8nWebhook',
+          "callN8nWebhook",
           `unexpected n8n response format for session ${sessionId}`,
           undefined,
           { sessionId, preview: truncated },
         );
-        throw new BadGatewayException('Unexpected response format from AI service');
+        throw new BadGatewayException(
+          "Unexpected response format from AI service",
+        );
       }
 
       return {
@@ -911,12 +1044,14 @@ export class ChatService {
     } catch (error) {
       if (error instanceof BadGatewayException) throw error;
       this.log.error(
-        'callN8nWebhook',
+        "callN8nWebhook",
         `failed to parse n8n response for session ${sessionId}`,
         error,
         { sessionId },
       );
-      throw new BadGatewayException('Unexpected response format from AI service');
+      throw new BadGatewayException(
+        "Unexpected response format from AI service",
+      );
     }
   }
 }

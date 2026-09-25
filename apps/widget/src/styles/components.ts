@@ -553,6 +553,21 @@ export const componentCSS = `
   border-radius: 2px;
 }
 
+/* Privacy notice (ADR-0004): the same WCAG 2.4.7 focus ring as the branding
+   link, on every control the notice adds. Menu items get an inset ring because
+   the menu clips anything drawn outside it. */
+.cw-consent-link:focus-visible,
+.cw-consent-btn:focus-visible {
+  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+.cw-options-item:focus-visible {
+  outline: 2px solid var(--cw-primary, #3b82f6);
+  outline-offset: -2px;
+}
+
 .cw-branding-link-text {
   font-weight: 500;
   color: var(--cw-branding-link, #3b82f6);

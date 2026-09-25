@@ -1,18 +1,19 @@
-'use client';
+"use client";
 
-import type { CategoryId } from './agent-editor-sidebar';
-import { GeneralSettings } from './sections/general-settings';
-import { AppearanceSettings } from './sections/appearance-settings';
-import { ChatSettings } from './sections/chat-settings';
-import { BehaviorSettings } from './sections/behavior-settings';
-import { PromptSettings } from './sections/prompt-settings';
-import { ClassificationSettings } from './sections/classification-settings';
-import { DataCaptureSettings } from './sections/data-capture-settings';
-import { IntegrationSettings } from './sections/integration-settings';
-import { WhatsappSettings } from './sections/whatsapp-settings';
-import { BrandingSettings } from './sections/branding-settings';
-import { VoiceSettings } from './sections/voice-settings';
-import { HumanHandoverSettings } from './sections/human-handover-settings';
+import type { CategoryId } from "./agent-editor-sidebar";
+import { GeneralSettings } from "./sections/general-settings";
+import { AppearanceSettings } from "./sections/appearance-settings";
+import { ChatSettings } from "./sections/chat-settings";
+import { BehaviorSettings } from "./sections/behavior-settings";
+import { PromptSettings } from "./sections/prompt-settings";
+import { ClassificationSettings } from "./sections/classification-settings";
+import { DataCaptureSettings } from "./sections/data-capture-settings";
+import { IntegrationSettings } from "./sections/integration-settings";
+import { WhatsappSettings } from "./sections/whatsapp-settings";
+import { BrandingSettings } from "./sections/branding-settings";
+import { VoiceSettings } from "./sections/voice-settings";
+import { HumanHandoverSettings } from "./sections/human-handover-settings";
+import { ConsentSettings } from "./sections/consent-settings";
 
 interface AgentEditorFormProps {
   selectedCategory: CategoryId;
@@ -20,30 +21,32 @@ interface AgentEditorFormProps {
 
 export function AgentEditorForm({ selectedCategory }: AgentEditorFormProps) {
   switch (selectedCategory) {
-    case 'general':
+    case "general":
       return <GeneralSettings />;
-    case 'appearance':
+    case "appearance":
       return <AppearanceSettings />;
-    case 'chat':
+    case "chat":
       return <ChatSettings />;
-    case 'behavior':
+    case "behavior":
       return <BehaviorSettings />;
-    case 'voice':
+    case "voice":
       return <VoiceSettings />;
-    case 'prompt':
+    case "prompt":
       return <PromptSettings />;
-    case 'classification':
+    case "classification":
       return <ClassificationSettings />;
-    case 'dataCapture':
+    case "dataCapture":
       return <DataCaptureSettings />;
-    case 'integration':
+    case "integration":
       return <IntegrationSettings />;
-    case 'whatsapp':
+    case "whatsapp":
       return <WhatsappSettings />;
-    case 'branding':
+    case "branding":
       return <BrandingSettings />;
-    case 'humanHandover':
+    case "humanHandover":
       return <HumanHandoverSettings />;
+    case "consent":
+      return <ConsentSettings />;
     default:
       return null;
   }

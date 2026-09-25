@@ -18,6 +18,7 @@ import {
   Trash2,
   Loader2,
   Headset,
+  Ellipsis,
 } from "lucide-react";
 import type { PreviewFormData } from "./agent-editor-context";
 
@@ -94,6 +95,20 @@ export function ChatWidgetSurface({
   const bottomRef = useRef<HTMLDivElement | null>(null);
   const msgRefs = useRef<Map<string, HTMLDivElement>>(new Map());
   const inputRef = useRef<HTMLTextAreaElement | null>(null);
+  // Preview-only: "Start chat" unlocks locally so the editor can see both
+  // states. Nothing is recorded; re-locks when the notice changes.
+  const [previewConsented, setPreviewConsented] = useState(false);
+  const [previewMenuOpen, setPreviewMenuOpen] = useState(false);
+  const consentKey = `${formData.consentMode}|${formData.consentNoticeText}|${formData.consentLinkText}|${formData.consentPolicyUrl}|${formData.consentButtonLabel}`;
+  const [lastConsentKey, setLastConsentKey] = useState(consentKey);
+  if (consentKey !== lastConsentKey) {
+    setLastConsentKey(consentKey);
+    setPreviewConsented(false);
+  }
+  const consentLocked =
+    formData.consentActive &&
+    formData.consentMode === "consent" &&
+    !previewConsented;
 
   const cycleVoiceState = () => {
     setPreviewVoiceState((prev) => {
@@ -416,7 +431,59 @@ export function ChatWidgetSurface({
                 )}
               </div>
             </div>
-            <div className="cw-header-actions flex gap-2">
+            <div className="cw-header-actions relative flex gap-2">
+              {formData.consentActive && (
+                <button
+                  type="button"
+                  aria-label="Chat options"
+                  aria-haspopup="menu"
+                  aria-expanded={previewMenuOpen}
+                  className="cw-header-btn cw-header-btn--menu flex h-8 w-8 cursor-pointer items-center justify-center rounded-full p-0 hover:opacity-80"
+                  style={{ color: formData.headerTextColor }}
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    setPreviewMenuOpen((open) => !open);
+                  }}
+                >
+                  <Ellipsis className="h-4 w-4" />
+                </button>
+              )}
+              {previewMenuOpen && formData.consentActive && (
+                // Mirrors the widget's header options menu (privacy link and
+                // withdraw). Preview only: nothing is recorded.
+                <div
+                  role="menu"
+                  aria-label="Chat options"
+                  className="cw-options-menu absolute top-10 right-0 z-40 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white py-1 whitespace-nowrap shadow-lg"
+                  onClick={(e) => e.stopPropagation()}
+                >
+                  <a
+                    role="menuitem"
+                    href={formData.consentPolicyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="cw-options-item block px-3 py-1.5 text-left text-gray-700 no-underline hover:bg-gray-50"
+                    style={{ fontSize: "1em" }}
+                    onClick={() => setPreviewMenuOpen(false)}
+                  >
+                    {formData.consentLinkText}
+                  </a>
+                  {formData.consentMode === "consent" && previewConsented && (
+                    <button
+                      role="menuitem"
+                      type="button"
+                      className="cw-options-item block w-full cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50"
+                      style={{ fontSize: "1em" }}
+                      onClick={() => {
+                        setPreviewMenuOpen(false);
+                        setPreviewConsented(false);
+                      }}
+                    >
+                      {formData.consentWithdrawLabel}
+                    </button>
+                  )}
+                </div>
+              )}
               <button
                 aria-label="Close chat"
                 className="cw-header-btn cw-header-btn--close flex h-8 w-8 cursor-pointer items-center justify-center rounded-full p-0 hover:opacity-80"
@@ -536,6 +603,7 @@ export function ChatWidgetSurface({
                   visitor sends anything), whether or not a greeting is set, to
                   match the real widget (ChatWidgetSurface: msgs.length === 0). */}
             {!messages.some((m) => m.role === "user") &&
+              !consentLocked &&
               formData.conversationalStarters.length > 0 && (
                 <div className="cw-starters mt-4 flex flex-wrap gap-2">
                   {formData.conversationalStarters
@@ -673,166 +741,227 @@ export function ChatWidgetSurface({
             className="cw-input-area border-t border-gray-200 p-3"
             style={{ backgroundColor: formData.inputBg }}
           >
-            <div
-              className="cw-input-wrapper flex flex-col border border-gray-300 px-3 py-2"
-              style={{
-                borderRadius: `${formData.inputBorderRadius || 16}px`,
-                boxShadow: isInputFocused
-                  ? `0 0 0 2px ${formData.sendButtonBg}`
-                  : "none",
-              }}
-            >
-              {previewVoiceState === "listening" ||
-              previewVoiceState === "processing" ? (
-                <div className="cw-voice-bar flex items-center gap-2 py-1">
-                  <button
-                    onClick={() => setPreviewVoiceState("idle")}
-                    aria-label="Cancel recording"
-                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-500"
+            {consentLocked ? (
+              <div className="cw-consent flex flex-col gap-2">
+                <p
+                  className="cw-consent-text leading-snug"
+                  style={{
+                    color: formData.consentTextColor,
+                    fontSize: "0.86em",
+                  }}
+                >
+                  {formData.consentNoticeText}{" "}
+                  <a
+                    href={formData.consentPolicyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="cw-consent-link font-medium underline"
+                    style={{ color: formData.consentLinkColor }}
                   >
-                    <Trash2 className="h-4 w-4" />
-                  </button>
-                  <div className="flex flex-1 items-center justify-start gap-3 rounded-full bg-gray-50 px-3 py-1.5">
-                    {previewVoiceState === "listening" ? (
-                      <>
-                        <span className="relative flex h-2 w-2">
-                          <span className="absolute inset-0 animate-ping rounded-full bg-red-400 opacity-75" />
-                          <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
-                        </span>
-                        <span className="text-sm font-medium tabular-nums text-gray-700">
-                          0:03
-                        </span>
-                        <div className="flex h-4 items-end gap-0.75">
-                          {[0, 1, 2, 3, 4].map((i) => (
-                            <span
-                              key={i}
-                              className="inline-block w-0.75 rounded-full bg-red-500"
-                              style={{
-                                height: "4px",
-                                animation: `cw-preview-wave 0.9s ease-in-out ${i * 0.1}s infinite`,
-                              }}
-                            />
-                          ))}
-                        </div>
-                        <style>{`@keyframes cw-preview-wave { 0%,100% { height: 4px; } 50% { height: 14px; } }`}</style>
-                      </>
-                    ) : (
-                      <>
-                        <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
-                        <span className="text-sm text-gray-600">
-                          Transcribing…
-                        </span>
-                      </>
-                    )}
-                  </div>
-                  <button
-                    onClick={() => {
-                      // Preview-only cycle: listening → processing → playing → idle.
-                      // Lets the editor user walk through all states without the mic
-                      // button (which hides while the bar is shown).
-                      setPreviewVoiceState((prev) =>
-                        prev === "listening"
-                          ? "processing"
-                          : prev === "processing"
-                            ? "playing"
-                            : "idle",
-                      );
-                    }}
-                    aria-label={
-                      previewVoiceState === "listening"
-                        ? "Send voice message"
-                        : "Advance preview"
-                    }
-                    className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
-                    style={{
-                      backgroundColor: formData.sendButtonBg,
-                      color: formData.sendButtonIconColor || "#FFFFFF",
-                    }}
-                  >
-                    <ArrowUp className="h-4 w-4" />
-                  </button>
-                </div>
-              ) : (
-                <>
-                  <textarea
-                    ref={inputRef}
-                    value={inputValue}
-                    onChange={(e) => setInputValue(e.target.value)}
-                    onKeyDown={handleKeyPress}
-                    onFocus={() => setIsInputFocused(true)}
-                    onBlur={() => setIsInputFocused(false)}
-                    placeholder={formData.inputPlaceholder}
-                    rows={1}
-                    className="cw-input w-full resize-none border-0 bg-transparent p-0 leading-snug outline-none"
-                    style={{
-                      color: formData.inputTextColor,
-                      maxHeight: "144px",
-                    }}
-                  />
-                  <div className="cw-input-actions mt-2 flex items-center justify-between">
-                    <div className="cw-input-left-actions flex items-center gap-1">
-                      {/* Mic button shows only in idle/playing — listening/processing render the
-                       *  WhatsApp-style recording bar above (replacing the entire textarea row). */}
-                      {formData.voiceEnabled && (
-                        <button
-                          onClick={cycleVoiceState}
-                          aria-label={
-                            previewVoiceState === "idle"
-                              ? "Start recording"
-                              : "Stop playback"
-                          }
-                          className={`cw-voice-btn cw-voice-btn--${previewVoiceState} relative flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-gray-500 hover:text-gray-800`}
-                          style={{
-                            color:
-                              previewVoiceState === "playing"
-                                ? "#F97316"
-                                : undefined,
-                          }}
-                        >
-                          {previewVoiceState === "idle" && (
-                            <Mic className="h-4 w-4" />
-                          )}
-                          {previewVoiceState === "playing" && (
-                            <Volume2 className="h-4 w-4" />
-                          )}
-                        </button>
-                      )}
-                    </div>
-                    <div className="flex items-center gap-2">
-                      {formData.showHandoverButton && (
-                        <button
-                          type="button"
-                          aria-label={formData.handoverButtonLabel}
-                          title={formData.handoverButtonLabel}
-                          className="cw-handover-btn flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-opacity hover:opacity-80"
-                          style={{
-                            border: `1.5px solid ${formData.handoverButtonTextColor}`,
-                            backgroundColor: formData.handoverButtonBg,
-                            color: formData.handoverButtonTextColor,
-                          }}
-                          onClick={(e) => e.stopPropagation()}
-                        >
-                          <Headset className="h-4 w-4" />
-                        </button>
-                      )}
+                    {formData.consentLinkText}
+                  </a>
+                </p>
+                <button
+                  type="button"
+                  onClick={() => setPreviewConsented(true)}
+                  className="cw-consent-btn w-full cursor-pointer border-0 px-4 py-2 font-medium transition-opacity hover:opacity-90"
+                  style={{
+                    backgroundColor: formData.sendButtonBg,
+                    color: formData.sendButtonIconColor || "#FFFFFF",
+                    borderRadius: `${formData.inputBorderRadius || 16}px`,
+                  }}
+                >
+                  {formData.consentButtonLabel}
+                </button>
+              </div>
+            ) : (
+              <>
+                {formData.consentActive &&
+                  formData.consentMode === "notice" &&
+                  !messages.some((m) => m.role === "user") && (
+                    // Notice mode: shown at the start of a chat only, as in
+                    // the widget. The link lives in the header menu.
+                    <p
+                      className="cw-consent-line mb-2 leading-snug"
+                      style={{
+                        color: formData.consentTextColor,
+                        fontSize: "0.78em",
+                      }}
+                    >
+                      {formData.consentNoticeText}{" "}
+                      <a
+                        href={formData.consentPolicyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="cw-consent-link font-medium underline"
+                        style={{ color: formData.consentLinkColor }}
+                      >
+                        {formData.consentLinkText}
+                      </a>
+                    </p>
+                  )}
+                <div
+                  className="cw-input-wrapper flex flex-col border border-gray-300 px-3 py-2"
+                  style={{
+                    borderRadius: `${formData.inputBorderRadius || 16}px`,
+                    boxShadow: isInputFocused
+                      ? `0 0 0 2px ${formData.sendButtonBg}`
+                      : "none",
+                  }}
+                >
+                  {previewVoiceState === "listening" ||
+                  previewVoiceState === "processing" ? (
+                    <div className="cw-voice-bar flex items-center gap-2 py-1">
                       <button
-                        onClick={handleSend}
-                        disabled={!inputValue.trim()}
-                        aria-label="Send message"
-                        className="cw-send-btn flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
+                        onClick={() => setPreviewVoiceState("idle")}
+                        aria-label="Cancel recording"
+                        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 bg-transparent p-0 text-gray-500 transition-colors hover:bg-gray-100 hover:text-red-500"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                      <div className="flex flex-1 items-center justify-start gap-3 rounded-full bg-gray-50 px-3 py-1.5">
+                        {previewVoiceState === "listening" ? (
+                          <>
+                            <span className="relative flex h-2 w-2">
+                              <span className="absolute inset-0 animate-ping rounded-full bg-red-400 opacity-75" />
+                              <span className="relative inline-flex h-2 w-2 rounded-full bg-red-500" />
+                            </span>
+                            <span className="text-sm font-medium tabular-nums text-gray-700">
+                              0:03
+                            </span>
+                            <div className="flex h-4 items-end gap-0.75">
+                              {[0, 1, 2, 3, 4].map((i) => (
+                                <span
+                                  key={i}
+                                  className="inline-block w-0.75 rounded-full bg-red-500"
+                                  style={{
+                                    height: "4px",
+                                    animation: `cw-preview-wave 0.9s ease-in-out ${i * 0.1}s infinite`,
+                                  }}
+                                />
+                              ))}
+                            </div>
+                            <style>{`@keyframes cw-preview-wave { 0%,100% { height: 4px; } 50% { height: 14px; } }`}</style>
+                          </>
+                        ) : (
+                          <>
+                            <Loader2 className="h-4 w-4 animate-spin text-gray-500" />
+                            <span className="text-sm text-gray-600">
+                              Transcribing…
+                            </span>
+                          </>
+                        )}
+                      </div>
+                      <button
+                        onClick={() => {
+                          // Preview-only cycle: listening → processing → playing → idle.
+                          // Lets the editor user walk through all states without the mic
+                          // button (which hides while the bar is shown).
+                          setPreviewVoiceState((prev) =>
+                            prev === "listening"
+                              ? "processing"
+                              : prev === "processing"
+                                ? "playing"
+                                : "idle",
+                          );
+                        }}
+                        aria-label={
+                          previewVoiceState === "listening"
+                            ? "Send voice message"
+                            : "Advance preview"
+                        }
+                        className="flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
                         style={{
                           backgroundColor: formData.sendButtonBg,
                           color: formData.sendButtonIconColor || "#FFFFFF",
-                          opacity: !inputValue.trim() ? 0.4 : 1,
                         }}
                       >
                         <ArrowUp className="h-4 w-4" />
                       </button>
                     </div>
-                  </div>
-                </>
-              )}
-            </div>
+                  ) : (
+                    <>
+                      <textarea
+                        ref={inputRef}
+                        value={inputValue}
+                        onChange={(e) => setInputValue(e.target.value)}
+                        onKeyDown={handleKeyPress}
+                        onFocus={() => setIsInputFocused(true)}
+                        onBlur={() => setIsInputFocused(false)}
+                        placeholder={formData.inputPlaceholder}
+                        rows={1}
+                        className="cw-input w-full resize-none border-0 bg-transparent p-0 leading-snug outline-none"
+                        style={{
+                          color: formData.inputTextColor,
+                          maxHeight: "144px",
+                        }}
+                      />
+                      <div className="cw-input-actions mt-2 flex items-center justify-between">
+                        <div className="cw-input-left-actions flex items-center gap-1">
+                          {/* Mic button shows only in idle/playing — listening/processing render the
+                           *  WhatsApp-style recording bar above (replacing the entire textarea row). */}
+                          {formData.voiceEnabled && (
+                            <button
+                              onClick={cycleVoiceState}
+                              aria-label={
+                                previewVoiceState === "idle"
+                                  ? "Start recording"
+                                  : "Stop playback"
+                              }
+                              className={`cw-voice-btn cw-voice-btn--${previewVoiceState} relative flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-gray-500 hover:text-gray-800`}
+                              style={{
+                                color:
+                                  previewVoiceState === "playing"
+                                    ? "#F97316"
+                                    : undefined,
+                              }}
+                            >
+                              {previewVoiceState === "idle" && (
+                                <Mic className="h-4 w-4" />
+                              )}
+                              {previewVoiceState === "playing" && (
+                                <Volume2 className="h-4 w-4" />
+                              )}
+                            </button>
+                          )}
+                        </div>
+                        <div className="flex items-center gap-2">
+                          {formData.showHandoverButton && (
+                            <button
+                              type="button"
+                              aria-label={formData.handoverButtonLabel}
+                              title={formData.handoverButtonLabel}
+                              className="cw-handover-btn flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-opacity hover:opacity-80"
+                              style={{
+                                border: `1.5px solid ${formData.handoverButtonTextColor}`,
+                                backgroundColor: formData.handoverButtonBg,
+                                color: formData.handoverButtonTextColor,
+                              }}
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <Headset className="h-4 w-4" />
+                            </button>
+                          )}
+                          <button
+                            onClick={handleSend}
+                            disabled={!inputValue.trim()}
+                            aria-label="Send message"
+                            className="cw-send-btn flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
+                            style={{
+                              backgroundColor: formData.sendButtonBg,
+                              color: formData.sendButtonIconColor || "#FFFFFF",
+                              opacity: !inputValue.trim() ? 0.4 : 1,
+                            }}
+                          >
+                            <ArrowUp className="h-4 w-4" />
+                          </button>
+                        </div>
+                      </div>
+                    </>
+                  )}
+                </div>
+              </>
+            )}
           </div>
 
           {/* Branding footer */}

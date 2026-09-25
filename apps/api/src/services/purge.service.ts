@@ -1,9 +1,9 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { AppLogger } from '../common/logger/app-logger';
-import { CryptoService } from '../common/crypto/crypto.service';
-import { TracerService } from '../common/tracer/tracer.service';
-import { PrismaService } from './prisma.service';
-import { SupabaseStorageService } from './supabase-storage.service';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { AppLogger } from "../common/logger/app-logger";
+import { CryptoService } from "../common/crypto/crypto.service";
+import { TracerService } from "../common/tracer/tracer.service";
+import { PrismaService } from "./prisma.service";
+import { SupabaseStorageService } from "./supabase-storage.service";
 
 /** Row counts removed per table — returned to the caller as proof of erasure. */
 export interface VisitorErasureResult {
@@ -15,6 +15,7 @@ export interface VisitorErasureResult {
   llmUsage: number;
   eventLogs: number;
   notifications: number;
+  consents: number;
 }
 
 /** DPDP right-to-access: a summary of what we hold on one visitor (S3). */
@@ -35,6 +36,14 @@ export interface VisitorDataSummary {
     sessionId: string;
     extractedAt: Date;
     fields: Record<string, unknown>;
+  }>;
+  /** Consent decisions from the chat-start notice, oldest first. */
+  consentHistory: Array<{
+    action: string;
+    method: string;
+    privacyPolicyUrl: string;
+    noticeHash: string;
+    decidedAt: Date;
   }>;
   /** Row counts in operational stores (content not reproduced here). */
   recordCounts: {
@@ -119,7 +128,7 @@ export class PurgeService {
         createdAt: true,
         _count: { select: { messages: true } },
       },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       // A visitor has a handful of sessions; the cap is a runaway guard, not
       // pagination.
       take: 500,
@@ -127,6 +136,21 @@ export class PurgeService {
 
     const dbIds = sessions.map((s) => s.id);
     const anySessionId = [...dbIds, ...sessions.map((s) => s.sessionId)];
+
+    // Consent rows exist even when no session does (a visitor can consent and
+    // then never send a message), so this query is not gated on sessions.
+    const consents = await this.prisma.visitorConsent.findMany({
+      where: { visitorId, organizationId },
+      select: {
+        action: true,
+        method: true,
+        privacyPolicyUrl: true,
+        noticeHash: true,
+        createdAt: true,
+      },
+      orderBy: { createdAt: "asc" },
+      take: 500,
+    });
 
     const [collected, aiTraces, eventLogs, piiTokens, llmUsage] =
       dbIds.length > 0
@@ -176,13 +200,20 @@ export class PurgeService {
           c.data as Record<string, unknown> | null,
         ),
       })),
+      consentHistory: consents.map((c) => ({
+        action: c.action,
+        method: c.method,
+        privacyPolicyUrl: c.privacyPolicyUrl,
+        noticeHash: c.noticeHash,
+        decidedAt: c.createdAt,
+      })),
       recordCounts: { aiTraces, eventLogs, piiTokens, llmUsage },
       processingPurposes: [
-        'Operating the conversation service (generating replies, human handover, conversation history)',
-        'Capturing contact/lead details the visitor chose to provide',
-        'Platform security, abuse prevention and audit trails',
-        'Service reliability: time-limited technical logs and AI traces',
-        'Aggregated, non-identifying analytics for the business the visitor interacted with',
+        "Operating the conversation service (generating replies, human handover, conversation history)",
+        "Capturing contact/lead details the visitor chose to provide",
+        "Platform security, abuse prevention and audit trails",
+        "Service reliability: time-limited technical logs and AI traces",
+        "Aggregated, non-identifying analytics for the business the visitor interacted with",
       ],
     };
   }
@@ -190,8 +221,9 @@ export class PurgeService {
   /**
    * Erase one visitor's footprint within one organization.
    *
-   * `visitorId` is what ChatSession stores: the hashed IP (`vh_…`) for
-   * web/widget visitors or the phone number for WhatsApp. Scoped to the org
+   * `visitorId` is what ChatSession stores: the hashed device ID (`vd_…`)
+   * for web/widget visitors (`vh_…` hashed IP on rows before ADR-0004) or
+   * the phone number for WhatsApp. Scoped to the org
    * so the same physical visitor's data at a DIFFERENT org (hashes are
    * platform-global) is untouched — each fiduciary erases only their own.
    *
@@ -226,6 +258,7 @@ export class PurgeService {
       llmUsage: 0,
       eventLogs: 0,
       notifications: 0,
+      consents: 0,
     };
 
     if (dbIds.length > 0) {
@@ -274,27 +307,38 @@ export class PurgeService {
         await this.prisma.notification.deleteMany({
           where: {
             organizationId,
-            entityType: 'conversation',
+            entityType: "conversation",
             entityId: { in: publicIds },
           },
         })
       ).count;
     }
 
+    // Consent decisions. Not gated on sessions: a visitor can consent and never
+    // chat. Sessions point at these rows with ON DELETE SET NULL, so the order
+    // against the session delete below does not matter.
+    result.consents = (
+      await this.prisma.visitorConsent.deleteMany({
+        where: { visitorId, organizationId },
+      })
+    ).count;
+
     if (dbIds.length > 0) {
       // Last: the sessions themselves. FK cascade removes chat_messages,
       // chat_message_metrics and collected_data in the same statement.
-      await this.prisma.chatSession.deleteMany({ where: { id: { in: dbIds } } });
+      await this.prisma.chatSession.deleteMany({
+        where: { id: { in: dbIds } },
+      });
     }
 
     this.log.info(
-      'eraseVisitor',
+      "eraseVisitor",
       `erased visitor within org=${organizationId}: sessions=${result.sessions} piiTokens=${result.piiTokens} traces=${result.chatTraces} llmUsage=${result.llmUsage} eventLogs=${result.eventLogs}`,
     );
     // Accountability: prove the erasure happened (counts only — no PII).
     await this.tracer.logAuditEvent(
       organizationId,
-      'PRIVACY_VISITOR_ERASED',
+      "PRIVACY_VISITOR_ERASED",
       {
         sessions: result.sessions,
         piiTokens: result.piiTokens,
@@ -302,6 +346,7 @@ export class PurgeService {
         llmUsage: result.llmUsage,
         eventLogs: result.eventLogs,
         notifications: result.notifications,
+        consents: result.consents,
       },
       { organizationId },
     );
@@ -322,7 +367,7 @@ export class PurgeService {
       where: { id: organizationId },
       select: { id: true },
     });
-    if (!org) throw new NotFoundException('Organization not found');
+    if (!org) throw new NotFoundException("Organization not found");
 
     const agents = await this.prisma.agent.findMany({
       where: { organizationId },
@@ -370,12 +415,8 @@ export class PurgeService {
         where: {
           OR: [
             { organizationId },
-            ...(agentIds.length > 0
-              ? [{ agentId: { in: agentIds } }]
-              : []),
-            ...(userIds.length > 0
-              ? [{ actorUserId: { in: userIds } }]
-              : []),
+            ...(agentIds.length > 0 ? [{ agentId: { in: agentIds } }] : []),
+            ...(userIds.length > 0 ? [{ actorUserId: { in: userIds } }] : []),
           ],
         },
       })
@@ -452,7 +493,7 @@ export class PurgeService {
     await this.prisma.organization.delete({ where: { id: organizationId } });
 
     this.log.info(
-      'eraseOrganization',
+      "eraseOrganization",
       `hard-deleted org=${organizationId}: agents=${result.agents} users=${result.users} sessions=${result.sessions} traces=${result.chatTraces} eventLogs=${result.eventLogs} files=${result.files}`,
     );
     // Written AFTER the org's audit rows were purged — this single surviving
@@ -460,7 +501,7 @@ export class PurgeService {
     // at the top since the org is gone, so this row is never re-deleted.)
     await this.tracer.logAuditEvent(
       organizationId,
-      'PRIVACY_ORG_ERASED',
+      "PRIVACY_ORG_ERASED",
       {
         agents: result.agents,
         users: result.users,

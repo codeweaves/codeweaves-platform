@@ -15,6 +15,7 @@ import {
 import type { ChatMessage } from "../types";
 import {
   XIcon,
+  EllipsisIcon,
   BotIcon,
   SettingsIcon,
   ZapIcon,
@@ -40,6 +41,18 @@ import { useChat } from "../hooks/useChat";
 import { useVoice } from "../hooks/useVoice";
 import { VoiceRecordingBar } from "./VoiceRecordingBar";
 import { isSafeUrl } from "../utils/url";
+import { postConsentDecision } from "../services/api-client";
+import { WidgetApiError } from "../services/api-errors";
+import { clearConfigCache } from "../services/config-loader";
+import { resetSession } from "../services/session-manager";
+import {
+  consentGranted,
+  consentNoticeOverride,
+  rememberAcceptedNotice,
+  revokeLocalConsent,
+  syncConsentFromStorage,
+} from "../services/consent";
+import { clearMessages } from "../state/chat-store";
 import { BotMessageText } from "./BotMessageText";
 import type { AgentConfig } from "../types";
 
@@ -310,6 +323,115 @@ export function ChatWidgetSurface({
   // Human teammate typing (socket-driven; only meaningful during ACTIVE_HUMAN).
   const agentIsTyping = agentTyping.value;
   const branding = section(theme, "branding");
+
+  // ── Chat-start privacy notice (ADR-0004) ───────────────────────────
+  // Wording, link and mode are the client's. The server decides whether the
+  // notice is live (consentNoticeHash is null when it is off). After a 409 the
+  // server's current notice overrides a stale cached theme.
+  const consentTheme = section(theme, "consent");
+  const noticeOverride = consentNoticeOverride.value;
+  const noticeHash =
+    noticeOverride?.noticeHash ?? agentConfig.consentNoticeHash ?? null;
+  const policyUrl =
+    noticeOverride?.notice.privacyPolicyUrl ??
+    str(consentTheme, "privacyPolicyUrl");
+  // A server-sent live notice (noticeOverride) wins over a cached theme that
+  // still says the notice is off.
+  const noticeActive =
+    (noticeOverride !== null || bool(consentTheme, "enabled")) &&
+    !!noticeHash &&
+    isSafeUrl(policyUrl);
+  const noticeMode =
+    (noticeOverride?.notice.mode ?? str(consentTheme, "mode", "consent")) ===
+    "notice"
+      ? "notice"
+      : "consent";
+  const noticeText =
+    noticeOverride?.notice.noticeText ?? str(consentTheme, "noticeText");
+  const noticeLinkText =
+    noticeOverride?.notice.linkText ??
+    str(consentTheme, "linkText", "Privacy Policy");
+  const consentButtonLabel =
+    noticeOverride?.notice.buttonLabel ??
+    str(consentTheme, "buttonLabel", "Start chat");
+  const withdrawLabel =
+    noticeOverride?.notice.withdrawLabel ??
+    str(consentTheme, "withdrawLabel", "Withdraw consent");
+  const noticeTextColor = str(consentTheme, "textColor", "#6b7280");
+  const noticeLinkColor = str(consentTheme, "linkColor", "#2563eb");
+  const granted = consentGranted.value;
+  const needsConsent = noticeActive && noticeMode === "consent";
+  // Consent mode without a grant: the whole input area becomes the notice.
+  const consentLocked = needsConsent && !granted;
+  const [consentBusy, setConsentBusy] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
+  const consentBtnRef = useRef<HTMLButtonElement>(null);
+
+  // Header options menu (privacy policy link + withdraw consent).
+  const [menuOpen, setMenuOpen] = useState(false);
+  const menuBtnRef = useRef<HTMLButtonElement>(null);
+  const menuRef = useRef<HTMLDivElement>(null);
+  const closeMenu = useCallback((refocus = true) => {
+    setMenuOpen(false);
+    if (refocus) requestAnimationFrame(() => menuBtnRef.current?.focus());
+  }, []);
+  useEffect(() => {
+    if (!menuOpen) return;
+    requestAnimationFrame(() =>
+      menuRef.current
+        ?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')
+        ?.focus(),
+    );
+    // composedPath sees through the shadow root, so a click anywhere outside
+    // the menu (host page included) closes it.
+    const onPointerDown = (e: PointerEvent) => {
+      const eventPath = e.composedPath();
+      if (
+        (menuRef.current && eventPath.includes(menuRef.current)) ||
+        (menuBtnRef.current && eventPath.includes(menuBtnRef.current))
+      )
+        return;
+      setMenuOpen(false);
+    };
+    document.addEventListener("pointerdown", onPointerDown, true);
+    return () =>
+      document.removeEventListener("pointerdown", onPointerDown, true);
+  }, [menuOpen]);
+  const onMenuKeyDown = useCallback(
+    (e: KeyboardEvent) => {
+      if (e.key === "Escape") {
+        // Close the menu only, not the whole chat window.
+        e.stopPropagation();
+        closeMenu();
+        return;
+      }
+      if (e.key !== "ArrowDown" && e.key !== "ArrowUp") return;
+      e.preventDefault();
+      const items = Array.from(
+        menuRef.current?.querySelectorAll<HTMLElement>(
+          '[role="menuitem"]:not([disabled])',
+        ) ?? [],
+      );
+      if (items.length === 0) return;
+      const active = (menuRef.current?.getRootNode() as ShadowRoot | undefined)
+        ?.activeElement as HTMLElement | null;
+      const i = active ? items.indexOf(active) : -1;
+      const next =
+        e.key === "ArrowDown"
+          ? items[(i + 1) % items.length]
+          : items[(i - 1 + items.length) % items.length];
+      next?.focus();
+    },
+    [closeMenu],
+  );
+
+  // A reload always starts a new session, so read which notice revision this
+  // browser accepted. A changed notice has a new hash and asks again.
+  useEffect(() => {
+    if (needsConsent && !noticeOverride)
+      syncConsentFromStorage(agentId, noticeHash);
+  }, [agentId, needsConsent, noticeHash, noticeOverride]);
+
   const typo = section(theme, "typography");
   const animations = section(theme, "animations");
 
@@ -411,6 +533,16 @@ export function ChatWidgetSurface({
 
   const showVoice = voiceEnabled && voiceIsSupported;
   const isVoiceActive = voiceState !== "idle";
+  // Withdraw is offered only after a grant in consent mode, and not while a
+  // reply, a recording or a live human handover is in progress (a teammate
+  // live on the chat owns the session until the handover resolves).
+  const canWithdraw = needsConsent && granted;
+  const withdrawDisabled =
+    consentBusy ||
+    loading ||
+    streaming ||
+    isVoiceActive ||
+    handoverState.value !== "NONE";
 
   // Build display messages: prepend greeting
   const greeting = agentConfig.greeting?.trim() ?? "";
@@ -439,9 +571,11 @@ export function ChatWidgetSurface({
     }
   }, [displayMessages, isTyping, hState, agentIsTyping]);
 
-  // Focus input on mount
+  // Focus input on mount (or the "Start chat" button when consent locks it)
   useEffect(() => {
-    requestAnimationFrame(() => inputRef.current?.focus());
+    requestAnimationFrame(() =>
+      (inputRef.current ?? consentBtnRef.current)?.focus(),
+    );
   }, []);
 
   // Return focus to the input once a send/stream finishes. The textarea is
@@ -472,6 +606,58 @@ export function ChatWidgetSurface({
     setInputValue("");
     requestAnimationFrame(() => inputRef.current?.focus());
   }, [inputValue, sendMessage]);
+
+  // "Start chat": the server records the grant against the notice revision
+  // the visitor saw. A 409 means the notice changed after this page loaded;
+  // show the new wording and let the visitor decide again.
+  const handleGrantConsent = useCallback(async () => {
+    if (!noticeHash || consentBusy) return;
+    setConsentBusy(true);
+    setConsentError(null);
+    try {
+      const res = await postConsentDecision(agentId, "GRANT", noticeHash);
+      if (res.ok) {
+        rememberAcceptedNotice(agentId, noticeHash);
+        consentGranted.value = true;
+        requestAnimationFrame(() => inputRef.current?.focus());
+      } else {
+        consentNoticeOverride.value = res.noticeChanged;
+        // The cached config is stale; the next page load must fetch it fresh.
+        clearConfigCache(agentId);
+        setConsentError(
+          "The privacy notice was updated. Please read it again.",
+        );
+      }
+    } catch (err) {
+      setConsentError(
+        err instanceof WidgetApiError
+          ? err.userMessage
+          : "Could not start the chat. Please try again.",
+      );
+    } finally {
+      setConsentBusy(false);
+    }
+  }, [agentId, noticeHash, consentBusy]);
+
+  // Withdrawal is one click, as easy as giving consent (DPDP s.6(4)). The
+  // server expires the open chat; here we drop the conversation from view and
+  // lock the input again.
+  const handleWithdrawConsent = useCallback(async () => {
+    if (consentBusy) return;
+    setConsentBusy(true);
+    setConsentError(null);
+    try {
+      await postConsentDecision(agentId, "WITHDRAW");
+      revokeLocalConsent(agentId);
+      resetSession(agentId);
+      clearMessages();
+      setInputValue("");
+    } catch {
+      setConsentError("Could not withdraw consent. Please try again.");
+    } finally {
+      setConsentBusy(false);
+    }
+  }, [agentId, consentBusy]);
 
   const handleKeyDown = useCallback(
     (e: KeyboardEvent) => {
@@ -660,7 +846,63 @@ export function ChatWidgetSurface({
               )}
             </div>
           </div>
-          <div class="cw-header-actions flex gap-2">
+          <div class="cw-header-actions relative flex gap-2">
+            {noticeActive && (
+              <button
+                ref={menuBtnRef}
+                type="button"
+                aria-label="Chat options"
+                aria-haspopup="menu"
+                aria-expanded={menuOpen}
+                aria-controls="cw-options-menu"
+                class="cw-header-btn cw-header-btn--menu flex h-8 w-8 cursor-pointer items-center justify-center rounded-full p-0 hover:opacity-80"
+                style={{ color: str(header, "textColor", "#ffffff") }}
+                onClick={() => setMenuOpen((open) => !open)}
+              >
+                <EllipsisIcon class="h-4 w-4" />
+              </button>
+            )}
+            {menuOpen && (
+              // Privacy options live here, not on the chat screen: one click
+              // away keeps withdrawal as easy as consenting (DPDP s.6(4))
+              // without a permanent line over the message box.
+              <div
+                ref={menuRef}
+                id="cw-options-menu"
+                role="menu"
+                aria-label="Chat options"
+                onKeyDown={onMenuKeyDown}
+                class="cw-options-menu absolute top-10 right-0 z-40 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white py-1 whitespace-nowrap shadow-lg"
+              >
+                <a
+                  role="menuitem"
+                  href={policyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="cw-options-item block px-3 py-1.5 text-left text-gray-700 no-underline hover:bg-gray-50 focus:bg-gray-50"
+                  style={{ fontSize: "1em" }}
+                  onClick={() => closeMenu(false)}
+                >
+                  {noticeLinkText}
+                  <span class="cw-sr-only"> (opens in a new tab)</span>
+                </a>
+                {canWithdraw && (
+                  <button
+                    role="menuitem"
+                    type="button"
+                    disabled={withdrawDisabled}
+                    class="cw-options-item block w-full cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50 focus:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                    style={{ fontSize: "1em" }}
+                    onClick={() => {
+                      closeMenu();
+                      void handleWithdrawConsent();
+                    }}
+                  >
+                    {withdrawLabel}
+                  </button>
+                )}
+              </div>
+            )}
             <button
               aria-label="Close chat"
               class="cw-header-btn cw-header-btn--close flex h-8 w-8 cursor-pointer items-center justify-center rounded-full p-0 hover:opacity-80"
@@ -857,26 +1099,29 @@ export function ChatWidgetSurface({
 
           {/* Conversation starters — only in a fresh bot chat. Never during a
                 handover, or a reconnect would look like a brand-new chat. */}
-          {msgs.length === 0 && hState === "NONE" && starters.length > 0 && (
-            <div class="cw-starters mt-4 flex flex-wrap gap-2">
-              {starters.map((s, i) => (
-                <button
-                  key={s + i}
-                  onClick={() => {
-                    sendMessage(s);
-                    requestAnimationFrame(() => inputRef.current?.focus());
-                  }}
-                  class="cw-starter-btn cursor-pointer border border-gray-200 bg-white px-3 py-2 shadow-sm transition-colors hover:bg-gray-50"
-                  style={{
-                    borderRadius: `${num(botMessage, "borderRadius", 14)}px`,
-                    fontSize: "1em",
-                  }}
-                >
-                  {s}
-                </button>
-              ))}
-            </div>
-          )}
+          {msgs.length === 0 &&
+            hState === "NONE" &&
+            !consentLocked &&
+            starters.length > 0 && (
+              <div class="cw-starters mt-4 flex flex-wrap gap-2">
+                {starters.map((s, i) => (
+                  <button
+                    key={s + i}
+                    onClick={() => {
+                      sendMessage(s);
+                      requestAnimationFrame(() => inputRef.current?.focus());
+                    }}
+                    class="cw-starter-btn cursor-pointer border border-gray-200 bg-white px-3 py-2 shadow-sm transition-colors hover:bg-gray-50"
+                    style={{
+                      borderRadius: `${num(botMessage, "borderRadius", 14)}px`,
+                      fontSize: "1em",
+                    }}
+                  >
+                    {s}
+                  </button>
+                ))}
+              </div>
+            )}
 
           {/* Typing indicator — never show the AI typing while a human is handling. */}
           {isTyping && typingEnabled && hState !== "ACTIVE_HUMAN" && (
@@ -985,150 +1230,244 @@ export function ChatWidgetSurface({
           class="cw-input-area border-t border-gray-200 p-3"
           style={{ backgroundColor: str(input, "backgroundColor", "#ffffff") }}
         >
-          <div
-            class="cw-input-wrapper flex flex-col border border-gray-300 px-3 py-2"
-            style={{
-              borderRadius: `${num(input, "borderRadius", 16)}px`,
-              boxShadow: isInputFocused
-                ? `0 0 0 2px ${str(sendBtn, "backgroundColor", "#3b82f6")}`
-                : "none",
-            }}
-          >
-            {voiceState === "listening" || voiceState === "processing" ? (
-              <VoiceRecordingBar
-                voiceState={voiceState}
-                recordingDurationMs={recordingDurationMs}
-                onCancel={cancelRecording}
-                onSend={stopRecording}
-                sendBtnColor={str(sendBtn, "backgroundColor", "#3b82f6")}
-                sendBtnIconColor={str(sendBtn, "iconColor", "#ffffff")}
-                getAnalyser={getVoiceAnalyser}
-              />
-            ) : (
-              <>
-                <textarea
-                  ref={inputRef}
-                  value={inputValue}
-                  onInput={(e) => {
-                    setInputValue((e.target as HTMLTextAreaElement).value);
-                    // Let a connected teammate see the visitor is typing (no-op
-                    // unless a handover socket is open — throttled internally).
-                    notifyTyping();
-                  }}
-                  onKeyDown={handleKeyDown}
-                  onFocus={() => setIsInputFocused(true)}
-                  onBlur={() => setIsInputFocused(false)}
-                  aria-label={str(
-                    input,
-                    "placeholderText",
-                    "Type your message...",
-                  )}
-                  placeholder={str(
-                    input,
-                    "placeholderText",
-                    "Type your message...",
-                  )}
-                  disabled={
-                    loading || streaming || rateLimited || isVoiceActive
-                  }
-                  rows={1}
-                  class="cw-input w-full resize-none border-0 bg-transparent p-0 leading-snug outline-none"
-                  style={{
-                    color: str(input, "textColor", "#1f2937"),
-                    maxHeight: "144px",
-                    // Honor the selected base font-size (matches the chat message text).
-                    // The iOS-only 16px floor that prevents focus auto-zoom lives in the
-                    // stylesheet (components.ts) scoped to @supports (-webkit-touch-callout).
-                    fontSize: "1em",
-                  }}
-                />
-                <div class="cw-input-actions mt-2 flex items-center justify-between">
-                  <div class="cw-input-left-actions flex items-center gap-1">
-                    {/* Mic button only renders in idle/playing — recording + processing states
-                     *  swap the entire input wrapper for VoiceRecordingBar (above). */}
-                    {showVoice && (
-                      <button
-                        onClick={() => {
-                          if (voiceState === "idle") startRecording();
-                          else if (voiceState === "playing") stopPlayback();
-                        }}
-                        aria-label={
-                          voiceState === "idle"
-                            ? "Start recording"
-                            : "Stop playback"
-                        }
-                        class={`cw-voice-btn cw-voice-btn--${voiceState} relative flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-gray-500 hover:text-gray-800`}
-                        style={{
-                          color:
-                            voiceState === "playing" ? "#F97316" : undefined,
-                        }}
-                      >
-                        {voiceState === "idle" && <MicIcon class="h-4 w-4" />}
-                        {voiceState === "playing" && (
-                          <Volume2Icon class="h-4 w-4" />
-                        )}
-                      </button>
-                    )}
-                  </div>
-                  <div class="flex items-center gap-2">
-                    {showHandoverBtn && hState === "NONE" && (
-                      <button
-                        type="button"
-                        aria-label={handoverTooltip}
-                        title={handoverTooltip}
-                        onClick={() => requestHuman()}
-                        disabled={
-                          loading || streaming || rateLimited || isVoiceActive
-                        }
-                        class="cw-handover-btn flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-opacity hover:opacity-80"
-                        style={{
-                          border: `1.5px solid ${handoverIconColor}`,
-                          backgroundColor: handoverBg,
-                          color: handoverIconColor,
-                          opacity:
-                            loading || streaming || rateLimited || isVoiceActive
-                              ? 0.5
-                              : 1,
-                        }}
-                      >
-                        <HeadphonesIcon class="h-4 w-4" />
-                      </button>
-                    )}
-                    <button
-                      onClick={handleSend}
-                      disabled={
-                        !inputValue.trim() ||
-                        loading ||
-                        streaming ||
-                        rateLimited ||
-                        isVoiceActive
-                      }
-                      aria-label="Send message"
-                      class="cw-send-btn flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
-                      style={{
-                        backgroundColor: str(
-                          sendBtn,
-                          "backgroundColor",
-                          "#3b82f6",
-                        ),
-                        color: str(sendBtn, "iconColor", "#ffffff"),
-                        opacity:
-                          !inputValue.trim() ||
-                          loading ||
-                          streaming ||
-                          rateLimited ||
-                          isVoiceActive
-                            ? 0.4
-                            : 1,
+          {consentLocked ? (
+            // Consent mode: nothing is sent (no text, no voice, no handover)
+            // until the visitor clicks. The server enforces the same rule.
+            <div
+              class="cw-consent flex flex-col gap-2"
+              role="region"
+              aria-label="Privacy notice"
+            >
+              <p
+                class="cw-consent-text leading-snug"
+                style={{ color: noticeTextColor, fontSize: "0.86em" }}
+              >
+                {noticeText}{" "}
+                <a
+                  href={policyUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  class="cw-consent-link font-medium underline"
+                  style={{ color: noticeLinkColor }}
+                >
+                  {noticeLinkText}
+                  <span class="cw-sr-only"> (opens in a new tab)</span>
+                </a>
+              </p>
+              {consentError && (
+                <p
+                  role="alert"
+                  class="cw-consent-error"
+                  style={{ color: "#b91c1c", fontSize: "0.82em" }}
+                >
+                  {consentError}
+                </p>
+              )}
+              <button
+                ref={consentBtnRef}
+                type="button"
+                onClick={() => void handleGrantConsent()}
+                disabled={consentBusy}
+                aria-busy={consentBusy}
+                class="cw-consent-btn w-full cursor-pointer border-0 px-4 py-2 font-medium transition-opacity hover:opacity-90"
+                style={{
+                  backgroundColor: str(sendBtn, "backgroundColor", "#3b82f6"),
+                  color: str(sendBtn, "iconColor", "#ffffff"),
+                  borderRadius: `${num(input, "borderRadius", 16)}px`,
+                  opacity: consentBusy ? 0.6 : 1,
+                }}
+              >
+                {consentButtonLabel}
+              </button>
+            </div>
+          ) : (
+            <>
+              {noticeActive && noticeMode === "notice" && msgs.length === 0 && (
+                // Notice mode: the notice shows at the start of a chat, then
+                // gives way to the conversation. The link stays in the header
+                // options menu.
+                <p
+                  class="cw-consent-line mb-2 leading-snug"
+                  style={{ color: noticeTextColor, fontSize: "0.78em" }}
+                >
+                  {noticeText}{" "}
+                  <a
+                    href={policyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    class="cw-consent-link font-medium underline"
+                    style={{ color: noticeLinkColor }}
+                  >
+                    {noticeLinkText}
+                    <span class="cw-sr-only"> (opens in a new tab)</span>
+                  </a>
+                </p>
+              )}
+              {consentError && (
+                <p
+                  role="alert"
+                  class="cw-consent-error mb-2"
+                  style={{ color: "#b91c1c", fontSize: "0.78em" }}
+                >
+                  {consentError}
+                </p>
+              )}
+              <div
+                class="cw-input-wrapper flex flex-col border border-gray-300 px-3 py-2"
+                style={{
+                  borderRadius: `${num(input, "borderRadius", 16)}px`,
+                  boxShadow: isInputFocused
+                    ? `0 0 0 2px ${str(sendBtn, "backgroundColor", "#3b82f6")}`
+                    : "none",
+                }}
+              >
+                {voiceState === "listening" || voiceState === "processing" ? (
+                  <VoiceRecordingBar
+                    voiceState={voiceState}
+                    recordingDurationMs={recordingDurationMs}
+                    onCancel={cancelRecording}
+                    onSend={stopRecording}
+                    sendBtnColor={str(sendBtn, "backgroundColor", "#3b82f6")}
+                    sendBtnIconColor={str(sendBtn, "iconColor", "#ffffff")}
+                    getAnalyser={getVoiceAnalyser}
+                  />
+                ) : (
+                  <>
+                    <textarea
+                      ref={inputRef}
+                      value={inputValue}
+                      onInput={(e) => {
+                        setInputValue((e.target as HTMLTextAreaElement).value);
+                        // Let a connected teammate see the visitor is typing (no-op
+                        // unless a handover socket is open — throttled internally).
+                        notifyTyping();
                       }}
-                    >
-                      <ArrowUpIcon class="h-4 w-4" />
-                    </button>
-                  </div>
-                </div>
-              </>
-            )}
-          </div>
+                      onKeyDown={handleKeyDown}
+                      onFocus={() => setIsInputFocused(true)}
+                      onBlur={() => setIsInputFocused(false)}
+                      aria-label={str(
+                        input,
+                        "placeholderText",
+                        "Type your message...",
+                      )}
+                      placeholder={str(
+                        input,
+                        "placeholderText",
+                        "Type your message...",
+                      )}
+                      disabled={
+                        loading || streaming || rateLimited || isVoiceActive
+                      }
+                      rows={1}
+                      class="cw-input w-full resize-none border-0 bg-transparent p-0 leading-snug outline-none"
+                      style={{
+                        color: str(input, "textColor", "#1f2937"),
+                        maxHeight: "144px",
+                        // Honor the selected base font-size (matches the chat message text).
+                        // The iOS-only 16px floor that prevents focus auto-zoom lives in the
+                        // stylesheet (components.ts) scoped to @supports (-webkit-touch-callout).
+                        fontSize: "1em",
+                      }}
+                    />
+                    <div class="cw-input-actions mt-2 flex items-center justify-between">
+                      <div class="cw-input-left-actions flex items-center gap-1">
+                        {/* Mic button only renders in idle/playing — recording + processing states
+                         *  swap the entire input wrapper for VoiceRecordingBar (above). */}
+                        {showVoice && (
+                          <button
+                            onClick={() => {
+                              if (voiceState === "idle") startRecording();
+                              else if (voiceState === "playing") stopPlayback();
+                            }}
+                            aria-label={
+                              voiceState === "idle"
+                                ? "Start recording"
+                                : "Stop playback"
+                            }
+                            class={`cw-voice-btn cw-voice-btn--${voiceState} relative flex cursor-pointer items-center justify-center border-0 bg-transparent p-0 text-gray-500 hover:text-gray-800`}
+                            style={{
+                              color:
+                                voiceState === "playing"
+                                  ? "#F97316"
+                                  : undefined,
+                            }}
+                          >
+                            {voiceState === "idle" && (
+                              <MicIcon class="h-4 w-4" />
+                            )}
+                            {voiceState === "playing" && (
+                              <Volume2Icon class="h-4 w-4" />
+                            )}
+                          </button>
+                        )}
+                      </div>
+                      <div class="flex items-center gap-2">
+                        {showHandoverBtn && hState === "NONE" && (
+                          <button
+                            type="button"
+                            aria-label={handoverTooltip}
+                            title={handoverTooltip}
+                            onClick={() => requestHuman()}
+                            disabled={
+                              loading ||
+                              streaming ||
+                              rateLimited ||
+                              isVoiceActive
+                            }
+                            class="cw-handover-btn flex h-8 w-8 shrink-0 cursor-pointer items-center justify-center rounded-full transition-opacity hover:opacity-80"
+                            style={{
+                              border: `1.5px solid ${handoverIconColor}`,
+                              backgroundColor: handoverBg,
+                              color: handoverIconColor,
+                              opacity:
+                                loading ||
+                                streaming ||
+                                rateLimited ||
+                                isVoiceActive
+                                  ? 0.5
+                                  : 1,
+                            }}
+                          >
+                            <HeadphonesIcon class="h-4 w-4" />
+                          </button>
+                        )}
+                        <button
+                          onClick={handleSend}
+                          disabled={
+                            !inputValue.trim() ||
+                            loading ||
+                            streaming ||
+                            rateLimited ||
+                            isVoiceActive
+                          }
+                          aria-label="Send message"
+                          class="cw-send-btn flex h-8 w-8 cursor-pointer items-center justify-center rounded-full border-0 p-0 transition-opacity"
+                          style={{
+                            backgroundColor: str(
+                              sendBtn,
+                              "backgroundColor",
+                              "#3b82f6",
+                            ),
+                            color: str(sendBtn, "iconColor", "#ffffff"),
+                            opacity:
+                              !inputValue.trim() ||
+                              loading ||
+                              streaming ||
+                              rateLimited ||
+                              isVoiceActive
+                                ? 0.4
+                                : 1,
+                          }}
+                        >
+                          <ArrowUpIcon class="h-4 w-4" />
+                        </button>
+                      </div>
+                    </div>
+                  </>
+                )}
+              </div>
+            </>
+          )}
         </div>
 
         {/* Branding footer */}
@@ -1164,6 +1503,7 @@ export function ChatWidgetSurface({
                   }}
                 >
                   {str(branding, "linkText", "Klivo")}
+                  <span class="cw-sr-only"> (opens in a new tab)</span>
                 </a>
               )}
             </p>

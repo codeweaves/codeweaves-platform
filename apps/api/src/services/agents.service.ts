@@ -4,27 +4,34 @@ import {
   ConflictException,
   BadRequestException,
   ForbiddenException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { PrismaService } from './prisma.service';
-import { Prisma, Agent } from '@prisma/client';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "./prisma.service";
+import { Prisma, Agent } from "@prisma/client";
+import { agentAiConfigUpdateSchema, voiceConfigSchema } from "@repo/validation";
+import { ZodError } from "zod";
+import type {
+  CreateAgentDto,
+  UpdateAgentDto,
+  AgentListQuery,
+} from "../models/agent.dto";
+import type { CurrentUserData } from "../decorators/current-user.decorator";
+import { generatePublicId } from "../utils/public-id";
+import { deduplicateDomains, isValidDomain } from "../utils/domain";
+import { AgentLoggerService } from "../common/logger/agent.logger";
+import { AgentCacheService } from "../common/cache/agent-cache.service";
+import { WidgetCorsCacheService } from "../common/cache/widget-cors-cache.service";
+import { CryptoService } from "../common/crypto/crypto.service";
+import { PermissionCatalogService } from "../common/rbac/permission-catalog.service";
+import type { PermissionKey } from "../common/rbac/rbac.types";
+import { AppLogger } from "../common/logger/app-logger";
+import { isOrgScoped } from "../utils/tenant-filter";
 import {
-  agentAiConfigUpdateSchema,
-  voiceConfigSchema,
-} from '@repo/validation';
-import { ZodError } from 'zod';
-import type { CreateAgentDto, UpdateAgentDto, AgentListQuery } from '../models/agent.dto';
-import type { CurrentUserData } from '../decorators/current-user.decorator';
-import { generatePublicId } from '../utils/public-id';
-import { deduplicateDomains, isValidDomain } from '../utils/domain';
-import { AgentLoggerService } from '../common/logger/agent.logger';
-import { AgentCacheService } from '../common/cache/agent-cache.service';
-import { WidgetCorsCacheService } from '../common/cache/widget-cors-cache.service';
-import { CryptoService } from '../common/crypto/crypto.service';
-import { PermissionCatalogService } from '../common/rbac/permission-catalog.service';
-import type { PermissionKey } from '../common/rbac/rbac.types';
-import { AppLogger } from '../common/logger/app-logger';
-import { isOrgScoped } from '../utils/tenant-filter';
+  computeNoticeHash,
+  isNoticeActive,
+  readConsentConfig,
+  withNormalizedConsent,
+} from "../utils/consent-notice";
 
 const MAX_PUBLIC_ID_RETRIES = 3;
 const WEBHOOK_TEST_TIMEOUT = 10_000;
@@ -63,12 +70,14 @@ export class AgentsService {
   ) {}
 
   async create(dto: CreateAgentDto, user: CurrentUserData) {
-    this.log.debug('create', 'creating agent', { organizationId: dto.organizationId });
+    this.log.debug("create", "creating agent", {
+      organizationId: dto.organizationId,
+    });
     const org = await this.prisma.organization.findUnique({
       where: { id: dto.organizationId },
     });
     if (!org) {
-      throw new NotFoundException('Organization not found');
+      throw new NotFoundException("Organization not found");
     }
 
     for (let attempt = 0; attempt < MAX_PUBLIC_ID_RETRIES; attempt++) {
@@ -82,23 +91,37 @@ export class AgentsService {
             organizationId: dto.organizationId,
           },
         });
-        await this.agentLogger.logAgentCreated(agent.id, { agent, request: dto, userId: user.id });
-        this.log.info('create', 'agent created', { agentId: agent.id, organizationId: dto.organizationId });
+        await this.agentLogger.logAgentCreated(agent.id, {
+          agent,
+          request: dto,
+          userId: user.id,
+        });
+        this.log.info("create", "agent created", {
+          agentId: agent.id,
+          organizationId: dto.organizationId,
+        });
         return agent;
       } catch (error) {
         if (
           error instanceof Prisma.PrismaClientKnownRequestError &&
-          error.code === 'P2002' &&
-          Array.isArray(error.meta?.['target']) &&
-          (error.meta['target'] as string[]).includes('publicId')
+          error.code === "P2002" &&
+          Array.isArray(error.meta?.["target"]) &&
+          (error.meta["target"] as string[]).includes("publicId")
         ) {
-          this.log.warn('create', `publicId collision, retrying (attempt ${attempt + 1}/${MAX_PUBLIC_ID_RETRIES})`);
+          this.log.warn(
+            "create",
+            `publicId collision, retrying (attempt ${attempt + 1}/${MAX_PUBLIC_ID_RETRIES})`,
+          );
           if (attempt === MAX_PUBLIC_ID_RETRIES - 1) {
-            throw new ConflictException('Unable to generate a unique public ID. Please try again.');
+            throw new ConflictException(
+              "Unable to generate a unique public ID. Please try again.",
+            );
           }
           continue;
         }
-        this.log.error('create', 'agent creation failed', error, { organizationId: dto.organizationId });
+        this.log.error("create", "agent creation failed", error, {
+          organizationId: dto.organizationId,
+        });
         await this.agentLogger.logAgentCreationException(
           dto.organizationId,
           error,
@@ -108,25 +131,37 @@ export class AgentsService {
       }
     }
 
-    throw new ConflictException('Unable to generate a unique public ID. Please try again.');
+    throw new ConflictException(
+      "Unable to generate a unique public ID. Please try again.",
+    );
   }
 
   async findAll(
-    query: AgentListQuery = { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' },
+    query: AgentListQuery = {
+      page: 1,
+      limit: 20,
+      sortBy: "createdAt",
+      sortOrder: "desc",
+    },
     user: CurrentUserData,
   ) {
-    const { page, limit, search, sortBy, sortOrder, status, organizationId } = query;
+    const { page, limit, search, sortBy, sortOrder, status, organizationId } =
+      query;
     const skip = (page - 1) * limit;
 
     const where: Prisma.AgentWhereInput = {
       deletedAt: null,
       ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
       ...(!isOrgScoped(user) && organizationId && { organizationId }),
-      ...(search && { name: { contains: search, mode: 'insensitive' as const } }),
+      ...(search && {
+        name: { contains: search, mode: "insensitive" as const },
+      }),
       ...(status && { status }),
     };
 
-    const orderBy: Prisma.AgentOrderByWithRelationInput = { [sortBy]: sortOrder };
+    const orderBy: Prisma.AgentOrderByWithRelationInput = {
+      [sortBy]: sortOrder,
+    };
 
     const [data, total] = await Promise.all([
       this.prisma.agent.findMany({
@@ -161,14 +196,17 @@ export class AgentsService {
     });
 
     if (!agent) {
-      throw new NotFoundException('Agent not found');
+      throw new NotFoundException("Agent not found");
     }
 
     return this.stripSensitiveFields(agent, user);
   }
 
   async update(id: string, dto: UpdateAgentDto, user: CurrentUserData) {
-    this.log.debug('update', 'updating agent', { agentId: id, fields: Object.keys(dto) });
+    this.log.debug("update", "updating agent", {
+      agentId: id,
+      fields: Object.keys(dto),
+    });
     const existing = await this.findByIdRaw(id, user);
 
     // The route only requires Agent:Update, which covers the everyday config.
@@ -178,10 +216,12 @@ export class AgentsService {
 
     // Validate, normalize, and deduplicate domains before saving
     if (dto.allowedDomains !== undefined) {
-      const invalidDomains = dto.allowedDomains.filter((d) => !isValidDomain(d));
+      const invalidDomains = dto.allowedDomains.filter(
+        (d) => !isValidDomain(d),
+      );
       if (invalidDomains.length > 0) {
         throw new BadRequestException(
-          `Invalid domain(s): ${invalidDomains.join(', ')}`,
+          `Invalid domain(s): ${invalidDomains.join(", ")}`,
         );
       }
     }
@@ -191,7 +231,8 @@ export class AgentsService {
         : undefined;
 
     // Validate voiceConfig with Zod before writing to DB
-    let voiceConfigData: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined;
+    let voiceConfigData:
+      Prisma.InputJsonValue | typeof Prisma.DbNull | undefined;
     if (dto.voiceConfig !== undefined) {
       if (dto.voiceConfig === null) {
         voiceConfigData = Prisma.DbNull;
@@ -203,7 +244,7 @@ export class AgentsService {
         } catch (error) {
           if (error instanceof ZodError) {
             throw new BadRequestException(
-              `Invalid voice configuration: ${error.errors.map((e) => e.message).join(', ')}`,
+              `Invalid voice configuration: ${error.errors.map((e) => e.message).join(", ")}`,
             );
           }
           throw error;
@@ -216,7 +257,7 @@ export class AgentsService {
       // Check if the existing agent already has a voiceConfig
       if (!existing.voiceConfig) {
         throw new BadRequestException(
-          'Cannot enable voice without a voice configuration. Provide voiceConfig in the same request.',
+          "Cannot enable voice without a voice configuration. Provide voiceConfig in the same request.",
         );
       }
     }
@@ -238,7 +279,7 @@ export class AgentsService {
         } catch (error) {
           if (error instanceof ZodError) {
             throw new BadRequestException(
-              `Invalid AI configuration: ${error.errors.map((e) => e.message).join(', ')}`,
+              `Invalid AI configuration: ${error.errors.map((e) => e.message).join(", ")}`,
             );
           }
           throw error;
@@ -258,11 +299,21 @@ export class AgentsService {
         data: {
           ...(dto.name !== undefined && { name: dto.name }),
           ...(dto.status !== undefined && { status: dto.status }),
-          ...(normalizedDomains !== undefined && { allowedDomains: normalizedDomains }),
-          ...(dto.voiceEnabled !== undefined && { voiceEnabled: dto.voiceEnabled }),
-          ...(voiceConfigData !== undefined && { voiceConfig: voiceConfigData }),
-          ...(dto.welcomeMessage !== undefined && { welcomeMessage: dto.welcomeMessage }),
-          ...(dto.systemPrompt !== undefined && { systemPrompt: dto.systemPrompt }),
+          ...(normalizedDomains !== undefined && {
+            allowedDomains: normalizedDomains,
+          }),
+          ...(dto.voiceEnabled !== undefined && {
+            voiceEnabled: dto.voiceEnabled,
+          }),
+          ...(voiceConfigData !== undefined && {
+            voiceConfig: voiceConfigData,
+          }),
+          ...(dto.welcomeMessage !== undefined && {
+            welcomeMessage: dto.welcomeMessage,
+          }),
+          ...(dto.systemPrompt !== undefined && {
+            systemPrompt: dto.systemPrompt,
+          }),
           ...(aiConfigData !== undefined && { aiConfig: aiConfigData }),
           ...(dto.categoryKeywords !== undefined && {
             // Dedupe case-insensitively but preserve the user's casing for the
@@ -319,9 +370,12 @@ export class AgentsService {
       }
 
       // Audit: voice configuration changes
-      if (dto.voiceEnabled !== undefined && dto.voiceEnabled !== existing.voiceEnabled) {
+      if (
+        dto.voiceEnabled !== undefined &&
+        dto.voiceEnabled !== existing.voiceEnabled
+      ) {
         await this.agentLogger.logAgentUpdated(updated.id, {
-          event: 'AGENT_VOICE_TOGGLED',
+          event: "AGENT_VOICE_TOGGLED",
           oldVoiceEnabled: existing.voiceEnabled,
           newVoiceEnabled: dto.voiceEnabled,
           userId: user.id,
@@ -329,7 +383,7 @@ export class AgentsService {
       }
       if (dto.voiceConfig !== undefined) {
         await this.agentLogger.logAgentUpdated(updated.id, {
-          event: 'AGENT_VOICE_CONFIG_UPDATED',
+          event: "AGENT_VOICE_CONFIG_UPDATED",
           userId: user.id,
         });
       }
@@ -340,10 +394,10 @@ export class AgentsService {
       if (dto.aiConfig !== undefined) {
         const oldRoutingMode =
           (existing.aiConfig as { routingMode?: string } | null)?.routingMode ??
-          'n8n';
+          "n8n";
         const newRoutingMode = dto.aiConfig?.routingMode ?? oldRoutingMode;
         await this.agentLogger.logAgentUpdated(updated.id, {
-          event: 'AGENT_AI_CONFIG_UPDATED',
+          event: "AGENT_AI_CONFIG_UPDATED",
           oldRoutingMode,
           newRoutingMode,
           changedFields: Object.keys(dto.aiConfig ?? {}),
@@ -351,8 +405,12 @@ export class AgentsService {
         });
       }
 
-      await this.agentLogger.logAgentUpdated(updated.id, { agent: updated, request: dto, userId: user.id });
-      this.log.info('update', 'agent updated', { agentId: updated.id });
+      await this.agentLogger.logAgentUpdated(updated.id, {
+        agent: updated,
+        request: dto,
+        userId: user.id,
+      });
+      this.log.info("update", "agent updated", { agentId: updated.id });
       // Bust the cache so the next chat turn reads fresh aiConfig / systemPrompt /
       // voiceConfig. Invalidation is best-effort (fail-open, see AgentCacheService).
       await this.agentCache.invalidate(updated.id);
@@ -360,18 +418,24 @@ export class AgentsService {
       // very next widget request from this node sees the new list — without
       // this, dashboard edits sit behind the 10-min TTL.
       if (normalizedDomains !== undefined) {
-        this.widgetCorsCache.invalidate({ id: updated.id, publicId: updated.publicId });
+        this.widgetCorsCache.invalidate({
+          id: updated.id,
+          publicId: updated.publicId,
+        });
       }
       return this.stripSensitiveFields(updated, user);
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2025'
+        error.code === "P2025"
       ) {
-        throw new NotFoundException('Agent not found');
+        throw new NotFoundException("Agent not found");
       }
-      this.log.error('update', 'agent update failed', error, { agentId: id });
-      await this.agentLogger.logAgentUpdateException(id, error, { request: dto, userId: user.id });
+      this.log.error("update", "agent update failed", error, { agentId: id });
+      await this.agentLogger.logAgentUpdateException(id, error, {
+        request: dto,
+        userId: user.id,
+      });
       throw error;
     }
   }
@@ -383,8 +447,11 @@ export class AgentsService {
       where: { id },
       data: { deletedAt: new Date() },
     });
-    await this.agentLogger.logAgentDeleted(deleted.id, { agent: deleted, userId: user.id });
-    this.log.info('softDelete', 'agent soft-deleted', { agentId: deleted.id });
+    await this.agentLogger.logAgentDeleted(deleted.id, {
+      agent: deleted,
+      userId: user.id,
+    });
+    this.log.info("softDelete", "agent soft-deleted", { agentId: deleted.id });
     return deleted;
   }
 
@@ -396,7 +463,7 @@ export class AgentsService {
       where: { id: agentId, deletedAt: null },
       select: { status: true },
     });
-    return agent?.status === 'ACTIVE';
+    return agent?.status === "ACTIVE";
   }
 
   /**
@@ -405,7 +472,7 @@ export class AgentsService {
    */
   async getDemoInfo(id: string) {
     const agent = await this.prisma.agent.findFirst({
-      where: { id, deletedAt: null, status: 'ACTIVE' },
+      where: { id, deletedAt: null, status: "ACTIVE" },
       select: {
         id: true,
         publicId: true,
@@ -417,22 +484,30 @@ export class AgentsService {
     });
 
     if (!agent) {
-      throw new NotFoundException('Agent not found');
+      throw new NotFoundException("Agent not found");
     }
 
     const theme = await this.prisma.agentTheme.findUnique({
       where: { agentId: id },
     });
 
+    const demoConsent = readConsentConfig(theme?.config);
     return {
       id: agent.id,
       publicId: agent.publicId,
       name: agent.name,
       welcomeMessage: agent.welcomeMessage,
-      theme: theme?.config ?? null,
-      voiceConfig: agent.voiceEnabled && agent.voiceConfig
-        ? this.sanitizeVoiceConfigForWidget(agent.voiceConfig as Record<string, unknown>)
+      theme: withNormalizedConsent(theme?.config ?? null),
+      // The demo page is public too: its visitors see the same notice.
+      consentNoticeHash: isNoticeActive(demoConsent)
+        ? computeNoticeHash(demoConsent)
         : null,
+      voiceConfig:
+        agent.voiceEnabled && agent.voiceConfig
+          ? this.sanitizeVoiceConfigForWidget(
+              agent.voiceConfig as Record<string, unknown>,
+            )
+          : null,
     };
   }
 
@@ -442,7 +517,7 @@ export class AgentsService {
    */
   async getWidgetConfig(publicId: string) {
     const agent = await this.prisma.agent.findFirst({
-      where: { publicId, deletedAt: null, status: 'ACTIVE' },
+      where: { publicId, deletedAt: null, status: "ACTIVE" },
       select: {
         id: true,
         name: true,
@@ -457,37 +532,53 @@ export class AgentsService {
     });
 
     if (!agent) {
-      throw new NotFoundException('Agent not found');
+      throw new NotFoundException("Agent not found");
     }
 
     const theme = await this.prisma.agentTheme.findUnique({
       where: { agentId: agent.id },
     });
 
-    const themeConfig = (theme?.config ?? null) as Record<string, unknown> | null;
+    const themeConfig = (theme?.config ?? null) as Record<
+      string,
+      unknown
+    > | null;
+    const consent = readConsentConfig(themeConfig);
     const starters: string[] = Array.isArray(themeConfig?.starters)
       ? (themeConfig.starters as Array<{ message?: string }>)
-          .map((s) => (typeof s === 'string' ? s : s?.message ?? ''))
+          .map((s) => (typeof s === "string" ? s : (s?.message ?? "")))
           .filter(Boolean)
       : [];
 
     return {
       config: {
-        theme: themeConfig,
+        // Consent section fully defaulted: the widget shows exactly the
+        // wording that computeNoticeHash covers and the consent row snapshots.
+        theme: withNormalizedConsent(themeConfig),
         agent: {
           name: agent.name,
-          greeting: agent.welcomeMessage ?? '',
+          greeting: agent.welcomeMessage ?? "",
           starters,
           voiceEnabled: agent.voiceEnabled && !!agent.voiceConfig,
-          voiceConfig: agent.voiceEnabled && agent.voiceConfig
-            ? this.sanitizeVoiceConfigForWidget(agent.voiceConfig as Record<string, unknown>)
-            : null,
+          voiceConfig:
+            agent.voiceEnabled && agent.voiceConfig
+              ? this.sanitizeVoiceConfigForWidget(
+                  agent.voiceConfig as Record<string, unknown>,
+                )
+              : null,
           // Human handover (live agent takeover). The widget renders the
           // "Talk to a human" button only when both are true; humanConnectedLabel
           // is the text shown when a teammate joins.
           humanTakeoverEnabled: agent.humanTakeoverEnabled,
-          showTalkToHumanButton: agent.humanTakeoverEnabled && agent.showTalkToHumanButton,
+          showTalkToHumanButton:
+            agent.humanTakeoverEnabled && agent.showTalkToHumanButton,
           humanConnectedLabel: agent.humanConnectedLabel,
+          // Revision of the chat-start privacy notice (null = notice off). The
+          // widget stores the hash it consented to and asks again on change,
+          // and sends it back with a GRANT so the server can refuse a stale one.
+          consentNoticeHash: isNoticeActive(consent)
+            ? computeNoticeHash(consent)
+            : null,
         },
         allowedDomains: agent.allowedDomains,
       },
@@ -500,8 +591,8 @@ export class AgentsService {
     return {
       sttEnabled: config.sttEnabled ?? true,
       ttsEnabled: config.ttsEnabled ?? true,
-      defaultLanguage: config.defaultLanguage ?? 'en',
-      supportedLanguages: config.supportedLanguages ?? ['en'],
+      defaultLanguage: config.defaultLanguage ?? "en",
+      supportedLanguages: config.supportedLanguages ?? ["en"],
       autoDetectLanguage: config.autoDetectLanguage ?? true,
     };
   }
@@ -510,15 +601,19 @@ export class AgentsService {
   // Webhook Management
   // ==========================================
 
-  async setWebhookUrl(agentId: string, webhookUrl: string, user: CurrentUserData) {
+  async setWebhookUrl(
+    agentId: string,
+    webhookUrl: string,
+    user: CurrentUserData,
+  ) {
     await this.findByIdRaw(agentId, user);
 
     // Enforce HTTPS in production
     if (
-      this.configService.get<string>('NODE_ENV') === 'production' &&
-      !webhookUrl.startsWith('https://')
+      this.configService.get<string>("NODE_ENV") === "production" &&
+      !webhookUrl.startsWith("https://")
     ) {
-      throw new BadRequestException('Webhook URL must use HTTPS in production');
+      throw new BadRequestException("Webhook URL must use HTTPS in production");
     }
 
     const encrypted = this.cryptoService.encrypt(webhookUrl);
@@ -539,9 +634,12 @@ export class AgentsService {
       await this.agentLogger.logSecretCreated(agentId, user.id);
     }
     await this.agentLogger.logWebhookUpdated(agentId, user.id);
-    this.log.info('setWebhookUrl', 'webhook url updated', { agentId, replaced: !!existing });
+    this.log.info("setWebhookUrl", "webhook url updated", {
+      agentId,
+      replaced: !!existing,
+    });
 
-    return { message: 'Webhook URL updated' };
+    return { message: "Webhook URL updated" };
   }
 
   async getWebhookUrl(agentId: string, user: CurrentUserData) {
@@ -555,7 +653,7 @@ export class AgentsService {
       return { webhookUrl: this.cryptoService.decrypt(secret.webhookUrl) };
     }
 
-    const fallback = this.configService.get<string>('DEFAULT_WEBHOOK_URL');
+    const fallback = this.configService.get<string>("DEFAULT_WEBHOOK_URL");
     if (fallback) {
       return { webhookUrl: fallback, isFallback: true };
     }
@@ -575,9 +673,9 @@ export class AgentsService {
       return this.cryptoService.decrypt(secret.webhookUrl);
     }
 
-    const fallback = this.configService.get<string>('DEFAULT_WEBHOOK_URL');
+    const fallback = this.configService.get<string>("DEFAULT_WEBHOOK_URL");
     if (!fallback) {
-      throw new NotFoundException('No webhook URL configured for this agent');
+      throw new NotFoundException("No webhook URL configured for this agent");
     }
     return fallback;
   }
@@ -589,11 +687,11 @@ export class AgentsService {
     try {
       url = await this.getEffectiveWebhookUrl(agentId);
     } catch {
-      throw new NotFoundException('No webhook URL configured for this agent');
+      throw new NotFoundException("No webhook URL configured for this agent");
     }
 
     const payload = {
-      type: 'test',
+      type: "test",
       agentId,
       timestamp: new Date().toISOString(),
     };
@@ -601,13 +699,13 @@ export class AgentsService {
     const startTime = Date.now();
     try {
       const response = await fetch(url, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify(payload),
         signal: AbortSignal.timeout(WEBHOOK_TEST_TIMEOUT),
       });
 
-      this.log.info('testWebhook', 'webhook test completed', {
+      this.log.info("testWebhook", "webhook test completed", {
         agentId,
         statusCode: response.status,
         ok: response.ok,
@@ -619,14 +717,14 @@ export class AgentsService {
         responseTime: Date.now() - startTime,
       };
     } catch (error) {
-      this.log.warn('testWebhook', `webhook test failed for agent ${agentId}`, {
-        err: error instanceof Error ? error.message : 'Unknown error',
+      this.log.warn("testWebhook", `webhook test failed for agent ${agentId}`, {
+        err: error instanceof Error ? error.message : "Unknown error",
       });
       return {
         success: false,
         statusCode: null,
         responseTime: Date.now() - startTime,
-        error: error instanceof Error ? error.message : 'Unknown error',
+        error: error instanceof Error ? error.message : "Unknown error",
       };
     }
   }
@@ -649,7 +747,7 @@ export class AgentsService {
     });
 
     if (!agent) {
-      throw new NotFoundException('Agent not found');
+      throw new NotFoundException("Agent not found");
     }
 
     return agent;
@@ -673,29 +771,32 @@ export class AgentsService {
     fields: readonly (keyof UpdateAgentDto)[];
   }> = [
     {
-      permission: 'Agent:UpdatePrompt',
-      label: 'the system prompt',
-      fields: ['systemPrompt'],
+      permission: "Agent:UpdatePrompt",
+      label: "the system prompt",
+      fields: ["systemPrompt"],
     },
     {
-      permission: 'Agent:UpdateHandover',
-      label: 'human-handover settings',
+      permission: "Agent:UpdateHandover",
+      label: "human-handover settings",
       fields: [
-        'humanTakeoverEnabled',
-        'showTalkToHumanButton',
-        'humanConnectedLabel',
-        'handoverEmailEnabled',
-        'handoverEmailRecipients',
+        "humanTakeoverEnabled",
+        "showTalkToHumanButton",
+        "humanConnectedLabel",
+        "handoverEmailEnabled",
+        "handoverEmailRecipients",
       ],
     },
     {
-      permission: 'Agent:UpdateIntegration',
-      label: 'routing configuration',
-      fields: ['aiConfig'],
+      permission: "Agent:UpdateIntegration",
+      label: "routing configuration",
+      fields: ["aiConfig"],
     },
   ];
 
-  private assertSectionAccess(dto: UpdateAgentDto, user: CurrentUserData): void {
+  private assertSectionAccess(
+    dto: UpdateAgentDto,
+    user: CurrentUserData,
+  ): void {
     const granted = this.catalog.resolvePermissions(user.roleKeys ?? []);
 
     for (const section of AgentsService.GATED_SECTIONS) {
@@ -704,7 +805,7 @@ export class AgentsService {
       if (touched.length === 0) continue;
 
       if (!granted.has(section.permission)) {
-        this.log.warn('assertSectionAccess', 'agent section write denied', {
+        this.log.warn("assertSectionAccess", "agent section write denied", {
           userId: user.id,
           permission: section.permission,
           fields: touched,
@@ -719,7 +820,7 @@ export class AgentsService {
   private stripSensitiveFields(
     agent: Agent,
     user: CurrentUserData,
-  ): Omit<Agent, 'allowedDomains'> | Agent {
+  ): Omit<Agent, "allowedDomains"> | Agent {
     if (isOrgScoped(user)) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { allowedDomains, ...safe } = agent;
