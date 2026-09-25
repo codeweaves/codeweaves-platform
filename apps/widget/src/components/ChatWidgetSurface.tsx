@@ -58,6 +58,7 @@ import {
   syncConsentFromStorage,
 } from "../services/consent";
 import { BotMessageText } from "./BotMessageText";
+import { FallbackImage } from "./FallbackImage";
 import type { AgentConfig } from "../types";
 
 export interface ChatWidgetSurfaceProps {
@@ -139,10 +140,11 @@ function BotAvatarContent({
     case "custom":
       return customImage ? (
         // Decorative: the message itself says who is speaking (WCAG 1.1.1).
-        <img
+        <FallbackImage
           src={customImage}
           alt=""
           class="h-full w-full rounded-[inherit] object-cover"
+          fallback={<BotIcon {...iconProps} />}
         />
       ) : (
         <span>B</span>
@@ -166,10 +168,11 @@ function UserAvatarContent({
       return <UserCheckIcon {...iconProps} />;
     case "custom":
       return customImage ? (
-        <img
+        <FallbackImage
           src={customImage}
           alt=""
           class="h-full w-full rounded-[inherit] object-cover"
+          fallback={<UserIcon {...iconProps} />}
         />
       ) : (
         <span>U</span>
@@ -287,6 +290,22 @@ export function ChatWidgetSurface({
 
   // ── Theme extraction ────────────────────────────────────────────
   const header = section(theme, "header");
+  // The header's own default: shown with no logo set, and when the logo
+  // fails to load.
+  const defaultHeaderAvatar = (
+    <div
+      class="cw-header-avatar relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
+      style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
+    >
+      <MessageCircleIcon class="cw-header-avatar-icon h-4 w-4" />
+      <span
+        class="cw-header-online-dot absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 bg-green-400"
+        style={{
+          borderColor: str(header, "backgroundColor", "#3b82f6"),
+        }}
+      />
+    </div>
+  );
   const botAvatar = section(theme, "botAvatar");
   const userAvatar = section(theme, "userAvatar");
   const userMessage = section(theme, "userMessage");
@@ -874,25 +893,15 @@ export function ChatWidgetSurface({
             {bool(header, "showLogo") &&
             str(header, "logoUrl") &&
             isSafeUrl(str(header, "logoUrl")) ? (
-              <img
+              <FallbackImage
                 src={str(header, "logoUrl")}
                 // Decorative: the header title right next to it names the chat.
                 alt=""
                 class="cw-header-logo h-8 w-8 rounded-full object-cover"
+                fallback={defaultHeaderAvatar}
               />
             ) : (
-              <div
-                class="cw-header-avatar relative flex h-8 w-8 shrink-0 items-center justify-center rounded-full"
-                style={{ backgroundColor: "rgba(255,255,255,0.2)" }}
-              >
-                <MessageCircleIcon class="cw-header-avatar-icon h-4 w-4" />
-                <span
-                  class="cw-header-online-dot absolute bottom-0 right-0 h-2.5 w-2.5 rounded-full border-2 bg-green-400"
-                  style={{
-                    borderColor: str(header, "backgroundColor", "#3b82f6"),
-                  }}
-                />
-              </div>
+              defaultHeaderAvatar
             )}
             <div class="cw-header-text">
               {/* aria-level 2, not the native h4 level. The widget is injected
@@ -1635,10 +1644,18 @@ export function ChatWidgetSurface({
             >
               {str(branding, "textPrefix", "Powered by")}{" "}
               {bool(branding, "useLogo") && str(branding, "logo") ? (
-                <img
+                <FallbackImage
                   src={str(branding, "logo")}
                   alt={str(branding, "linkText", "Klivo")}
                   class="cw-branding-logo inline-block h-4 align-[-2px]"
+                  fallback={
+                    <span
+                      class="cw-branding-text-name font-medium"
+                      style={{ color: str(branding, "linkColor", "#2563eb") }}
+                    >
+                      {str(branding, "linkText", "Klivo")}
+                    </span>
+                  }
                 />
               ) : !isSafeUrl(str(branding, "linkUrl", "")) ? (
                 // No usable URL: a link to "#" would just reopen the host page
