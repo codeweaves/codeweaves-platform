@@ -19,6 +19,9 @@ import {
   Loader2,
   Headset,
   Ellipsis,
+  Shield,
+  LogOut,
+  ExternalLink,
 } from "lucide-react";
 import type { PreviewFormData } from "./agent-editor-context";
 
@@ -462,25 +465,35 @@ export function ChatWidgetSurface({
                     href={formData.consentPolicyUrl}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="cw-options-item block px-3 py-1.5 text-left text-gray-700 no-underline hover:bg-gray-50"
+                    className="cw-options-item flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 no-underline hover:bg-gray-50"
                     style={{ fontSize: "1em" }}
                     onClick={() => setPreviewMenuOpen(false)}
                   >
-                    {formData.consentLinkText}
+                    <Shield className="h-4 w-4 shrink-0 text-gray-500" />
+                    <span className="flex-1">{formData.consentLinkText}</span>
+                    <ExternalLink className="h-3 w-3 shrink-0 text-gray-400" />
                   </a>
                   {formData.consentMode === "consent" && previewConsented && (
-                    <button
-                      role="menuitem"
-                      type="button"
-                      className="cw-options-item block w-full cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50"
-                      style={{ fontSize: "1em" }}
-                      onClick={() => {
-                        setPreviewMenuOpen(false);
-                        setPreviewConsented(false);
-                      }}
-                    >
-                      {formData.consentWithdrawLabel}
-                    </button>
+                    <>
+                      <div
+                        role="separator"
+                        className="my-1 h-px bg-gray-100"
+                        aria-hidden="true"
+                      />
+                      <button
+                        role="menuitem"
+                        type="button"
+                        className="cw-options-item flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50"
+                        style={{ fontSize: "1em" }}
+                        onClick={() => {
+                          setPreviewMenuOpen(false);
+                          setPreviewConsented(false);
+                        }}
+                      >
+                        <LogOut className="h-4 w-4 shrink-0 text-gray-500" />
+                        <span>{formData.consentWithdrawLabel}</span>
+                      </button>
+                    </>
                   )}
                 </div>
               )}

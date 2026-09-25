@@ -16,6 +16,9 @@ import type { ChatMessage } from "../types";
 import {
   XIcon,
   EllipsisIcon,
+  ShieldIcon,
+  LogOutIcon,
+  ExternalLinkIcon,
   BotIcon,
   SettingsIcon,
   ZapIcon,
@@ -34,6 +37,7 @@ import {
   isLoading,
   isStreaming,
   isRateLimited,
+  error as chatError,
   handoverState,
   agentTyping,
 } from "../state/chat-store";
@@ -44,6 +48,7 @@ import { isSafeUrl } from "../utils/url";
 import { postConsentDecision } from "../services/api-client";
 import { WidgetApiError } from "../services/api-errors";
 import { clearConfigCache } from "../services/config-loader";
+import { clearMessages } from "../state/chat-store";
 import { resetSession } from "../services/session-manager";
 import {
   consentGranted,
@@ -52,7 +57,6 @@ import {
   revokeLocalConsent,
   syncConsentFromStorage,
 } from "../services/consent";
-import { clearMessages } from "../state/chat-store";
 import { BotMessageText } from "./BotMessageText";
 import type { AgentConfig } from "../types";
 
@@ -134,9 +138,10 @@ function BotAvatarContent({
       return <HeadphonesIcon {...iconProps} />;
     case "custom":
       return customImage ? (
+        // Decorative: the message itself says who is speaking (WCAG 1.1.1).
         <img
           src={customImage}
-          alt="Bot"
+          alt=""
           class="h-full w-full rounded-[inherit] object-cover"
         />
       ) : (
@@ -163,7 +168,7 @@ function UserAvatarContent({
       return customImage ? (
         <img
           src={customImage}
-          alt="User"
+          alt=""
           class="h-full w-full rounded-[inherit] object-cover"
         />
       ) : (
@@ -356,7 +361,7 @@ export function ChatWidgetSurface({
     str(consentTheme, "buttonLabel", "Start chat");
   const withdrawLabel =
     noticeOverride?.notice.withdrawLabel ??
-    str(consentTheme, "withdrawLabel", "Withdraw consent");
+    str(consentTheme, "withdrawLabel", "Opt out");
   const noticeTextColor = str(consentTheme, "textColor", "#6b7280");
   const noticeLinkColor = str(consentTheme, "linkColor", "#2563eb");
   const granted = consentGranted.value;
@@ -371,17 +376,28 @@ export function ChatWidgetSurface({
   const [menuOpen, setMenuOpen] = useState(false);
   const menuBtnRef = useRef<HTMLButtonElement>(null);
   const menuRef = useRef<HTMLDivElement>(null);
+  // Focus always moves into the menu (WCAG 2.4.3), the way Radix menus do it:
+  // opened by a real pointer, focus goes to the menu container, which draws no
+  // ring, so a mouse user sees a clean menu; opened any other way (Enter/Space,
+  // or a screen reader's synthetic click, which fires no pointerdown), focus
+  // goes to the first item. Arrow keys work from either.
+  const pointerOpening = useRef(false);
+  const menuByPointer = useRef(false);
   const closeMenu = useCallback((refocus = true) => {
     setMenuOpen(false);
     if (refocus) requestAnimationFrame(() => menuBtnRef.current?.focus());
   }, []);
   useEffect(() => {
     if (!menuOpen) return;
-    requestAnimationFrame(() =>
-      menuRef.current
-        ?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')
-        ?.focus(),
-    );
+    requestAnimationFrame(() => {
+      if (menuByPointer.current) {
+        menuRef.current?.focus();
+      } else {
+        menuRef.current
+          ?.querySelector<HTMLElement>('[role="menuitem"]:not([disabled])')
+          ?.focus();
+      }
+    });
     // composedPath sees through the shadow root, so a click anywhere outside
     // the menu (host page included) closes it.
     const onPointerDown = (e: PointerEvent) => {
@@ -533,6 +549,39 @@ export function ChatWidgetSurface({
 
   const showVoice = voiceEnabled && voiceIsSupported;
   const isVoiceActive = voiceState !== "idle";
+  const chatErrorMsg = chatError.value;
+
+  // WCAG 2.4.3: starting a recording swaps the whole input for the recording
+  // bar, and finishing or cancelling swaps it back. The focused button is
+  // removed each time, so a keyboard or screen reader user is dropped at the
+  // top of the page. Move focus to the matching control, but only when focus
+  // really was lost (never pull it away from wherever the visitor put it).
+  const micBtnRef = useRef<HTMLButtonElement>(null);
+  const prevVoiceState = useRef(voiceState);
+  useEffect(() => {
+    const prev = prevVoiceState.current;
+    prevVoiceState.current = voiceState;
+    const root = windowRef.current;
+    if (!root) return;
+    const focusLost = () => {
+      const active = (root.getRootNode() as ShadowRoot).activeElement;
+      return !active || !root.contains(active);
+    };
+    if (voiceState === "listening" && prev !== "listening") {
+      requestAnimationFrame(() => {
+        if (focusLost()) {
+          root.querySelector<HTMLElement>(".cw-voice-bar-send")?.focus();
+        }
+      });
+    } else if (
+      (prev === "listening" || prev === "processing") &&
+      (voiceState === "idle" || voiceState === "playing")
+    ) {
+      requestAnimationFrame(() => {
+        if (focusLost()) (micBtnRef.current ?? inputRef.current)?.focus();
+      });
+    }
+  }, [voiceState]);
   // Withdraw is offered only after a grant in consent mode, and not while a
   // reply, a recording or a live human handover is in progress (a teammate
   // live on the chat owns the session until the handover resolves).
@@ -678,7 +727,8 @@ export function ChatWidgetSurface({
   useEffect(() => {
     if (streaming) return;
     const last = displayMessages[displayMessages.length - 1];
-    if (!last || last.role !== "assistant") return;
+    // Bot replies and human teammate replies both arrive silently otherwise.
+    if (!last || (last.role !== "assistant" && last.role !== "human")) return;
     // The greeting is on screen before the user can ask anything, so it is not
     // news. Announcing it would talk over the person as they open the widget.
     if (last.id === "__greeting__") return;
@@ -742,6 +792,37 @@ export function ChatWidgetSurface({
   const showTimestamp = bool(timestamps, "show");
   const typingEnabled = bool(animations, "showTypingIndicator", true);
 
+  // Typing and handover changes are spoken through the same always-present
+  // region. A live region that is created already holding its text is often
+  // not read at all, so these must not carry their own role=status (4.1.3).
+  // Clearing first makes a repeated phrase ("… is typing") speak again.
+  const announce = useCallback((text: string) => {
+    setAnnouncement("");
+    requestAnimationFrame(() => setAnnouncement(text));
+  }, []);
+  const botTypingShown = isTyping && typingEnabled && hState !== "ACTIVE_HUMAN";
+  const agentTypingShown = agentIsTyping && hState === "ACTIVE_HUMAN";
+  useEffect(() => {
+    if (botTypingShown) {
+      announce(`${str(header, "title") || agentConfig.name} is typing`);
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- announce on the rising edge only
+  }, [botTypingShown]);
+  useEffect(() => {
+    if (agentTypingShown) announce("A team member is typing");
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- rising edge only
+  }, [agentTypingShown]);
+  const prevHandover = useRef(hState);
+  useEffect(() => {
+    const prev = prevHandover.current;
+    prevHandover.current = hState;
+    if (prev === hState) return;
+    if (hState === "REQUESTED") announce(handoverRequestedLabel);
+    else if (hState === "ACTIVE_HUMAN") announce(handoverConnectedLabel);
+    else if (hState === "NONE" && prev === "ACTIVE_HUMAN")
+      announce(handoverEndedLabel);
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- react to state changes only
+  }, [hState]);
   // ── Render ──────────────────────────────────────────────────────
 
   return (
@@ -795,7 +876,8 @@ export function ChatWidgetSurface({
             isSafeUrl(str(header, "logoUrl")) ? (
               <img
                 src={str(header, "logoUrl")}
-                alt="Logo"
+                // Decorative: the header title right next to it names the chat.
+                alt=""
                 class="cw-header-logo h-8 w-8 rounded-full object-cover"
               />
             ) : (
@@ -857,7 +939,14 @@ export function ChatWidgetSurface({
                 aria-controls="cw-options-menu"
                 class="cw-header-btn cw-header-btn--menu flex h-8 w-8 cursor-pointer items-center justify-center rounded-full p-0 hover:opacity-80"
                 style={{ color: str(header, "textColor", "#ffffff") }}
-                onClick={() => setMenuOpen((open) => !open)}
+                onPointerDown={() => {
+                  pointerOpening.current = true;
+                }}
+                onClick={() => {
+                  menuByPointer.current = pointerOpening.current;
+                  pointerOpening.current = false;
+                  setMenuOpen((open) => !open);
+                }}
               >
                 <EllipsisIcon class="h-4 w-4" />
               </button>
@@ -872,34 +961,49 @@ export function ChatWidgetSurface({
                 role="menu"
                 aria-label="Chat options"
                 onKeyDown={onMenuKeyDown}
-                class="cw-options-menu absolute top-10 right-0 z-40 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white py-1 whitespace-nowrap shadow-lg"
+                // Focus target after a mouse open; draws no ring of its own.
+                tabIndex={-1}
+                class="cw-options-menu absolute top-10 right-0 z-40 flex flex-col overflow-hidden rounded-lg border border-gray-200 bg-white py-1 whitespace-nowrap shadow-lg outline-none"
               >
                 <a
                   role="menuitem"
                   href={policyUrl}
                   target="_blank"
                   rel="noopener noreferrer"
-                  class="cw-options-item block px-3 py-1.5 text-left text-gray-700 no-underline hover:bg-gray-50 focus:bg-gray-50"
+                  class="cw-options-item flex items-center gap-2 px-3 py-1.5 text-left text-gray-700 no-underline hover:bg-gray-50 focus:bg-gray-50"
                   style={{ fontSize: "1em" }}
                   onClick={() => closeMenu(false)}
                 >
-                  {noticeLinkText}
+                  <ShieldIcon class="h-4 w-4 shrink-0 text-gray-500" />
+                  <span class="flex-1">{noticeLinkText}</span>
+                  {/* Visual cue for a new tab; the hidden text says it to screen readers. */}
+                  <ExternalLinkIcon class="h-3 w-3 shrink-0 text-gray-400" />
                   <span class="cw-sr-only"> (opens in a new tab)</span>
                 </a>
                 {canWithdraw && (
-                  <button
-                    role="menuitem"
-                    type="button"
-                    disabled={withdrawDisabled}
-                    class="cw-options-item block w-full cursor-pointer border-0 bg-transparent px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50 focus:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
-                    style={{ fontSize: "1em" }}
-                    onClick={() => {
-                      closeMenu();
-                      void handleWithdrawConsent();
-                    }}
-                  >
-                    {withdrawLabel}
-                  </button>
+                  <>
+                    <div
+                      role="separator"
+                      class="my-1 h-px bg-gray-100"
+                      aria-hidden="true"
+                    />
+                    {/* Set apart by a divider: it ends the chat, so it is not
+                        next to the plain link. */}
+                    <button
+                      role="menuitem"
+                      type="button"
+                      disabled={withdrawDisabled}
+                      class="cw-options-item flex w-full cursor-pointer items-center gap-2 border-0 bg-transparent px-3 py-1.5 text-left text-gray-700 hover:bg-gray-50 focus:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+                      style={{ fontSize: "1em" }}
+                      onClick={(e) => {
+                        closeMenu(e.detail === 0);
+                        void handleWithdrawConsent();
+                      }}
+                    >
+                      <LogOutIcon class="h-4 w-4 shrink-0 text-gray-500" />
+                      <span>{withdrawLabel}</span>
+                    </button>
+                  </>
                 )}
               </div>
             )}
@@ -954,11 +1058,11 @@ export function ChatWidgetSurface({
                   <div
                     key={message.id}
                     class={`cw-handover-divider ${kind === "ended" ? "cw-handover-divider--ended" : ""} mt-3 mb-1 flex items-center gap-2`}
-                    aria-hidden="true"
                   >
                     <span
                       class="h-px flex-1"
                       style={{ backgroundColor: dColor }}
+                      aria-hidden="true"
                     />
                     <span
                       class="shrink-0 px-1 font-medium"
@@ -969,6 +1073,7 @@ export function ChatWidgetSurface({
                     <span
                       class="h-px flex-1"
                       style={{ backgroundColor: dColor }}
+                      aria-hidden="true"
                     />
                   </div>
                 );
@@ -1125,7 +1230,10 @@ export function ChatWidgetSurface({
 
           {/* Typing indicator — never show the AI typing while a human is handling. */}
           {isTyping && typingEnabled && hState !== "ACTIVE_HUMAN" && (
-            <div class="cw-typing mt-3 flex items-start gap-2">
+            <div
+              class="cw-typing mt-3 flex items-start gap-2"
+              aria-hidden="true"
+            >
               {bool(botAvatar, "show", false) && (
                 <div
                   class={`cw-typing-avatar cw-avatar cw-avatar--bot ${getAvatarClass(str(botAvatar, "shape", "circle"))}`}
@@ -1164,7 +1272,10 @@ export function ChatWidgetSurface({
                 the AI indicator but flagged with the headset avatar. Presence
                 signal, so it shows regardless of the AI-typing toggle. */}
           {agentIsTyping && hState === "ACTIVE_HUMAN" && (
-            <div class="cw-typing cw-typing--agent mt-3 flex items-start gap-2">
+            <div
+              class="cw-typing cw-typing--agent mt-3 flex items-start gap-2"
+              aria-hidden="true"
+            >
               {bool(botAvatar, "show", false) && (
                 <div
                   class={`cw-typing-avatar cw-avatar cw-avatar--bot ${getAvatarClass(str(botAvatar, "shape", "circle"))}`}
@@ -1208,19 +1319,52 @@ export function ChatWidgetSurface({
             role="alert"
             class="cw-voice-error flex items-center gap-2 border-t border-red-100 bg-red-50 px-4 py-2"
           >
+            {/* #991b1b on red-50 is about 7.6:1 (WCAG 1.4.3 needs 4.5:1 for this
+                12px text). The old #ef4444 was about 3.5:1. */}
             <p
               class="cw-voice-error-text flex-1 text-xs"
-              style={{ color: "#ef4444" }}
+              style={{ color: "#991b1b" }}
             >
               {voiceError}
             </p>
             <button
               onClick={clearVoiceError}
-              class="cw-voice-error-dismiss cursor-pointer text-xs font-medium opacity-60 hover:opacity-100"
-              style={{ color: "#ef4444" }}
+              aria-label="Dismiss voice error"
+              class="cw-voice-error-dismiss cursor-pointer text-xs font-medium hover:opacity-80"
+              style={{ color: "#991b1b" }}
               type="button"
             >
-              ✕
+              <span aria-hidden="true">✕</span>
+            </button>
+          </div>
+        )}
+
+        {/* Text chat error (network, timeout, rate limit, over-long message).
+            useChat has always set this signal; nothing rendered it, so every
+            failure was silent. role=alert announces it; it clears itself after
+            5s (useChat) and can be dismissed. Also shown above the consent
+            lock, so a visitor locked again by the server sees why. */}
+        {chatErrorMsg && (
+          <div
+            role="alert"
+            class="cw-chat-error flex items-center gap-2 border-t border-red-100 bg-red-50 px-4 py-2"
+          >
+            <p
+              class="cw-chat-error-text flex-1 text-xs"
+              style={{ color: "#991b1b" }}
+            >
+              {chatErrorMsg}
+            </p>
+            <button
+              onClick={() => {
+                chatError.value = null;
+              }}
+              aria-label="Dismiss error"
+              class="cw-chat-error-dismiss cursor-pointer text-xs font-medium hover:opacity-80"
+              style={{ color: "#991b1b" }}
+              type="button"
+            >
+              <span aria-hidden="true">✕</span>
             </button>
           </div>
         )}
@@ -1350,11 +1494,19 @@ export function ChatWidgetSurface({
                         "placeholderText",
                         "Type your message...",
                       )}
-                      placeholder={str(
-                        input,
-                        "placeholderText",
-                        "Type your message...",
-                      )}
+                      // While rate-limited the box is disabled; say why instead of
+                      // just greying it out (WCAG 3.3.1).
+                      placeholder={
+                        rateLimited
+                          ? "Please wait a moment..."
+                          : str(
+                              input,
+                              "placeholderText",
+                              "Type your message...",
+                            )
+                      }
+                      // The server rejects longer messages (sendMessageSchema).
+                      maxLength={4000}
                       disabled={
                         loading || streaming || rateLimited || isVoiceActive
                       }
@@ -1375,6 +1527,7 @@ export function ChatWidgetSurface({
                          *  swap the entire input wrapper for VoiceRecordingBar (above). */}
                         {showVoice && (
                           <button
+                            ref={micBtnRef}
                             onClick={() => {
                               if (voiceState === "idle") startRecording();
                               else if (voiceState === "playing") stopPlayback();
@@ -1484,16 +1637,21 @@ export function ChatWidgetSurface({
               {bool(branding, "useLogo") && str(branding, "logo") ? (
                 <img
                   src={str(branding, "logo")}
-                  alt="Brand"
+                  alt={str(branding, "linkText", "Klivo")}
                   class="cw-branding-logo inline-block h-4 align-[-2px]"
                 />
+              ) : !isSafeUrl(str(branding, "linkUrl", "")) ? (
+                // No usable URL: a link to "#" would just reopen the host page
+                // (WCAG 2.4.4). Show the name as plain text instead.
+                <span
+                  class="cw-branding-text-name font-medium"
+                  style={{ color: str(branding, "linkColor", "#2563eb") }}
+                >
+                  {str(branding, "linkText", "Klivo")}
+                </span>
               ) : (
                 <a
-                  href={
-                    isSafeUrl(str(branding, "linkUrl", ""))
-                      ? str(branding, "linkUrl")
-                      : "#"
-                  }
+                  href={str(branding, "linkUrl")}
                   target="_blank"
                   rel="noopener noreferrer"
                   class="cw-branding-link font-medium"

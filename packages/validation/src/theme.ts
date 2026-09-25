@@ -195,7 +195,7 @@ export const consentConfigSchema = z.object({
   // Empty until the client sets it. https only, same XSS rule as branding.
   privacyPolicyUrl: z.union([httpsUrlString, z.literal("")]).default(""),
   buttonLabel: z.string().trim().min(1).max(30).default("Start chat"),
-  withdrawLabel: z.string().trim().min(1).max(40).default("Withdraw consent"),
+  withdrawLabel: z.string().trim().min(1).max(40).default("Opt out"),
   textColor: colorString.default("#6b7280"),
   linkColor: colorString.default("#2563eb"),
 });
@@ -363,7 +363,7 @@ export const defaultWidgetTheme: WidgetTheme = {
     linkText: "Privacy Policy",
     privacyPolicyUrl: "",
     buttonLabel: "Start chat",
-    withdrawLabel: "Withdraw consent",
+    withdrawLabel: "Opt out",
     textColor: "#6b7280",
     linkColor: "#2563eb",
   },
