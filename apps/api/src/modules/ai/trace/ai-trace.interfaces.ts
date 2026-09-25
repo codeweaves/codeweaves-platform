@@ -25,11 +25,6 @@ export interface StartTraceParams {
   userMessage?: string;
   /** Override the generated trace ID (useful for tests / cross-service trace propagation). */
   traceId?: string;
-  /**
-   * Suppress the raw `userMessagePreview` in the pino file log (PII log
-   * redaction). The DB row's userMessage can still be overridden at end().
-   */
-  redactPreview?: boolean;
 }
 
 /**
@@ -54,8 +49,8 @@ export interface EndTraceParams {
  * to stream trace steps to the client in real time before LLM tokens start.
  */
 export type TraceEvent =
-  | { type: 'step'; step: TraceStep }
-  | { type: 'end'; totalDurationMs: number; success: boolean };
+  | { type: "step"; step: TraceStep }
+  | { type: "end"; totalDurationMs: number; success: boolean };
 
 /**
  * A fluent trace context returned by `AiTraceService.startTrace()`. Callers

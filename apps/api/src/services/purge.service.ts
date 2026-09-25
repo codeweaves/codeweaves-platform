@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
 import { AppLogger } from "../common/logger/app-logger";
 import { CryptoService } from "../common/crypto/crypto.service";
 import { TracerService } from "../common/tracer/tracer.service";
@@ -284,8 +285,22 @@ export class PurgeService {
     // Event logs can reference the visitor by session OR directly by
     // visitorId (e.g. pre-session rows). visitorId matches are org-scoped:
     // the same hash at another org belongs to that org's erasure, not this one.
+    //
+    // The rows are KEPT and only their personal content is emptied (ADR-0005):
+    // the record that something happened (when, which route, who acted, status,
+    // latency, model/token metadata) stays as proof, while the visitor's words
+    // and their pseudonymous id go. Bodies, headers and error text can quote
+    // the visitor, so all three are cleared; `visitorId` is unset so the row no
+    // longer points at the person.
     result.eventLogs = (
-      await this.prisma.eventLog.deleteMany({
+      await this.prisma.eventLog.updateMany({
+        data: {
+          requestPayload: Prisma.DbNull,
+          responsePayload: Prisma.DbNull,
+          requestHeaders: Prisma.DbNull,
+          errorMessage: null,
+          visitorId: null,
+        },
         where: {
           OR: [
             ...(anySessionId.length > 0

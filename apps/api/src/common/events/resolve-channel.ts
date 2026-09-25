@@ -1,4 +1,4 @@
-import { EventChannel } from '@prisma/client';
+import { EventChannel } from "@prisma/client";
 
 /**
  * Map a request URL to its EventChannel. Used by the HTTP auto-capture
@@ -9,12 +9,13 @@ export function resolveChannel(url: string): EventChannel {
   // Match on the PUBLIC route prefix, not bare substrings — otherwise dashboard
   // routes like /agents/:id/whatsapp or /voices would be misbucketed as
   // WHATSAPP/VOICE. Internal is checked first so cron routes never fall through.
-  if (url.includes('/internal/')) return 'INTERNAL';
-  if (url.includes('/public/voice')) return 'VOICE';
-  if (url.includes('/public/whatsapp') || url.includes('/whatsapp/webhook'))
-    return 'WHATSAPP';
-  if (url.includes('/public/chat') || url.includes('/public/agents')) return 'WIDGET';
-  return 'DASHBOARD';
+  if (url.includes("/internal/")) return "INTERNAL";
+  if (url.includes("/public/voice")) return "VOICE";
+  if (url.includes("/public/whatsapp") || url.includes("/whatsapp/webhook"))
+    return "WHATSAPP";
+  if (url.includes("/public/chat") || url.includes("/public/agents"))
+    return "WIDGET";
+  return "DASHBOARD";
 }
 
 /**
@@ -28,7 +29,7 @@ export function resolveChannel(url: string): EventChannel {
  * carry config/ids, so the envelope is where their audit trail lives.
  */
 export function capturesHttpEnvelope(channel: EventChannel): boolean {
-  return channel === 'DASHBOARD' || channel === 'INTERNAL';
+  return channel === "DASHBOARD" || channel === "INTERNAL";
 }
 
 /**
@@ -43,16 +44,23 @@ export function extractEntityIds(
   url: string,
   // Accepts Express's ParamsDictionary ({ [k]: string }) and looser shapes.
   params: Record<string, string | string[] | undefined> = {},
-): { agentId?: string; organizationId?: string } {
+): { agentId?: string; organizationId?: string; sessionId?: string } {
   const first = (v: string | string[] | undefined): string | undefined =>
     Array.isArray(v) ? v[0] : v;
-  const out: { agentId?: string; organizationId?: string } = {};
-  if (url.includes('/agents/')) {
+  const out: { agentId?: string; organizationId?: string; sessionId?: string } =
+    {};
+  if (url.includes("/agents/")) {
     out.agentId = first(params.agentId) ?? first(params.id);
   }
-  if (url.includes('/organizations/')) {
+  if (url.includes("/organizations/")) {
     out.organizationId =
       first(params.organizationId) ?? first(params.orgId) ?? first(params.id);
+  }
+  // Inbox routes (/handover/:sessionId/...) act on one conversation. The id is
+  // already in the URL; putting it in the column is what lets visitor erasure
+  // find these rows (it matches event_logs by sessionId).
+  if (url.includes("/handover/")) {
+    out.sessionId = first(params.sessionId);
   }
   return out;
 }

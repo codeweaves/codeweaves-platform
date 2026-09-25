@@ -19,20 +19,20 @@
  */
 
 /** Policy tier for a detected entity. See pii-redaction-plan.md §"three-tier". */
-export type PiiTier = 'ALLOW' | 'TOKENIZE' | 'HARD_DROP';
+export type PiiTier = "ALLOW" | "TOKENIZE" | "HARD_DROP";
 
 export type PiiCategory =
-  | 'EMAIL'
-  | 'PHONE'
-  | 'AADHAAR'
-  | 'PAN'
-  | 'CARD'
-  | 'PASSPORT'
-  | 'DRIVING_LICENCE'
-  | 'VOTER_ID'
-  | 'IFSC'
-  | 'BANK_ACCOUNT'
-  | 'DOB';
+  | "EMAIL"
+  | "PHONE"
+  | "AADHAAR"
+  | "PAN"
+  | "CARD"
+  | "PASSPORT"
+  | "DRIVING_LICENCE"
+  | "VOTER_ID"
+  | "IFSC"
+  | "BANK_ACCOUNT"
+  | "DOB";
 
 export interface PiiMatch {
   category: PiiCategory;
@@ -47,20 +47,20 @@ export interface PiiMatch {
 }
 
 export const CATEGORY_TIERS: Record<PiiCategory, PiiTier> = {
-  EMAIL: 'ALLOW',
-  PHONE: 'ALLOW',
-  AADHAAR: 'HARD_DROP',
+  EMAIL: "ALLOW",
+  PHONE: "ALLOW",
+  AADHAAR: "HARD_DROP",
   // PAN is VAULT (not HARD_DROP): an Indian tax ID is less restricted than
   // Aadhaar, so encrypt-at-rest + last-4 display is the standard. Kept, never
   // destroyed. See docs/security/pii-handling-spec.md §3.
-  PAN: 'TOKENIZE',
-  CARD: 'HARD_DROP',
-  PASSPORT: 'HARD_DROP',
-  DRIVING_LICENCE: 'HARD_DROP',
-  VOTER_ID: 'HARD_DROP',
-  IFSC: 'TOKENIZE',
-  BANK_ACCOUNT: 'TOKENIZE',
-  DOB: 'TOKENIZE',
+  PAN: "TOKENIZE",
+  CARD: "HARD_DROP",
+  PASSPORT: "HARD_DROP",
+  DRIVING_LICENCE: "HARD_DROP",
+  VOTER_ID: "HARD_DROP",
+  IFSC: "TOKENIZE",
+  BANK_ACCOUNT: "TOKENIZE",
+  DOB: "TOKENIZE",
 };
 
 // ---------------------------------------------------------------------------
@@ -125,7 +125,7 @@ const VERHOEFF_P = [
 export function verhoeffValid(digits: string): boolean {
   if (!/^\d+$/.test(digits)) return false;
   let c = 0;
-  const reversed = digits.split('').reverse();
+  const reversed = digits.split("").reverse();
   for (let i = 0; i < reversed.length; i++) {
     c = VERHOEFF_D[c]![VERHOEFF_P[i % 8]![reversed[i]!.charCodeAt(0) - 48]!]!;
   }
@@ -139,7 +139,12 @@ export function verhoeffValid(digits: string): boolean {
 /** How far around a match we look for a gating keyword (chars). */
 const CONTEXT_WINDOW = 48;
 
-function hasContext(text: string, start: number, end: number, words: RegExp): boolean {
+function hasContext(
+  text: string,
+  start: number,
+  end: number,
+  words: RegExp,
+): boolean {
   const from = Math.max(0, start - CONTEXT_WINDOW);
   const to = Math.min(text.length, end + CONTEXT_WINDOW);
   return words.test(text.slice(from, to));
@@ -169,90 +174,101 @@ interface Recognizer {
  * matched inside a 20-digit tracking number).
  */
 function digitBounded(text: string, start: number, end: number): boolean {
-  const before = start > 0 ? text[start - 1]! : '';
-  const after = end < text.length ? text[end]! : '';
+  const before = start > 0 ? text[start - 1]! : "";
+  const after = end < text.length ? text[end]! : "";
   return !/\d/.test(before) && !/\d/.test(after);
 }
 
 const RECOGNIZERS: Recognizer[] = [
   {
-    category: 'EMAIL',
+    category: "EMAIL",
     pattern: /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g,
   },
   {
     // Indian mobiles (+91/0 prefixed or bare 10-digit starting 6-9) and E.164.
-    category: 'PHONE',
-    pattern: /(?:\+91[\s-]?|0)?[6-9]\d{4}[\s-]?\d{5}\b|\+\d{1,3}[\s-]?\d{6,12}\b/g,
-    validate: (raw, text, start, end) => digitBounded(text, start, end) && raw.replace(/\D/g, '').length >= 10,
+    category: "PHONE",
+    pattern:
+      /(?:\+91[\s-]?|0)?[6-9]\d{4}[\s-]?\d{5}\b|\+\d{1,3}[\s-]?\d{6,12}\b/g,
+    validate: (raw, text, start, end) =>
+      digitBounded(text, start, end) && raw.replace(/\D/g, "").length >= 10,
   },
   {
     // 12 digits, optional 4-4-4 grouping. Verhoeff checksum is the primary
     // gate; context keyword rescues checksum-valid numbers with odd spacing.
-    category: 'AADHAAR',
+    category: "AADHAAR",
     pattern: /\b\d{4}[\s-]?\d{4}[\s-]?\d{4}\b/g,
     validate: (raw, text, start, end) => {
       if (!digitBounded(text, start, end)) return false;
-      const digits = raw.replace(/\D/g, '');
-      if (digits.length !== 12 || digits[0] === '0' || digits[0] === '1') return false;
-      return verhoeffValid(digits) || hasContext(text, start, end, AADHAAR_CONTEXT);
+      const digits = raw.replace(/\D/g, "");
+      if (digits.length !== 12 || digits[0] === "0" || digits[0] === "1")
+        return false;
+      return (
+        verhoeffValid(digits) || hasContext(text, start, end, AADHAAR_CONTEXT)
+      );
     },
-    hardDropMask: () => '[AADHAAR REDACTED]',
+    hardDropMask: () => "[AADHAAR REDACTED]",
   },
   {
     // VAULT tier: tokenised + encrypted, not destroyed (see CATEGORY_TIERS).
-    category: 'PAN',
+    category: "PAN",
     pattern: /\b[A-Z]{5}\d{4}[A-Z]\b/g,
   },
   {
     // 13-19 digits with optional space/dash grouping, Luhn-valid.
-    category: 'CARD',
+    category: "CARD",
     pattern: /\b(?:\d[\s-]?){12,18}\d\b/g,
     validate: (raw, text, start, end) => {
       if (!digitBounded(text, start, end)) return false;
-      const digits = raw.replace(/\D/g, '');
+      const digits = raw.replace(/\D/g, "");
       return digits.length >= 13 && digits.length <= 19 && luhnValid(digits);
     },
-    hardDropMask: (raw) => `[CARD REDACTED ****${raw.replace(/\D/g, '').slice(-4)}]`,
+    hardDropMask: (raw) =>
+      `[CARD REDACTED ****${raw.replace(/\D/g, "").slice(-4)}]`,
   },
   {
     // Indian passport: letter + 7 digits. Collides with order-ID-like tokens,
     // so context-gated.
-    category: 'PASSPORT',
+    category: "PASSPORT",
     pattern: /\b[A-PR-Z][0-9]{7}\b/g,
-    validate: (raw, text, start, end) => hasContext(text, start, end, PASSPORT_CONTEXT),
-    hardDropMask: () => '[PASSPORT REDACTED]',
+    validate: (raw, text, start, end) =>
+      hasContext(text, start, end, PASSPORT_CONTEXT),
+    hardDropMask: () => "[PASSPORT REDACTED]",
   },
   {
     // e.g. MH12 20110012345 / DL-0420110012345 (state + RTO + year + serial).
-    category: 'DRIVING_LICENCE',
+    category: "DRIVING_LICENCE",
     pattern: /\b[A-Z]{2}[\s-]?\d{2}[\s-]?\d{4}[\s-]?\d{7}\b/g,
-    validate: (raw, text, start, end) => hasContext(text, start, end, DL_CONTEXT),
-    hardDropMask: () => '[DRIVING LICENCE REDACTED]',
+    validate: (raw, text, start, end) =>
+      hasContext(text, start, end, DL_CONTEXT),
+    hardDropMask: () => "[DRIVING LICENCE REDACTED]",
   },
   {
-    category: 'VOTER_ID',
+    category: "VOTER_ID",
     pattern: /\b[A-Z]{3}\d{7}\b/g,
-    validate: (raw, text, start, end) => hasContext(text, start, end, VOTER_CONTEXT),
-    hardDropMask: () => '[VOTER ID REDACTED]',
+    validate: (raw, text, start, end) =>
+      hasContext(text, start, end, VOTER_CONTEXT),
+    hardDropMask: () => "[VOTER ID REDACTED]",
   },
   {
     // IFSC codes are bank-routing data — tokenized, not dropped: a human agent
     // may legitimately need it, the LLM never does.
-    category: 'IFSC',
+    category: "IFSC",
     pattern: /\b[A-Z]{4}0[A-Z0-9]{6}\b/g,
   },
   {
     // 9-18 digit runs, only with account-ish context nearby.
-    category: 'BANK_ACCOUNT',
+    category: "BANK_ACCOUNT",
     pattern: /\b\d{9,18}\b/g,
     validate: (raw, text, start, end) =>
-      digitBounded(text, start, end) && hasContext(text, start, end, ACCOUNT_CONTEXT),
+      digitBounded(text, start, end) &&
+      hasContext(text, start, end, ACCOUNT_CONTEXT),
   },
   {
     // dd/mm/yyyy, dd-mm-yyyy, yyyy-mm-dd — only with birth-ish context.
-    category: 'DOB',
+    category: "DOB",
     pattern: /\b(?:\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}|\d{4}-\d{2}-\d{2})\b/g,
-    validate: (raw, text, start, end) => hasContext(text, start, end, DOB_CONTEXT),
+    validate: (raw, text, start, end) =>
+      hasContext(text, start, end, DOB_CONTEXT),
   },
 ];
 
@@ -288,8 +304,18 @@ export function detectPii(text: string): PiiMatch[] {
     }
   }
 
-  // Resolve overlaps: sort by start asc, length desc; keep first non-overlapping.
-  matches.sort((a, b) => a.start - b.start || b.end - b.start - (a.end - a.start));
+  // Resolve overlaps: sort by start asc, length desc, then STRICTER tier first;
+  // keep the first non-overlapping. The tier tie-break matters when two
+  // recognizers claim the same span: "account 9876543210" is both a valid
+  // Indian mobile (ALLOW) and a bank account (TOKENIZE). Letting ALLOW win
+  // would leave the account number unmasked everywhere, so the stricter tier
+  // always wins a tie.
+  matches.sort(
+    (a, b) =>
+      a.start - b.start ||
+      b.end - b.start - (a.end - a.start) ||
+      TIER_STRICTNESS[b.tier] - TIER_STRICTNESS[a.tier],
+  );
   const kept: PiiMatch[] = [];
   let lastEnd = -1;
   for (const match of matches) {
@@ -301,11 +327,39 @@ export function detectPii(text: string): PiiMatch[] {
   return kept;
 }
 
+/** Higher wins an overlap tie (see detectPii). */
+const TIER_STRICTNESS: Record<PiiTier, number> = {
+  HARD_DROP: 2,
+  TOKENIZE: 1,
+  ALLOW: 0,
+};
+
+/**
+ * Replace each match in `text` with `maskFor(match)`. `matches` must be the
+ * sorted, non-overlapping list detectPii returns (or a filtered subset). The
+ * one splice routine for every masking path, so the transcript and its log
+ * copies can never drift apart.
+ */
+export function spliceMatches(
+  text: string,
+  matches: PiiMatch[],
+  maskFor: (m: PiiMatch) => string,
+): string {
+  if (matches.length === 0) return text;
+  let out = "";
+  let cursor = 0;
+  for (const m of matches) {
+    out += text.slice(cursor, m.start) + maskFor(m);
+    cursor = m.end;
+  }
+  return out + text.slice(cursor);
+}
+
 /**
  * Last 4 significant (alphanumeric) characters of a value, for masked display
  * ("****9012"). Strips spaces/dashes first so "1234 5678 9012" → "9012" and a
  * PAN "ABCDE1234F" → "234F". Returns '' for values shorter than needed.
  */
 export function last4Of(value: string): string {
-  return value.replace(/[^A-Za-z0-9]/g, '').slice(-4);
+  return value.replace(/[^A-Za-z0-9]/g, "").slice(-4);
 }

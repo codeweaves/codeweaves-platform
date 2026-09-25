@@ -296,6 +296,20 @@ describe("ChatService", () => {
     });
   });
 
+  describe("isPiiRedactionEnabled (ADR-0005)", () => {
+    it.each([
+      ["no config", null],
+      ["an empty config", {}],
+      [
+        "a stored false from before the toggle was removed",
+        { piiRedactionEnabled: false },
+      ],
+      ["an explicit true", { piiRedactionEnabled: true }],
+    ])("is always on, with %s", (_label, aiConfig) => {
+      expect(ChatService.isPiiRedactionEnabled(aiConfig as never)).toBe(true);
+    });
+  });
+
   describe("resolveOrCreateVisitorSession (WhatsApp / server-keyed channels)", () => {
     const PHONE = "15551234567";
 

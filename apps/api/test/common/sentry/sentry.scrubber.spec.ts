@@ -1,5 +1,5 @@
-import type { ErrorEvent, EventHint } from '@sentry/nestjs';
-import { scrubSentryEvent } from '../../../src/common/sentry/sentry.scrubber';
+import type { ErrorEvent, EventHint } from "@sentry/nestjs";
+import { scrubSentryEvent } from "../../../src/common/sentry/sentry.scrubber";
 
 function scrub(event: Record<string, unknown>): ErrorEvent {
   return scrubSentryEvent(
@@ -8,177 +8,175 @@ function scrub(event: Record<string, unknown>): ErrorEvent {
   ) as ErrorEvent;
 }
 
-describe('scrubSentryEvent', () => {
-  describe('Authorization header scrubbing', () => {
-    it('should strip Authorization header from event.request.headers', () => {
+describe("scrubSentryEvent", () => {
+  describe("Authorization header scrubbing", () => {
+    it("should strip Authorization header from event.request.headers", () => {
       const result = scrub({
         request: {
           headers: {
-            authorization: 'Bearer eyJhbGciOiJSUzI1NiIs...',
-            'content-type': 'application/json',
+            authorization: "Bearer eyJhbGciOiJSUzI1NiIs...",
+            "content-type": "application/json",
           },
         },
       });
 
-      expect(result.request!.headers!['authorization']).toBe('[REDACTED]');
-      expect(result.request!.headers!['content-type']).toBe(
-        'application/json',
-      );
+      expect(result.request!.headers!["authorization"]).toBe("[REDACTED]");
+      expect(result.request!.headers!["content-type"]).toBe("application/json");
     });
 
-    it('should handle missing request headers gracefully', () => {
+    it("should handle missing request headers gracefully", () => {
       const result = scrub({});
       expect(result).toEqual({});
     });
   });
 
-  describe('sensitive field redaction', () => {
-    it('should redact password fields in request data', () => {
+  describe("sensitive field redaction", () => {
+    it("should redact password fields in extra data", () => {
       const result = scrub({
-        request: {
+        extra: {
           data: {
-            email: 'user@test.com',
-            password: 'super-secret-123',
+            email: "user@test.com",
+            password: "super-secret-123",
           },
         },
       });
 
-      expect(
-        (result.request!.data as Record<string, unknown>)['password'],
-      ).toBe('[REDACTED]');
-      expect((result.request!.data as Record<string, unknown>)['email']).toBe(
-        'user@test.com',
+      expect((result.extra!.data as Record<string, unknown>)["password"]).toBe(
+        "[REDACTED]",
+      );
+      expect((result.extra!.data as Record<string, unknown>)["email"]).toBe(
+        "user@test.com",
       );
     });
 
-    it('should redact secret, token, apiKey, api_key, credential fields', () => {
+    it("should redact secret, token, apiKey, api_key, credential fields", () => {
       const result = scrub({
-        request: {
+        extra: {
           data: {
-            secret: 'my-secret',
-            token: 'jwt-token',
-            apiKey: 'key-123',
-            api_key: 'key-456',
-            credential: 'cred-abc',
-            safeField: 'visible',
+            secret: "my-secret",
+            token: "jwt-token",
+            apiKey: "key-123",
+            api_key: "key-456",
+            credential: "cred-abc",
+            safeField: "visible",
           },
         },
       });
-      const data = result.request!.data as Record<string, unknown>;
+      const data = result.extra!.data as Record<string, unknown>;
 
-      expect(data['secret']).toBe('[REDACTED]');
-      expect(data['token']).toBe('[REDACTED]');
-      expect(data['apiKey']).toBe('[REDACTED]');
-      expect(data['api_key']).toBe('[REDACTED]');
-      expect(data['credential']).toBe('[REDACTED]');
-      expect(data['safeField']).toBe('visible');
+      expect(data["secret"]).toBe("[REDACTED]");
+      expect(data["token"]).toBe("[REDACTED]");
+      expect(data["apiKey"]).toBe("[REDACTED]");
+      expect(data["api_key"]).toBe("[REDACTED]");
+      expect(data["credential"]).toBe("[REDACTED]");
+      expect(data["safeField"]).toBe("visible");
     });
 
-    it('should recursively scrub nested objects in request data', () => {
+    it("should recursively scrub nested objects in extra data", () => {
       const result = scrub({
-        request: {
+        extra: {
           data: {
             user: {
-              name: 'Test',
-              password: 'nested-secret',
+              name: "Test",
+              password: "nested-secret",
               settings: {
-                token: 'deep-token',
-                theme: 'dark',
+                token: "deep-token",
+                theme: "dark",
               },
             },
           },
         },
       });
-      const data = result.request!.data as Record<string, unknown>;
-      const user = data['user'] as Record<string, unknown>;
-      const settings = user['settings'] as Record<string, unknown>;
+      const data = result.extra!.data as Record<string, unknown>;
+      const user = data["user"] as Record<string, unknown>;
+      const settings = user["settings"] as Record<string, unknown>;
 
-      expect(user['name']).toBe('Test');
-      expect(user['password']).toBe('[REDACTED]');
-      expect(settings['token']).toBe('[REDACTED]');
-      expect(settings['theme']).toBe('dark');
+      expect(user["name"]).toBe("Test");
+      expect(user["password"]).toBe("[REDACTED]");
+      expect(settings["token"]).toBe("[REDACTED]");
+      expect(settings["theme"]).toBe("dark");
     });
 
-    it('should scrub event.extra objects', () => {
+    it("should scrub event.extra objects", () => {
       const result = scrub({
         extra: {
-          correlationId: 'abc-123',
-          apiKey: 'should-be-hidden',
+          correlationId: "abc-123",
+          apiKey: "should-be-hidden",
           details: {
-            secret: 'nested-secret',
+            secret: "nested-secret",
           },
         },
       });
 
-      expect(result.extra!['correlationId']).toBe('abc-123');
-      expect(result.extra!['apiKey']).toBe('[REDACTED]');
+      expect(result.extra!["correlationId"]).toBe("abc-123");
+      expect(result.extra!["apiKey"]).toBe("[REDACTED]");
       expect(
-        (result.extra!['details'] as Record<string, unknown>)['secret'],
-      ).toBe('[REDACTED]');
+        (result.extra!["details"] as Record<string, unknown>)["secret"],
+      ).toBe("[REDACTED]");
     });
 
-    it('should recursively scrub sensitive fields inside arrays', () => {
+    it("should recursively scrub sensitive fields inside arrays", () => {
       const result = scrub({
-        request: {
+        extra: {
           data: {
             users: [
-              { name: 'Alice', password: 'secret1' },
-              { name: 'Bob', token: 'jwt-abc' },
+              { name: "Alice", password: "secret1" },
+              { name: "Bob", token: "jwt-abc" },
             ],
           },
         },
       });
-      const data = result.request!.data as Record<string, unknown>;
-      const users = data['users'] as Record<string, unknown>[];
+      const data = result.extra!.data as Record<string, unknown>;
+      const users = data["users"] as Record<string, unknown>[];
 
-      expect(users[0]!['name']).toBe('Alice');
-      expect(users[0]!['password']).toBe('[REDACTED]');
-      expect(users[1]!['name']).toBe('Bob');
-      expect(users[1]!['token']).toBe('[REDACTED]');
+      expect(users[0]!["name"]).toBe("Alice");
+      expect(users[0]!["password"]).toBe("[REDACTED]");
+      expect(users[1]!["name"]).toBe("Bob");
+      expect(users[1]!["token"]).toBe("[REDACTED]");
     });
 
-    it('should be case-insensitive for sensitive key matching', () => {
+    it("should be case-insensitive for sensitive key matching", () => {
       const result = scrub({
-        request: {
+        extra: {
           data: {
-            Password: 'upper',
-            SECRET: 'all-caps',
-            Token: 'mixed',
+            Password: "upper",
+            SECRET: "all-caps",
+            Token: "mixed",
           },
         },
       });
-      const data = result.request!.data as Record<string, unknown>;
+      const data = result.extra!.data as Record<string, unknown>;
 
-      expect(data['Password']).toBe('[REDACTED]');
-      expect(data['SECRET']).toBe('[REDACTED]');
-      expect(data['Token']).toBe('[REDACTED]');
+      expect(data["Password"]).toBe("[REDACTED]");
+      expect(data["SECRET"]).toBe("[REDACTED]");
+      expect(data["Token"]).toBe("[REDACTED]");
     });
   });
 
-  describe('query string scrubbing', () => {
-    it('should redact sensitive keys in query_string', () => {
+  describe("query string scrubbing", () => {
+    it("should redact sensitive keys in query_string", () => {
       const result = scrub({
         request: {
-          query_string: 'page=1&token=secret-jwt&apiKey=my-key&safe=ok',
+          query_string: "page=1&token=secret-jwt&apiKey=my-key&safe=ok",
         },
       });
 
       expect(result.request!.query_string).toBe(
-        'page=1&token=[REDACTED]&apiKey=[REDACTED]&safe=ok',
+        "page=1&token=[REDACTED]&apiKey=[REDACTED]&safe=ok",
       );
     });
 
-    it('should handle query_string with no sensitive keys', () => {
+    it("should handle query_string with no sensitive keys", () => {
       const result = scrub({
         request: {
-          query_string: 'page=1&limit=10',
+          query_string: "page=1&limit=10",
         },
       });
 
-      expect(result.request!.query_string).toBe('page=1&limit=10');
+      expect(result.request!.query_string).toBe("page=1&limit=10");
     });
 
-    it('should handle missing query_string gracefully', () => {
+    it("should handle missing query_string gracefully", () => {
       const result = scrub({
         request: { headers: {} },
       });
@@ -187,76 +185,96 @@ describe('scrubSentryEvent', () => {
     });
   });
 
-  describe('edge cases', () => {
-    it('should handle event with no request', () => {
-      const result = scrub({ message: 'test' });
-      expect(result.message).toBe('test');
+  describe("edge cases", () => {
+    it("should handle event with no request", () => {
+      const result = scrub({ message: "test" });
+      expect(result.message).toBe("test");
     });
 
-    it('should handle event with null request data', () => {
+    it("should handle event with null request data", () => {
       const result = scrub({
         request: { data: null },
       });
       expect(result.request!.data).toBeNull();
     });
 
-    it('drops a non-JSON string request body (cannot scrub per-key)', () => {
+    it.each([
+      ["a string body", "raw-body-string"],
+      [
+        "a JSON string body",
+        JSON.stringify({ chatInput: "hello", keep: "ok" }),
+      ],
+      ["an object body", { chatInput: "my card is 4111 1111 1111 1111" }],
+    ])(
+      "never sends %s: it points to event_logs instead (ADR-0005)",
+      (_label, data) => {
+        const result = scrub({ request: { data } });
+        expect(result.request!.data).toBe(
+          "[omitted: see event_logs by correlationId]",
+        );
+      },
+    );
+
+    it("masks PII in exception messages, the event message and breadcrumbs", () => {
+      const card = "4111 1111 1111 1111";
       const result = scrub({
-        request: { data: 'raw-body-string' },
+        message: `failed for card ${card}`,
+        exception: { values: [{ type: "Error", value: `bad input ${card}` }] },
+        breadcrumbs: [
+          { message: `user typed ${card}`, data: { note: `again ${card}` } },
+        ],
       });
-      expect(result.request!.data).toBe('[REDACTED]');
+      const everything = JSON.stringify(result);
+      expect(everything).not.toContain("4111 1111 1111 1111");
+      expect(everything).not.toContain("4111111111111111");
+      expect(result.exception!.values![0]!.value).toContain("1111");
     });
 
-    it('scrubs sensitive keys inside a JSON string request body', () => {
-      const result = scrub({
-        request: { data: JSON.stringify({ accessToken: 'secret', keep: 'ok' }) },
-      });
-      expect(JSON.parse(result.request!.data as string)).toEqual({
-        accessToken: '[REDACTED]',
-        keep: 'ok',
-      });
-    });
-
-    it('redacts x-internal-secret and other secret headers', () => {
+    it("redacts x-internal-secret and other secret headers", () => {
       const result = scrub({
         request: {
           headers: {
-            'x-internal-secret': 'topsecret',
-            'content-type': 'application/json',
+            "x-internal-secret": "topsecret",
+            "content-type": "application/json",
           },
         },
       });
-      expect(result.request!.headers!['x-internal-secret']).toBe('[REDACTED]');
-      expect(result.request!.headers!['content-type']).toBe('application/json');
+      expect(result.request!.headers!["x-internal-secret"]).toBe("[REDACTED]");
+      expect(result.request!.headers!["content-type"]).toBe("application/json");
     });
   });
 
-  describe('cookie scrubbing', () => {
+  describe("cookie scrubbing", () => {
     // Sentry stores cookies in a field SEPARATE from headers, so the header
     // denylist never sees them — they need their own redaction pass.
-    it('redacts values in a cookie dictionary but keeps the names', () => {
+    it("redacts values in a cookie dictionary but keeps the names", () => {
       const result = scrub({
         request: {
-          cookies: { __session: 'jwt-value', theme: 'dark' },
+          cookies: { __session: "jwt-value", theme: "dark" },
         },
       });
-      const cookies = result.request!.cookies as unknown as Record<string, string>;
-      expect(cookies.__session).toBe('[REDACTED]');
-      expect(cookies.theme).toBe('[REDACTED]');
-      expect(Object.keys(cookies).sort()).toEqual(['__session', 'theme']);
+      const cookies = result.request!.cookies as unknown as Record<
+        string,
+        string
+      >;
+      expect(cookies.__session).toBe("[REDACTED]");
+      expect(cookies.theme).toBe("[REDACTED]");
+      expect(Object.keys(cookies).sort()).toEqual(["__session", "theme"]);
     });
 
-    it('redacts values in a raw cookie string', () => {
+    it("redacts values in a raw cookie string", () => {
       const result = scrub({
-        request: { cookies: '__session=jwt-value; theme=dark' },
+        request: { cookies: "__session=jwt-value; theme=dark" },
       });
       expect(result.request!.cookies).toBe(
-        '__session=[REDACTED]; theme=[REDACTED]',
+        "__session=[REDACTED]; theme=[REDACTED]",
       );
     });
 
-    it('handles a missing cookies field gracefully', () => {
-      const result = scrub({ request: { headers: { 'content-type': 'text/plain' } } });
+    it("handles a missing cookies field gracefully", () => {
+      const result = scrub({
+        request: { headers: { "content-type": "text/plain" } },
+      });
       expect(result.request!.cookies).toBeUndefined();
     });
   });

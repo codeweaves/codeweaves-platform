@@ -5,31 +5,32 @@ import {
   CallHandler,
   HttpException,
   Logger,
-} from '@nestjs/common';
-import { Observable } from 'rxjs';
-import { tap } from 'rxjs/operators';
-import { getRequestContext } from '../common/tracer/correlation.storage';
-import { TracerService } from '../common/tracer/tracer.service';
+} from "@nestjs/common";
+import { Observable } from "rxjs";
+import { tap } from "rxjs/operators";
+import { getRequestContext } from "../common/tracer/correlation.storage";
+import { maskPiiText } from "../modules/pii/mask-pii";
+import { TracerService } from "../common/tracer/tracer.service";
 import {
   resolveChannel,
   extractEntityIds,
   capturesHttpEnvelope,
-} from '../common/events/resolve-channel';
+} from "../common/events/resolve-channel";
 
 /** High-frequency endpoints kept out of the success log (errors still log). */
 const QUIET_PATHS = /\/poll(\?|$)/;
 
 /** Only these methods get an event_logs envelope row (reads are console-only). */
-const MUTATING = new Set(['POST', 'PUT', 'PATCH', 'DELETE']);
+const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
 @Injectable()
 export class LoggingInterceptor implements NestInterceptor {
-  private readonly logger = new Logger('HTTP');
+  private readonly logger = new Logger("HTTP");
 
   constructor(private readonly tracer: TracerService) {}
 
   private get httpCaptureEnabled(): boolean {
-    return process.env.EVENT_LOG_HTTP_CAPTURE !== 'false';
+    return process.env.EVENT_LOG_HTTP_CAPTURE !== "false";
   }
 
   intercept(context: ExecutionContext, next: CallHandler): Observable<unknown> {
@@ -73,7 +74,10 @@ export class LoggingInterceptor implements NestInterceptor {
         },
         error: (err: unknown) => {
           const status = err instanceof HttpException ? err.getStatus() : 500;
-          const message = err instanceof Error ? err.message : 'Unknown error';
+          // Masked: console output is a log too, and an error can echo input.
+          const message = maskPiiText(
+            err instanceof Error ? err.message : "Unknown error",
+          );
           this.logger.error(
             `← ${method} ${originalUrl} ${status} ${Date.now() - now}ms — ${message}`,
           );
@@ -97,16 +101,17 @@ export class LoggingInterceptor implements NestInterceptor {
     errorMessage?: string,
   ): void {
     const channel = resolveChannel(request.originalUrl);
-    const { agentId, organizationId } = extractEntityIds(
+    const { agentId, organizationId, sessionId } = extractEntityIds(
       request.originalUrl,
       request.params ?? {},
     );
     void this.tracer.logEvent({
       channel,
       eventName: `${channel}_HTTP_${request.method}`,
-      direction: 'INBOUND',
+      direction: "INBOUND",
       agentId,
       organizationId,
+      sessionId,
       requestUrl: request.originalUrl,
       requestHeaders: request.headers,
       requestPayload: request.body,
