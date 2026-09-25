@@ -8,18 +8,19 @@
  * - Widget-specific callbacks (onAudioSentence, onComplete)
  */
 
-import { useState, useCallback, useRef, useEffect } from 'preact/hooks';
-import { AudioPlaybackQueue } from '../utils/audio-playback-queue';
+import { useState, useCallback, useRef, useEffect } from "preact/hooks";
+import { AudioPlaybackQueue } from "../utils/audio-playback-queue";
 import {
   streamVoiceConversation,
   VoiceApiError,
   type VoiceAudioChunk,
-} from '../services/voice-client';
-import { getSessionId, updateSession } from '../services/session-manager';
+} from "../services/voice-client";
+import { getSessionId, updateSession } from "../services/session-manager";
+import { CONSENT_REQUIRED, applyConsentRequired } from "../services/consent";
 
-export type VoiceState = 'idle' | 'listening' | 'processing' | 'playing';
+export type VoiceState = "idle" | "listening" | "processing" | "playing";
 
-export type VoiceErrorSeverity = 'error' | 'warning' | 'info';
+export type VoiceErrorSeverity = "error" | "warning" | "info";
 
 const MAX_RECORDING_MS = 60_000;
 const DURATION_UPDATE_MS = 100;
@@ -48,24 +49,31 @@ const HARD_DEADLINE_MS = 200_000;
 // ── Error message mapping (matches demo page) ──
 
 const ERROR_MESSAGES: { [key: string]: string | undefined } = {
-  STT_FAILED: "Couldn't understand audio. Please try again or type your message.",
-  TTS_FAILED: 'Voice playback unavailable',
-  TTS_ALL_PROVIDERS_FAILED: 'Voice synthesis unavailable for this sentence',
-  UNSUPPORTED_LANGUAGE: 'This language is not supported for voice',
-  PROVIDER_TIMEOUT: 'Voice processing timed out. Please try again.',
-  PROVIDER_UNAVAILABLE: 'Voice service temporarily unavailable',
-  INVALID_AUDIO: 'Audio recording was not valid. Please try again.',
-  AUDIO_TOO_SHORT: 'Recording was too short. Please speak longer.',
-  NO_SPEECH_DETECTED: "We couldn't make that out. Please try again from a quieter spot.",
-  RATE_LIMITED: 'Too many voice requests. Please wait.',
+  STT_FAILED:
+    "Couldn't understand audio. Please try again or type your message.",
+  TTS_FAILED: "Voice playback unavailable",
+  TTS_ALL_PROVIDERS_FAILED: "Voice synthesis unavailable for this sentence",
+  UNSUPPORTED_LANGUAGE: "This language is not supported for voice",
+  PROVIDER_TIMEOUT: "Voice processing timed out. Please try again.",
+  PROVIDER_UNAVAILABLE: "Voice service temporarily unavailable",
+  INVALID_AUDIO: "Audio recording was not valid. Please try again.",
+  AUDIO_TOO_SHORT: "Recording was too short. Please speak longer.",
+  NO_SPEECH_DETECTED:
+    "We couldn't make that out. Please try again from a quieter spot.",
+  RATE_LIMITED: "Too many voice requests. Please wait.",
+  CONSENT_REQUIRED: "Please accept the privacy notice to start the chat.",
 };
 
-const WARNING_ERROR_CODES = new Set(['TTS_FAILED', 'TTS_ALL_PROVIDERS_FAILED', 'RATE_LIMITED']);
+const WARNING_ERROR_CODES = new Set([
+  "TTS_FAILED",
+  "TTS_ALL_PROVIDERS_FAILED",
+  "RATE_LIMITED",
+]);
 
 export function getErrorSeverity(errorCode: string | null): VoiceErrorSeverity {
-  if (!errorCode) return 'error';
-  if (WARNING_ERROR_CODES.has(errorCode)) return 'warning';
-  return 'error';
+  if (!errorCode) return "error";
+  if (WARNING_ERROR_CODES.has(errorCode)) return "warning";
+  return "error";
 }
 
 // ── Types ──
@@ -83,7 +91,7 @@ export interface UseVoiceOptions {
   /** Called on voice error */
   onError?: (message: string) => void;
   /** Called when a handover is raised on a voice turn (caller asked for a human). */
-  onHandover?: (handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN') => void;
+  onHandover?: (handoverState: "NONE" | "REQUESTED" | "ACTIVE_HUMAN") => void;
 }
 
 export interface UseVoiceReturn {
@@ -104,30 +112,49 @@ export interface UseVoiceReturn {
 }
 
 function detectMimeType(): string | undefined {
-  if (typeof MediaRecorder === 'undefined') return undefined;
-  if (MediaRecorder.isTypeSupported('audio/webm')) return 'audio/webm';
-  if (MediaRecorder.isTypeSupported('audio/mp4')) return 'audio/mp4';
+  if (typeof MediaRecorder === "undefined") return undefined;
+  if (MediaRecorder.isTypeSupported("audio/webm")) return "audio/webm";
+  if (MediaRecorder.isTypeSupported("audio/mp4")) return "audio/mp4";
   return undefined;
 }
 
-function mapErrorToMessage(err: unknown): { message: string; errorCode: string | null } {
+function mapErrorToMessage(err: unknown): {
+  message: string;
+  errorCode: string | null;
+} {
   if (err instanceof VoiceApiError) {
     const mapped = err.errorCode ? ERROR_MESSAGES[err.errorCode] : undefined;
     if (mapped) {
       return { message: mapped, errorCode: err.errorCode };
     }
     if (err.status === 429) {
-      return { message: 'Too many voice requests. Please wait.', errorCode: 'RATE_LIMITED' };
+      return {
+        message: "Too many voice requests. Please wait.",
+        errorCode: "RATE_LIMITED",
+      };
     }
     if (err.status === 504) {
-      return { message: 'Voice processing timed out. Please try again.', errorCode: 'PROVIDER_TIMEOUT' };
+      return {
+        message: "Voice processing timed out. Please try again.",
+        errorCode: "PROVIDER_TIMEOUT",
+      };
     }
-    return { message: "Couldn't understand audio. Please try again or type your message.", errorCode: err.errorCode };
+    return {
+      message:
+        "Couldn't understand audio. Please try again or type your message.",
+      errorCode: err.errorCode,
+    };
   }
   if (err instanceof TypeError) {
-    return { message: 'Connection issue. Please try again.', errorCode: 'NETWORK_ERROR' };
+    return {
+      message: "Connection issue. Please try again.",
+      errorCode: "NETWORK_ERROR",
+    };
   }
-  return { message: 'Voice processing failed. Please try again.', errorCode: null };
+  return {
+    message: "Voice processing failed. Please try again.",
+    errorCode: null,
+  };
 }
 
 export function useVoice({
@@ -140,16 +167,16 @@ export function useVoice({
   onError,
   onHandover,
 }: UseVoiceOptions): UseVoiceReturn {
-  const [voiceState, setVoiceState] = useState<VoiceState>('idle');
+  const [voiceState, setVoiceState] = useState<VoiceState>("idle");
   const [recordingDurationMs, setRecordingDurationMs] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [errorCode, setErrorCode] = useState<string | null>(null);
   const [isSupported] = useState(() => {
-    if (typeof window === 'undefined') return false;
+    if (typeof window === "undefined") return false;
     return !!navigator.mediaDevices?.getUserMedia && !!window.MediaRecorder;
   });
 
-  const voiceStateRef = useRef<VoiceState>('idle');
+  const voiceStateRef = useRef<VoiceState>("idle");
   const recorderRef = useRef<MediaRecorder | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   // Web Audio plumbing for the live waveform: a MediaStreamAudioSource feeds an
@@ -166,7 +193,7 @@ export function useVoice({
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const hardDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timedOutRef = useRef(false);
-  const activeMimeRef = useRef<string>('audio/webm');
+  const activeMimeRef = useRef<string>("audio/webm");
   // P3: Flag to distinguish cancel from normal stop
   const cancelledRef = useRef(false);
 
@@ -176,11 +203,21 @@ export function useVoice({
   const onErrorRef = useRef(onError);
   const onHandoverRef = useRef(onHandover);
 
-  useEffect(() => { onTranscriptionRef.current = onTranscription; }, [onTranscription]);
-  useEffect(() => { onAudioSentenceRef.current = onAudioSentence; }, [onAudioSentence]);
-  useEffect(() => { onCompleteRef.current = onComplete; }, [onComplete]);
-  useEffect(() => { onErrorRef.current = onError; }, [onError]);
-  useEffect(() => { onHandoverRef.current = onHandover; }, [onHandover]);
+  useEffect(() => {
+    onTranscriptionRef.current = onTranscription;
+  }, [onTranscription]);
+  useEffect(() => {
+    onAudioSentenceRef.current = onAudioSentence;
+  }, [onAudioSentence]);
+  useEffect(() => {
+    onCompleteRef.current = onComplete;
+  }, [onComplete]);
+  useEffect(() => {
+    onErrorRef.current = onError;
+  }, [onError]);
+  useEffect(() => {
+    onHandoverRef.current = onHandover;
+  }, [onHandover]);
 
   const setVoiceStateSynced = useCallback((state: VoiceState) => {
     voiceStateRef.current = state;
@@ -204,7 +241,7 @@ export function useVoice({
       clearTimeout(hardDeadlineRef.current);
       hardDeadlineRef.current = null;
     }
-    if (recorderRef.current && recorderRef.current.state !== 'inactive') {
+    if (recorderRef.current && recorderRef.current.state !== "inactive") {
       recorderRef.current.stop();
     }
     recorderRef.current = null;
@@ -239,185 +276,197 @@ export function useVoice({
     }
   }, []);
 
-  const setErrorWithAutoDismiss = useCallback((msg: string, code: string | null, dismissMs?: number) => {
-    setError(msg);
-    setErrorCode(code);
-    if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
-    const severity = getErrorSeverity(code);
-    const timeout = dismissMs ?? (severity === 'warning' ? 5_000 : 8_000);
-    errorTimerRef.current = setTimeout(() => {
-      setError(null);
-      setErrorCode(null);
-      errorTimerRef.current = null;
-    }, timeout);
-  }, []);
+  const setErrorWithAutoDismiss = useCallback(
+    (msg: string, code: string | null, dismissMs?: number) => {
+      setError(msg);
+      setErrorCode(code);
+      if (errorTimerRef.current) clearTimeout(errorTimerRef.current);
+      const severity = getErrorSeverity(code);
+      const timeout = dismissMs ?? (severity === "warning" ? 5_000 : 8_000);
+      errorTimerRef.current = setTimeout(() => {
+        setError(null);
+        setErrorCode(null);
+        errorTimerRef.current = null;
+      }, timeout);
+    },
+    [],
+  );
 
-  const handleApiCall = useCallback(async (audioBlob: Blob) => {
-    setVoiceStateSynced('processing');
+  const handleApiCall = useCallback(
+    async (audioBlob: Blob) => {
+      setVoiceStateSynced("processing");
 
-    const controller = new AbortController();
-    abortRef.current = controller;
-    timedOutRef.current = false;
+      const controller = new AbortController();
+      abortRef.current = controller;
+      timedOutRef.current = false;
 
-    // Arm (and re-arm) an IDLE timeout. It fires only after IDLE_TIMEOUT_MS with
-    // no stream activity; every chunk callback below re-arms it, so a healthy
-    // stream is never aborted while audio is still arriving. It's cleared once
-    // the stream finishes (see the clearTimeout after the await).
-    const armIdleTimeout = (windowMs: number = IDLE_TIMEOUT_MS) => {
-      if (timeoutRef.current) clearTimeout(timeoutRef.current);
-      timeoutRef.current = setTimeout(() => {
+      // Arm (and re-arm) an IDLE timeout. It fires only after IDLE_TIMEOUT_MS with
+      // no stream activity; every chunk callback below re-arms it, so a healthy
+      // stream is never aborted while audio is still arriving. It's cleared once
+      // the stream finishes (see the clearTimeout after the await).
+      const armIdleTimeout = (windowMs: number = IDLE_TIMEOUT_MS) => {
+        if (timeoutRef.current) clearTimeout(timeoutRef.current);
+        timeoutRef.current = setTimeout(() => {
+          timedOutRef.current = true;
+          controller.abort();
+        }, windowMs);
+      };
+      armIdleTimeout(FIRST_CHUNK_TIMEOUT_MS);
+
+      // Independent of the idle timers and never re-armed — see HARD_DEADLINE_MS.
+      const clearStreamTimers = () => {
+        if (timeoutRef.current) {
+          clearTimeout(timeoutRef.current);
+          timeoutRef.current = null;
+        }
+        if (hardDeadlineRef.current) {
+          clearTimeout(hardDeadlineRef.current);
+          hardDeadlineRef.current = null;
+        }
+      };
+      hardDeadlineRef.current = setTimeout(() => {
         timedOutRef.current = true;
         controller.abort();
-      }, windowMs);
-    };
-    armIdleTimeout(FIRST_CHUNK_TIMEOUT_MS);
+      }, HARD_DEADLINE_MS);
 
-    // Independent of the idle timers and never re-armed — see HARD_DEADLINE_MS.
-    const clearStreamTimers = () => {
-      if (timeoutRef.current) {
-        clearTimeout(timeoutRef.current);
-        timeoutRef.current = null;
-      }
-      if (hardDeadlineRef.current) {
-        clearTimeout(hardDeadlineRef.current);
-        hardDeadlineRef.current = null;
-      }
-    };
-    hardDeadlineRef.current = setTimeout(() => {
-      timedOutRef.current = true;
-      controller.abort();
-    }, HARD_DEADLINE_MS);
+      let receivedFirstAudio = false;
+      let fullResponseText = "";
+      let responseSessionId = getSessionId() ?? "";
 
-    let receivedFirstAudio = false;
-    let fullResponseText = '';
-    let responseSessionId = getSessionId() ?? '';
-
-    // Create playback queue — transitions to 'idle' when all audio finishes
-    const queue = new AudioPlaybackQueue(() => {
-      playbackQueueRef.current = null;
-      setVoiceStateSynced('idle');
-    });
-    playbackQueueRef.current = queue;
-
-    try {
-      const result = await streamVoiceConversation({
-        audio: audioBlob,
-        agentId,
-        sessionId: getSessionId() ?? undefined,
-        // No languageHint sent — backend auto-detects via Sarvam (one-shot detect+transcribe)
-        signal: controller.signal,
-        callbacks: {
-          onTranscription: (text: string) => {
-            // The transcript landing does NOT mean the reply is close — the wait
-            // for first audio starts here, so keep the long window.
-            armIdleTimeout(FIRST_CHUNK_TIMEOUT_MS);
-            onTranscriptionRef.current?.(text);
-            // Drop out of 'processing' the instant the transcript lands so the
-            // "Transcribing…" loader disappears as soon as the user sees their words.
-            // Audio chunks arriving next will independently flip state to 'playing'.
-            setVoiceStateSynced('idle');
-          },
-          onAudioChunk: (chunk: VoiceAudioChunk) => {
-            armIdleTimeout();
-            // Pure metrics marker (no text AND no audio) — the server's
-            // per-sentence final marker. Nothing to show or play.
-            if (!chunk.audio && !chunk.text) return;
-
-            // Surface the sentence text even when there's no audio: emoji/symbol-
-            // only chunks are stripped from TTS (nothing to speak) but still
-            // belong in the chat transcript.
-            if (chunk.text) {
-              onAudioSentenceRef.current?.(chunk.text, chunk.sentenceIndex);
-            }
-
-            // No audio to play (emoji-only chunk) — text already shown above.
-            if (!chunk.audio) return;
-
-            if (!receivedFirstAudio) {
-              receivedFirstAudio = true;
-              if (voiceAutoPlay) {
-                setVoiceStateSynced('playing');
-              }
-            }
-            if (voiceAutoPlay) {
-              queue.enqueue(chunk.audio, chunk.audioFormat);
-            }
-          },
-          onComplete: (fullText: string) => {
-            armIdleTimeout();
-            fullResponseText = fullText;
-            onCompleteRef.current?.(fullText);
-            queue.markStreamComplete();
-
-            // If no audio was received or autoPlay is off, go idle immediately
-            if (!receivedFirstAudio || !voiceAutoPlay) {
-              setVoiceStateSynced('idle');
-            }
-          },
-          onHandover: (handoverState) => {
-            armIdleTimeout();
-            onHandoverRef.current?.(handoverState);
-          },
-          onError: (errCode: string, message: string) => {
-            const mapped = ERROR_MESSAGES[errCode] ?? message;
-            setErrorWithAutoDismiss(mapped, errCode);
-            onErrorRef.current?.(mapped);
-          },
-        },
+      // Create playback queue — transitions to 'idle' when all audio finishes
+      const queue = new AudioPlaybackQueue(() => {
+        playbackQueueRef.current = null;
+        setVoiceStateSynced("idle");
       });
+      playbackQueueRef.current = queue;
 
-      clearStreamTimers();
+      try {
+        const result = await streamVoiceConversation({
+          audio: audioBlob,
+          agentId,
+          sessionId: getSessionId() ?? undefined,
+          // No languageHint sent — backend auto-detects via Sarvam (one-shot detect+transcribe)
+          signal: controller.signal,
+          callbacks: {
+            onTranscription: (text: string) => {
+              // The transcript landing does NOT mean the reply is close — the wait
+              // for first audio starts here, so keep the long window.
+              armIdleTimeout(FIRST_CHUNK_TIMEOUT_MS);
+              onTranscriptionRef.current?.(text);
+              // Drop out of 'processing' the instant the transcript lands so the
+              // "Transcribing…" loader disappears as soon as the user sees their words.
+              // Audio chunks arriving next will independently flip state to 'playing'.
+              setVoiceStateSynced("idle");
+            },
+            onAudioChunk: (chunk: VoiceAudioChunk) => {
+              armIdleTimeout();
+              // Pure metrics marker (no text AND no audio) — the server's
+              // per-sentence final marker. Nothing to show or play.
+              if (!chunk.audio && !chunk.text) return;
 
-      if (controller.signal.aborted) return;
+              // Surface the sentence text even when there's no audio: emoji/symbol-
+              // only chunks are stripped from TTS (nothing to speak) but still
+              // belong in the chat transcript.
+              if (chunk.text) {
+                onAudioSentenceRef.current?.(chunk.text, chunk.sentenceIndex);
+              }
 
-      responseSessionId = result.sessionId ?? responseSessionId;
+              // No audio to play (emoji-only chunk) — text already shown above.
+              if (!chunk.audio) return;
 
-      // Update session if returned
-      if (responseSessionId) {
-        updateSession(agentId, responseSessionId);
-      }
+              if (!receivedFirstAudio) {
+                receivedFirstAudio = true;
+                if (voiceAutoPlay) {
+                  setVoiceStateSynced("playing");
+                }
+              }
+              if (voiceAutoPlay) {
+                queue.enqueue(chunk.audio, chunk.audioFormat);
+              }
+            },
+            onComplete: (fullText: string) => {
+              armIdleTimeout();
+              fullResponseText = fullText;
+              onCompleteRef.current?.(fullText);
+              queue.markStreamComplete();
 
-      // If no audio was received at all, go idle
-      if (!receivedFirstAudio) {
-        queue.markStreamComplete();
-        if (fullResponseText) {
-          // Text-only response (TTS failed for all sentences)
-          setVoiceStateSynced('idle');
+              // If no audio was received or autoPlay is off, go idle immediately
+              if (!receivedFirstAudio || !voiceAutoPlay) {
+                setVoiceStateSynced("idle");
+              }
+            },
+            onHandover: (handoverState) => {
+              armIdleTimeout();
+              onHandoverRef.current?.(handoverState);
+            },
+            onError: (errCode: string, message: string) => {
+              const mapped = ERROR_MESSAGES[errCode] ?? message;
+              setErrorWithAutoDismiss(mapped, errCode);
+              onErrorRef.current?.(mapped);
+            },
+          },
+        });
+
+        clearStreamTimers();
+
+        if (controller.signal.aborted) return;
+
+        responseSessionId = result.sessionId ?? responseSessionId;
+
+        // Update session if returned
+        if (responseSessionId) {
+          updateSession(agentId, responseSessionId);
+        }
+
+        // If no audio was received at all, go idle
+        if (!receivedFirstAudio) {
+          queue.markStreamComplete();
+          if (fullResponseText) {
+            // Text-only response (TTS failed for all sentences)
+            setVoiceStateSynced("idle");
+          }
+        }
+      } catch (err) {
+        clearStreamTimers();
+
+        queue.stop();
+        playbackQueueRef.current = null;
+
+        if (err instanceof DOMException && err.name === "AbortError") {
+          if (timedOutRef.current) {
+            const msg = "Voice processing timed out. Please try again.";
+            setErrorWithAutoDismiss(msg, "PROVIDER_TIMEOUT");
+            onErrorRef.current?.(msg);
+            setVoiceStateSynced("idle");
+          }
+          return;
+        }
+
+        const { message, errorCode: code } = mapErrorToMessage(err);
+        if (code === CONSENT_REQUIRED) {
+          applyConsentRequired(
+            agentId,
+            err instanceof VoiceApiError ? err.consent : undefined,
+          );
+        }
+        setErrorWithAutoDismiss(message, code);
+        onErrorRef.current?.(message);
+        setVoiceStateSynced("idle");
+      } finally {
+        // Belt and braces: both success and failure paths clear these already, but
+        // an early `return` above must not leave a 200s timer holding this turn's
+        // controller — it would abort a LATER turn.
+        clearStreamTimers();
+        if (abortRef.current === controller) {
+          abortRef.current = null;
         }
       }
-    } catch (err) {
-      clearStreamTimers();
-
-      queue.stop();
-      playbackQueueRef.current = null;
-
-      if (err instanceof DOMException && err.name === 'AbortError') {
-        if (timedOutRef.current) {
-          const msg = 'Voice processing timed out. Please try again.';
-          setErrorWithAutoDismiss(msg, 'PROVIDER_TIMEOUT');
-          onErrorRef.current?.(msg);
-          setVoiceStateSynced('idle');
-        }
-        return;
-      }
-
-      const { message, errorCode: code } = mapErrorToMessage(err);
-      setErrorWithAutoDismiss(message, code);
-      onErrorRef.current?.(message);
-      setVoiceStateSynced('idle');
-    } finally {
-      // Belt and braces: both success and failure paths clear these already, but
-      // an early `return` above must not leave a 200s timer holding this turn's
-      // controller — it would abort a LATER turn.
-      clearStreamTimers();
-      if (abortRef.current === controller) {
-        abortRef.current = null;
-      }
-    }
-  }, [agentId, voiceAutoPlay, setErrorWithAutoDismiss, setVoiceStateSynced]);
+    },
+    [agentId, voiceAutoPlay, setErrorWithAutoDismiss, setVoiceStateSynced],
+  );
 
   const stopRecording = useCallback(() => {
-    if (recorderRef.current && recorderRef.current.state === 'recording') {
+    if (recorderRef.current && recorderRef.current.state === "recording") {
       recorderRef.current.stop();
     }
     if (autoStopTimerRef.current) {
@@ -437,7 +486,7 @@ export function useVoice({
   }, [stopRecording]);
 
   const startRecording = useCallback(async () => {
-    if (voiceStateRef.current !== 'idle') return;
+    if (voiceStateRef.current !== "idle") return;
     if (!isSupported || !voiceEnabled) return;
 
     // P3: Reset cancelled flag
@@ -468,8 +517,11 @@ export function useVoice({
       }
 
       const mimeType = detectMimeType();
-      const recorder = new MediaRecorder(stream, mimeType ? { mimeType } : undefined);
-      activeMimeRef.current = recorder.mimeType || 'audio/webm';
+      const recorder = new MediaRecorder(
+        stream,
+        mimeType ? { mimeType } : undefined,
+      );
+      activeMimeRef.current = recorder.mimeType || "audio/webm";
       recorderRef.current = recorder;
       chunksRef.current = [];
 
@@ -484,7 +536,7 @@ export function useVoice({
         // P3: If cancelled, discard recording and go idle
         if (cancelledRef.current) {
           chunksRef.current = [];
-          setVoiceStateSynced('idle');
+          setVoiceStateSynced("idle");
           return;
         }
 
@@ -495,12 +547,12 @@ export function useVoice({
         if (blob.size > 0) {
           handleApiCall(blob);
         } else {
-          setVoiceStateSynced('idle');
+          setVoiceStateSynced("idle");
         }
       };
 
       recorder.start();
-      setVoiceStateSynced('listening');
+      setVoiceStateSynced("listening");
       setRecordingDurationMs(0);
 
       const startTime = Date.now();
@@ -512,20 +564,28 @@ export function useVoice({
         stopRecording();
       }, MAX_RECORDING_MS);
     } catch (err) {
-      let message = 'Voice processing failed. Please try again.';
-      if (err instanceof DOMException && err.name === 'NotAllowedError') {
-        message = 'Microphone access denied. Please allow microphone in your browser settings.';
+      let message = "Voice processing failed. Please try again.";
+      if (err instanceof DOMException && err.name === "NotAllowedError") {
+        message =
+          "Microphone access denied. Please allow microphone in your browser settings.";
       }
       setErrorWithAutoDismiss(message, null);
       onErrorRef.current?.(message);
-      setVoiceStateSynced('idle');
+      setVoiceStateSynced("idle");
     }
-  }, [isSupported, voiceEnabled, handleApiCall, stopRecording, setErrorWithAutoDismiss, setVoiceStateSynced]);
+  }, [
+    isSupported,
+    voiceEnabled,
+    handleApiCall,
+    stopRecording,
+    setErrorWithAutoDismiss,
+    setVoiceStateSynced,
+  ]);
 
   const stopPlayback = useCallback(() => {
     playbackQueueRef.current?.stop();
     playbackQueueRef.current = null;
-    setVoiceStateSynced('idle');
+    setVoiceStateSynced("idle");
   }, [setVoiceStateSynced]);
 
   useEffect(() => {

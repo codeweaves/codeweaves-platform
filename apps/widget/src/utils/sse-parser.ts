@@ -11,17 +11,17 @@
  */
 
 export interface SSESessionEvent {
-  type: 'session';
+  type: "session";
   sessionId: string;
 }
 
 export interface SSEChunkEvent {
-  type: 'chunk';
+  type: "chunk";
   content: string;
 }
 
 export interface SSEDoneEvent {
-  type: 'done';
+  type: "done";
   sessionId: string;
   messageId: string;
   metadata: Record<string, unknown>;
@@ -30,13 +30,18 @@ export interface SSEDoneEvent {
 }
 
 export interface SSEErrorEvent {
-  type: 'error';
+  type: "error";
   message: string;
+  /** Machine-readable server code, e.g. CONSENT_REQUIRED. */
+  code?: string;
+  /** On CONSENT_REQUIRED: the live notice and its hash. */
+  notice?: import("../services/consent").ConsentNoticeView;
+  noticeHash?: string;
 }
 
 /** Sent when a human has taken over — the AI produced no reply this turn. */
 export interface SSEPausedEvent {
-  type: 'paused';
+  type: "paused";
   handoverState: string;
   message?: string;
 }
@@ -56,7 +61,7 @@ export async function* parseSSEStream(
   reader: ReadableStreamDefaultReader<Uint8Array>,
 ): AsyncGenerator<SSEEvent> {
   const decoder = new TextDecoder();
-  let buffer = '';
+  let buffer = "";
 
   try {
     while (true) {
@@ -64,11 +69,14 @@ export async function* parseSSEStream(
 
       if (value) {
         // Normalize \r\n and \r to \n (SSE spec allows all three line endings)
-        buffer += decoder.decode(value, { stream: true }).replace(/\r\n/g, '\n').replace(/\r/g, '\n');
+        buffer += decoder
+          .decode(value, { stream: true })
+          .replace(/\r\n/g, "\n")
+          .replace(/\r/g, "\n");
       }
 
       // Process complete SSE messages (delimited by double newline)
-      let boundary = buffer.indexOf('\n\n');
+      let boundary = buffer.indexOf("\n\n");
       while (boundary !== -1) {
         const message = buffer.slice(0, boundary);
         buffer = buffer.slice(boundary + 2);
@@ -76,7 +84,7 @@ export async function* parseSSEStream(
         const event = parseSSEMessage(message);
         if (event) yield event;
 
-        boundary = buffer.indexOf('\n\n');
+        boundary = buffer.indexOf("\n\n");
       }
 
       if (done) {
@@ -98,13 +106,13 @@ export async function* parseSSEStream(
  * SSE format: `data: {json}\n` (one or more data lines per message).
  */
 function parseSSEMessage(message: string): SSEEvent | null {
-  const lines = message.split('\n');
-  let dataStr = '';
+  const lines = message.split("\n");
+  let dataStr = "";
 
   for (const line of lines) {
-    if (line.startsWith('data: ')) {
+    if (line.startsWith("data: ")) {
       dataStr += line.slice(6);
-    } else if (line.startsWith('data:')) {
+    } else if (line.startsWith("data:")) {
       dataStr += line.slice(5);
     }
     // Ignore comment lines (starting with :) and other fields (event:, id:, retry:)
@@ -116,40 +124,57 @@ function parseSSEMessage(message: string): SSEEvent | null {
     const data = JSON.parse(dataStr) as Record<string, unknown>;
     const type = data.type as string;
 
-    if (type === 'session') {
-      return { type: 'session', sessionId: data.sessionId as string };
+    if (type === "session") {
+      return { type: "session", sessionId: data.sessionId as string };
     }
 
-    if (type === 'chunk') {
-      return { type: 'chunk', content: data.content as string };
+    if (type === "chunk") {
+      return { type: "chunk", content: data.content as string };
     }
 
-    if (type === 'done') {
+    if (type === "done") {
       return {
-        type: 'done',
+        type: "done",
         sessionId: data.sessionId as string,
         messageId: data.messageId as string,
         metadata: (data.metadata as Record<string, unknown>) ?? {},
-        handoverState: typeof data.handoverState === 'string' ? data.handoverState : undefined,
+        handoverState:
+          typeof data.handoverState === "string"
+            ? data.handoverState
+            : undefined,
       };
     }
 
-    if (type === 'paused') {
+    if (type === "paused") {
       return {
-        type: 'paused',
-        handoverState: typeof data.handoverState === 'string' ? data.handoverState : 'ACTIVE_HUMAN',
-        message: typeof data.message === 'string' ? data.message : undefined,
+        type: "paused",
+        handoverState:
+          typeof data.handoverState === "string"
+            ? data.handoverState
+            : "ACTIVE_HUMAN",
+        message: typeof data.message === "string" ? data.message : undefined,
       };
     }
 
-    if (type === 'error') {
-      return { type: 'error', message: data.message as string };
+    if (type === "error") {
+      return {
+        type: "error",
+        message: data.message as string,
+        ...(typeof data.code === "string" ? { code: data.code } : {}),
+        ...(data.notice && typeof data.noticeHash === "string"
+          ? {
+              notice:
+                data.notice as import("../services/consent").ConsentNoticeView,
+              noticeHash: data.noticeHash,
+            }
+          : {}),
+      };
     }
 
     return null;
   } catch (e) {
-    if (typeof console !== 'undefined') {
-      console.warn('[cw-widget] Failed to parse SSE data:', dataStr, e);
+    if (typeof console !== "undefined") {
+      console.warn("[cw-widget] Failed to parse SSE data:", dataStr, e);
     }
     return null;
   }

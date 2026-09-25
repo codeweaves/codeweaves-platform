@@ -19,7 +19,7 @@ export interface WidgetTheme {
 }
 
 /** Widget state: closed (trigger visible), expanded (full chat), minimized (header-only) */
-export type WidgetState = 'closed' | 'expanded' | 'minimized';
+export type WidgetState = "closed" | "expanded" | "minimized";
 
 /** Agent information returned by the config API */
 export interface AgentConfig {
@@ -39,6 +39,11 @@ export interface AgentConfig {
   showTalkToHumanButton?: boolean;
   /** Shown to the visitor when a teammate connects (also the button's tooltip fallback). */
   humanConnectedLabel?: string | null;
+  /**
+   * Revision (SHA-256) of the chat-start privacy notice, or null when the
+   * notice is off. The widget remembers which revision the visitor accepted.
+   */
+  consentNoticeHash?: string | null;
 }
 
 /** Full widget configuration loaded from the API */
@@ -49,7 +54,7 @@ export interface LoadedWidgetConfig {
 }
 
 /** A single chat message — alias for Message (Story 5-21 migration) */
-export type { Message as ChatMessage } from './message';
+export type { Message as ChatMessage } from "./message";
 
 /** Response from POST /public/chat/send */
 export interface SendMessageResponse {

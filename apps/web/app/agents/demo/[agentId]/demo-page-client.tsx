@@ -1,13 +1,19 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef, useCallback } from 'react';
-import { ArrowLeft, Send, Bot, User } from 'lucide-react';
-import Link from 'next/link';
-import { apiUrl } from '@/config/api';
-import { ChatMessageContent } from '@/components/features/chat/chat-message-content';
-import { VoiceMicButton } from '@/components/features/chat/voice-mic-button';
-import { VoiceErrorBanner } from '@/components/features/chat/voice-error-banner';
-import { useVoice } from '@/hooks/use-voice';
+import { useState, useEffect, useRef, useCallback } from "react";
+import { ArrowLeft, Send, Bot, User } from "lucide-react";
+import Link from "next/link";
+import { apiUrl } from "@/config/api";
+import { ChatMessageContent } from "@/components/features/chat/chat-message-content";
+import { VoiceMicButton } from "@/components/features/chat/voice-mic-button";
+import { VoiceErrorBanner } from "@/components/features/chat/voice-error-banner";
+import { useVoice } from "@/hooks/use-voice";
+import {
+  forgetDemoConsent,
+  getDemoDeviceId,
+  readDemoConsent,
+  rememberDemoConsent,
+} from "@/lib/demo-visitor";
 
 interface Starter {
   message: string;
@@ -21,6 +27,17 @@ interface AgentVoiceConfig {
   autoDetectLanguage: boolean;
 }
 
+/** The chat-start privacy notice (server-normalised, all fields present). */
+interface DemoConsentNotice {
+  enabled: boolean;
+  mode: "notice" | "consent";
+  noticeText: string;
+  linkText: string;
+  privacyPolicyUrl: string;
+  buttonLabel: string;
+  withdrawLabel: string;
+}
+
 interface AgentDemoInfo {
   id: string;
   publicId: string;
@@ -28,14 +45,17 @@ interface AgentDemoInfo {
   welcomeMessage: string | null;
   theme: {
     starters?: Starter[];
+    consent?: DemoConsentNotice;
     [key: string]: unknown;
   } | null;
   voiceConfig: AgentVoiceConfig | null;
+  /** Revision of the live notice, or null when the notice is off. */
+  consentNoticeHash: string | null;
 }
 
 interface Message {
   id: string;
-  role: 'user' | 'bot' | 'system';
+  role: "user" | "bot" | "system";
   content: string;
   timestamp: Date;
 }
@@ -53,11 +73,18 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
-  const [input, setInput] = useState('');
+  const [input, setInput] = useState("");
   const [isTyping, setIsTyping] = useState(false);
   const [isStreaming, setIsStreaming] = useState(false);
   const [startersVisible, setStartersVisible] = useState(true);
-  const [voiceSessionId, setVoiceSessionId] = useState<string | undefined>(undefined);
+  const [voiceSessionId, setVoiceSessionId] = useState<string | undefined>(
+    undefined,
+  );
+  // Chat-start privacy notice (ADR-0004). The demo page is public, so it goes
+  // through the same server consent gate as the widget.
+  const [consentGranted, setConsentGranted] = useState(false);
+  const [consentBusy, setConsentBusy] = useState(false);
+  const [consentError, setConsentError] = useState<string | null>(null);
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const sessionIdRef = useRef<string | null>(null);
@@ -66,8 +93,10 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const voiceBotMsgIdRef = useRef<string | null>(null);
 
   // Typewriter animation state (declared before useVoice so voice callbacks can reference them)
-  const typewriterBufferRef = useRef('');
-  const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const typewriterBufferRef = useRef("");
+  const typewriterIntervalRef = useRef<ReturnType<typeof setInterval> | null>(
+    null,
+  );
 
   const stopTypewriter = useCallback(() => {
     if (typewriterIntervalRef.current) {
@@ -80,7 +109,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
     (botId: string) => {
       const remaining = typewriterBufferRef.current;
       if (remaining) {
-        typewriterBufferRef.current = '';
+        typewriterBufferRef.current = "";
         setMessages((prev) =>
           prev.map((m) =>
             m.id === botId ? { ...m, content: m.content + remaining } : m,
@@ -125,50 +154,66 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   } = useVoice({
     agentId,
     sessionId: voiceSessionId,
-    source: 'DEMO',
+    source: "DEMO",
     onTranscription: useCallback((text: string) => {
       setStartersVisible(false);
       setMessages((prev) => [
         ...prev,
-        { id: crypto.randomUUID(), role: 'user', content: text, timestamp: new Date() },
+        {
+          id: crypto.randomUUID(),
+          role: "user",
+          content: text,
+          timestamp: new Date(),
+        },
       ]);
     }, []),
-    onResponseTextChunk: useCallback((sentenceText: string) => {
-      // Feed sentence text into typewriter buffer for smooth char-by-char display
-      if (!voiceBotMsgIdRef.current) {
-        const id = crypto.randomUUID();
-        voiceBotMsgIdRef.current = id;
-        streamingMsgIdRef.current = id;
-        typewriterBufferRef.current = sentenceText;
-        setIsStreaming(true);
-        setMessages((prev) => [
-          ...prev,
-          { id, role: 'bot', content: '', timestamp: new Date() },
-        ]);
-        startTypewriter(id);
-      } else {
-        // Append VERBATIM — each chunk already carries the whitespace that
-        // preceded it in the reply, so list items keep their own lines.
-        typewriterBufferRef.current += sentenceText;
-      }
-    }, [startTypewriter]),
-    onResponse: useCallback((reply: string, newSessionId: string) => {
-      sessionIdRef.current = newSessionId;
-      setVoiceSessionId(newSessionId);
-      if (voiceBotMsgIdRef.current) {
-        // Flush any remaining typewriter buffer
-        flushTypewriterBuffer(voiceBotMsgIdRef.current);
-        streamingMsgIdRef.current = null;
-        setIsStreaming(false);
-      } else if (reply) {
-        // No text chunks arrived (TTS failed) — add full reply as fallback
-        setMessages((prev) => [
-          ...prev,
-          { id: crypto.randomUUID(), role: 'bot', content: reply, timestamp: new Date() },
-        ]);
-      }
-      voiceBotMsgIdRef.current = null;
-    }, [flushTypewriterBuffer]),
+    onResponseTextChunk: useCallback(
+      (sentenceText: string) => {
+        // Feed sentence text into typewriter buffer for smooth char-by-char display
+        if (!voiceBotMsgIdRef.current) {
+          const id = crypto.randomUUID();
+          voiceBotMsgIdRef.current = id;
+          streamingMsgIdRef.current = id;
+          typewriterBufferRef.current = sentenceText;
+          setIsStreaming(true);
+          setMessages((prev) => [
+            ...prev,
+            { id, role: "bot", content: "", timestamp: new Date() },
+          ]);
+          startTypewriter(id);
+        } else {
+          // Append VERBATIM — each chunk already carries the whitespace that
+          // preceded it in the reply, so list items keep their own lines.
+          typewriterBufferRef.current += sentenceText;
+        }
+      },
+      [startTypewriter],
+    ),
+    onResponse: useCallback(
+      (reply: string, newSessionId: string) => {
+        sessionIdRef.current = newSessionId;
+        setVoiceSessionId(newSessionId);
+        if (voiceBotMsgIdRef.current) {
+          // Flush any remaining typewriter buffer
+          flushTypewriterBuffer(voiceBotMsgIdRef.current);
+          streamingMsgIdRef.current = null;
+          setIsStreaming(false);
+        } else if (reply) {
+          // No text chunks arrived (TTS failed) — add full reply as fallback
+          setMessages((prev) => [
+            ...prev,
+            {
+              id: crypto.randomUUID(),
+              role: "bot",
+              content: reply,
+              timestamp: new Date(),
+            },
+          ]);
+        }
+        voiceBotMsgIdRef.current = null;
+      },
+      [flushTypewriterBuffer],
+    ),
   });
 
   useEffect(() => {
@@ -177,16 +222,16 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         const res = await fetch(apiUrl(`/public/agents/${agentId}/demo`));
         if (!res.ok) {
           if (res.status === 404) {
-            setError('Agent not found or inactive.');
+            setError("Agent not found or inactive.");
           } else {
-            setError('Failed to load agent information.');
+            setError("Failed to load agent information.");
           }
           return;
         }
         const data: AgentDemoInfo = await res.json();
         setAgent(data);
       } catch {
-        setError('Failed to connect to the server.');
+        setError("Failed to connect to the server.");
       } finally {
         setLoading(false);
       }
@@ -198,13 +243,22 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
     // (~700-900ms LLM TTFT vs ~1500-2500ms cold). Mirrors the widget's
     // warmupAgent() in apps/widget. Combined with the server's 24h prompt
     // cache retention, this benefits every demo visitor's first turn.
-    void fetch(apiUrl('/public/chat/warmup'), {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
+    void fetch(apiUrl("/public/chat/warmup"), {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
       body: JSON.stringify({ agentId }),
       keepalive: true,
-    }).catch(() => { /* swallow — warmup is a hint, not a contract */ });
+    }).catch(() => {
+      /* swallow — warmup is a hint, not a contract */
+    });
   }, [agentId]);
+
+  // A reload keeps the visitor's decision for this notice revision; a changed
+  // notice has a new hash and asks again.
+  useEffect(() => {
+    const hash = agent?.consentNoticeHash;
+    setConsentGranted(!!hash && readDemoConsent(agentId) === hash);
+  }, [agent?.consentNoticeHash, agentId]);
 
   // Abort in-flight stream on unmount
   useEffect(() => {
@@ -215,7 +269,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   }, [stopTypewriter]);
 
   useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages, isTyping]);
 
   const sendMessageToBackend = useCallback(
@@ -231,28 +285,32 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
       streamingMsgIdRef.current = botId;
       setIsTyping(true);
 
-      let buffer = '';
+      let buffer = "";
 
       // Shape the history into the backend's accepted format. 'bot' → 'assistant',
       // 'system' entries (welcome banner etc.) are dropped — the agent's system
       // prompt owns its own greeting, so those aren't real LLM-visible turns.
       // Send up to last 20; server enforces the agent's `maxContextMessages` cap.
       const recentHistory = priorHistory
-        .filter((m) => m.role === 'user' || m.role === 'bot')
+        .filter((m) => m.role === "user" || m.role === "bot")
         .map((m) => ({
-          role: m.role === 'bot' ? ('assistant' as const) : ('user' as const),
+          role: m.role === "bot" ? ("assistant" as const) : ("user" as const),
           content: m.content,
         }))
         .slice(-20);
 
       try {
-        const res = await fetch(apiUrl('/public/chat/stream'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
+        const res = await fetch(apiUrl("/public/chat/stream"), {
+          method: "POST",
+          // The device ID keys the visitor's consent on the server.
+          headers: {
+            "Content-Type": "application/json",
+            "X-Device-Id": getDemoDeviceId(),
+          },
           body: JSON.stringify({
             agentId: agent.id,
             chatInput: content,
-            source: 'DEMO',
+            source: "DEMO",
             ...(sessionIdRef.current && { sessionId: sessionIdRef.current }),
             // Send client-held history so the backend can skip its DB
             // lookup for prior messages — saves ~150-450ms per turn.
@@ -269,16 +327,16 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         }
 
         if (!res.body) {
-          throw new Error('No response body');
+          throw new Error("No response body");
         }
 
         // Transition from typing to streaming: create empty bot message
         setIsTyping(false);
         setIsStreaming(true);
-        typewriterBufferRef.current = '';
+        typewriterBufferRef.current = "";
         setMessages((prev) => [
           ...prev,
-          { id: botId, role: 'bot', content: '', timestamp: new Date() },
+          { id: botId, role: "bot", content: "", timestamp: new Date() },
         ]);
         startTypewriter(botId);
 
@@ -292,14 +350,14 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
 
             buffer += decoder.decode(value, { stream: true });
 
-            const events = buffer.split('\n\n');
+            const events = buffer.split("\n\n");
             // Keep the last piece as it may be incomplete
-            buffer = events.pop() ?? '';
+            buffer = events.pop() ?? "";
 
             for (const event of events) {
               const dataLine = event
-                .split('\n')
-                .find((line) => line.startsWith('data: '));
+                .split("\n")
+                .find((line) => line.startsWith("data: "));
               if (!dataLine) continue;
 
               const jsonStr = dataLine.slice(6);
@@ -308,6 +366,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                 content?: string;
                 sessionId?: string;
                 message?: string;
+                code?: string;
               };
               try {
                 parsed = JSON.parse(jsonStr);
@@ -315,34 +374,39 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                 continue;
               }
 
-              if (parsed.type === 'session' && parsed.sessionId) {
+              if (parsed.type === "session" && parsed.sessionId) {
                 // Early session ack — server flushes this before the LLM
                 // starts streaming so clients can pin sessionId for the next
                 // turn immediately. We also still capture it on `done` as a
                 // fallback (the IDs are identical).
                 sessionIdRef.current = parsed.sessionId;
                 setVoiceSessionId(parsed.sessionId);
-              } else if (parsed.type === 'chunk' && parsed.content) {
+              } else if (parsed.type === "chunk" && parsed.content) {
                 typewriterBufferRef.current += parsed.content;
-              } else if (parsed.type === 'done') {
+              } else if (parsed.type === "done") {
                 if (parsed.sessionId) {
                   sessionIdRef.current = parsed.sessionId;
                   if (parsed.sessionId) setVoiceSessionId(parsed.sessionId);
                 }
-              } else if (parsed.type === 'error') {
+              } else if (parsed.type === "error") {
+                // Consent withdrawn elsewhere or the notice changed: lock again.
+                if (parsed.code === "CONSENT_REQUIRED") {
+                  forgetDemoConsent(agentId);
+                  setConsentGranted(false);
+                }
                 // Remove empty bot message on error, keep partial content
                 setMessages((prev) => {
                   const cleaned = prev.filter(
-                    (m) => !(m.id === botId && m.content === ''),
+                    (m) => !(m.id === botId && m.content === ""),
                   );
                   return [
                     ...cleaned,
                     {
                       id: crypto.randomUUID(),
-                      role: 'system' as const,
+                      role: "system" as const,
                       content:
                         parsed.message ??
-                        'An error occurred while processing your message.',
+                        "An error occurred while processing your message.",
                       timestamp: new Date(),
                     },
                   ];
@@ -356,7 +420,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         }
       } catch (err) {
         // Ignore abort errors from unmount/cancellation
-        if (err instanceof DOMException && err.name === 'AbortError') {
+        if (err instanceof DOMException && err.name === "AbortError") {
           stopTypewriter();
           return;
         }
@@ -365,17 +429,17 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         setMessages((prev) => {
           // Remove empty bot message if streaming hadn't started with content
           const filtered = prev.filter(
-            (m) => !(m.id === botId && m.content === ''),
+            (m) => !(m.id === botId && m.content === ""),
           );
           return [
             ...filtered,
             {
               id: crypto.randomUUID(),
-              role: 'system',
+              role: "system",
               content:
-                err instanceof DOMException && err.name === 'TimeoutError'
-                  ? 'Request timed out. Please try again.'
-                  : 'Unable to connect. Please check your connection and try again.',
+                err instanceof DOMException && err.name === "TimeoutError"
+                  ? "Request timed out. Please try again."
+                  : "Unable to connect. Please check your connection and try again.",
               timestamp: new Date(),
             },
           ];
@@ -390,7 +454,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         inputRef.current?.focus();
       }
     },
-    [agent, startTypewriter, flushTypewriterBuffer, stopTypewriter],
+    [agent, agentId, startTypewriter, flushTypewriterBuffer, stopTypewriter],
   );
 
   const sendMessage = useCallback(
@@ -408,12 +472,12 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
 
       const userMsg: Message = {
         id: crypto.randomUUID(),
-        role: 'user',
+        role: "user",
         content: content.trim(),
         timestamp: new Date(),
       };
       setMessages((prev) => [...prev, userMsg]);
-      setInput('');
+      setInput("");
 
       await sendMessageToBackend(content.trim(), historySnapshot);
     },
@@ -429,8 +493,89 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
     sendMessage(starter.message).catch(() => {});
   };
 
-  const isVoiceActive = voiceState !== 'idle';
+  const isVoiceActive = voiceState !== "idle";
   const isBusy = isTyping || isStreaming || isVoiceActive;
+
+  // ── Privacy notice ─────────────────────────────────────────────────
+  const notice = agent?.theme?.consent;
+  const noticeHash = agent?.consentNoticeHash ?? null;
+  const noticeActive = !!notice && !!noticeHash;
+  const needsConsent = noticeActive && notice.mode === "consent";
+  const consentLocked = needsConsent && !consentGranted;
+  const hasUserMessages = messages.some((m) => m.role === "user");
+
+  const handleGrantConsent = async () => {
+    if (!agent || !noticeHash || consentBusy) return;
+    setConsentBusy(true);
+    setConsentError(null);
+    try {
+      const res = await fetch(apiUrl("/public/consent"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Device-Id": getDemoDeviceId(),
+        },
+        body: JSON.stringify({
+          agentId: agent.id,
+          action: "GRANT",
+          noticeHash,
+          source: "DEMO",
+        }),
+      });
+      if (res.ok) {
+        rememberDemoConsent(agentId, noticeHash);
+        setConsentGranted(true);
+        requestAnimationFrame(() => inputRef.current?.focus());
+        return;
+      }
+      if (res.status === 409) {
+        // The notice changed after this page loaded: reload it and ask again.
+        const fresh = await fetch(apiUrl(`/public/agents/${agentId}/demo`));
+        if (fresh.ok) setAgent((await fresh.json()) as AgentDemoInfo);
+        setConsentError(
+          "The privacy notice was updated. Please read it again.",
+        );
+        return;
+      }
+      setConsentError("Could not start the chat. Please try again.");
+    } catch {
+      setConsentError("Could not start the chat. Please try again.");
+    } finally {
+      setConsentBusy(false);
+    }
+  };
+
+  const handleWithdrawConsent = async () => {
+    if (!agent || consentBusy || isBusy) return;
+    setConsentBusy(true);
+    setConsentError(null);
+    try {
+      const res = await fetch(apiUrl("/public/consent"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "X-Device-Id": getDemoDeviceId(),
+        },
+        body: JSON.stringify({
+          agentId: agent.id,
+          action: "WITHDRAW",
+          source: "DEMO",
+        }),
+      });
+      if (!res.ok) throw new Error(`withdraw failed: ${res.status}`);
+      forgetDemoConsent(agentId);
+      setConsentGranted(false);
+      // The server expired the chat; start clean.
+      sessionIdRef.current = null;
+      setVoiceSessionId(undefined);
+      setMessages([]);
+      setStartersVisible(true);
+    } catch {
+      setConsentError("Could not withdraw consent. Please try again.");
+    } finally {
+      setConsentBusy(false);
+    }
+  };
 
   if (loading) {
     return (
@@ -449,7 +594,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
         <div className="text-center">
           <Bot className="mx-auto h-16 w-16 text-gray-300" />
           <h2 className="mt-4 text-xl font-semibold text-gray-700">
-            {error ?? 'Agent not available'}
+            {error ?? "Agent not available"}
           </h2>
           <p className="mt-2 text-sm text-gray-500">
             This agent may be inactive or does not exist.
@@ -468,7 +613,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
   const starters = agent.theme?.starters ?? [];
   // No fallback greeting — show a welcome bubble only when one is configured,
   // matching the live widget (which renders no greeting when empty).
-  const welcomeMessage = agent.welcomeMessage?.trim() ?? '';
+  const welcomeMessage = agent.welcomeMessage?.trim() ?? "";
 
   return (
     <div className="flex h-screen flex-col bg-gray-50">
@@ -509,7 +654,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
             )}
 
             {/* Conversation Starters */}
-            {startersVisible && starters.length > 0 && (
+            {startersVisible && !consentLocked && starters.length > 0 && (
               <div className="mb-6 flex flex-wrap gap-2 pl-11">
                 {starters.map((starter, i) => (
                   <button
@@ -527,7 +672,7 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
 
             {/* Messages */}
             {messages.map((msg) =>
-              msg.role === 'system' ? (
+              msg.role === "system" ? (
                 <div key={msg.id} className="mb-4 flex justify-center">
                   <div className="max-w-[80%] rounded-lg bg-gray-200 px-4 py-2 text-sm italic text-gray-600">
                     {msg.content}
@@ -536,14 +681,14 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
               ) : (
                 <div
                   key={msg.id}
-                  className={`mb-4 flex gap-3 ${msg.role === 'user' ? 'flex-row-reverse' : ''}`}
+                  className={`mb-4 flex gap-3 ${msg.role === "user" ? "flex-row-reverse" : ""}`}
                 >
                   <div
                     className={`flex h-8 w-8 shrink-0 items-center justify-center rounded-full text-xs font-bold text-white ${
-                      msg.role === 'user' ? 'bg-gray-500' : 'bg-blue-600'
+                      msg.role === "user" ? "bg-gray-500" : "bg-blue-600"
                     }`}
                   >
-                    {msg.role === 'user' ? (
+                    {msg.role === "user" ? (
                       <User className="h-4 w-4" />
                     ) : (
                       agent.name.charAt(0).toUpperCase()
@@ -551,18 +696,20 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                   </div>
                   <div
                     className={`max-w-[80%] rounded-2xl px-4 py-3 text-sm shadow-sm ${
-                      msg.role === 'user'
-                        ? 'rounded-tr-sm bg-blue-600 text-white'
-                        : 'rounded-tl-sm bg-white text-gray-800'
+                      msg.role === "user"
+                        ? "rounded-tr-sm bg-blue-600 text-white"
+                        : "rounded-tl-sm bg-white text-gray-800"
                     }`}
                   >
-                    {msg.role === 'bot' ? (
+                    {msg.role === "bot" ? (
                       <ChatMessageContent
                         content={msg.content}
-                        isStreaming={isStreaming && msg.id === streamingMsgIdRef.current}
+                        isStreaming={
+                          isStreaming && msg.id === streamingMsgIdRef.current
+                        }
                       />
                     ) : (
-                      msg.content || '\u00A0'
+                      msg.content || "\u00A0"
                     )}
                   </div>
                 </div>
@@ -597,36 +744,128 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
                 onDismiss={clearVoiceError}
               />
             )}
-            <form onSubmit={handleSubmit} className="flex gap-2">
-              <input
-                ref={inputRef}
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                placeholder={voiceState === 'listening' ? 'Recording...' : 'Type a message...'}
-                className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
-                disabled={isBusy}
-              />
-              {voiceEnabled && voiceSupported && (
-                <VoiceMicButton
-                  voiceState={voiceState}
-                  recordingDurationMs={recordingDurationMs}
-                  onStartRecording={startRecording}
-                  onStopRecording={stopRecording}
-                  onStopPlayback={stopPlayback}
-                  disabled={isTyping || isStreaming}
-                />
-              )}
-              <button
-                type="submit"
-                disabled={!input.trim() || isBusy}
-                className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+            {consentLocked && notice ? (
+              // Consent mode: nothing is sent until the visitor clicks.
+              <div
+                className="flex flex-col gap-2"
+                role="region"
+                aria-label="Privacy notice"
               >
-                <Send className="h-4 w-4" />
-              </button>
-            </form>
+                <p className="text-sm leading-snug text-gray-600">
+                  {notice.noticeText}{" "}
+                  <a
+                    href={notice.privacyPolicyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="font-medium text-blue-600 underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                  >
+                    {notice.linkText}
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                </p>
+                {consentError && (
+                  <p role="alert" className="text-sm text-red-700">
+                    {consentError}
+                  </p>
+                )}
+                <button
+                  type="button"
+                  onClick={() => void handleGrantConsent()}
+                  disabled={consentBusy}
+                  aria-busy={consentBusy}
+                  className="w-full cursor-pointer rounded-lg bg-blue-600 px-4 py-2.5 text-sm font-medium text-white transition-colors hover:bg-blue-700 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  {notice.buttonLabel}
+                </button>
+              </div>
+            ) : (
+              <>
+                {noticeActive &&
+                  notice.mode === "notice" &&
+                  !hasUserMessages && (
+                    <p className="mb-2 text-xs leading-snug text-gray-500">
+                      {notice.noticeText}{" "}
+                      <a
+                        href={notice.privacyPolicyUrl}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="font-medium text-blue-600 underline focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                      >
+                        {notice.linkText}
+                        <span className="sr-only"> (opens in a new tab)</span>
+                      </a>
+                    </p>
+                  )}
+                {consentError && (
+                  <p role="alert" className="mb-2 text-xs text-red-700">
+                    {consentError}
+                  </p>
+                )}
+                <form onSubmit={handleSubmit} className="flex gap-2">
+                  <input
+                    ref={inputRef}
+                    type="text"
+                    value={input}
+                    onChange={(e) => setInput(e.target.value)}
+                    placeholder={
+                      voiceState === "listening"
+                        ? "Recording..."
+                        : "Type a message..."
+                    }
+                    className="flex-1 rounded-lg border border-gray-200 px-4 py-2.5 text-sm outline-none transition-colors focus:border-blue-500 focus:ring-1 focus:ring-blue-500"
+                    disabled={isBusy}
+                  />
+                  {voiceEnabled && voiceSupported && (
+                    <VoiceMicButton
+                      voiceState={voiceState}
+                      recordingDurationMs={recordingDurationMs}
+                      onStartRecording={startRecording}
+                      onStopRecording={stopRecording}
+                      onStopPlayback={stopPlayback}
+                      disabled={isTyping || isStreaming}
+                    />
+                  )}
+                  <button
+                    type="submit"
+                    disabled={!input.trim() || isBusy}
+                    className="flex h-10 w-10 items-center justify-center rounded-lg bg-blue-600 text-white transition-colors hover:bg-blue-700 disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Send className="h-4 w-4" />
+                  </button>
+                </form>
+              </>
+            )}
             <p className="mt-2 text-center text-xs text-gray-400">
               Powered by Klivo
+              {noticeActive && notice && !consentLocked && (
+                // The demo page has no header menu, so the privacy options sit
+                // in the footer. One click, as easy as consenting (s.6(4)).
+                <>
+                  {" · "}
+                  <a
+                    href={notice.privacyPolicyUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline hover:text-gray-600 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600"
+                  >
+                    {notice.linkText}
+                    <span className="sr-only"> (opens in a new tab)</span>
+                  </a>
+                  {needsConsent && (
+                    <>
+                      {" · "}
+                      <button
+                        type="button"
+                        onClick={() => void handleWithdrawConsent()}
+                        disabled={consentBusy || isBusy}
+                        className="cursor-pointer underline hover:text-gray-600 focus-visible:rounded-sm focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-blue-600 disabled:cursor-not-allowed"
+                      >
+                        {notice.withdrawLabel}
+                      </button>
+                    </>
+                  )}
+                </>
+              )}
             </p>
           </div>
         </div>

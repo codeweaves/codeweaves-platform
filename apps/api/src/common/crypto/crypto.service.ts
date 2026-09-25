@@ -1,12 +1,22 @@
-import { Injectable, OnModuleInit } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createCipheriv, createDecipheriv, createHmac, randomBytes } from 'crypto';
-import { AppLogger } from '../logger/app-logger';
+import { Injectable, OnModuleInit } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import {
+  createCipheriv,
+  createDecipheriv,
+  createHmac,
+  randomBytes,
+} from "crypto";
+import { AppLogger } from "../logger/app-logger";
 
 /** Marker prefix on encrypted CollectedData field values (`enc:v1:<iv:ct:tag>`). */
-const FIELD_VALUE_PREFIX = 'enc:v1:';
+const FIELD_VALUE_PREFIX = "enc:v1:";
 /** Marker prefix on hashed visitor IPs so a hash is never mistaken for an IP. */
-const VISITOR_HASH_PREFIX = 'vh_';
+const VISITOR_HASH_PREFIX = "vh_";
+/** Marker prefix on hashed widget device IDs, the web visitor identity (ADR-0004). */
+const VISITOR_DEVICE_PREFIX = "vd_";
+/** The widget generates a v4 UUID (apps/widget/src/utils/device-id.ts). */
+const DEVICE_ID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 @Injectable()
 export class CryptoService implements OnModuleInit {
@@ -14,31 +24,36 @@ export class CryptoService implements OnModuleInit {
   private key!: Buffer;
   private derivedHmacKey!: Buffer;
   private visitorIpHmacKey!: Buffer;
+  private visitorDeviceHmacKey!: Buffer;
 
   constructor(private configService: ConfigService) {}
 
   onModuleInit() {
-    const hex = this.configService.get<string>('AGENT_SECRET_KEY');
+    const hex = this.configService.get<string>("AGENT_SECRET_KEY");
     if (!hex) {
-      throw new Error('AGENT_SECRET_KEY environment variable is required');
+      throw new Error("AGENT_SECRET_KEY environment variable is required");
     }
-    this.key = Buffer.from(hex, 'hex');
+    this.key = Buffer.from(hex, "hex");
     if (this.key.length !== 32) {
       throw new Error(
-        'AGENT_SECRET_KEY must be a 64-character hex string (32 bytes)',
+        "AGENT_SECRET_KEY must be a 64-character hex string (32 bytes)",
       );
     }
     // Domain-separated key for keyed hashing (PII value lookup): never use
     // the raw AES key directly for a second purpose.
-    this.derivedHmacKey = createHmac('sha256', this.key)
-      .update('pii-value-hash-v1')
+    this.derivedHmacKey = createHmac("sha256", this.key)
+      .update("pii-value-hash-v1")
       .digest();
     // Separate domain for visitor-IP hashing (DPDP data minimisation): a
     // keyed hash keeps "same visitor" linkage without retaining the raw IP.
-    this.visitorIpHmacKey = createHmac('sha256', this.key)
-      .update('visitor-ip-hash-v1')
+    this.visitorIpHmacKey = createHmac("sha256", this.key)
+      .update("visitor-ip-hash-v1")
       .digest();
-    this.log.info('onModuleInit', 'CryptoService initialized');
+    // Separate domain for the web visitor identity (the widget's device ID).
+    this.visitorDeviceHmacKey = createHmac("sha256", this.key)
+      .update("visitor-device-hash-v1")
+      .digest();
+    this.log.info("onModuleInit", "CryptoService initialized");
   }
 
   /** Derived key for HMAC-based lookups (e.g. PiiToken.valueHash). */
@@ -48,33 +63,33 @@ export class CryptoService implements OnModuleInit {
 
   encrypt(plaintext: string): string {
     const iv = randomBytes(16);
-    const cipher = createCipheriv('aes-256-gcm', this.key, iv, {
+    const cipher = createCipheriv("aes-256-gcm", this.key, iv, {
       authTagLength: 16,
     });
     const encrypted = Buffer.concat([
-      cipher.update(plaintext, 'utf8'),
+      cipher.update(plaintext, "utf8"),
       cipher.final(),
     ]);
     const tag = cipher.getAuthTag();
-    return `${iv.toString('hex')}:${encrypted.toString('hex')}:${tag.toString('hex')}`;
+    return `${iv.toString("hex")}:${encrypted.toString("hex")}:${tag.toString("hex")}`;
   }
 
   decrypt(encrypted: string): string {
-    const parts = encrypted.split(':');
+    const parts = encrypted.split(":");
     if (parts.length !== 3) {
-      throw new Error('Invalid encrypted value format');
+      throw new Error("Invalid encrypted value format");
     }
     const ivHex = parts[0]!;
     const dataHex = parts[1]!;
     const tagHex = parts[2]!;
-    const iv = Buffer.from(ivHex, 'hex');
-    const data = Buffer.from(dataHex, 'hex');
-    const tag = Buffer.from(tagHex, 'hex');
-    const decipher = createDecipheriv('aes-256-gcm', this.key, iv, {
+    const iv = Buffer.from(ivHex, "hex");
+    const data = Buffer.from(dataHex, "hex");
+    const tag = Buffer.from(tagHex, "hex");
+    const decipher = createDecipheriv("aes-256-gcm", this.key, iv, {
       authTagLength: 16,
     });
     decipher.setAuthTag(tag);
-    return decipher.update(data).toString('utf8') + decipher.final('utf8');
+    return decipher.update(data).toString("utf8") + decipher.final("utf8");
   }
 
   /**
@@ -92,20 +107,41 @@ export class CryptoService implements OnModuleInit {
     if (!ip) return undefined;
     const trimmed = ip.trim();
     if (
-      trimmed === '' ||
-      trimmed === '::1' ||
-      trimmed === '127.0.0.1' ||
-      trimmed.startsWith('::ffff:127.')
+      trimmed === "" ||
+      trimmed === "::1" ||
+      trimmed === "127.0.0.1" ||
+      trimmed.startsWith("::ffff:127.")
     ) {
       return undefined;
     }
     // Already hashed (defensive — double-hashing would break linkage).
     if (trimmed.startsWith(VISITOR_HASH_PREFIX)) return trimmed;
-    const digest = createHmac('sha256', this.visitorIpHmacKey)
+    const digest = createHmac("sha256", this.visitorIpHmacKey)
       .update(trimmed)
-      .digest('hex');
+      .digest("hex");
     // 32 hex chars = 128 bits — collision-safe at any realistic visitor count.
     return `${VISITOR_HASH_PREFIX}${digest.slice(0, 32)}`;
+  }
+
+  /**
+   * Web visitor identity: keyed hash of the widget's random device ID
+   * (`X-Device-Id`, a v4 UUID kept in the visitor's browser). See ADR-0004 for
+   * why this, not the IP, identifies a web visitor.
+   *
+   * Returns `undefined` for anything that is not a v4 UUID, so a malformed or
+   * oversized header can never become a stored key. The header is client
+   * controlled, so this is an identifier, not an authenticator: a forged value
+   * only creates a new, empty visitor.
+   */
+  hashVisitorDevice(deviceId: string | undefined | null): string | undefined {
+    if (!deviceId) return undefined;
+    const trimmed = deviceId.trim();
+    if (!DEVICE_ID_RE.test(trimmed)) return undefined;
+    const digest = createHmac("sha256", this.visitorDeviceHmacKey)
+      // Lowercase so the same UUID in either case maps to one visitor.
+      .update(trimmed.toLowerCase())
+      .digest("hex");
+    return `${VISITOR_DEVICE_PREFIX}${digest.slice(0, 32)}`;
   }
 
   /**
@@ -115,12 +151,10 @@ export class CryptoService implements OnModuleInit {
    * Values are JSON-serialized before encryption so numbers/booleans survive
    * the round-trip. Already-encrypted values pass through untouched.
    */
-  encryptFieldValues(
-    data: Record<string, unknown>,
-  ): Record<string, string> {
+  encryptFieldValues(data: Record<string, unknown>): Record<string, string> {
     const out: Record<string, string> = {};
     for (const [key, value] of Object.entries(data)) {
-      if (typeof value === 'string' && value.startsWith(FIELD_VALUE_PREFIX)) {
+      if (typeof value === "string" && value.startsWith(FIELD_VALUE_PREFIX)) {
         out[key] = value; // already encrypted
         continue;
       }
@@ -141,7 +175,7 @@ export class CryptoService implements OnModuleInit {
     if (!data) return {};
     const out: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(data)) {
-      if (typeof value !== 'string' || !value.startsWith(FIELD_VALUE_PREFIX)) {
+      if (typeof value !== "string" || !value.startsWith(FIELD_VALUE_PREFIX)) {
         out[key] = value; // legacy plaintext row
         continue;
       }
@@ -151,7 +185,7 @@ export class CryptoService implements OnModuleInit {
         ) as unknown;
       } catch {
         this.log.warn(
-          'decryptFieldValues',
+          "decryptFieldValues",
           `failed to decrypt collected-data field "${key}"`,
         );
         out[key] = null;

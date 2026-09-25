@@ -1,18 +1,19 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
-import type { Request, Response } from 'express';
-import { PublicChatController } from '../../../src/controllers/public/public-chat.controller';
-import { ChatService } from '../../../src/services/chat.service';
-import { AgentsService } from '../../../src/services/agents.service';
-import { N8nStreamingService } from '../../../src/services/n8n-streaming.service';
-import { MessageRateLimitService } from '../../../src/services/message-rate-limit.service';
-import { DirectChatService } from '../../../src/modules/ai/direct-chat.service';
-import { HandoverService } from '../../../src/services/handover.service';
-import { PrismaService } from '../../../src/services/prisma.service';
-import { WidgetEventLogger } from '../../../src/common/events/widget.logger';
-import { CryptoService } from '../../../src/common/crypto/crypto.service';
+import { Test, TestingModule } from "@nestjs/testing";
+import { NotFoundException } from "@nestjs/common";
+import type { Request, Response } from "express";
+import { PublicChatController } from "../../../src/controllers/public/public-chat.controller";
+import { ChatService } from "../../../src/services/chat.service";
+import { AgentsService } from "../../../src/services/agents.service";
+import { N8nStreamingService } from "../../../src/services/n8n-streaming.service";
+import { MessageRateLimitService } from "../../../src/services/message-rate-limit.service";
+import { DirectChatService } from "../../../src/modules/ai/direct-chat.service";
+import { HandoverService } from "../../../src/services/handover.service";
+import { PrismaService } from "../../../src/services/prisma.service";
+import { WidgetEventLogger } from "../../../src/common/events/widget.logger";
+import { CryptoService } from "../../../src/common/crypto/crypto.service";
+import { ConsentRequiredException } from "../../../src/services/consent.service";
 
-describe('PublicChatController', () => {
+describe("PublicChatController", () => {
   let controller: PublicChatController;
 
   const mockChatService = {
@@ -43,8 +44,8 @@ describe('PublicChatController', () => {
 
   const mockHandoverService = {
     detectKeyword: jest.fn().mockReturnValue(false),
-    stallInstruction: jest.fn().mockReturnValue(''),
-    offerInstruction: jest.fn().mockReturnValue(''),
+    stallInstruction: jest.fn().mockReturnValue(""),
+    offerInstruction: jest.fn().mockReturnValue(""),
     buildConnectTool: jest.fn().mockReturnValue({}),
     raiseRequested: jest.fn().mockResolvedValue(undefined),
     publishBotTurn: jest.fn().mockResolvedValue(undefined),
@@ -57,16 +58,16 @@ describe('PublicChatController', () => {
 
   // Mirrors real behaviour: loopback → undefined, real IP → vh_ hash.
   // Implementation applied in beforeEach (jest resetMocks: true).
-  const mockCrypto = { hashVisitorIp: jest.fn() };
+  const mockCrypto = { hashVisitorIp: jest.fn(), hashVisitorDevice: jest.fn() };
   const hashVisitorIpImpl = (ip?: string | null) =>
-    !ip || ip === '::1' || ip === '127.0.0.1' || ip.startsWith('::ffff:127.')
+    !ip || ip === "::1" || ip === "127.0.0.1" || ip.startsWith("::ffff:127.")
       ? undefined
       : `vh_${ip}`;
 
   function createMockRequest(): Request {
     return {
-      headers: { 'x-device-id': 'test-device' },
-      ip: '127.0.0.1',
+      headers: { "x-device-id": "test-device" },
+      ip: "127.0.0.1",
     } as unknown as Request;
   }
 
@@ -77,7 +78,10 @@ describe('PublicChatController', () => {
         { provide: ChatService, useValue: mockChatService },
         { provide: AgentsService, useValue: mockAgentsService },
         { provide: N8nStreamingService, useValue: mockN8nStreamingService },
-        { provide: MessageRateLimitService, useValue: mockMessageRateLimitService },
+        {
+          provide: MessageRateLimitService,
+          useValue: mockMessageRateLimitService,
+        },
         { provide: DirectChatService, useValue: mockDirectChatService },
         { provide: HandoverService, useValue: mockHandoverService },
         { provide: PrismaService, useValue: mockPrisma },
@@ -98,111 +102,133 @@ describe('PublicChatController', () => {
     controller = module.get<PublicChatController>(PublicChatController);
     jest.clearAllMocks();
     mockCrypto.hashVisitorIp.mockImplementation(hashVisitorIpImpl);
-    mockMessageRateLimitService.getDeviceIdentifier.mockReturnValue('test-device');
-    mockMessageRateLimitService.getClientIp.mockReturnValue('203.0.113.1');
-    mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({ allowed: true });
+    mockCrypto.hashVisitorDevice.mockImplementation((id?: string | null) =>
+      id ? `vd_${id}` : undefined,
+    );
+    mockMessageRateLimitService.getDeviceIdentifier.mockReturnValue(
+      "test-device",
+    );
+    mockMessageRateLimitService.getClientIp.mockReturnValue("203.0.113.1");
+    mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({
+      allowed: true,
+    });
   });
 
-  it('should be defined', () => {
+  it("should be defined", () => {
     expect(controller).toBeDefined();
   });
 
-  describe('requestHuman (button)', () => {
-    it('escalates to REQUESTED deterministically — no LLM/stream call', async () => {
-      mockChatService.resolveAgent.mockResolvedValue({ id: 'agent-1', aiConfig: {} });
+  describe("requestHuman (button)", () => {
+    it("escalates to REQUESTED deterministically — no LLM/stream call", async () => {
+      mockChatService.resolveAgent.mockResolvedValue({
+        id: "agent-1",
+        aiConfig: {},
+      });
       mockChatService.resolveOrCreateSession.mockResolvedValue({
-        id: 'sess-db',
-        sessionId: 'sess-pub',
-        handoverState: 'NONE',
+        id: "sess-db",
+        sessionId: "sess-pub",
+        handoverState: "NONE",
       });
       mockPrisma.agent.findUniqueOrThrow.mockResolvedValue({
-        id: 'agent-1',
+        id: "agent-1",
         humanTakeoverEnabled: true,
-        organizationId: 'org-1',
+        organizationId: "org-1",
       });
 
       const result = await controller.requestHuman(
-        { agentId: 'agent-1', sessionId: 'sess-pub', source: 'WIDGET' },
+        { agentId: "agent-1", sessionId: "sess-pub", source: "WIDGET" },
         createMockRequest(),
       );
 
       expect(mockHandoverService.raiseRequested).toHaveBeenCalledWith(
         expect.objectContaining({
-          sessionDbId: 'sess-db',
-          publicSessionId: 'sess-pub',
-          organizationId: 'org-1',
+          sessionDbId: "sess-db",
+          publicSessionId: "sess-pub",
+          organizationId: "org-1",
         }),
-        'USER_REQUESTED',
+        "USER_REQUESTED",
       );
       // A button press must never cost a model turn.
       expect(mockDirectChatService.stream).not.toHaveBeenCalled();
-      expect(result).toEqual({ sessionId: 'sess-pub', handoverState: 'REQUESTED' });
+      expect(result).toEqual({
+        sessionId: "sess-pub",
+        handoverState: "REQUESTED",
+      });
     });
 
-    it('does not escalate when takeover is disabled on the agent', async () => {
-      mockChatService.resolveAgent.mockResolvedValue({ id: 'agent-1', aiConfig: {} });
+    it("does not escalate when takeover is disabled on the agent", async () => {
+      mockChatService.resolveAgent.mockResolvedValue({
+        id: "agent-1",
+        aiConfig: {},
+      });
       mockChatService.resolveOrCreateSession.mockResolvedValue({
-        id: 'sess-db',
-        sessionId: 'sess-pub',
-        handoverState: 'NONE',
+        id: "sess-db",
+        sessionId: "sess-pub",
+        handoverState: "NONE",
       });
       mockPrisma.agent.findUniqueOrThrow.mockResolvedValue({
-        id: 'agent-1',
+        id: "agent-1",
         humanTakeoverEnabled: false,
-        organizationId: 'org-1',
+        organizationId: "org-1",
       });
 
       const result = await controller.requestHuman(
-        { agentId: 'agent-1' },
+        { agentId: "agent-1" },
         createMockRequest(),
       );
 
       expect(mockHandoverService.raiseRequested).not.toHaveBeenCalled();
-      expect(result.handoverState).toBe('NONE');
+      expect(result.handoverState).toBe("NONE");
     });
   });
 
-  describe('sendMessage', () => {
+  describe("sendMessage", () => {
     const dto = {
-      chatInput: 'Hello!',
-      agentId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      chatInput: "Hello!",
+      agentId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     };
 
     const mockResponse = {
-      sessionId: 'session-uuid',
-      messageId: 'msg-uuid',
-      reply: 'AI response',
-      assistantMessageId: 'assistant-msg-uuid',
+      sessionId: "session-uuid",
+      messageId: "msg-uuid",
+      reply: "AI response",
+      assistantMessageId: "assistant-msg-uuid",
       metadata: {
-        backendReceivedAt: '2026-03-01T10:00:00.000Z',
-        n8nReceivedAt: '2026-03-01T10:00:00.500Z',
-        agentRepliedAt: '2026-03-01T10:00:01.200Z',
-        backendRespondedAt: '2026-03-01T10:00:01.300Z',
+        backendReceivedAt: "2026-03-01T10:00:00.000Z",
+        n8nReceivedAt: "2026-03-01T10:00:00.500Z",
+        agentRepliedAt: "2026-03-01T10:00:01.200Z",
+        backendRespondedAt: "2026-03-01T10:00:01.300Z",
         responseLatencyMs: 1300,
       },
     };
 
-    it('should call chatService.sendMessage and return result', async () => {
+    it("should call chatService.sendMessage and return result", async () => {
       mockChatService.sendMessage.mockResolvedValue(mockResponse);
       const req = createMockRequest();
 
       const result = await controller.sendMessage(dto, req);
 
-      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dto, undefined); // loopback IP is suppressed (S1)
+      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dto, {
+        visitorId: "vd_test-device",
+        ipHash: undefined,
+      }); // device ID is the identity; loopback IP suppressed (S1)
       expect(result).toEqual(mockResponse);
     });
 
-    it('should pass through the dto with sessionId', async () => {
-      const dtoWithSession = { ...dto, sessionId: 'existing-session' };
+    it("should pass through the dto with sessionId", async () => {
+      const dtoWithSession = { ...dto, sessionId: "existing-session" };
       mockChatService.sendMessage.mockResolvedValue(mockResponse);
       const req = createMockRequest();
 
       await controller.sendMessage(dtoWithSession, req);
 
-      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dtoWithSession, undefined); // loopback IP is suppressed (S1)
+      expect(mockChatService.sendMessage).toHaveBeenCalledWith(dtoWithSession, {
+        visitorId: "vd_test-device",
+        ipHash: undefined,
+      });
     });
 
-    it('should return friendly error JSON (not 429) when rate limited', async () => {
+    it("should return friendly error JSON (not 429) when rate limited", async () => {
       mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({
         allowed: false,
         message: "You're sending messages too quickly. Please wait a moment.",
@@ -220,120 +246,160 @@ describe('PublicChatController', () => {
       expect(mockChatService.sendMessage).not.toHaveBeenCalled();
     });
 
-    it('should extract deviceId and agentId for rate limit check', async () => {
+    it("should extract deviceId and agentId for rate limit check", async () => {
       mockChatService.sendMessage.mockResolvedValue(mockResponse);
       const req = createMockRequest();
 
       await controller.sendMessage(dto, req);
 
-      expect(mockMessageRateLimitService.getDeviceIdentifier).toHaveBeenCalledWith(req);
+      expect(
+        mockMessageRateLimitService.getDeviceIdentifier,
+      ).toHaveBeenCalledWith(req);
       expect(mockMessageRateLimitService.getClientIp).toHaveBeenCalledWith(req);
-      expect(mockMessageRateLimitService.checkMessageRateLimit).toHaveBeenCalledWith(
-        'test-device',
-        dto.agentId,
-        '203.0.113.1',
-      );
+      expect(
+        mockMessageRateLimitService.checkMessageRateLimit,
+      ).toHaveBeenCalledWith("test-device", dto.agentId, "203.0.113.1");
     });
   });
 
-  describe('stream', () => {
+  describe("stream", () => {
     const dto = {
-      chatInput: 'Hello!',
-      agentId: 'a1b2c3d4-e5f6-7890-abcd-ef1234567890',
+      chatInput: "Hello!",
+      agentId: "a1b2c3d4-e5f6-7890-abcd-ef1234567890",
     };
 
-    const mockAgent = { id: 'agent-db-id', hmacEnabled: false, aiConfig: {}, organizationId: 'org-1' };
-    const mockSession = { id: 'session-db-id', sessionId: 'session-uuid' };
+    const mockAgent = {
+      id: "agent-db-id",
+      hmacEnabled: false,
+      aiConfig: {},
+      organizationId: "org-1",
+    };
+    const mockSession = { id: "session-db-id", sessionId: "session-uuid" };
 
     function createMockResponse() {
       const written: string[] = [];
       const headers: Record<string, string> = {};
       const listeners: Record<string, ((...args: unknown[]) => void)[]> = {};
       const mock = {
-        setHeader: jest.fn((key: string, value: string) => { headers[key] = value; }),
-        write: jest.fn((data: string) => { written.push(data); }),
+        setHeader: jest.fn((key: string, value: string) => {
+          headers[key] = value;
+        }),
+        write: jest.fn((data: string) => {
+          written.push(data);
+        }),
         end: jest.fn(),
         on: jest.fn((event: string, cb: (...args: unknown[]) => void) => {
           listeners[event] = listeners[event] || [];
           listeners[event].push(cb);
         }),
       } as unknown as jest.Mocked<Response>;
-      return Object.assign(mock, { _written: written, _headers: headers, _listeners: listeners });
+      return Object.assign(mock, {
+        _written: written,
+        _headers: headers,
+        _listeners: listeners,
+      });
     }
 
-    async function* createMockGenerator(chunks: Array<{ type: string; content?: string; metadata?: { timestamp: number } }>) {
+    async function* createMockGenerator(
+      chunks: Array<{
+        type: string;
+        content?: string;
+        metadata?: { timestamp: number };
+      }>,
+    ) {
       for (const chunk of chunks) {
         yield chunk;
       }
     }
 
     function setupStreamingMocks(options?: {
-      chunks?: Array<{ type: string; content?: string; metadata?: { timestamp: number } }>;
+      chunks?: Array<{
+        type: string;
+        content?: string;
+        metadata?: { timestamp: number };
+      }>;
       hmacEnabled?: boolean;
     }) {
-      const agent = options?.hmacEnabled ? { ...mockAgent, hmacEnabled: true } : mockAgent;
+      const agent = options?.hmacEnabled
+        ? { ...mockAgent, hmacEnabled: true }
+        : mockAgent;
       mockChatService.resolveAgent.mockResolvedValue(agent);
       mockChatService.resolveOrCreateSession.mockResolvedValue(mockSession);
-      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue('https://n8n.example.com/webhook/chat');
-      mockChatService.saveUserMessage.mockResolvedValue({ id: 'user-msg-id' });
-      mockChatService.saveAssistantMessage.mockResolvedValue({ id: 'assistant-msg-id' });
+      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue(
+        "https://n8n.example.com/webhook/chat",
+      );
+      mockChatService.saveUserMessage.mockResolvedValue({ id: "user-msg-id" });
+      mockChatService.saveAssistantMessage.mockResolvedValue({
+        id: "assistant-msg-id",
+      });
       mockChatService.updateSessionTimestamp.mockResolvedValue({});
       mockChatService.deleteMessage.mockResolvedValue({});
 
       const chunks = options?.chunks ?? [
-        { type: 'begin', metadata: { timestamp: 1711000000000 } },
-        { type: 'item', content: 'Hello' },
-        { type: 'item', content: ' world' },
-        { type: 'item', content: '!' },
-        { type: 'end', metadata: { timestamp: 1711000002000 } },
+        { type: "begin", metadata: { timestamp: 1711000000000 } },
+        { type: "item", content: "Hello" },
+        { type: "item", content: " world" },
+        { type: "item", content: "!" },
+        { type: "end", metadata: { timestamp: 1711000002000 } },
       ];
-      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(createMockGenerator(chunks));
+      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(
+        createMockGenerator(chunks),
+      );
     }
 
-    it('should set SSE response headers', async () => {
+    it("should set SSE response headers", async () => {
       setupStreamingMocks();
       const req = createMockRequest();
       const res = createMockResponse();
 
       await controller.stream(dto, req, res);
 
-      expect(res.setHeader).toHaveBeenCalledWith('Content-Type', 'text/event-stream');
-      expect(res.setHeader).toHaveBeenCalledWith('Cache-Control', 'no-cache');
-      expect(res.setHeader).toHaveBeenCalledWith('Connection', 'keep-alive');
-      expect(res.setHeader).toHaveBeenCalledWith('X-Accel-Buffering', 'no');
+      expect(res.setHeader).toHaveBeenCalledWith(
+        "Content-Type",
+        "text/event-stream",
+      );
+      expect(res.setHeader).toHaveBeenCalledWith("Cache-Control", "no-cache");
+      expect(res.setHeader).toHaveBeenCalledWith("Connection", "keep-alive");
+      expect(res.setHeader).toHaveBeenCalledWith("X-Accel-Buffering", "no");
     });
 
-    it('should stream real token chunks as SSE events', async () => {
+    it("should stream real token chunks as SSE events", async () => {
       setupStreamingMocks();
       const req = createMockRequest();
       const res = createMockResponse();
 
       await controller.stream(dto, req, res);
 
-      const chunkEvents = res._written.filter(d => d.includes('"type":"chunk"'));
+      const chunkEvents = res._written.filter((d) =>
+        d.includes('"type":"chunk"'),
+      );
       expect(chunkEvents).toHaveLength(3);
 
-      const parsed = chunkEvents.map(e => JSON.parse(e.replace('data: ', '').trim()));
+      const parsed = chunkEvents.map((e) =>
+        JSON.parse(e.replace("data: ", "").trim()),
+      );
       expect(parsed).toEqual([
-        { type: 'chunk', content: 'Hello' },
-        { type: 'chunk', content: ' world' },
-        { type: 'chunk', content: '!' },
+        { type: "chunk", content: "Hello" },
+        { type: "chunk", content: " world" },
+        { type: "chunk", content: "!" },
       ]);
     });
 
-    it('should send done event with assistant messageId and metadata (P1)', async () => {
+    it("should send done event with assistant messageId and metadata (P1)", async () => {
       setupStreamingMocks();
       const req = createMockRequest();
       const res = createMockResponse();
 
       await controller.stream(dto, req, res);
 
-      const doneEvents = res._written.filter(d => d.includes('"type":"done"'));
+      const doneEvents = res._written.filter((d) =>
+        d.includes('"type":"done"'),
+      );
       expect(doneEvents).toHaveLength(1);
 
-      const parsed = JSON.parse(doneEvents[0]!.replace('data: ', '').trim());
-      expect(parsed.type).toBe('done');
-      expect(parsed.sessionId).toBe('session-uuid');
+      const parsed = JSON.parse(doneEvents[0]!.replace("data: ", "").trim());
+      expect(parsed.type).toBe("done");
+      expect(parsed.sessionId).toBe("session-uuid");
       // P1: messageId is the ASSISTANT message ID. We now pre-generate the
       // UUID inline (via randomUUID) so we can return it in the `done` event
       // without waiting for the DB write to complete. Validate it looks like
@@ -349,11 +415,11 @@ describe('PublicChatController', () => {
       expect(parsed.metadata.streamDurationMs).toBe(2000);
     });
 
-    it('should send done event even when stream has no item chunks (P2)', async () => {
+    it("should send done event even when stream has no item chunks (P2)", async () => {
       setupStreamingMocks({
         chunks: [
-          { type: 'begin', metadata: { timestamp: 1711000000000 } },
-          { type: 'end', metadata: { timestamp: 1711000001000 } },
+          { type: "begin", metadata: { timestamp: 1711000000000 } },
+          { type: "end", metadata: { timestamp: 1711000001000 } },
         ],
       });
       const req = createMockRequest();
@@ -362,10 +428,12 @@ describe('PublicChatController', () => {
       await controller.stream(dto, req, res);
 
       // Should still send done event with empty response
-      const doneEvents = res._written.filter(d => d.includes('"type":"done"'));
+      const doneEvents = res._written.filter((d) =>
+        d.includes('"type":"done"'),
+      );
       expect(doneEvents).toHaveLength(1);
 
-      const parsed = JSON.parse(doneEvents[0]!.replace('data: ', '').trim());
+      const parsed = JSON.parse(doneEvents[0]!.replace("data: ", "").trim());
       expect(parsed.metadata.totalChunks).toBe(0);
       expect(parsed.metadata.timeToFirstToken).toBeNull();
 
@@ -374,13 +442,13 @@ describe('PublicChatController', () => {
       // `done` event can include the messageId before the DB write resolves.
       expect(mockChatService.saveAssistantMessage).toHaveBeenCalledWith(
         mockSession.id,
-        '',
+        "",
         expect.objectContaining({ totalChunks: 0 }),
         expect.any(String),
       );
     });
 
-    it('should format SSE events with data: prefix and double newline', async () => {
+    it("should format SSE events with data: prefix and double newline", async () => {
       setupStreamingMocks();
       const req = createMockRequest();
       const res = createMockResponse();
@@ -392,7 +460,7 @@ describe('PublicChatController', () => {
       }
     });
 
-    it('should call res.end() after streaming completes', async () => {
+    it("should call res.end() after streaming completes", async () => {
       setupStreamingMocks();
       const req = createMockRequest();
       const res = createMockResponse();
@@ -402,7 +470,7 @@ describe('PublicChatController', () => {
       expect(res.end).toHaveBeenCalledTimes(1);
     });
 
-    it('should resolve agent, session, and webhookUrl before streaming', async () => {
+    it("should resolve agent, session, and webhookUrl before streaming", async () => {
       setupStreamingMocks();
       const req = createMockRequest();
       const res = createMockResponse();
@@ -410,11 +478,18 @@ describe('PublicChatController', () => {
       await controller.stream(dto, req, res);
 
       expect(mockChatService.resolveAgent).toHaveBeenCalledWith(dto.agentId);
-      expect(mockChatService.resolveOrCreateSession).toHaveBeenCalledWith(mockAgent.id, undefined, 'WIDGET', undefined); // loopback IP is suppressed (S1)
-      expect(mockAgentsService.getEffectiveWebhookUrl).toHaveBeenCalledWith(mockAgent.id);
+      expect(mockChatService.resolveOrCreateSession).toHaveBeenCalledWith(
+        mockAgent.id,
+        undefined,
+        "WIDGET",
+        { visitorId: "vd_test-device", ipHash: undefined },
+      ); // loopback IP suppressed (S1)
+      expect(mockAgentsService.getEffectiveWebhookUrl).toHaveBeenCalledWith(
+        mockAgent.id,
+      );
     });
 
-    it('should pass abortSignal to streamFromWebhookUrl', async () => {
+    it("should pass abortSignal to streamFromWebhookUrl", async () => {
       setupStreamingMocks();
       const req = createMockRequest();
       const res = createMockResponse();
@@ -422,14 +497,14 @@ describe('PublicChatController', () => {
       await controller.stream(dto, req, res);
 
       expect(mockN8nStreamingService.streamFromWebhookUrl).toHaveBeenCalledWith(
-        'https://n8n.example.com/webhook/chat',
+        "https://n8n.example.com/webhook/chat",
         dto.chatInput,
         mockSession.sessionId,
         expect.any(AbortSignal),
       );
     });
 
-    it('should use ChatService for DB operations (P3) — fire-and-forget user save + assistant save', async () => {
+    it("should use ChatService for DB operations (P3) — fire-and-forget user save + assistant save", async () => {
       setupStreamingMocks();
       const req = createMockRequest();
       const res = createMockResponse();
@@ -445,7 +520,7 @@ describe('PublicChatController', () => {
         mockSession.id,
         dto.chatInput,
         expect.any(String),
-        'org-1',
+        "org-1",
       );
 
       // Assistant message saved with full response, metadata, and a
@@ -453,7 +528,7 @@ describe('PublicChatController', () => {
       // messageId without waiting for the DB write.
       expect(mockChatService.saveAssistantMessage).toHaveBeenCalledWith(
         mockSession.id,
-        'Hello world!',
+        "Hello world!",
         expect.objectContaining({
           totalChunks: 3,
           streamDurationMs: 2000,
@@ -462,7 +537,9 @@ describe('PublicChatController', () => {
       );
 
       // Session timestamp updated
-      expect(mockChatService.updateSessionTimestamp).toHaveBeenCalledWith(mockSession.id);
+      expect(mockChatService.updateSessionTimestamp).toHaveBeenCalledWith(
+        mockSession.id,
+      );
     });
 
     // Orphan-message cleanup on stream failure was removed: with the
@@ -474,8 +551,8 @@ describe('PublicChatController', () => {
     // as the dev page. Test removed; the graceful-stream-failure
     // assertion below covers the error path that matters.
 
-    it('should not fail when stream errors after agent resolve fails (D1 graceful)', async () => {
-      mockChatService.resolveAgent.mockRejectedValue(new Error('DB down'));
+    it("should not fail when stream errors after agent resolve fails (D1 graceful)", async () => {
+      mockChatService.resolveAgent.mockRejectedValue(new Error("DB down"));
       // No user message saved, so deleteMessage should not be called
       const req = createMockRequest();
       const res = createMockResponse();
@@ -483,74 +560,125 @@ describe('PublicChatController', () => {
       await controller.stream(dto, req, res);
 
       expect(mockChatService.deleteMessage).not.toHaveBeenCalled();
-      const errorEvents = res._written.filter(d => d.includes('"type":"error"'));
+      const errorEvents = res._written.filter((d) =>
+        d.includes('"type":"error"'),
+      );
       expect(errorEvents).toHaveLength(1);
     });
 
-    it('should send error event when resolveAgent throws NotFoundException', async () => {
+    it("should send error event when resolveAgent throws NotFoundException", async () => {
       mockChatService.resolveAgent.mockRejectedValue(
-        new NotFoundException('Agent not found or inactive'),
+        new NotFoundException("Agent not found or inactive"),
       );
       const req = createMockRequest();
       const res = createMockResponse();
 
       await controller.stream(dto, req, res);
 
-      const errorEvents = res._written.filter(d => d.includes('"type":"error"'));
+      const errorEvents = res._written.filter((d) =>
+        d.includes('"type":"error"'),
+      );
       expect(errorEvents).toHaveLength(1);
 
-      const parsed = JSON.parse(errorEvents[0]!.replace('data: ', '').trim());
+      const parsed = JSON.parse(errorEvents[0]!.replace("data: ", "").trim());
       expect(parsed).toEqual({
-        type: 'error',
-        message: 'Agent not found or inactive',
+        type: "error",
+        message: "Agent not found or inactive",
       });
       expect(res.end).toHaveBeenCalled();
     });
 
-    it('should send generic error event for unexpected errors', async () => {
-      mockChatService.resolveAgent.mockRejectedValue(new Error('Something broke'));
+    it("should send generic error event for unexpected errors", async () => {
+      mockChatService.resolveAgent.mockRejectedValue(
+        new Error("Something broke"),
+      );
       const req = createMockRequest();
       const res = createMockResponse();
 
       await controller.stream(dto, req, res);
 
-      const errorEvents = res._written.filter(d => d.includes('"type":"error"'));
+      const errorEvents = res._written.filter((d) =>
+        d.includes('"type":"error"'),
+      );
       expect(errorEvents).toHaveLength(1);
 
-      const parsed = JSON.parse(errorEvents[0]!.replace('data: ', '').trim());
+      const parsed = JSON.parse(errorEvents[0]!.replace("data: ", "").trim());
       expect(parsed).toEqual({
-        type: 'error',
-        message: 'An unexpected error occurred',
+        type: "error",
+        message: "An unexpected error occurred",
       });
     });
 
-    it('should map service timeout error to friendly message (IG2)', async () => {
+    it("should map service timeout error to friendly message (IG2)", async () => {
       mockChatService.resolveAgent.mockResolvedValue(mockAgent);
       mockChatService.resolveOrCreateSession.mockResolvedValue(mockSession);
-      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue('https://n8n.example.com/webhook/chat');
-      mockChatService.saveUserMessage.mockResolvedValue({ id: 'user-msg-id' });
+      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue(
+        "https://n8n.example.com/webhook/chat",
+      );
+      mockChatService.saveUserMessage.mockResolvedValue({ id: "user-msg-id" });
       mockChatService.deleteMessage.mockResolvedValue({});
 
       async function* timeoutGenerator() {
-        yield { type: 'begin' as const, metadata: { timestamp: 1711000000000 } };
-        throw new Error('Streaming request timed out');
+        yield {
+          type: "begin" as const,
+          metadata: { timestamp: 1711000000000 },
+        };
+        throw new Error("Streaming request timed out");
       }
-      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(timeoutGenerator());
+      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(
+        timeoutGenerator(),
+      );
 
       const req = createMockRequest();
       const res = createMockResponse();
 
       await controller.stream(dto, req, res);
 
-      const errorEvents = res._written.filter(d => d.includes('"type":"error"'));
+      const errorEvents = res._written.filter((d) =>
+        d.includes('"type":"error"'),
+      );
       expect(errorEvents).toHaveLength(1);
 
-      const parsed = JSON.parse(errorEvents[0]!.replace('data: ', '').trim());
-      expect(parsed.message).toBe('Stream timeout - response took too long');
+      const parsed = JSON.parse(errorEvents[0]!.replace("data: ", "").trim());
+      expect(parsed.message).toBe("Stream timeout - response took too long");
     });
 
-    it('should still call res.end() even when error occurs', async () => {
-      mockChatService.resolveAgent.mockRejectedValue(new Error('fail'));
+    it("sends a consent refusal as a coded SSE error with the live notice, not logged as an exception", async () => {
+      mockChatService.resolveAgent.mockResolvedValue(mockAgent);
+      const notice = {
+        mode: "consent" as const,
+        noticeText: "We use your chat.",
+        linkText: "Privacy Policy",
+        privacyPolicyUrl: "https://acme.test/privacy",
+        buttonLabel: "Start chat",
+        withdrawLabel: "Withdraw consent",
+      };
+      mockChatService.resolveOrCreateSession.mockRejectedValue(
+        new ConsentRequiredException(notice, "a".repeat(64)),
+      );
+      const widgetLog = controller["widgetLog"] as unknown as {
+        logException: jest.Mock;
+      };
+
+      const res = createMockResponse();
+      await controller.stream(dto, createMockRequest(), res);
+
+      const errorEvents = res._written.filter((d) =>
+        d.includes('"type":"error"'),
+      );
+      expect(errorEvents).toHaveLength(1);
+      const parsed = JSON.parse(errorEvents[0]!.replace("data: ", "").trim());
+      expect(parsed).toMatchObject({
+        code: "CONSENT_REQUIRED",
+        notice,
+        noticeHash: "a".repeat(64),
+      });
+      // Expected behaviour, already an event of its own: not an exception.
+      expect(widgetLog.logException).not.toHaveBeenCalled();
+    });
+
+    it("should still call res.end() even when error occurs", async () => {
+      mockChatService.resolveAgent.mockRejectedValue(new Error("fail"));
       const req = createMockRequest();
       const res = createMockResponse();
 
@@ -559,25 +687,38 @@ describe('PublicChatController', () => {
       expect(res.end).toHaveBeenCalled();
     });
 
-    it('should stop streaming on client disconnect', async () => {
+    it("should stop streaming on client disconnect", async () => {
       mockChatService.resolveAgent.mockResolvedValue(mockAgent);
       mockChatService.resolveOrCreateSession.mockResolvedValue(mockSession);
-      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue('https://n8n.example.com/webhook/chat');
-      mockChatService.saveUserMessage.mockResolvedValue({ id: 'user-msg-id' });
+      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue(
+        "https://n8n.example.com/webhook/chat",
+      );
+      mockChatService.saveUserMessage.mockResolvedValue({ id: "user-msg-id" });
 
       let yieldCount = 0;
       const mockGenerator = {
-        [Symbol.asyncIterator]() { return this; },
+        [Symbol.asyncIterator]() {
+          return this;
+        },
         async next() {
           yieldCount++;
-          if (yieldCount === 1) return { value: { type: 'begin', metadata: { timestamp: 1711000000000 } }, done: false };
-          if (yieldCount === 2) return { value: { type: 'item', content: 'Hello' }, done: false };
+          if (yieldCount === 1)
+            return {
+              value: { type: "begin", metadata: { timestamp: 1711000000000 } },
+              done: false,
+            };
+          if (yieldCount === 2)
+            return { value: { type: "item", content: "Hello" }, done: false };
           return { value: undefined, done: true };
         },
-        async return() { return { value: undefined, done: true }; },
+        async return() {
+          return { value: undefined, done: true };
+        },
       };
 
-      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(mockGenerator);
+      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(
+        mockGenerator,
+      );
 
       const req = createMockRequest();
       const res = createMockResponse();
@@ -586,21 +727,25 @@ describe('PublicChatController', () => {
       originalWrite.mockImplementation((data: string) => {
         res._written.push(data);
         if (data.includes('"type":"chunk"')) {
-          const closeListeners = res._listeners['close'] || [];
-          closeListeners.forEach(cb => cb());
+          const closeListeners = res._listeners["close"] || [];
+          closeListeners.forEach((cb) => cb());
         }
       });
 
       await controller.stream(dto, req, res);
 
-      const chunkEvents = res._written.filter(d => d.includes('"type":"chunk"'));
+      const chunkEvents = res._written.filter((d) =>
+        d.includes('"type":"chunk"'),
+      );
       expect(chunkEvents).toHaveLength(1);
 
-      const doneEvents = res._written.filter(d => d.includes('"type":"done"'));
+      const doneEvents = res._written.filter((d) =>
+        d.includes('"type":"done"'),
+      );
       expect(doneEvents).toHaveLength(0);
     });
 
-    it('should send timeout error event after 30s', async () => {
+    it("should send timeout error event after 30s", async () => {
       jest.useFakeTimers();
 
       mockChatService.resolveAgent.mockReturnValue(new Promise(() => {}));
@@ -614,20 +759,22 @@ describe('PublicChatController', () => {
 
       jest.advanceTimersByTime(30_000);
 
-      const errorEvents = res._written.filter(d => d.includes('"type":"error"'));
+      const errorEvents = res._written.filter((d) =>
+        d.includes('"type":"error"'),
+      );
       expect(errorEvents).toHaveLength(1);
 
-      const parsed = JSON.parse(errorEvents[0]!.replace('data: ', '').trim());
+      const parsed = JSON.parse(errorEvents[0]!.replace("data: ", "").trim());
       expect(parsed).toEqual({
-        type: 'error',
-        message: 'Stream timeout - response took too long',
+        type: "error",
+        message: "Stream timeout - response took too long",
       });
       expect(res.end).toHaveBeenCalled();
 
       jest.useRealTimers();
     });
 
-    it('should send SSE error event when rate limited (not HTTP 429)', async () => {
+    it("should send SSE error event when rate limited (not HTTP 429)", async () => {
       mockMessageRateLimitService.checkMessageRateLimit.mockResolvedValue({
         allowed: false,
         message: "You're sending messages too quickly. Please wait a moment.",
@@ -638,55 +785,71 @@ describe('PublicChatController', () => {
 
       await controller.stream(dto, req, res);
 
-      const errorEvents = res._written.filter(d => d.includes('"type":"error"'));
+      const errorEvents = res._written.filter((d) =>
+        d.includes('"type":"error"'),
+      );
       expect(errorEvents).toHaveLength(1);
 
-      const parsed = JSON.parse(errorEvents[0]!.replace('data: ', '').trim());
+      const parsed = JSON.parse(errorEvents[0]!.replace("data: ", "").trim());
       expect(parsed).toEqual({
-        type: 'error',
+        type: "error",
         message: "You're sending messages too quickly. Please wait a moment.",
       });
       expect(res.end).toHaveBeenCalled();
       expect(mockChatService.resolveAgent).not.toHaveBeenCalled();
     });
 
-    it('should handle streaming error from n8nStreamingService', async () => {
+    it("should handle streaming error from n8nStreamingService", async () => {
       mockChatService.resolveAgent.mockResolvedValue(mockAgent);
       mockChatService.resolveOrCreateSession.mockResolvedValue(mockSession);
-      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue('https://n8n.example.com/webhook/chat');
-      mockChatService.saveUserMessage.mockResolvedValue({ id: 'user-msg-id' });
+      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue(
+        "https://n8n.example.com/webhook/chat",
+      );
+      mockChatService.saveUserMessage.mockResolvedValue({ id: "user-msg-id" });
       mockChatService.deleteMessage.mockResolvedValue({});
 
       async function* errorGenerator() {
-        yield { type: 'begin' as const, metadata: { timestamp: 1711000000000 } };
-        yield { type: 'item' as const, content: 'Hello' };
-        throw new Error('Connection reset');
+        yield {
+          type: "begin" as const,
+          metadata: { timestamp: 1711000000000 },
+        };
+        yield { type: "item" as const, content: "Hello" };
+        throw new Error("Connection reset");
       }
 
-      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(errorGenerator());
+      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(
+        errorGenerator(),
+      );
 
       const req = createMockRequest();
       const res = createMockResponse();
 
       await controller.stream(dto, req, res);
 
-      const chunkEvents = res._written.filter(d => d.includes('"type":"chunk"'));
+      const chunkEvents = res._written.filter((d) =>
+        d.includes('"type":"chunk"'),
+      );
       expect(chunkEvents).toHaveLength(1);
 
-      const errorEvents = res._written.filter(d => d.includes('"type":"error"'));
+      const errorEvents = res._written.filter((d) =>
+        d.includes('"type":"error"'),
+      );
       expect(errorEvents).toHaveLength(1);
 
-      const parsed = JSON.parse(errorEvents[0]!.replace('data: ', '').trim());
-      expect(parsed).toEqual({ type: 'error', message: 'An unexpected error occurred' });
+      const parsed = JSON.parse(errorEvents[0]!.replace("data: ", "").trim());
+      expect(parsed).toEqual({
+        type: "error",
+        message: "An unexpected error occurred",
+      });
       expect(res.end).toHaveBeenCalled();
     });
 
-    it('should include metadata with n8nReceivedAt and agentRepliedAt from begin/end chunks', async () => {
+    it("should include metadata with n8nReceivedAt and agentRepliedAt from begin/end chunks", async () => {
       setupStreamingMocks({
         chunks: [
-          { type: 'begin', metadata: { timestamp: 1711000000000 } },
-          { type: 'item', content: 'Test' },
-          { type: 'end', metadata: { timestamp: 1711000003000 } },
+          { type: "begin", metadata: { timestamp: 1711000000000 } },
+          { type: "item", content: "Test" },
+          { type: "end", metadata: { timestamp: 1711000003000 } },
         ],
       });
       const req = createMockRequest();
@@ -694,11 +857,17 @@ describe('PublicChatController', () => {
 
       await controller.stream(dto, req, res);
 
-      const doneEvents = res._written.filter(d => d.includes('"type":"done"'));
-      const parsed = JSON.parse(doneEvents[0]!.replace('data: ', '').trim());
+      const doneEvents = res._written.filter((d) =>
+        d.includes('"type":"done"'),
+      );
+      const parsed = JSON.parse(doneEvents[0]!.replace("data: ", "").trim());
 
-      expect(parsed.metadata.n8nReceivedAt).toBe(new Date(1711000000000).toISOString());
-      expect(parsed.metadata.agentRepliedAt).toBe(new Date(1711000003000).toISOString());
+      expect(parsed.metadata.n8nReceivedAt).toBe(
+        new Date(1711000000000).toISOString(),
+      );
+      expect(parsed.metadata.agentRepliedAt).toBe(
+        new Date(1711000003000).toISOString(),
+      );
       expect(parsed.metadata.streamDurationMs).toBe(3000);
       expect(parsed.metadata.totalChunks).toBe(1);
     });

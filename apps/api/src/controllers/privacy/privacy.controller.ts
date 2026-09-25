@@ -7,14 +7,21 @@ import {
   Param,
   ParseUUIDPipe,
   Query,
-} from '@nestjs/common';
-import { ApiTags, ApiBearerAuth, ApiOperation, ApiResponse, ApiParam, ApiQuery } from '@nestjs/swagger';
-import { CurrentUser } from '../../decorators/current-user.decorator';
-import type { CurrentUserData } from '../../decorators/current-user.decorator';
-import { PurgeService } from '../../services/purge.service';
-import { RequirePermission } from '../../decorators/require-permission.decorator';
-import { Resource, Action } from '../../common/rbac/rbac.types';
-import { isOrgScoped } from '../../utils/tenant-filter';
+} from "@nestjs/common";
+import {
+  ApiTags,
+  ApiBearerAuth,
+  ApiOperation,
+  ApiResponse,
+  ApiParam,
+  ApiQuery,
+} from "@nestjs/swagger";
+import { CurrentUser } from "../../decorators/current-user.decorator";
+import type { CurrentUserData } from "../../decorators/current-user.decorator";
+import { PurgeService } from "../../services/purge.service";
+import { RequirePermission } from "../../decorators/require-permission.decorator";
+import { Resource, Action } from "../../common/rbac/rbac.types";
+import { isOrgScoped } from "../../utils/tenant-filter";
 
 /**
  * Privacy / data-subject-rights endpoints (DPDP S2 — erasure engine).
@@ -22,9 +29,9 @@ import { isOrgScoped } from '../../utils/tenant-filter';
  * Deliberately DELETE-only and heavily guarded: these are the only routes in
  * the API that irreversibly destroy data.
  */
-@ApiTags('Privacy')
+@ApiTags("Privacy")
 @ApiBearerAuth()
-@Controller('privacy')
+@Controller("privacy")
 export class PrivacyController {
   constructor(private readonly purgeService: PurgeService) {}
 
@@ -34,10 +41,11 @@ export class PrivacyController {
    * tenant, whatever they pass. ADMIN/SUPER_ADMIN may target any org.
    */
   private resolveOrgScope(user: CurrentUserData, orgId?: string): string {
-    const organizationId =
-      isOrgScoped(user) ? user.organizationId : (orgId ?? user.organizationId);
+    const organizationId = isOrgScoped(user)
+      ? user.organizationId
+      : (orgId ?? user.organizationId);
     if (!organizationId) {
-      throw new BadRequestException('orgId is required');
+      throw new BadRequestException("orgId is required");
     }
     return organizationId;
   }
@@ -46,16 +54,27 @@ export class PrivacyController {
    * Right to access (DPDP): summary of the data held on one visitor —
    * sessions, captured lead fields, operational record counts, purposes.
    */
-  @Get('visitors/:visitorId/summary')
+  @Get("visitors/:visitorId/summary")
   @RequirePermission(Resource.Privacy, Action.Read)
-  @ApiOperation({ summary: "Summarize a visitor's stored data (right to access)" })
-  @ApiParam({ name: 'visitorId', description: 'Stored visitor identifier: vh_… hash (web) or phone (WhatsApp)' })
-  @ApiQuery({ name: 'orgId', required: false, description: 'Target org (ADMIN/SUPER_ADMIN only; CLIENT is pinned to their own org)' })
-  @ApiResponse({ status: 200, description: 'Data summary for the visitor' })
+  @ApiOperation({
+    summary: "Summarize a visitor's stored data (right to access)",
+  })
+  @ApiParam({
+    name: "visitorId",
+    description:
+      "Stored visitor identifier: vd_… device hash (web; vh_… on older rows) or phone (WhatsApp)",
+  })
+  @ApiQuery({
+    name: "orgId",
+    required: false,
+    description:
+      "Target org (ADMIN/SUPER_ADMIN only; CLIENT is pinned to their own org)",
+  })
+  @ApiResponse({ status: 200, description: "Data summary for the visitor" })
   async summarizeVisitor(
-    @Param('visitorId') visitorId: string,
+    @Param("visitorId") visitorId: string,
     @CurrentUser() user: CurrentUserData,
-    @Query('orgId') orgId?: string,
+    @Query("orgId") orgId?: string,
   ) {
     return this.purgeService.summarizeVisitor(
       this.resolveOrgScope(user, orgId),
@@ -67,17 +86,31 @@ export class PrivacyController {
    * Erase one visitor's complete footprint within one organization —
    * the "right to erasure" path, run on a verified data-principal request.
    */
-  @Delete('visitors/:visitorId')
+  @Delete("visitors/:visitorId")
   @RequirePermission(Resource.Privacy, Action.Delete)
-  @ApiOperation({ summary: "Erase a visitor's data within an organization (right to erasure)" })
-  @ApiParam({ name: 'visitorId', description: 'Stored visitor identifier: vh_… hash (web) or phone (WhatsApp)' })
-  @ApiQuery({ name: 'orgId', required: false, description: 'Target org (ADMIN/SUPER_ADMIN only; CLIENT is pinned to their own org)' })
-  @ApiResponse({ status: 200, description: 'Erasure completed; per-table counts returned' })
-  @ApiResponse({ status: 400, description: 'Missing org scope' })
+  @ApiOperation({
+    summary: "Erase a visitor's data within an organization (right to erasure)",
+  })
+  @ApiParam({
+    name: "visitorId",
+    description:
+      "Stored visitor identifier: vd_… device hash (web; vh_… on older rows) or phone (WhatsApp)",
+  })
+  @ApiQuery({
+    name: "orgId",
+    required: false,
+    description:
+      "Target org (ADMIN/SUPER_ADMIN only; CLIENT is pinned to their own org)",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Erasure completed; per-table counts returned",
+  })
+  @ApiResponse({ status: 400, description: "Missing org scope" })
   async eraseVisitor(
-    @Param('visitorId') visitorId: string,
+    @Param("visitorId") visitorId: string,
     @CurrentUser() user: CurrentUserData,
-    @Query('orgId') orgId?: string,
+    @Query("orgId") orgId?: string,
   ) {
     return this.purgeService.eraseVisitor(
       this.resolveOrgScope(user, orgId),
@@ -90,21 +123,31 @@ export class PrivacyController {
    * SUPER_ADMIN only, and the org id must be repeated in `confirm` as a
    * deliberate double-entry (no one-click catastrophes).
    */
-  @Delete('organizations/:orgId')
+  @Delete("organizations/:orgId")
   @RequirePermission(Resource.Privacy, Action.DeleteOrg)
-  @ApiOperation({ summary: 'Hard-delete an organization and its complete data footprint (irreversible)' })
-  @ApiParam({ name: 'orgId', description: 'Organization UUID' })
-  @ApiQuery({ name: 'confirm', required: true, description: 'Must exactly repeat the organization UUID' })
-  @ApiResponse({ status: 200, description: 'Organization erased; per-table counts returned' })
-  @ApiResponse({ status: 403, description: 'Confirmation mismatch' })
-  @ApiResponse({ status: 404, description: 'Organization not found' })
+  @ApiOperation({
+    summary:
+      "Hard-delete an organization and its complete data footprint (irreversible)",
+  })
+  @ApiParam({ name: "orgId", description: "Organization UUID" })
+  @ApiQuery({
+    name: "confirm",
+    required: true,
+    description: "Must exactly repeat the organization UUID",
+  })
+  @ApiResponse({
+    status: 200,
+    description: "Organization erased; per-table counts returned",
+  })
+  @ApiResponse({ status: 403, description: "Confirmation mismatch" })
+  @ApiResponse({ status: 404, description: "Organization not found" })
   async eraseOrganization(
-    @Param('orgId', ParseUUIDPipe) orgId: string,
-    @Query('confirm') confirm?: string,
+    @Param("orgId", ParseUUIDPipe) orgId: string,
+    @Query("confirm") confirm?: string,
   ) {
     if (confirm !== orgId) {
       throw new ForbiddenException(
-        'Confirmation mismatch: pass ?confirm=<orgId> to hard-delete this organization',
+        "Confirmation mismatch: pass ?confirm=<orgId> to hard-delete this organization",
       );
     }
     return this.purgeService.eraseOrganization(orgId);

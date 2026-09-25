@@ -1,12 +1,12 @@
-import { Test } from '@nestjs/testing';
-import { NotFoundException } from '@nestjs/common';
-import { PurgeService } from '../../../src/services/purge.service';
-import { PrismaService } from '../../../src/services/prisma.service';
-import { TracerService } from '../../../src/common/tracer/tracer.service';
-import { CryptoService } from '../../../src/common/crypto/crypto.service';
-import { SupabaseStorageService } from '../../../src/services/supabase-storage.service';
+import { Test } from "@nestjs/testing";
+import { NotFoundException } from "@nestjs/common";
+import { PurgeService } from "../../../src/services/purge.service";
+import { PrismaService } from "../../../src/services/prisma.service";
+import { TracerService } from "../../../src/common/tracer/tracer.service";
+import { CryptoService } from "../../../src/common/crypto/crypto.service";
+import { SupabaseStorageService } from "../../../src/services/supabase-storage.service";
 
-describe('PurgeService', () => {
+describe("PurgeService", () => {
   let service: PurgeService;
 
   const mockPrisma = {
@@ -23,12 +23,13 @@ describe('PurgeService', () => {
     file: { findMany: jest.fn(), deleteMany: jest.fn() },
     collectedData: { findMany: jest.fn() },
     notification: { deleteMany: jest.fn() },
+    visitorConsent: { deleteMany: jest.fn(), findMany: jest.fn() },
   };
   const mockTracer = { logAuditEvent: jest.fn() };
   const mockStorage = { remove: jest.fn() };
   const mockCrypto = { decryptFieldValues: jest.fn() };
 
-  const ORG = 'org-1';
+  const ORG = "org-1";
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -57,29 +58,29 @@ describe('PurgeService', () => {
     service = moduleRef.get(PurgeService);
   });
 
-  describe('eraseVisitor', () => {
+  describe("eraseVisitor", () => {
     const sessions = [
-      { id: 'db-1', sessionId: 'pub-1', agentId: 'agent-1' },
-      { id: 'db-2', sessionId: 'pub-2', agentId: 'agent-2' },
+      { id: "db-1", sessionId: "pub-1", agentId: "agent-1" },
+      { id: "db-2", sessionId: "pub-2", agentId: "agent-2" },
     ];
 
-    it('removes handover notifications deep-linked to the visitor sessions, org-scoped', async () => {
+    it("removes handover notifications deep-linked to the visitor sessions, org-scoped", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue(sessions);
       mockPrisma.notification.deleteMany.mockResolvedValue({ count: 2 });
 
-      const result = await service.eraseVisitor(ORG, 'vh_abc');
+      const result = await service.eraseVisitor(ORG, "vh_abc");
 
       expect(mockPrisma.notification.deleteMany).toHaveBeenCalledWith({
         where: {
           organizationId: ORG,
-          entityType: 'conversation',
-          entityId: { in: ['pub-1', 'pub-2'] },
+          entityType: "conversation",
+          entityId: { in: ["pub-1", "pub-2"] },
         },
       });
       expect(result.notifications).toBe(2);
     });
 
-    it('deletes the FK-less tables by session-id union, then the sessions', async () => {
+    it("deletes the FK-less tables by session-id union, then the sessions", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue(sessions);
       mockPrisma.piiToken.deleteMany.mockResolvedValue({ count: 3 });
       mockPrisma.chatTrace.deleteMany.mockResolvedValue({ count: 5 });
@@ -87,9 +88,9 @@ describe('PurgeService', () => {
       mockPrisma.eventLog.deleteMany.mockResolvedValue({ count: 9 });
       mockPrisma.chatSession.deleteMany.mockResolvedValue({ count: 2 });
 
-      const result = await service.eraseVisitor(ORG, 'vh_abc');
+      const result = await service.eraseVisitor(ORG, "vh_abc");
 
-      const union = ['db-1', 'db-2', 'pub-1', 'pub-2'];
+      const union = ["db-1", "db-2", "pub-1", "pub-2"];
       expect(mockPrisma.piiToken.deleteMany).toHaveBeenCalledWith({
         where: { chatSessionId: { in: union } },
       });
@@ -100,10 +101,10 @@ describe('PurgeService', () => {
         where: { sessionId: { in: union } },
       });
       expect(mockPrisma.chatSession.deleteMany).toHaveBeenCalledWith({
-        where: { id: { in: ['db-1', 'db-2'] } },
+        where: { id: { in: ["db-1", "db-2"] } },
       });
       expect(result).toEqual({
-        visitorId: 'vh_abc',
+        visitorId: "vh_abc",
         organizationId: ORG,
         sessions: 2,
         piiTokens: 3,
@@ -111,40 +112,39 @@ describe('PurgeService', () => {
         llmUsage: 7,
         eventLogs: 9,
         notifications: 0,
+        consents: 0,
       });
     });
 
-    it('scopes the session lookup to the organization', async () => {
+    it("scopes the session lookup to the organization", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue([]);
-      await service.eraseVisitor(ORG, 'vh_abc');
+      await service.eraseVisitor(ORG, "vh_abc");
       expect(mockPrisma.chatSession.findMany).toHaveBeenCalledWith({
-        where: { visitorId: 'vh_abc', agent: { organizationId: ORG } },
+        where: { visitorId: "vh_abc", agent: { organizationId: ORG } },
         select: { id: true, sessionId: true, agentId: true },
       });
     });
 
-    it('org-scopes the direct visitorId match on event logs (same hash at another org survives)', async () => {
+    it("org-scopes the direct visitorId match on event logs (same hash at another org survives)", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue(sessions);
 
-      await service.eraseVisitor(ORG, 'vh_abc');
+      await service.eraseVisitor(ORG, "vh_abc");
 
       const where = mockPrisma.eventLog.deleteMany.mock.calls[0]![0].where;
       // Every visitorId-based clause must carry an org/agent scope.
       const visitorClauses = where.OR.filter(
-        (c: Record<string, unknown>) => 'visitorId' in c,
+        (c: Record<string, unknown>) => "visitorId" in c,
       );
       expect(visitorClauses.length).toBeGreaterThan(0);
       for (const clause of visitorClauses) {
-        expect(
-          'organizationId' in clause || 'agentId' in clause,
-        ).toBe(true);
+        expect("organizationId" in clause || "agentId" in clause).toBe(true);
       }
     });
 
-    it('is idempotent: unknown visitor → all-zero counts, no session delete', async () => {
+    it("is idempotent: unknown visitor → all-zero counts, no session delete", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue([]);
 
-      const result = await service.eraseVisitor(ORG, 'vh_unknown');
+      const result = await service.eraseVisitor(ORG, "vh_unknown");
 
       expect(result.sessions).toBe(0);
       expect(result.piiTokens).toBe(0);
@@ -152,59 +152,114 @@ describe('PurgeService', () => {
       expect(mockPrisma.piiToken.deleteMany).not.toHaveBeenCalled();
     });
 
-    it('writes a counts-only audit record (no PII)', async () => {
+    it("writes a counts-only audit record (no PII)", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue(sessions);
 
-      await service.eraseVisitor(ORG, 'vh_abc');
+      await service.eraseVisitor(ORG, "vh_abc");
 
       expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
         ORG,
-        'PRIVACY_VISITOR_ERASED',
+        "PRIVACY_VISITOR_ERASED",
         expect.not.objectContaining({ visitorId: expect.anything() }),
+        { organizationId: ORG },
+      );
+    });
+
+    it("deletes the visitor consent records, org-scoped, even with no sessions", async () => {
+      // A visitor can click "Start chat" and never send a message.
+      mockPrisma.chatSession.findMany.mockResolvedValue([]);
+      mockPrisma.visitorConsent.deleteMany.mockResolvedValue({ count: 2 });
+
+      const result = await service.eraseVisitor(ORG, "vd_abc");
+
+      expect(mockPrisma.visitorConsent.deleteMany).toHaveBeenCalledWith({
+        where: { visitorId: "vd_abc", organizationId: ORG },
+      });
+      expect(result.consents).toBe(2);
+      expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
+        ORG,
+        "PRIVACY_VISITOR_ERASED",
+        expect.objectContaining({ consents: 2 }),
         { organizationId: ORG },
       );
     });
   });
 
-  describe('summarizeVisitor', () => {
-    it('returns sessions, decrypted collected data and record counts', async () => {
+  describe("summarizeVisitor consent history", () => {
+    it("lists consent decisions oldest first, org-scoped, without any session", async () => {
+      const decidedAt = new Date("2026-09-01T10:00:00Z");
+      mockPrisma.chatSession.findMany.mockResolvedValue([]);
+      mockPrisma.visitorConsent.findMany.mockResolvedValue([
+        {
+          action: "GRANTED",
+          method: "WIDGET_BUTTON",
+          privacyPolicyUrl: "https://acme.test/privacy",
+          noticeHash: "a".repeat(64),
+          createdAt: decidedAt,
+        },
+      ]);
+
+      const summary = await service.summarizeVisitor(ORG, "vd_abc");
+
+      expect(mockPrisma.visitorConsent.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: { visitorId: "vd_abc", organizationId: ORG },
+          orderBy: { createdAt: "asc" },
+        }),
+      );
+      expect(summary.consentHistory).toEqual([
+        {
+          action: "GRANTED",
+          method: "WIDGET_BUTTON",
+          privacyPolicyUrl: "https://acme.test/privacy",
+          noticeHash: "a".repeat(64),
+          decidedAt,
+        },
+      ]);
+    });
+  });
+
+  describe("summarizeVisitor", () => {
+    it("returns sessions, decrypted collected data and record counts", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue([
         {
-          id: 'db-1',
-          sessionId: 'pub-1',
-          source: 'WIDGET',
-          status: 'ACTIVE',
-          createdAt: new Date('2026-07-01'),
+          id: "db-1",
+          sessionId: "pub-1",
+          source: "WIDGET",
+          status: "ACTIVE",
+          createdAt: new Date("2026-07-01"),
           _count: { messages: 6 },
         },
       ]);
       mockPrisma.collectedData.findMany.mockResolvedValue([
         {
-          chatSessionId: 'db-1',
-          data: { email: 'enc:v1:x' },
-          extractedAt: new Date('2026-07-02'),
+          chatSessionId: "db-1",
+          data: { email: "enc:v1:x" },
+          extractedAt: new Date("2026-07-02"),
         },
       ]);
-      mockCrypto.decryptFieldValues.mockReturnValue({ email: 'a@b.com' });
+      mockCrypto.decryptFieldValues.mockReturnValue({ email: "a@b.com" });
       mockPrisma.chatTrace.count.mockResolvedValue(4);
       mockPrisma.eventLog.count.mockResolvedValue(8);
       mockPrisma.piiToken.count.mockResolvedValue(2);
       mockPrisma.llmUsage.count.mockResolvedValue(5);
 
-      const summary = await service.summarizeVisitor(ORG, 'vh_abc');
+      const summary = await service.summarizeVisitor(ORG, "vh_abc");
 
       expect(summary.sessions).toEqual([
-        expect.objectContaining({ sessionId: 'pub-1', messageCount: 6 }),
+        expect.objectContaining({ sessionId: "pub-1", messageCount: 6 }),
       ]);
       expect(summary.totalMessages).toBe(6);
       // The lead fields come back decrypted for the data principal…
       expect(summary.collectedData).toEqual([
         expect.objectContaining({
-          sessionId: 'pub-1',
-          fields: { email: 'a@b.com' },
+          sessionId: "pub-1",
+          fields: { email: "a@b.com" },
         }),
       ]);
-      expect(mockCrypto.decryptFieldValues).toHaveBeenCalledWith({ email: 'enc:v1:x' });
+      expect(mockCrypto.decryptFieldValues).toHaveBeenCalledWith({
+        email: "enc:v1:x",
+      });
       expect(summary.recordCounts).toEqual({
         aiTraces: 4,
         eventLogs: 8,
@@ -214,14 +269,14 @@ describe('PurgeService', () => {
       expect(summary.processingPurposes.length).toBeGreaterThan(0);
     });
 
-    it('scopes the lookup to the organization and never deletes anything', async () => {
+    it("scopes the lookup to the organization and never deletes anything", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue([]);
 
-      const summary = await service.summarizeVisitor(ORG, 'vh_unknown');
+      const summary = await service.summarizeVisitor(ORG, "vh_unknown");
 
       expect(mockPrisma.chatSession.findMany).toHaveBeenCalledWith(
         expect.objectContaining({
-          where: { visitorId: 'vh_unknown', agent: { organizationId: ORG } },
+          where: { visitorId: "vh_unknown", agent: { organizationId: ORG } },
         }),
       );
       expect(summary.sessions).toEqual([]);
@@ -239,25 +294,25 @@ describe('PurgeService', () => {
     });
   });
 
-  describe('eraseOrganization', () => {
+  describe("eraseOrganization", () => {
     beforeEach(() => {
       mockPrisma.organization.findUnique.mockResolvedValue({ id: ORG });
-      mockPrisma.agent.findMany.mockResolvedValue([{ id: 'a1' }, { id: 'a2' }]);
-      mockPrisma.user.findMany.mockResolvedValue([{ id: 'u1' }]);
+      mockPrisma.agent.findMany.mockResolvedValue([{ id: "a1" }, { id: "a2" }]);
+      mockPrisma.user.findMany.mockResolvedValue([{ id: "u1" }]);
       mockPrisma.organization.delete.mockResolvedValue({ id: ORG });
     });
 
     // Regression: Notification.organization is a required FK with no cascade
     // (RESTRICT), so the final organization.delete failed for any org that had
     // ever raised a handover alert.
-    it('deletes notifications before the org row (required FK with no cascade)', async () => {
+    it("deletes notifications before the org row (required FK with no cascade)", async () => {
       const order: string[] = [];
       mockPrisma.notification.deleteMany.mockImplementation(async () => {
-        order.push('notifications');
+        order.push("notifications");
         return { count: 3 };
       });
       mockPrisma.organization.delete.mockImplementation(async () => {
-        order.push('org');
+        order.push("org");
         return { id: ORG };
       });
 
@@ -266,52 +321,52 @@ describe('PurgeService', () => {
       expect(mockPrisma.notification.deleteMany).toHaveBeenCalledWith({
         where: { organizationId: ORG },
       });
-      expect(order.indexOf('notifications')).toBeLessThan(order.indexOf('org'));
+      expect(order.indexOf("notifications")).toBeLessThan(order.indexOf("org"));
       expect(result.notifications).toBe(3);
     });
 
-    it('throws 404 for an unknown organization', async () => {
+    it("throws 404 for an unknown organization", async () => {
       mockPrisma.organization.findUnique.mockResolvedValue(null);
-      await expect(service.eraseOrganization('nope')).rejects.toThrow(
+      await expect(service.eraseOrganization("nope")).rejects.toThrow(
         NotFoundException,
       );
       expect(mockPrisma.organization.delete).not.toHaveBeenCalled();
     });
 
-    it('deletes children before parents and the org row last', async () => {
+    it("deletes children before parents and the org row last", async () => {
       const order: string[] = [];
       mockPrisma.chatSession.deleteMany.mockImplementation(async () => {
-        order.push('sessions');
+        order.push("sessions");
         return { count: 4 };
       });
       mockPrisma.agent.deleteMany.mockImplementation(async () => {
-        order.push('agents');
+        order.push("agents");
         return { count: 2 };
       });
       mockPrisma.user.deleteMany.mockImplementation(async () => {
-        order.push('users');
+        order.push("users");
         return { count: 1 };
       });
       mockPrisma.organization.delete.mockImplementation(async () => {
-        order.push('org');
+        order.push("org");
         return { id: ORG };
       });
 
       await service.eraseOrganization(ORG);
 
       // Sessions must go before agents (Restrict FK), org row strictly last.
-      expect(order.indexOf('sessions')).toBeLessThan(order.indexOf('agents'));
-      expect(order[order.length - 1]).toBe('org');
+      expect(order.indexOf("sessions")).toBeLessThan(order.indexOf("agents"));
+      expect(order[order.length - 1]).toBe("org");
     });
 
-    it('deletes FK-less tables by scope columns, never by loaded session ids', async () => {
+    it("deletes FK-less tables by scope columns, never by loaded session ids", async () => {
       await service.eraseOrganization(ORG);
 
       expect(mockPrisma.piiToken.deleteMany).toHaveBeenCalledWith({
         where: { organizationId: ORG },
       });
       expect(mockPrisma.chatTrace.deleteMany).toHaveBeenCalledWith({
-        where: { agentId: { in: ['a1', 'a2'] } },
+        where: { agentId: { in: ["a1", "a2"] } },
       });
       expect(mockPrisma.llmUsage.deleteMany).toHaveBeenCalledWith({
         where: { organizationId: ORG },
@@ -320,24 +375,24 @@ describe('PurgeService', () => {
       // used to build id lists here (memory-safe at any org size).
       expect(mockPrisma.chatSession.findMany).not.toHaveBeenCalled();
       expect(mockPrisma.chatSession.deleteMany).toHaveBeenCalledWith({
-        where: { agentId: { in: ['a1', 'a2'] } },
+        where: { agentId: { in: ["a1", "a2"] } },
       });
     });
 
-    it('erases audit logs by org/agent/user scope, then writes the proof record', async () => {
+    it("erases audit logs by org/agent/user scope, then writes the proof record", async () => {
       const order: string[] = [];
       mockPrisma.auditLog.deleteMany.mockImplementation(async () => {
-        order.push('auditDelete');
+        order.push("auditDelete");
         return { count: 11 };
       });
       mockTracer.logAuditEvent.mockImplementation(async () => {
-        order.push('auditWrite');
+        order.push("auditWrite");
       });
 
       const result = await service.eraseOrganization(ORG);
 
       // Delete happens before the proof-of-erasure write survives it.
-      expect(order).toEqual(['auditDelete', 'auditWrite']);
+      expect(order).toEqual(["auditDelete", "auditWrite"]);
       expect(result.auditLogs).toBe(11);
 
       // Matches any of org / agent / user scope so nothing is left behind.
@@ -345,36 +400,39 @@ describe('PurgeService', () => {
       expect(where.OR).toEqual(
         expect.arrayContaining([
           { organizationId: ORG },
-          { agentId: { in: ['a1', 'a2'] } },
-          { userId: { in: ['u1'] } },
+          { agentId: { in: ["a1", "a2"] } },
+          { userId: { in: ["u1"] } },
         ]),
       );
 
       // The proof record is org-scoped so it's queryable later.
       expect(mockTracer.logAuditEvent).toHaveBeenCalledWith(
         ORG,
-        'PRIVACY_ORG_ERASED',
+        "PRIVACY_ORG_ERASED",
         expect.objectContaining({ agents: 2, users: 1 }),
         { organizationId: ORG },
       );
     });
 
-    it('removes storage objects per bucket before deleting file rows', async () => {
+    it("removes storage objects per bucket before deleting file rows", async () => {
       mockPrisma.file.findMany.mockResolvedValue([
-        { bucket: 'agent-assets', storageKey: 'k1' },
-        { bucket: 'agent-assets', storageKey: 'k2' },
-        { bucket: 'other', storageKey: 'k3' },
+        { bucket: "agent-assets", storageKey: "k1" },
+        { bucket: "agent-assets", storageKey: "k2" },
+        { bucket: "other", storageKey: "k3" },
       ]);
       mockPrisma.file.deleteMany.mockResolvedValue({ count: 3 });
 
       const result = await service.eraseOrganization(ORG);
 
-      expect(mockStorage.remove).toHaveBeenCalledWith('agent-assets', ['k1', 'k2']);
-      expect(mockStorage.remove).toHaveBeenCalledWith('other', ['k3']);
+      expect(mockStorage.remove).toHaveBeenCalledWith("agent-assets", [
+        "k1",
+        "k2",
+      ]);
+      expect(mockStorage.remove).toHaveBeenCalledWith("other", ["k3"]);
       expect(result.files).toBe(3);
     });
 
-    it('handles an org with no agents and no users', async () => {
+    it("handles an org with no agents and no users", async () => {
       mockPrisma.agent.findMany.mockResolvedValue([]);
       mockPrisma.user.findMany.mockResolvedValue([]);
 

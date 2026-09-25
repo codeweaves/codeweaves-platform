@@ -1,4 +1,4 @@
-'use client';
+"use client";
 
 import {
   createContext,
@@ -7,15 +7,15 @@ import {
   useCallback,
   useMemo,
   type ReactNode,
-} from 'react';
-import type { Agent } from '@/hooks/use-agents';
+} from "react";
+import type { Agent } from "@/hooks/use-agents";
 import {
   type WidgetTheme,
   defaultWidgetTheme,
   type VoiceConfigDto,
   type AgentAiConfigDto,
   type DataFieldType,
-} from '@repo/validation';
+} from "@repo/validation";
 
 /**
  * Editable shape of one data-capture field in the form (no id/order/timestamps
@@ -139,7 +139,7 @@ export function useAgentEditor() {
   const context = useContext(AgentEditorContext);
   if (!context) {
     throw new Error(
-      'useAgentEditor must be used within an AgentEditorProvider',
+      "useAgentEditor must be used within an AgentEditorProvider",
     );
   }
   return context;
@@ -149,7 +149,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
   if (a === b) return true;
   if (a == null || b == null) return a === b;
   if (typeof a !== typeof b) return false;
-  if (typeof a !== 'object') return a === b;
+  if (typeof a !== "object") return a === b;
   if (Array.isArray(a) !== Array.isArray(b)) return false;
 
   const keysA = Object.keys(a as Record<string, unknown>);
@@ -168,7 +168,7 @@ function deepEqual(a: unknown, b: unknown): boolean {
 
 /** Immutable dot-path setter — shallow-copies only the affected path segments. */
 function setNestedValue<T>(obj: T, path: string, value: unknown): T {
-  const keys = path.split('.');
+  const keys = path.split(".");
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const result = { ...obj } as any;
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -195,9 +195,9 @@ function deepMergeTheme<T>(base: T, override: unknown): T {
   if (
     override === undefined ||
     override === null ||
-    typeof override !== 'object' ||
+    typeof override !== "object" ||
     Array.isArray(override) ||
-    typeof base !== 'object' ||
+    typeof base !== "object" ||
     base === null ||
     Array.isArray(base)
   ) {
@@ -223,7 +223,7 @@ export interface PreviewFormData {
   // Appearance
   iconBg: string;
   iconHoverBg: string;
-  iconPosition: 'left' | 'right';
+  iconPosition: "left" | "right";
   iconSize: number;
   iconBorderRadius: number;
   iconShadow: string;
@@ -245,7 +245,7 @@ export interface PreviewFormData {
   headerBorderRadius: number;
   // Chat Interface
   botAvatarShow: boolean;
-  botAvatarType: 'robot' | 'machine' | 'bot' | 'support' | 'custom';
+  botAvatarType: "robot" | "machine" | "bot" | "support" | "custom";
   botCustomImage: string;
   botAvatarShape: string;
   botAvatarBg: string;
@@ -300,13 +300,28 @@ export interface PreviewFormData {
   handoverRequestedLineColor: string;
   handoverEndedLabel: string;
   handoverEndedLineColor: string;
+  // Chat-start privacy notice. Active = on AND has the client's policy link,
+  // the same rule the widget and server apply.
+  consentActive: boolean;
+  consentMode: "notice" | "consent";
+  consentNoticeText: string;
+  consentLinkText: string;
+  consentPolicyUrl: string;
+  consentButtonLabel: string;
+  consentWithdrawLabel: string;
+  consentTextColor: string;
+  consentLinkColor: string;
 }
 
 /** Maps AgentFormData + WidgetTheme to the full PreviewFormData shape for the chat widget preview. */
-export function toPreviewFormData(formData: AgentFormData, themeData: WidgetTheme): PreviewFormData {
+export function toPreviewFormData(
+  formData: AgentFormData,
+  themeData: WidgetTheme,
+): PreviewFormData {
   return {
     name: formData.name,
-    greetingMessage: formData.welcomeMessage || 'Hello! How can I help you today?',
+    greetingMessage:
+      formData.welcomeMessage || "Hello! How can I help you today?",
     webhookUrl: formData.webhookUrl,
     domains: formData.allowedDomains,
     // Icon
@@ -316,7 +331,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     iconSize: themeData.icon.size,
     iconBorderRadius: themeData.icon.borderRadius,
     iconShadow: themeData.icon.shadow,
-    iconCustomImage: themeData.icon.customImageUrl ?? '',
+    iconCustomImage: themeData.icon.customImageUrl ?? "",
     // Bubble
     bubbleEnabled: themeData.bubble.enabled,
     bubbleText: themeData.bubble.text,
@@ -326,8 +341,8 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     bubbleSound: true,
     // Header
     headerTitle: themeData.header.title,
-    headerSubtitle: themeData.header.subtitle ?? '',
-    companyLogo: themeData.header.logoUrl ?? '',
+    headerSubtitle: themeData.header.subtitle ?? "",
+    companyLogo: themeData.header.logoUrl ?? "",
     headerShowLogo: themeData.header.showLogo,
     headerBg: themeData.header.backgroundColor,
     headerTextColor: themeData.header.textColor,
@@ -335,8 +350,8 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     headerBorderRadius: themeData.header.borderRadius,
     // Bot messages
     botAvatarShow: themeData.botAvatar.show ?? false,
-    botAvatarType: themeData.botAvatar.type as PreviewFormData['botAvatarType'],
-    botCustomImage: themeData.botAvatar.customImageUrl ?? '',
+    botAvatarType: themeData.botAvatar.type as PreviewFormData["botAvatarType"],
+    botCustomImage: themeData.botAvatar.customImageUrl ?? "",
     botAvatarShape: themeData.botAvatar.shape,
     botAvatarBg: themeData.botAvatar.backgroundColor,
     botAvatarColor: themeData.botAvatar.color,
@@ -349,7 +364,7 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     userAvatarShape: themeData.userAvatar.shape,
     userAvatarBg: themeData.userAvatar.backgroundColor,
     userAvatarColor: themeData.userAvatar.color,
-    userCustomImage: themeData.userAvatar.customImageUrl ?? '',
+    userCustomImage: themeData.userAvatar.customImageUrl ?? "",
     userMessageBg: themeData.userMessage.backgroundColor,
     userMessageTextColor: themeData.userMessage.textColor,
     userMessageBorderRadius: themeData.userMessage.borderRadius,
@@ -378,14 +393,15 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     brandingUseLogo: themeData.branding.useLogo,
     brandingLinkText: themeData.branding.linkText,
     brandingLinkUrl: themeData.branding.linkUrl,
-    brandingLogo: themeData.branding.logo ?? '',
+    brandingLogo: themeData.branding.logo ?? "",
     brandingTextColor: themeData.branding.textColor,
     brandingLinkColor: themeData.branding.linkColor,
     // Voice
     voiceEnabled: formData.voiceEnabled,
     // Human handover
     handoverEnabled: formData.humanTakeoverEnabled,
-    showHandoverButton: formData.humanTakeoverEnabled && formData.showTalkToHumanButton,
+    showHandoverButton:
+      formData.humanTakeoverEnabled && formData.showTalkToHumanButton,
     handoverButtonLabel: themeData.handover.buttonLabel,
     handoverButtonBg: themeData.handover.buttonBackgroundColor,
     handoverButtonTextColor: themeData.handover.buttonTextColor,
@@ -396,6 +412,17 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
     handoverRequestedLineColor: themeData.handover.requestedLineColor,
     handoverEndedLabel: themeData.handover.endedLabel,
     handoverEndedLineColor: themeData.handover.endedLineColor,
+    // Privacy notice
+    consentActive:
+      themeData.consent.enabled && themeData.consent.privacyPolicyUrl !== "",
+    consentMode: themeData.consent.mode,
+    consentNoticeText: themeData.consent.noticeText,
+    consentLinkText: themeData.consent.linkText,
+    consentPolicyUrl: themeData.consent.privacyPolicyUrl,
+    consentButtonLabel: themeData.consent.buttonLabel,
+    consentWithdrawLabel: themeData.consent.withdrawLabel,
+    consentTextColor: themeData.consent.textColor,
+    consentLinkColor: themeData.consent.linkColor,
   };
 }
 
@@ -405,13 +432,13 @@ export function toPreviewFormData(formData: AgentFormData, themeData: WidgetThem
  * just for defaults. Keep these in sync with packages/validation when Zod
  * defaults change.
  */
-const DEFAULT_AI_CONFIG: import('@repo/validation').AgentAiConfigDto = {
-  routingMode: 'n8n',
+const DEFAULT_AI_CONFIG: import("@repo/validation").AgentAiConfigDto = {
+  routingMode: "n8n",
   temperature: 0.7,
   maxTokens: 4096,
   maxContextMessages: 20,
   maxInputTokens: 8000,
-  contextStrategy: 'hybrid',
+  contextStrategy: "hybrid",
   ragEnabled: true,
   ragTopK: 5,
   ragSimilarityThreshold: 0.7,
@@ -435,14 +462,14 @@ export interface InitialAgentKnowledge {
 
 export function agentToFormData(
   agent: Agent,
-  webhookUrl = '',
+  webhookUrl = "",
   initialKnowledge: InitialAgentKnowledge | null = null,
   initialDataFields: EditorDataField[] = [],
 ): AgentFormData {
   return {
     name: agent.name,
-    systemPrompt: agent.systemPrompt ?? '',
-    welcomeMessage: agent.welcomeMessage ?? '',
+    systemPrompt: agent.systemPrompt ?? "",
+    welcomeMessage: agent.welcomeMessage ?? "",
     allowedDomains: agent.allowedDomains ?? [],
     webhookUrl,
     voiceEnabled: agent.voiceEnabled ?? false,
@@ -454,7 +481,7 @@ export function agentToFormData(
     // Knowledge base: empty string when no record exists. Save logic in the
     // layout compares this against `savedFormData` to decide whether to
     // PUT /knowledge, DELETE /knowledge, or skip.
-    knowledgeContent: initialKnowledge?.content ?? '',
+    knowledgeContent: initialKnowledge?.content ?? "",
     knowledgeSourceFileName: initialKnowledge?.sourceFileName ?? null,
     knowledgeSourceMimeType: initialKnowledge?.sourceMimeType ?? null,
     categoryKeywords: agent.categoryKeywords ?? [],
@@ -464,7 +491,7 @@ export function agentToFormData(
     dataFields: initialDataFields,
     humanTakeoverEnabled: agent.humanTakeoverEnabled ?? false,
     showTalkToHumanButton: agent.showTalkToHumanButton ?? false,
-    humanConnectedLabel: agent.humanConnectedLabel ?? '',
+    humanConnectedLabel: agent.humanConnectedLabel ?? "",
     handoverEmailEnabled: agent.handoverEmailEnabled ?? false,
     handoverEmailRecipients: agent.handoverEmailRecipients ?? [],
   };
@@ -492,7 +519,10 @@ export function AgentEditorProvider({
   // with their defaults, even for themes saved before the key existed. A shallow
   // spread would let a stored `handover` object replace the default one whole,
   // leaving the new fields undefined (empty inputs / #000000 pickers).
-  const baseTheme: WidgetTheme = deepMergeTheme(defaultWidgetTheme, initialThemeData);
+  const baseTheme: WidgetTheme = deepMergeTheme(
+    defaultWidgetTheme,
+    initialThemeData,
+  );
   const [savedThemeData, setSavedThemeData] = useState<WidgetTheme>(baseTheme);
   const [themeData, setThemeData] = useState<WidgetTheme>(baseTheme);
 
@@ -514,12 +544,9 @@ export function AgentEditorProvider({
     [],
   );
 
-  const updateThemeData = useCallback(
-    (path: string, value: unknown) => {
-      setThemeData((prev) => setNestedValue(prev, path, value));
-    },
-    [],
-  );
+  const updateThemeData = useCallback((path: string, value: unknown) => {
+    setThemeData((prev) => setNestedValue(prev, path, value));
+  }, []);
 
   // NOTE: deepEqual traverses the full WidgetTheme tree on every theme state change.
   // If perf becomes an issue, consider a dirty flag set by updateThemeData instead.
@@ -567,10 +594,19 @@ export function AgentEditorProvider({
       clearFieldError,
     }),
     [
-      agent, formData, savedFormData, updateFormData,
-      themeData, savedThemeData, updateThemeData,
-      hasThemeChanges, hasUnsavedChanges, resetToSaved, markSaved,
-      fieldErrors, clearFieldError,
+      agent,
+      formData,
+      savedFormData,
+      updateFormData,
+      themeData,
+      savedThemeData,
+      updateThemeData,
+      hasThemeChanges,
+      hasUnsavedChanges,
+      resetToSaved,
+      markSaved,
+      fieldErrors,
+      clearFieldError,
     ],
   );
 

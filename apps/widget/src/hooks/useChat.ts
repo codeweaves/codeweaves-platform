@@ -5,8 +5,8 @@
  * streaming lifecycle, error timers, rate-limit cooldown, and voice helpers.
  */
 
-import { useCallback, useRef, useEffect } from 'preact/hooks';
-import { batch } from '@preact/signals';
+import { useCallback, useRef, useEffect } from "preact/hooks";
+import { batch } from "@preact/signals";
 import {
   isLoading,
   isStreaming,
@@ -20,42 +20,49 @@ import {
   generateMessageId,
   handoverState,
   agentTyping,
-} from '../state/chat-store';
-import type { Message } from '../types/message';
-import { startStream } from '../services/stream-handler';
-import type { StreamHandle, StreamErrorOptions } from '../services/stream-handler';
-import type { ChatHistoryItem, PollResponse } from '../services/api-client';
-import { requestHuman as requestHumanApi } from '../services/api-client';
-import { startHandoverPoll, type HandoverPollHandle } from '../services/handover-poller';
+} from "../state/chat-store";
+import type { Message } from "../types/message";
+import { startStream } from "../services/stream-handler";
+import type {
+  StreamHandle,
+  StreamErrorOptions,
+} from "../services/stream-handler";
+import type { ChatHistoryItem, PollResponse } from "../services/api-client";
+import { requestHuman as requestHumanApi } from "../services/api-client";
+import { CONSENT_REQUIRED, applyConsentRequired } from "../services/consent";
+import {
+  startHandoverPoll,
+  type HandoverPollHandle,
+} from "../services/handover-poller";
 import {
   connectHandoverSocket,
   disconnectHandoverSocket,
   emitVisitorTyping,
   isHandoverSocketConnected,
-} from '../services/handover-socket';
+} from "../services/handover-socket";
 import {
   getSessionId,
   updateSession,
   persistHandoverSession,
   clearHandoverSession,
   getPersistedHandoverSession,
-} from '../services/session-manager';
+} from "../services/session-manager";
 
 /** Cap on history sent to the backend; server enforces agent's maxContextMessages further. */
 const MAX_HISTORY_TO_SEND = 20;
-const GREETING_ID = '__greeting__';
+const GREETING_ID = "__greeting__";
 /**
  * Prefix for a human teammate's replies in the history sent to the backend, so
  * the model can distinguish them from its own turns (both go as `assistant`).
  * Keep in sync with the API (context-assembly.service.ts HUMAN_AGENT_LABEL).
  */
-const HUMAN_AGENT_LABEL = '[Human teammate]: ';
+const HUMAN_AGENT_LABEL = "[Human teammate]: ";
 /**
  * Prefix for handover status lines (took over / resolved / …) in the history
  * sent to the backend, so the model reads them as events. Keep in sync with the
  * API (context-assembly.service.ts SYSTEM_LABEL).
  */
-const SYSTEM_LABEL = '[System]: ';
+const SYSTEM_LABEL = "[System]: ";
 
 // Handover receive cadence. The socket is primary; the poll is a reconcile
 // safety-net — slow while the socket is up, fast when it's down.
@@ -72,7 +79,7 @@ export interface UseChatReturn {
   sendMessage: (text: string) => void;
   requestHuman: () => void;
   notifyTyping: () => void;
-  notifyHandover: (state: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN') => void;
+  notifyHandover: (state: "NONE" | "REQUESTED" | "ACTIVE_HUMAN") => void;
   stopStream: () => void;
   clearError: () => void;
   handleTimeout: () => void;
@@ -89,7 +96,7 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
   const loadingRef = useRef(false);
   const rateLimitedRef = useRef(false);
   const streamHandleRef = useRef<StreamHandle | null>(null);
-  const streamContentRef = useRef('');
+  const streamContentRef = useRef("");
   /** Guard against store mutations from late async callbacks after abort/unmount */
   const streamAbortedRef = useRef(false);
   /** Active handover poller (only runs while a chat is escalated). */
@@ -97,7 +104,9 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
   /** Backend message ids already added to the store (dedupe across polls). */
   const handoverSeenIds = useRef<Set<string>>(new Set());
   /** Auto-clear timer for the "agent is typing" indicator. */
-  const agentTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const agentTypingTimerRef = useRef<ReturnType<typeof setTimeout> | null>(
+    null,
+  );
 
   // Cleanup all timers, active stream, handover poller + socket on unmount
   useEffect(() => {
@@ -109,7 +118,8 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     return () => {
       if (errorTimer.current !== null) clearTimeout(errorTimer.current);
       if (rateLimitTimer.current !== null) clearTimeout(rateLimitTimer.current);
-      if (agentTypingTimer.current !== null) clearTimeout(agentTypingTimer.current);
+      if (agentTypingTimer.current !== null)
+        clearTimeout(agentTypingTimer.current);
       streamHandle.current?.abort();
       pollHandle.current?.stop();
       disconnectHandoverSocket();
@@ -134,23 +144,36 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
       const isReconnectRebuild = messages.value.length === 0;
       for (const m of data.messages) {
         if (handoverSeenIds.current.has(m.id)) continue;
-        if (m.role === 'HUMAN_AGENT') {
+        if (m.role === "HUMAN_AGENT") {
           handoverSeenIds.current.add(m.id);
-          addMessage({ id: m.id, role: 'human', content: m.content, timestamp: new Date(m.createdAt) });
+          addMessage({
+            id: m.id,
+            role: "human",
+            content: m.content,
+            timestamp: new Date(m.createdAt),
+          });
           // Their reply landed → they're no longer "typing".
           clearAgentTyping();
-        } else if (m.role === 'SYSTEM') {
+        } else if (m.role === "SYSTEM") {
           // Handover status lines are NOT shown to the visitor (internal
           // wording), but we keep them (hidden) so they ride along in
           // recentHistory — the bot then knows a human joined + when it was
           // handed back, instead of re-offering a human that already came.
           handoverSeenIds.current.add(m.id);
-          addMessage({ id: m.id, role: 'system', content: m.content, timestamp: new Date(m.createdAt) });
-        } else if (isReconnectRebuild && (m.role === 'USER' || m.role === 'ASSISTANT')) {
+          addMessage({
+            id: m.id,
+            role: "system",
+            content: m.content,
+            timestamp: new Date(m.createdAt),
+          });
+        } else if (
+          isReconnectRebuild &&
+          (m.role === "USER" || m.role === "ASSISTANT")
+        ) {
           handoverSeenIds.current.add(m.id);
           addMessage({
             id: m.id,
-            role: m.role === 'USER' ? 'user' : 'assistant',
+            role: m.role === "USER" ? "user" : "assistant",
             content: m.content,
             timestamp: new Date(m.createdAt),
           });
@@ -158,7 +181,7 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
         // SYSTEM messages are dashboard-internal — never shown to the visitor.
       }
       handoverState.value = data.handoverState;
-      if (data.handoverState === 'NONE') {
+      if (data.handoverState === "NONE") {
         clearHandoverSession(agentId);
         pollHandleRef.current = null; // the poller stops itself once state is NONE
         disconnectHandoverSocket();
@@ -180,7 +203,8 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     connectHandoverSocket(sid, {
       onAgentTyping: () => {
         agentTyping.value = true;
-        if (agentTypingTimerRef.current !== null) clearTimeout(agentTypingTimerRef.current);
+        if (agentTypingTimerRef.current !== null)
+          clearTimeout(agentTypingTimerRef.current);
         agentTypingTimerRef.current = setTimeout(() => {
           agentTyping.value = false;
           agentTypingTimerRef.current = null;
@@ -190,7 +214,9 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     });
     pollHandleRef.current = startHandoverPoll(agentId, sid, {
       getIntervalMs: () =>
-        isHandoverSocketConnected() ? HANDOVER_POLL_SLOW_MS : HANDOVER_POLL_FAST_MS,
+        isHandoverSocketConnected()
+          ? HANDOVER_POLL_SLOW_MS
+          : HANDOVER_POLL_FAST_MS,
       onUpdate: handlePollUpdate,
       onError: () => {
         /* transient — the next tick retries; a 404/410 clears the session */
@@ -204,9 +230,9 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
    * receiving the teammate's replies. Shared so voice reaches parity with text.
    */
   const handleHandover = useCallback(
-    (state: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN') => {
+    (state: "NONE" | "REQUESTED" | "ACTIVE_HUMAN") => {
       handoverState.value = state;
-      if (state === 'NONE') {
+      if (state === "NONE") {
         clearHandoverSession(agentId);
         pollHandleRef.current?.stop();
         pollHandleRef.current = null;
@@ -255,7 +281,7 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     });
     loadingRef.current = false;
     streamHandleRef.current = null;
-    streamContentRef.current = '';
+    streamContentRef.current = "";
   }, []);
 
   const stopStream = useCallback(() => {
@@ -294,11 +320,11 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
         .filter(
           (m) =>
             m.id !== GREETING_ID &&
-            (m.role === 'user' ||
-              m.role === 'assistant' ||
-              m.role === 'human' ||
-              m.role === 'system') &&
-            typeof m.content === 'string' &&
+            (m.role === "user" ||
+              m.role === "assistant" ||
+              m.role === "human" ||
+              m.role === "system") &&
+            typeof m.content === "string" &&
             m.content.length > 0,
         )
         .slice(-MAX_HISTORY_TO_SEND)
@@ -308,19 +334,19 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
           // bot can tell them apart from its own turns — giving it full context
           // when it resumes (who joined, what they said, when it was handed
           // back) instead of mis-reading a repeat frustration as new.
-          role: m.role === 'user' ? ('user' as const) : ('assistant' as const),
+          role: m.role === "user" ? ("user" as const) : ("assistant" as const),
           content:
-            m.role === 'human'
+            m.role === "human"
               ? `${HUMAN_AGENT_LABEL}${m.content}`
-              : m.role === 'system'
+              : m.role === "system"
                 ? `${SYSTEM_LABEL}${m.content}`
                 : m.content,
         }));
 
       // Optimistic UI — add user message immediately
       const userMsg: Message = {
-        id: generateMessageId('user'),
-        role: 'user',
+        id: generateMessageId("user"),
+        role: "user",
         content: trimmed,
         timestamp: new Date(),
       };
@@ -330,64 +356,70 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
         isLoading.value = true;
       });
 
-      const botMsgId = generateMessageId('bot');
-      streamContentRef.current = '';
+      const botMsgId = generateMessageId("bot");
+      streamContentRef.current = "";
 
       const handle = startStream(
         agentId,
         trimmed,
         {
-        onFirstChunk: (content: string) => {
-          if (streamAbortedRef.current) return;
-          streamContentRef.current = content;
-          const botMsg: Message = {
-            id: botMsgId,
-            role: 'assistant',
-            content,
-            timestamp: new Date(),
-            isStreaming: true,
-          };
-          batch(() => {
-            addMessage(botMsg);
-            isStreaming.value = true;
-            streamingMessageId.value = botMsgId;
-          });
-        },
+          onFirstChunk: (content: string) => {
+            if (streamAbortedRef.current) return;
+            streamContentRef.current = content;
+            const botMsg: Message = {
+              id: botMsgId,
+              role: "assistant",
+              content,
+              timestamp: new Date(),
+              isStreaming: true,
+            };
+            batch(() => {
+              addMessage(botMsg);
+              isStreaming.value = true;
+              streamingMessageId.value = botMsgId;
+            });
+          },
 
-        onChunk: (content: string) => {
-          if (streamAbortedRef.current) return;
-          streamContentRef.current += content;
-          updateMessage(botMsgId, { content: streamContentRef.current });
-        },
+          onChunk: (content: string) => {
+            if (streamAbortedRef.current) return;
+            streamContentRef.current += content;
+            updateMessage(botMsgId, { content: streamContentRef.current });
+          },
 
-        onDone: () => {
-          if (streamAbortedRef.current) return;
-          updateMessage(botMsgId, { isStreaming: false, status: 'sent' });
-          finishStream();
-        },
+          onDone: () => {
+            if (streamAbortedRef.current) return;
+            updateMessage(botMsgId, { isStreaming: false, status: "sent" });
+            finishStream();
+          },
 
-        onError: (errorMessage: string, options?: StreamErrorOptions) => {
-          if (streamAbortedRef.current) return;
-          // Preserve partial message on error
-          updateMessage(botMsgId, { isStreaming: false });
+          onError: (errorMessage: string, options?: StreamErrorOptions) => {
+            if (streamAbortedRef.current) return;
+            // Preserve partial message on error
+            updateMessage(botMsgId, { isStreaming: false });
 
-          if (options?.rateLimited) {
-            const cooldownSeconds = options.retryAfterSeconds ?? 5;
-            isRateLimited.value = true;
-            rateLimitedRef.current = true;
-            rateLimitTimerRef.current = setTimeout(() => {
-              isRateLimited.value = false;
-              rateLimitedRef.current = false;
-              rateLimitTimerRef.current = null;
-            }, cooldownSeconds * 1000);
-          }
+            // The server needs consent first (withdrawn elsewhere, or the notice
+            // changed): put the "Start chat" lock back. The error line explains why.
+            if (options?.code === CONSENT_REQUIRED) {
+              applyConsentRequired(agentId, options);
+            }
 
-          showError(errorMessage);
-          finishStream();
-        },
+            if (options?.rateLimited) {
+              const cooldownSeconds = options.retryAfterSeconds ?? 5;
+              isRateLimited.value = true;
+              rateLimitedRef.current = true;
+              rateLimitTimerRef.current = setTimeout(() => {
+                isRateLimited.value = false;
+                rateLimitedRef.current = false;
+                rateLimitTimerRef.current = null;
+              }, cooldownSeconds * 1000);
+            }
 
-        onHandover: (state: string) =>
-          handleHandover(state as 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN'),
+            showError(errorMessage);
+            finishStream();
+          },
+
+          onHandover: (state: string) =>
+            handleHandover(state as "NONE" | "REQUESTED" | "ACTIVE_HUMAN"),
         },
         recentHistory,
       );
@@ -405,8 +437,8 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
 
     // Optimistically show their request immediately.
     addMessage({
-      id: generateMessageId('user'),
-      role: 'user',
+      id: generateMessageId("user"),
+      role: "user",
       content: "I'd like to talk to a human.",
       timestamp: new Date(),
     });
@@ -419,12 +451,14 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
         // Setting the state shows the handover-state-driven "connecting you…"
         // status line in the widget (survives reload — no fragile message).
         handoverState.value = res.handoverState;
-        if (res.handoverState !== 'NONE') {
+        if (res.handoverState !== "NONE") {
           persistHandoverSession(agentId, res.sessionId);
           startHandoverPolling();
         }
       } catch {
-        showError('Could not connect you to a human right now. Please try again.');
+        showError(
+          "Could not connect you to a human right now. Please try again.",
+        );
       }
     })();
   }, [agentId, showError, startHandoverPolling]);
@@ -440,15 +474,15 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     if (streamHandleRef.current && streamContentRef.current) return;
     streamHandleRef.current?.abort();
     finishStream();
-    showError('Response took too long. Please try again.');
+    showError("Response took too long. Please try again.");
   }, [finishStream, showError]);
 
   // ── Voice message helpers (Story 5-20) ──────────────────────────────
 
   const addUserMessage = useCallback((text: string) => {
     const userMsg: Message = {
-      id: generateMessageId('user'),
-      role: 'user',
+      id: generateMessageId("user"),
+      role: "user",
       content: text,
       timestamp: new Date(),
     };
@@ -456,11 +490,11 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
   }, []);
 
   const createBotMessage = useCallback((): string => {
-    const botMsgId = generateMessageId('bot');
+    const botMsgId = generateMessageId("bot");
     const botMsg: Message = {
       id: botMsgId,
-      role: 'assistant',
-      content: '',
+      role: "assistant",
+      content: "",
       timestamp: new Date(),
       isStreaming: true,
     };
@@ -472,12 +506,15 @@ export function useChat({ agentId }: UseChatOptions): UseChatReturn {
     appendMessageContent(botMsgId, text);
   }, []);
 
-  const finalizeBotMessage = useCallback((botMsgId: string, fullText?: string) => {
-    updateMessage(botMsgId, {
-      isStreaming: false,
-      ...(fullText !== undefined ? { content: fullText } : {}),
-    });
-  }, []);
+  const finalizeBotMessage = useCallback(
+    (botMsgId: string, fullText?: string) => {
+      updateMessage(botMsgId, {
+        isStreaming: false,
+        ...(fullText !== undefined ? { content: fullText } : {}),
+      });
+    },
+    [],
+  );
 
   const setVoiceLoading = useCallback((loading: boolean) => {
     isLoading.value = loading;

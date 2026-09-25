@@ -7,15 +7,20 @@
  * Exports a singleton-style module (functions, not a class) for tree-shaking.
  */
 
-import type { SendMessageResponse } from '../types';
-import { getDeviceId } from '../utils/device-id';
-import { WidgetApiError, mapResponseError } from './api-errors';
-import { fetchWithRetry } from './fetch-utils';
-import { getSessionId, updateSession, handleSessionError } from './session-manager';
+import type { SendMessageResponse } from "../types";
+import type { ConsentNoticeView } from "./consent";
+import { getDeviceId, peekDeviceId } from "../utils/device-id";
+import { WidgetApiError, mapResponseError } from "./api-errors";
+import { fetchWithRetry } from "./fetch-utils";
+import {
+  getSessionId,
+  updateSession,
+  handleSessionError,
+} from "./session-manager";
 
 // ── Internal state ──────────────────────────────────────────────────
 
-let baseUrl = '';
+let baseUrl = "";
 
 /**
  * Initialise the API client with the backend base URL.
@@ -23,7 +28,7 @@ let baseUrl = '';
  * with the `apiBaseUrl` from the script tag (already parsed in config-loader).
  */
 export function initApiClient(apiBaseUrl: string): void {
-  baseUrl = apiBaseUrl.replace(/\/+$/, '');
+  baseUrl = apiBaseUrl.replace(/\/+$/, "");
 }
 
 /**
@@ -37,13 +42,16 @@ export function getApiBaseUrl(): string {
 
 // ── Helpers ─────────────────────────────────────────────────────────
 
-function buildHeaders(deviceId?: string, sessionId?: string): Record<string, string> {
+function buildHeaders(
+  deviceId?: string,
+  sessionId?: string,
+): Record<string, string> {
   const headers: Record<string, string> = {
-    'Content-Type': 'application/json',
+    "Content-Type": "application/json",
   };
   // Auto-resolve device ID if not explicitly provided (Story 5-16)
-  headers['X-Device-Id'] = deviceId ?? getDeviceId();
-  if (sessionId) headers['X-Session-Id'] = sessionId;
+  headers["X-Device-Id"] = deviceId ?? getDeviceId();
+  if (sessionId) headers["X-Session-Id"] = sessionId;
   return headers;
 }
 
@@ -51,7 +59,7 @@ function ensureInit(): void {
   if (!baseUrl) {
     throw new WidgetApiError({
       status: 0,
-      userMessage: 'Widget API client not initialised',
+      userMessage: "Widget API client not initialised",
       retryable: false,
     });
   }
@@ -73,12 +81,21 @@ export function warmupAgent(agentId: string): void {
   // Use fetch directly (no retry, no error mapping) — this is a hint, not a
   // contract. If it fails, the user just pays the cold-start tax on their
   // first message — same as before this function existed.
+  // Runs on page load, before the visitor touches the chat, so it must not
+  // create the device ID (see peekDeviceId). Send one only if it exists.
+  const existing = peekDeviceId();
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+  };
+  if (existing) headers["X-Device-Id"] = existing;
   void fetch(`${baseUrl}/api/klivo/v1/public/chat/warmup`, {
-    method: 'POST',
-    headers: buildHeaders(),
+    method: "POST",
+    headers,
     body: JSON.stringify({ agentId }),
     keepalive: true, // tolerate page unload races
-  }).catch(() => { /* swallow */ });
+  }).catch(() => {
+    /* swallow */
+  });
 }
 
 // ── sendMessage (Task 2) ────────────────────────────────────────────
@@ -101,9 +118,14 @@ export async function sendMessage(
 
   const url = `${baseUrl}/api/klivo/v1/public/chat/send`;
   const response = await fetchWithRetry(url, {
-    method: 'POST',
+    method: "POST",
     headers: buildHeaders(deviceId, resolvedSessionId),
-    body: JSON.stringify({ chatInput: message, agentId, sessionId: resolvedSessionId, source: 'WIDGET' }),
+    body: JSON.stringify({
+      chatInput: message,
+      agentId,
+      sessionId: resolvedSessionId,
+      source: "WIDGET",
+    }),
   });
 
   // Session expired — clear stale session and throw (Story 5-17, AC 3)
@@ -118,7 +140,7 @@ export async function sendMessage(
     if (body.error === true) {
       throw new WidgetApiError({
         status: 429,
-        userMessage: body.message ?? 'Too many requests. Please wait a moment.',
+        userMessage: body.message ?? "Too many requests. Please wait a moment.",
         retryable: true,
         retryAfterSeconds: body.retryAfterSeconds,
       });
@@ -150,7 +172,7 @@ export async function sendMessage(
  * from the SSE stream.
  */
 export interface ChatHistoryItem {
-  role: 'user' | 'assistant';
+  role: "user" | "assistant";
   content: string;
 }
 
@@ -159,14 +181,14 @@ export interface ChatHistoryItem {
 /** One message returned by the poll endpoint. */
 export interface PolledMessage {
   id: string;
-  role: 'USER' | 'ASSISTANT' | 'HUMAN_AGENT' | 'SYSTEM';
+  role: "USER" | "ASSISTANT" | "HUMAN_AGENT" | "SYSTEM";
   content: string;
   createdAt: string;
   author?: string | null;
 }
 
 export interface PollResponse {
-  handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN';
+  handoverState: "NONE" | "REQUESTED" | "ACTIVE_HUMAN";
   messages: PolledMessage[];
 }
 
@@ -186,9 +208,12 @@ export async function pollSession(
   // agentId rides along as a query param so the widget-CORS middleware can
   // resolve this GET's allowedDomains — the URL itself carries only sessionId.
   const params = new URLSearchParams({ agentId });
-  if (afterIso) params.set('after', afterIso);
+  if (afterIso) params.set("after", afterIso);
   const url = `${baseUrl}/api/klivo/v1/public/chat/${encodeURIComponent(sessionId)}/poll?${params.toString()}`;
-  const response = await fetchWithRetry(url, { method: 'GET', headers: buildHeaders(undefined, sessionId) });
+  const response = await fetchWithRetry(url, {
+    method: "GET",
+    headers: buildHeaders(undefined, sessionId),
+  });
 
   if (response.status === 404 || response.status === 410) {
     handleSessionError(agentId, response.status);
@@ -204,7 +229,7 @@ export async function pollSession(
 
 export interface RequestHumanResponse {
   sessionId: string;
-  handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN';
+  handoverState: "NONE" | "REQUESTED" | "ACTIVE_HUMAN";
 }
 
 /**
@@ -221,9 +246,9 @@ export async function requestHuman(
   ensureInit();
   const url = `${baseUrl}/api/klivo/v1/public/chat/request-human`;
   const response = await fetchWithRetry(url, {
-    method: 'POST',
+    method: "POST",
     headers: buildHeaders(undefined, sessionId),
-    body: JSON.stringify({ agentId, sessionId, source: 'WIDGET' }),
+    body: JSON.stringify({ agentId, sessionId, source: "WIDGET" }),
   });
 
   if (response.status === 404 || response.status === 410) {
@@ -235,7 +260,7 @@ export async function requestHuman(
     if (body.error === true) {
       throw new WidgetApiError({
         status: 429,
-        userMessage: body.message ?? 'Too many requests. Please wait a moment.',
+        userMessage: body.message ?? "Too many requests. Please wait a moment.",
         retryable: true,
         retryAfterSeconds: body.retryAfterSeconds,
       });
@@ -260,7 +285,7 @@ export async function streamMessage(
 
   const url = `${baseUrl}/api/klivo/v1/public/chat/stream`;
   const headers = buildHeaders(deviceId, resolvedSessionId);
-  headers['Accept'] = 'text/event-stream';
+  headers["Accept"] = "text/event-stream";
 
   // Send client-held history so the backend can skip its DB lookup for prior
   // messages — saves ~150-450ms per turn. Send the array even when empty
@@ -270,7 +295,7 @@ export async function streamMessage(
     chatInput: message,
     agentId,
     sessionId: resolvedSessionId,
-    source: 'WIDGET',
+    source: "WIDGET",
     recentHistory: recentHistory ?? [],
   };
 
@@ -280,7 +305,7 @@ export async function streamMessage(
   // saved the message / triggered the AI pipeline.
   const response = await fetchWithRetry(
     url,
-    { method: 'POST', headers, body: JSON.stringify(body), signal },
+    { method: "POST", headers, body: JSON.stringify(body), signal },
     90_000,
     false,
   );
@@ -295,5 +320,74 @@ export async function streamMessage(
     return response.body.getReader();
   }
 
+  throw await mapResponseError(response);
+}
+
+// ── Consent (ADR-0004) ──────────────────────────────────────────────
+
+export type ConsentDecisionResult =
+  | { ok: true; recorded: boolean }
+  | {
+      ok: false;
+      noticeChanged: { notice: ConsentNoticeView; noticeHash: string };
+    };
+
+/**
+ * Record the visitor's decision on the chat-start privacy notice.
+ *
+ * POST {baseUrl}/api/klivo/v1/public/consent
+ *
+ * Sends the device ID (creating it if needed): this is the visitor's first
+ * use of the chat, and the ID is the key the server stores the decision under.
+ * A 409 means the notice changed after the widget loaded it; the body carries
+ * the current notice so the visitor can read it and decide again.
+ */
+export async function postConsentDecision(
+  agentId: string,
+  action: "GRANT" | "WITHDRAW",
+  noticeHash?: string,
+): Promise<ConsentDecisionResult> {
+  ensureInit();
+  const response = await fetchWithRetry(
+    `${baseUrl}/api/klivo/v1/public/consent`,
+    {
+      method: "POST",
+      headers: buildHeaders(),
+      body: JSON.stringify({
+        agentId,
+        action,
+        ...(noticeHash ? { noticeHash } : {}),
+      }),
+    },
+    15_000,
+    false,
+  );
+
+  if (response.ok) {
+    const body = (await response.json().catch(() => ({}))) as {
+      recorded?: boolean;
+    };
+    return { ok: true, recorded: body.recorded === true };
+  }
+  if (response.status === 409) {
+    const body = (await response
+      .clone()
+      .json()
+      .catch(() => null)) as {
+      code?: string;
+      notice?: ConsentNoticeView;
+      noticeHash?: string;
+    } | null;
+    if (
+      body?.code === "CONSENT_NOTICE_CHANGED" &&
+      body.notice &&
+      body.noticeHash
+    ) {
+      return {
+        ok: false,
+        noticeChanged: { notice: body.notice, noticeHash: body.noticeHash },
+      };
+    }
+  }
   throw await mapResponseError(response);
 }

@@ -7,8 +7,8 @@
  * - Imports getSessionId/getDeviceId from widget services
  */
 
-import { getDeviceId } from '../utils/device-id';
-import { getSessionId } from './session-manager';
+import { getDeviceId } from "../utils/device-id";
+import { getSessionId } from "./session-manager";
 
 // ── Types (mirrors backend voice-stream.interface.ts) ──
 
@@ -39,7 +39,7 @@ export interface VoiceConversationResponse {
 }
 
 export interface VoiceAudioChunk {
-  type: 'audio';
+  type: "audio";
   sentenceIndex: number;
   text: string;
   audio: string; // base64
@@ -49,13 +49,13 @@ export interface VoiceAudioChunk {
 }
 
 export interface VoiceEndChunk {
-  type: 'end';
+  type: "end";
   fullText: string;
   totalSentences: number;
 }
 
 export interface VoiceTranscriptionChunk {
-  type: 'transcription';
+  type: "transcription";
   /** External public sessionId — round-trip this on subsequent voice/chat
    *  requests so the conversation continues in the same session. The
    *  X-Session-Id header is the INTERNAL DB id and won't resolve server-side. */
@@ -67,7 +67,7 @@ export interface VoiceTranscriptionChunk {
 }
 
 export interface VoiceErrorChunk {
-  type: 'error';
+  type: "error";
   errorCode: string;
   message: string;
   sentenceIndex?: number;
@@ -76,18 +76,18 @@ export interface VoiceErrorChunk {
 /** A handover was raised on this voice turn (e.g. the caller asked for a human).
  *  The widget shows the "connecting" line + polls for the teammate's replies. */
 export interface VoiceHandoverChunk {
-  type: 'handover';
+  type: "handover";
   sessionId: string;
-  handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN';
+  handoverState: "NONE" | "REQUESTED" | "ACTIVE_HUMAN";
 }
 
 /** A voice turn arrived while a human already had the chat (ACTIVE_HUMAN): the
  *  bot stays silent and the caller's words are queued for the teammate. Treated
  *  like a handover ping so the widget shows the live-agent state + polls. */
 export interface VoicePausedChunk {
-  type: 'paused';
+  type: "paused";
   sessionId: string;
-  handoverState: 'ACTIVE_HUMAN';
+  handoverState: "ACTIVE_HUMAN";
 }
 
 export type VoiceStreamChunk =
@@ -103,39 +103,52 @@ export interface StreamVoiceCallbacks {
   onAudioChunk?: (chunk: VoiceAudioChunk) => void;
   onComplete?: (fullText: string, totalSentences: number) => void;
   onError?: (errorCode: string, message: string) => void;
-  onHandover?: (handoverState: 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN') => void;
+  onHandover?: (handoverState: "NONE" | "REQUESTED" | "ACTIVE_HUMAN") => void;
 }
 
 export class VoiceApiError extends Error {
   status: number;
   statusText: string;
   errorCode: string | null;
+  /** On CONSENT_REQUIRED: the live notice and its hash. */
+  consent?: {
+    notice?: import("./consent").ConsentNoticeView;
+    noticeHash?: string;
+  };
 
-  constructor(response: Response, errorCode?: string) {
+  constructor(
+    response: Response,
+    errorCode?: string,
+    consent?: {
+      notice?: import("./consent").ConsentNoticeView;
+      noticeHash?: string;
+    },
+  ) {
     super(`Voice API error: ${response.status} ${response.statusText}`);
-    this.name = 'VoiceApiError';
+    this.name = "VoiceApiError";
     this.status = response.status;
     this.statusText = response.statusText;
     this.errorCode = errorCode ?? null;
+    this.consent = consent;
   }
 }
 
 // ── Internal state ──
 
-let baseUrl = '';
+let baseUrl = "";
 
 export function initVoiceClient(apiBaseUrl: string): void {
-  baseUrl = apiBaseUrl.replace(/\/+$/, '');
+  baseUrl = apiBaseUrl.replace(/\/+$/, "");
 }
 
 // ── Helpers ──
 
 function blobExtension(blob: Blob): string {
   const type = blob.type;
-  if (type.includes('webm')) return 'webm';
-  if (type.includes('mp4') || type.includes('aac')) return 'mp4';
-  if (type.includes('ogg')) return 'ogg';
-  return 'webm';
+  if (type.includes("webm")) return "webm";
+  if (type.includes("mp4") || type.includes("aac")) return "mp4";
+  if (type.includes("ogg")) return "ogg";
+  return "webm";
 }
 
 function buildFormData(params: {
@@ -146,11 +159,11 @@ function buildFormData(params: {
 }): FormData {
   const formData = new FormData();
   const ext = blobExtension(params.audio);
-  formData.append('audio', params.audio, `recording.${ext}`);
-  formData.append('agentId', params.agentId);
-  formData.append('source', 'WIDGET');
-  if (params.sessionId) formData.append('sessionId', params.sessionId);
-  if (params.languageHint) formData.append('languageHint', params.languageHint);
+  formData.append("audio", params.audio, `recording.${ext}`);
+  formData.append("agentId", params.agentId);
+  formData.append("source", "WIDGET");
+  if (params.sessionId) formData.append("sessionId", params.sessionId);
+  if (params.languageHint) formData.append("languageHint", params.languageHint);
   return formData;
 }
 
@@ -160,10 +173,10 @@ function voiceUrl(agentId: string): string {
 
 function buildHeaders(sessionId?: string): Record<string, string> {
   const headers: Record<string, string> = {
-    'X-Device-Id': getDeviceId(),
+    "X-Device-Id": getDeviceId(),
   };
   if (sessionId) {
-    headers['X-Session-Id'] = sessionId;
+    headers["X-Session-Id"] = sessionId;
   }
   return headers;
 }
@@ -183,7 +196,7 @@ export async function streamVoiceConversation(params: {
   callbacks: StreamVoiceCallbacks;
 }): Promise<{ sessionId: string | null; messageId: string | null }> {
   if (!baseUrl) {
-    throw new Error('Voice client not initialised');
+    throw new Error("Voice client not initialised");
   }
 
   const resolvedSessionId = params.sessionId ?? getSessionId() ?? undefined;
@@ -195,9 +208,9 @@ export async function streamVoiceConversation(params: {
   });
 
   const response = await fetch(voiceUrl(params.agentId), {
-    method: 'POST',
+    method: "POST",
     headers: {
-      Accept: 'application/x-ndjson',
+      Accept: "application/x-ndjson",
       ...buildHeaders(resolvedSessionId),
     },
     body: formData,
@@ -206,13 +219,21 @@ export async function streamVoiceConversation(params: {
 
   if (!response.ok) {
     let errorCode: string | undefined;
+    let consent:
+      | { notice?: import("./consent").ConsentNoticeView; noticeHash?: string }
+      | undefined;
     try {
       const body = await response.json();
-      errorCode = body?.errorCode;
+      // Voice's own errors use `errorCode`; a Nest exception (the consent gate
+      // at session creation) uses `code`. Read both.
+      errorCode = body?.errorCode ?? body?.code;
+      if (body?.notice && body?.noticeHash) {
+        consent = { notice: body.notice, noticeHash: body.noticeHash };
+      }
     } catch {
       // Response body not JSON
     }
-    throw new VoiceApiError(response, errorCode);
+    throw new VoiceApiError(response, errorCode, consent);
   }
 
   // NOTE: the X-Session-Id header carries the INTERNAL DB id, while the server
@@ -220,23 +241,23 @@ export async function streamVoiceConversation(params: {
   // transcription chunk (NDJSON path) is the source of truth — its sessionId
   // field is the external value. We initialise from the header as a fallback
   // for the JSON-only legacy path, then override below.
-  let sessionId = response.headers.get('X-Session-Id');
-  const messageId = response.headers.get('X-Message-Id');
-  const contentType = response.headers.get('Content-Type') ?? '';
+  let sessionId = response.headers.get("X-Session-Id");
+  const messageId = response.headers.get("X-Message-Id");
+  const contentType = response.headers.get("Content-Type") ?? "";
 
   // If backend returned JSON (legacy fallback), parse and map to callbacks
-  if (contentType.includes('application/json')) {
+  if (contentType.includes("application/json")) {
     const result: VoiceConversationResponse = await response.json();
     if (result.transcription) {
       params.callbacks.onTranscription?.(result.transcription.text);
     }
     if (result.response?.audio) {
       params.callbacks.onAudioChunk?.({
-        type: 'audio',
+        type: "audio",
         sentenceIndex: 0,
         text: result.response.text,
         audio: result.response.audio,
-        audioFormat: result.response.audioFormat ?? 'audio/mp3',
+        audioFormat: result.response.audioFormat ?? "audio/mp3",
         audioDurationMs: result.response.audioDurationMs,
         ttsLatencyMs: result.metrics?.ttsLatencyMs ?? 0,
       });
@@ -245,20 +266,26 @@ export async function streamVoiceConversation(params: {
       params.callbacks.onComplete?.(result.response.text, 1);
     }
     if (result.ttsError) {
-      params.callbacks.onError?.(result.ttsError.errorCode, result.ttsError.message);
+      params.callbacks.onError?.(
+        result.ttsError.errorCode,
+        result.ttsError.message,
+      );
     }
-    return { sessionId: result.sessionId ?? sessionId, messageId: result.messageId ?? messageId };
+    return {
+      sessionId: result.sessionId ?? sessionId,
+      messageId: result.messageId ?? messageId,
+    };
   }
 
   // NDJSON streaming path
   const body = response.body;
   if (!body) {
-    throw new Error('No response body for streaming voice');
+    throw new Error("No response body for streaming voice");
   }
 
   const reader = body.getReader();
   const decoder = new TextDecoder();
-  let buffer = '';
+  let buffer = "";
 
   try {
     while (true) {
@@ -266,8 +293,8 @@ export async function streamVoiceConversation(params: {
       if (done) break;
 
       buffer += decoder.decode(value, { stream: true });
-      const lines = buffer.split('\n');
-      buffer = lines.pop() ?? '';
+      const lines = buffer.split("\n");
+      buffer = lines.pop() ?? "";
 
       for (const line of lines) {
         const trimmed = line.trim();
@@ -281,24 +308,24 @@ export async function streamVoiceConversation(params: {
         }
 
         switch (chunk.type) {
-          case 'transcription':
+          case "transcription":
             // First chunk of the stream — carries the external sessionId we
             // round-trip on the next request. Overrides the X-Session-Id
             // header value (which is the internal DB id).
             if (chunk.sessionId) sessionId = chunk.sessionId;
             params.callbacks.onTranscription?.(chunk.text);
             break;
-          case 'audio':
+          case "audio":
             params.callbacks.onAudioChunk?.(chunk);
             break;
-          case 'end':
+          case "end":
             params.callbacks.onComplete?.(chunk.fullText, chunk.totalSentences);
             break;
-          case 'error':
+          case "error":
             params.callbacks.onError?.(chunk.errorCode, chunk.message);
             break;
-          case 'handover':
-          case 'paused':
+          case "handover":
+          case "paused":
             params.callbacks.onHandover?.(chunk.handoverState);
             break;
         }
@@ -309,11 +336,15 @@ export async function streamVoiceConversation(params: {
     if (buffer.trim()) {
       try {
         const chunk = JSON.parse(buffer.trim()) as VoiceStreamChunk;
-        if (chunk.type === 'transcription') params.callbacks.onTranscription?.(chunk.text);
-        else if (chunk.type === 'audio') params.callbacks.onAudioChunk?.(chunk);
-        else if (chunk.type === 'end') params.callbacks.onComplete?.(chunk.fullText, chunk.totalSentences);
-        else if (chunk.type === 'error') params.callbacks.onError?.(chunk.errorCode, chunk.message);
-        else if (chunk.type === 'handover' || chunk.type === 'paused') params.callbacks.onHandover?.(chunk.handoverState);
+        if (chunk.type === "transcription")
+          params.callbacks.onTranscription?.(chunk.text);
+        else if (chunk.type === "audio") params.callbacks.onAudioChunk?.(chunk);
+        else if (chunk.type === "end")
+          params.callbacks.onComplete?.(chunk.fullText, chunk.totalSentences);
+        else if (chunk.type === "error")
+          params.callbacks.onError?.(chunk.errorCode, chunk.message);
+        else if (chunk.type === "handover" || chunk.type === "paused")
+          params.callbacks.onHandover?.(chunk.handoverState);
       } catch {
         // ignore malformed trailing chunk
       }

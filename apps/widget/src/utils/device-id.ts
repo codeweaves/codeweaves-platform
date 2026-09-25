@@ -6,9 +6,10 @@
  * UUID generation: native crypto APIs only (no external libraries).
  */
 
-const STORAGE_KEY = 'cw_device_id';
+const STORAGE_KEY = "cw_device_id";
 const COOKIE_MAX_AGE = 31536000; // 1 year in seconds
-const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
+const UUID_RE =
+  /^[0-9a-f]{8}-[0-9a-f]{4}-4[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i;
 
 // Module-level cache — ensures consistency within a page session (AC 3).
 let cachedDeviceId: string | null = null;
@@ -16,15 +17,21 @@ let cachedDeviceId: string | null = null;
 // ── UUID Generation (Task 1, AC 4) ─────────────────────────────────
 
 function generateUUID(): string {
-  if (typeof crypto !== 'undefined' && typeof crypto.randomUUID === 'function') {
+  if (
+    typeof crypto !== "undefined" &&
+    typeof crypto.randomUUID === "function"
+  ) {
     return crypto.randomUUID();
   }
 
-  if (typeof crypto === 'undefined' || typeof crypto.getRandomValues !== 'function') {
+  if (
+    typeof crypto === "undefined" ||
+    typeof crypto.getRandomValues !== "function"
+  ) {
     // No Web Crypto at all — fallback to Math.random (very rare: old WebViews on HTTP)
-    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, (c) => {
+    return "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
       const r = (Math.random() * 16) | 0;
-      return (c === 'x' ? r : (r & 0x3) | 0x8).toString(16);
+      return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
     });
   }
 
@@ -33,17 +40,17 @@ function generateUUID(): string {
   bytes[6] = (bytes[6]! & 0x0f) | 0x40; // version 4
   bytes[8] = (bytes[8]! & 0x3f) | 0x80; // variant 1
 
-  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, '0'));
+  const hex = Array.from(bytes, (b) => b.toString(16).padStart(2, "0"));
   return (
-    hex.slice(0, 4).join('') +
-    '-' +
-    hex.slice(4, 6).join('') +
-    '-' +
-    hex.slice(6, 8).join('') +
-    '-' +
-    hex.slice(8, 10).join('') +
-    '-' +
-    hex.slice(10).join('')
+    hex.slice(0, 4).join("") +
+    "-" +
+    hex.slice(4, 6).join("") +
+    "-" +
+    hex.slice(6, 8).join("") +
+    "-" +
+    hex.slice(8, 10).join("") +
+    "-" +
+    hex.slice(10).join("")
   );
 }
 
@@ -67,7 +74,7 @@ function writeLocalStorage(id: string): boolean {
     localStorage.setItem(STORAGE_KEY, id);
     return true;
   } catch {
-    console.warn('[CodeWeaves] localStorage unavailable, using fallback');
+    console.warn("[CodeWeaves] localStorage unavailable, using fallback");
     return false;
   }
 }
@@ -75,7 +82,7 @@ function writeLocalStorage(id: string): boolean {
 function readCookie(): string | null {
   try {
     const match = document.cookie
-      .split(';')
+      .split(";")
       .map((c) => c.trim())
       .find((c) => c.startsWith(`${STORAGE_KEY}=`));
     if (!match) return null;
@@ -88,7 +95,7 @@ function readCookie(): string | null {
 
 function writeCookie(id: string): boolean {
   try {
-    const secure = location.protocol === 'https:' ? '; Secure' : '';
+    const secure = location.protocol === "https:" ? "; Secure" : "";
     document.cookie = `${STORAGE_KEY}=${id}; max-age=${COOKIE_MAX_AGE}; path=/; SameSite=Lax${secure}`;
     // Verify the write succeeded (cookies silently fail in cross-origin iframes)
     return readCookie() === id;
@@ -100,7 +107,9 @@ function writeCookie(id: string): boolean {
 function persist(id: string): void {
   if (writeLocalStorage(id)) return;
   if (writeCookie(id)) return;
-  console.warn('[CodeWeaves] All persistent storage unavailable, device ID is session-only');
+  console.warn(
+    "[CodeWeaves] All persistent storage unavailable, device ID is session-only",
+  );
 }
 
 // ── Public API (Task 3, AC 1, 2, 3) ────────────────────────────────
@@ -133,6 +142,21 @@ export function getDeviceId(): string {
   cachedDeviceId = generateUUID();
   persist(cachedDeviceId);
   return cachedDeviceId;
+}
+
+/**
+ * The device ID this browser already has, or null. Never creates one.
+ *
+ * For calls made before the visitor uses the chat (the load-time warmup): the
+ * ID is set on first use of the chat, the service the visitor asked for, not
+ * on page load (EDPB 2/2023 on terminal storage). The server falls back to the
+ * IP for rate limiting when the header is absent.
+ */
+export function peekDeviceId(): string | null {
+  if (cachedDeviceId) return cachedDeviceId;
+  const stored = readLocalStorage() ?? readCookie();
+  if (stored) cachedDeviceId = stored;
+  return stored;
 }
 
 /**

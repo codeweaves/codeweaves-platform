@@ -6,11 +6,11 @@
  * callbacks for progressive message rendering.
  */
 
-import { streamMessage, type ChatHistoryItem } from './api-client';
-import { WidgetApiError } from './api-errors';
-import { updateSession } from './session-manager';
-import { parseSSEStream } from '../utils/sse-parser';
-import type { SSEEvent } from '../utils/sse-parser';
+import { streamMessage, type ChatHistoryItem } from "./api-client";
+import { WidgetApiError } from "./api-errors";
+import { updateSession } from "./session-manager";
+import { parseSSEStream } from "../utils/sse-parser";
+import type { SSEEvent } from "../utils/sse-parser";
 
 /** Inactivity timeout: 60 seconds with no data = assume dead connection */
 const STREAM_INACTIVITY_TIMEOUT_MS = 60_000;
@@ -18,6 +18,11 @@ const STREAM_INACTIVITY_TIMEOUT_MS = 60_000;
 export interface StreamErrorOptions {
   rateLimited?: boolean;
   retryAfterSeconds?: number;
+  /** Machine-readable server code, e.g. CONSENT_REQUIRED. */
+  code?: string;
+  /** On CONSENT_REQUIRED: the live notice and its hash. */
+  notice?: import("./consent").ConsentNoticeView;
+  noticeHash?: string;
 }
 
 export interface StreamCallbacks {
@@ -26,7 +31,11 @@ export interface StreamCallbacks {
   /** Called on subsequent chunks — append content to message */
   onChunk: (content: string) => void;
   /** Called when stream completes successfully */
-  onDone: (sessionId: string, messageId: string, metadata: Record<string, unknown>) => void;
+  onDone: (
+    sessionId: string,
+    messageId: string,
+    metadata: Record<string, unknown>,
+  ) => void;
   /** Called on error (backend error event, timeout, or network failure) */
   onError: (message: string, options?: StreamErrorOptions) => void;
   /** Called when the backend reports a handover state (on `paused` or `done`). */
@@ -69,7 +78,7 @@ export function startStream(
       if (!aborted) {
         aborted = true;
         abortController.abort();
-        callbacks.onError('Response timed out');
+        callbacks.onError("Response timed out");
       }
     }, STREAM_INACTIVITY_TIMEOUT_MS);
   }
@@ -100,7 +109,7 @@ export function startStream(
       // P1: If stream ended naturally without a done/error event, notify caller
       if (!aborted && !receivedDone) {
         aborted = true;
-        callbacks.onError('Stream ended unexpectedly');
+        callbacks.onError("Stream ended unexpectedly");
       }
     } catch (err: unknown) {
       clearInactivityTimeout();
@@ -116,14 +125,14 @@ export function startStream(
         return;
       }
 
-      const message = err instanceof Error ? err.message : 'Connection error';
+      const message = err instanceof Error ? err.message : "Connection error";
       callbacks.onError(message);
     }
   })();
 
   function handleEvent(event: SSEEvent): void {
     switch (event.type) {
-      case 'session':
+      case "session":
         // Early session event arrives BEFORE the LLM responds (server flushes
         // headers + writes this after resolving the session). Persist the
         // session ID right away so the next turn's recentHistory and sessionId
@@ -131,7 +140,7 @@ export function startStream(
         // uses for its "Session: …" badge — clean acknowledge before content.
         updateSession(agentId, event.sessionId);
         break;
-      case 'chunk':
+      case "chunk":
         // P7: Skip empty content chunks to avoid creating empty bubbles
         if (!event.content) break;
 
@@ -143,14 +152,14 @@ export function startStream(
         }
         break;
 
-      case 'paused':
+      case "paused":
         // A human has taken over — no AI reply this turn. Inform the caller so
         // it can start polling for the human's messages. The `done` event that
         // follows ends the turn normally (no bot bubble was created).
         callbacks.onHandover?.(event.handoverState);
         break;
 
-      case 'done':
+      case "done":
         aborted = true; // Prevent timeout from firing after done
         receivedDone = true;
         clearInactivityTimeout();
@@ -159,10 +168,19 @@ export function startStream(
         callbacks.onDone(event.sessionId, event.messageId, event.metadata);
         break;
 
-      case 'error':
+      case "error":
         aborted = true;
         clearInactivityTimeout();
-        callbacks.onError(event.message);
+        callbacks.onError(
+          event.message,
+          event.code
+            ? {
+                code: event.code,
+                notice: event.notice,
+                noticeHash: event.noticeHash,
+              }
+            : undefined,
+        );
         break;
     }
   }

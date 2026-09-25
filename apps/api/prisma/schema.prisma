@@ -306,6 +306,7 @@ model Agent {
   collectedData           CollectedData[]
   chatSessions            ChatSession[]
   notifications           Notification[]
+  visitorConsents         VisitorConsent[]
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
   deletedAt               DateTime?
@@ -537,7 +538,17 @@ model ChatSession {
   agent               Agent           @relation(fields: [agentId], references: [id]) // RESTRICT: sessions are analytics data, must not cascade-delete with agent
   sessionId           String          @unique
   source              ChatSource      @default(DEMO)
-  visitorId           String? // IP address (web/widget) or phone number (WhatsApp)
+  // Who the visitor is, per channel (see ADR-0004): `vd_<HMAC of the widget's
+  // device ID>` for web + voice, the phone number for WhatsApp. Legacy web rows
+  // hold `vh_<HMAC of IP>`. Never an IP: many people share one IP (carrier NAT).
+  visitorId           String?
+  // Keyed hash of the client IP (`vh_…`). An attribute for abuse checks and
+  // evidence only, NOT an identity. Null for WhatsApp.
+  ipHash              String?         @db.VarChar(40)
+  // The consent event this conversation ran under (consent mode only). SetNull
+  // so erasing a visitor's consent rows never blocks on their sessions.
+  consentId           String?
+  consent             VisitorConsent? @relation(fields: [consentId], references: [id], onDelete: SetNull)
   status              SessionStatus   @default(ACTIVE)
   // Auto-generated concise title (5-8 words) derived from the first few
   // exchanges. Populated asynchronously after the 2nd assistant reply.
@@ -599,7 +610,50 @@ model ChatSession {
   @@index([extractionDueAt])
   // The Inbox lists sessions where handoverState != NONE, scoped per agent.
   @@index([agentId, handoverState])
+  // The SetNull FK above: without it, deleting a consent row scans every session.
+  @@index([consentId])
   @@map("chat_sessions")
+}
+
+enum ConsentAction {
+  GRANTED
+  WITHDRAWN
+}
+
+/// Append-only proof of a visitor's consent decisions (DPDP s.6(10): the data
+/// fiduciary must prove notice was given and consent was obtained). One row per
+/// event, never updated; the current state is the latest row for
+/// (agentId, visitorId). Each row carries a snapshot of exactly what the
+/// visitor saw, because agent_themes is overwritten in place on every save.
+/// See ADR-0004.
+model VisitorConsent {
+  id               String        @id @default(uuid())
+  // Denormalised tenancy scope: erasure and access summaries filter by org.
+  organizationId   String
+  agentId          String
+  agent            Agent         @relation(fields: [agentId], references: [id], onDelete: Cascade)
+  visitorId        String
+  source           ChatSource
+  action           ConsentAction
+  // How the decision was captured, e.g. WIDGET_BUTTON, WIDGET_WITHDRAW_LINK.
+  method           String        @db.VarChar(32)
+  // Snapshot of the notice at the moment of the decision.
+  noticeText       String        @db.Text
+  linkText         String        @db.VarChar(40)
+  privacyPolicyUrl String        @db.VarChar(2048)
+  buttonLabel      String        @db.VarChar(30)
+  // SHA-256 of the snapshot fields. The widget compares it with the live
+  // notice: a changed notice asks the visitor again.
+  noticeHash       String        @db.VarChar(64)
+  ipHash           String?       @db.VarChar(40)
+  createdAt        DateTime      @default(now())
+  sessions         ChatSession[]
+
+  // Latest decision for a visitor on an agent (the session-creation gate).
+  @@index([agentId, visitorId, createdAt])
+  // Org-scoped erasure / access summary.
+  @@index([organizationId, visitorId])
+  @@map("visitor_consents")
 }
 
 model ChatMessage {
