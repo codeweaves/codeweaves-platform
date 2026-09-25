@@ -21,6 +21,7 @@ import {
   resetStore,
 } from "../state/chat-store";
 import { signal } from "@preact/signals";
+import { FallbackImage } from "./FallbackImage";
 
 /** Callback registration for external control (global API) */
 let externalOpenFn: (() => void) | null = null;
@@ -508,11 +509,14 @@ export function Widget({ agentId, apiBaseUrl = "", hostElement }: WidgetProps) {
                it just looks shrunken with a ring of background colour around it.
                Inherits the launcher's radius rather than forcing a circle, so a
                square launcher gets a square icon. */
-            <img
+            <FallbackImage
               src={iconConfig.customImage}
               alt=""
               class="cw-launcher-image h-full w-full object-cover"
               style={{ borderRadius: `${iconRadius}%` }}
+              fallback={
+                <MessageCircleIcon class="cw-launcher-icon h-7 w-7 text-white" />
+              }
             />
           ) : (
             <MessageCircleIcon class="cw-launcher-icon h-7 w-7 text-white" />
