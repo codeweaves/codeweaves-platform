@@ -1,6 +1,6 @@
-import { Injectable } from '@nestjs/common';
+import { Injectable } from "@nestjs/common";
 
-import { detectPii, type PiiMatch } from './pii-patterns';
+import { detectPii, spliceMatches, type PiiMatch } from "./pii-patterns";
 
 /**
  * PiiDetectionService: stateless facade over the deterministic recognizers.
@@ -28,16 +28,12 @@ export class PiiDetectionService {
    */
   maskHardDrop(text: string): string {
     if (!text) return text;
-    const matches = detectPii(text).filter((m) => m.tier === 'HARD_DROP');
-    if (matches.length === 0) return text;
-    let out = '';
-    let cursor = 0;
-    for (const m of matches) {
-      out += text.slice(cursor, m.start) + (m.hardDropMask ?? `[${m.category} REDACTED]`);
-      cursor = m.end;
-    }
-    out += text.slice(cursor);
-    return out;
+    const matches = detectPii(text).filter((m) => m.tier === "HARD_DROP");
+    return spliceMatches(
+      text,
+      matches,
+      (m) => m.hardDropMask ?? `[${m.category} REDACTED]`,
+    );
   }
 
   /**
@@ -48,15 +44,7 @@ export class PiiDetectionService {
    */
   maskTokenizeTier(text: string): string {
     if (!text) return text;
-    const matches = detectPii(text).filter((m) => m.tier === 'TOKENIZE');
-    if (matches.length === 0) return text;
-    let out = '';
-    let cursor = 0;
-    for (const m of matches) {
-      out += text.slice(cursor, m.start) + `[${m.category} REDACTED]`;
-      cursor = m.end;
-    }
-    out += text.slice(cursor);
-    return out;
+    const matches = detectPii(text).filter((m) => m.tier === "TOKENIZE");
+    return spliceMatches(text, matches, (m) => `[${m.category} REDACTED]`);
   }
 }

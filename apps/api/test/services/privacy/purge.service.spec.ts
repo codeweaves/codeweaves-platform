@@ -14,7 +14,11 @@ describe("PurgeService", () => {
     piiToken: { deleteMany: jest.fn(), count: jest.fn() },
     chatTrace: { deleteMany: jest.fn(), count: jest.fn() },
     llmUsage: { deleteMany: jest.fn(), count: jest.fn() },
-    eventLog: { deleteMany: jest.fn(), count: jest.fn() },
+    eventLog: {
+      deleteMany: jest.fn(),
+      updateMany: jest.fn(),
+      count: jest.fn(),
+    },
     auditLog: { deleteMany: jest.fn() },
     organization: { findUnique: jest.fn(), delete: jest.fn() },
     agent: { findMany: jest.fn(), deleteMany: jest.fn() },
@@ -42,6 +46,7 @@ describe("PurgeService", () => {
     for (const table of Object.values(mockPrisma)) {
       const t = table as Record<string, jest.Mock>;
       t.deleteMany?.mockResolvedValue({ count: 0 });
+      t.updateMany?.mockResolvedValue({ count: 0 });
       t.findMany?.mockResolvedValue([]);
       t.count?.mockResolvedValue(0);
     }
@@ -85,7 +90,7 @@ describe("PurgeService", () => {
       mockPrisma.piiToken.deleteMany.mockResolvedValue({ count: 3 });
       mockPrisma.chatTrace.deleteMany.mockResolvedValue({ count: 5 });
       mockPrisma.llmUsage.deleteMany.mockResolvedValue({ count: 7 });
-      mockPrisma.eventLog.deleteMany.mockResolvedValue({ count: 9 });
+      mockPrisma.eventLog.updateMany.mockResolvedValue({ count: 9 });
       mockPrisma.chatSession.deleteMany.mockResolvedValue({ count: 2 });
 
       const result = await service.eraseVisitor(ORG, "vh_abc");
@@ -130,7 +135,7 @@ describe("PurgeService", () => {
 
       await service.eraseVisitor(ORG, "vh_abc");
 
-      const where = mockPrisma.eventLog.deleteMany.mock.calls[0]![0].where;
+      const where = mockPrisma.eventLog.updateMany.mock.calls[0]![0].where;
       // Every visitorId-based clause must carry an org/agent scope.
       const visitorClauses = where.OR.filter(
         (c: Record<string, unknown>) => "visitorId" in c,
@@ -290,7 +295,7 @@ describe("PurgeService", () => {
       // Read-only: a summary must never touch a deleteMany.
       expect(mockPrisma.chatSession.deleteMany).not.toHaveBeenCalled();
       expect(mockPrisma.piiToken.deleteMany).not.toHaveBeenCalled();
-      expect(mockPrisma.eventLog.deleteMany).not.toHaveBeenCalled();
+      expect(mockPrisma.eventLog.updateMany).not.toHaveBeenCalled();
     });
   });
 

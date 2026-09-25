@@ -1,9 +1,7 @@
-import type { ErrorEvent, EventHint } from '@sentry/nestjs';
+import type { ErrorEvent, EventHint } from "@sentry/nestjs";
 
-import {
-  SENSITIVE_HEADERS,
-  isSensitiveKey,
-} from '../events/redaction.util';
+import { SENSITIVE_HEADERS, isSensitiveKey } from "../events/redaction.util";
+import { maskPiiText } from "../../modules/pii/mask-pii";
 
 /**
  * Recursively redact values whose keys are sensitive.
@@ -12,8 +10,11 @@ import {
  */
 function scrubValue(value: unknown): unknown {
   if (value === null || value === undefined) return value;
+  // Request bodies, extra and contexts are KEPT for debugging; only PII inside
+  // their strings is masked (ADR-0005), with the same rules as event_logs.
+  if (typeof value === "string") return maskPiiText(value);
   if (Array.isArray(value)) return value.map(scrubValue);
-  if (typeof value === 'object') {
+  if (typeof value === "object") {
     return scrubObject(value as Record<string, unknown>);
   }
   return value;
@@ -23,7 +24,7 @@ function scrubObject(obj: Record<string, unknown>): Record<string, unknown> {
   const result: Record<string, unknown> = {};
   for (const [key, value] of Object.entries(obj)) {
     if (isSensitiveKey(key)) {
-      result[key] = '[REDACTED]';
+      result[key] = "[REDACTED]";
     } else {
       result[key] = scrubValue(value);
     }
@@ -37,9 +38,9 @@ function scrubObject(obj: Record<string, unknown>): Record<string, unknown> {
  */
 function scrubQueryString(qs: string): string {
   return qs
-    .split('&')
+    .split("&")
     .map((pair) => {
-      const eqIdx = pair.indexOf('=');
+      const eqIdx = pair.indexOf("=");
       if (eqIdx === -1) return pair;
       const key = pair.slice(0, eqIdx);
       if (isSensitiveKey(key)) {
@@ -47,36 +48,7 @@ function scrubQueryString(qs: string): string {
       }
       return pair;
     })
-    .join('&');
-}
-
-/**
- * Scrub a request body that Sentry may capture as EITHER a parsed object OR a
- * raw string (its default for many content types). A string body is JSON-parsed
- * so its keys can be scrubbed individually; if it isn't parseable JSON we cannot
- * inspect it safely, so the whole thing is dropped rather than risk shipping a
- * secret-bearing payload verbatim.
- */
-function scrubRequestData(data: unknown): unknown {
-  if (data === null || data === undefined) return data;
-
-  if (typeof data === 'string') {
-    try {
-      const parsed: unknown = JSON.parse(data);
-      if (parsed && typeof parsed === 'object') {
-        return JSON.stringify(scrubValue(parsed));
-      }
-    } catch {
-      // Not JSON — can't scrub per-key, so omit it entirely.
-    }
-    return '[REDACTED]';
-  }
-
-  if (typeof data === 'object') {
-    return scrubValue(data);
-  }
-
-  return data;
+    .join("&");
 }
 
 /**
@@ -89,7 +61,7 @@ function scrubRequestData(data: unknown): unknown {
 function scrubHeaders(headers: Record<string, unknown>): void {
   for (const key of Object.keys(headers)) {
     if (SENSITIVE_HEADERS.has(key.toLowerCase())) {
-      headers[key] = '[REDACTED]';
+      headers[key] = "[REDACTED]";
     }
   }
 }
@@ -102,21 +74,21 @@ function scrubHeaders(headers: Record<string, unknown>): void {
  * not secret). Handles both the parsed dictionary and a raw `a=1; b=2` string.
  */
 function scrubCookies(cookies: unknown): unknown {
-  if (typeof cookies === 'string') {
+  if (typeof cookies === "string") {
     return cookies
-      .split(';')
+      .split(";")
       .map((pair) => {
-        const eqIdx = pair.indexOf('=');
+        const eqIdx = pair.indexOf("=");
         if (eqIdx === -1) return pair.trim();
         return `${pair.slice(0, eqIdx).trim()}=[REDACTED]`;
       })
-      .join('; ');
+      .join("; ");
   }
-  if (cookies && typeof cookies === 'object') {
-    if (Array.isArray(cookies)) return cookies.map(() => '[REDACTED]');
+  if (cookies && typeof cookies === "object") {
+    if (Array.isArray(cookies)) return cookies.map(() => "[REDACTED]");
     const out: Record<string, unknown> = {};
     for (const key of Object.keys(cookies as Record<string, unknown>)) {
-      out[key] = '[REDACTED]';
+      out[key] = "[REDACTED]";
     }
     return out;
   }
@@ -126,8 +98,11 @@ function scrubCookies(cookies: unknown): unknown {
 /**
  * Sentry beforeSend callback that strips sensitive data from events.
  */
-// eslint-disable-next-line @typescript-eslint/no-unused-vars
-export function scrubSentryEvent(event: ErrorEvent, _hint: EventHint): ErrorEvent | null {
+export function scrubSentryEvent(
+  event: ErrorEvent,
+  // eslint-disable-next-line @typescript-eslint/no-unused-vars
+  _hint: EventHint,
+): ErrorEvent | null {
   // Scrub request headers (denylist, case-insensitive)
   if (event.request?.headers) {
     scrubHeaders(event.request.headers as Record<string, unknown>);
@@ -140,13 +115,18 @@ export function scrubSentryEvent(event: ErrorEvent, _hint: EventHint): ErrorEven
   }
 
   // Scrub request query string
-  if (event.request?.query_string && typeof event.request.query_string === 'string') {
+  if (
+    event.request?.query_string &&
+    typeof event.request.query_string === "string"
+  ) {
     event.request.query_string = scrubQueryString(event.request.query_string);
   }
 
-  // Scrub request data (body) — object OR raw string
+  // Request bodies never leave our servers (ADR-0005). Sentry needs the error,
+  // the stack and the route to tell us what broke; the full body is in our own
+  // event_logs (PII masked), found by the correlationId tag on this event.
   if (event.request?.data !== undefined && event.request?.data !== null) {
-    event.request.data = scrubRequestData(event.request.data);
+    event.request.data = "[omitted: see event_logs by correlationId]";
   }
 
   // Scrub extra context
@@ -154,11 +134,23 @@ export function scrubSentryEvent(event: ErrorEvent, _hint: EventHint): ErrorEven
     event.extra = scrubObject(event.extra as Record<string, unknown>);
   }
 
+  // Exception messages and breadcrumbs can quote user input (a validation
+  // error echoing a field, a log line). Masked the same way.
+  if (event.message) event.message = maskPiiText(event.message);
+  for (const ex of event.exception?.values ?? []) {
+    if (ex.value) ex.value = maskPiiText(ex.value);
+  }
+  for (const crumb of event.breadcrumbs ?? []) {
+    if (crumb.message) crumb.message = maskPiiText(crumb.message);
+    if (crumb.data)
+      crumb.data = scrubObject(crumb.data as Record<string, unknown>);
+  }
+
   // Scrub structured contexts (Sentry stores arbitrary metadata blocks here)
   if (event.contexts) {
     event.contexts = scrubObject(
       event.contexts as Record<string, unknown>,
-    ) as ErrorEvent['contexts'];
+    ) as ErrorEvent["contexts"];
   }
 
   return event;

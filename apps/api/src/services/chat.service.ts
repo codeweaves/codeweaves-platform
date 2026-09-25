@@ -458,13 +458,10 @@ export class ChatService {
   static isPiiRedactionEnabled(
     aiConfig: Prisma.JsonValue | null | undefined,
   ): boolean {
-    // Default ON (compliance floor, mirrors the aiConfig schema default). Off
-    // only when an agent EXPLICITLY sets piiRedactionEnabled=false.
-    if (aiConfig && typeof aiConfig === "object" && !Array.isArray(aiConfig)) {
-      return (
-        (aiConfig as Record<string, unknown>).piiRedactionEnabled !== false
-      );
-    }
+    // Always ON (ADR-0005). A stored piiRedactionEnabled=false from before the
+    // editor toggle was removed is ignored. The parameter stays so every
+    // channel keeps one call site to change if this ever becomes a choice.
+    void aiConfig;
     return true;
   }
 

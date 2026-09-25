@@ -1,43 +1,40 @@
-import { Injectable, Logger } from '@nestjs/common';
-import type { Agent, AgentDataField } from '@prisma/client';
-import {
-  agentAiConfigSchema,
-  type AgentAiConfigDto,
-} from '@repo/validation';
-import type { ModelMessage } from 'ai';
+import { Injectable, Logger } from "@nestjs/common";
+import type { Agent, AgentDataField } from "@prisma/client";
+import { agentAiConfigSchema, type AgentAiConfigDto } from "@repo/validation";
+import type { ModelMessage } from "ai";
 
-import { AgentCacheService } from '../../common/cache/agent-cache.service';
-import { AppLogger } from '../../common/logger/app-logger';
-import { PiiDetectionService } from '../pii/pii-detection.service';
+import { AgentCacheService } from "../../common/cache/agent-cache.service";
+import { AppLogger } from "../../common/logger/app-logger";
+import { PiiDetectionService } from "../pii/pii-detection.service";
 import {
   PiiTokenizerService,
   type PiiSessionContext,
-} from '../pii/pii-tokenizer.service';
-import { StreamDetokenizer } from '../pii/stream-detokenizer';
-import { DataExtractionService } from '../../services/data-extraction.service';
-import { PrismaService } from '../../services/prisma.service';
+} from "../pii/pii-tokenizer.service";
+import { StreamDetokenizer } from "../pii/stream-detokenizer";
+import { DataExtractionService } from "../../services/data-extraction.service";
+import { PrismaService } from "../../services/prisma.service";
 
-import { AiSdkService } from './ai-sdk.service';
-import { ContextAssemblyService } from './context-assembly.service';
+import { AiSdkService } from "./ai-sdk.service";
+import { ContextAssemblyService } from "./context-assembly.service";
 import type {
   DirectChatRequest,
   DirectChatResult,
   DirectChatStreamChunk,
-} from './interfaces/direct-chat.interfaces';
-import type { LlmStreamChunk } from './interfaces/llm.interfaces';
-import { LlmService } from './llm.service';
-import { PromptTemplateService } from './prompt-template.service';
-import { HybridContextStrategy } from './strategies/hybrid-context.strategy';
-import { SummaryRefreshService } from './summary-refresh.service';
-import type { TraceContext } from './trace/ai-trace.interfaces';
-import { AiTraceService } from './trace/ai-trace.service';
-import { UsageTrackingService } from './usage-tracking.service';
+} from "./interfaces/direct-chat.interfaces";
+import type { LlmStreamChunk } from "./interfaces/llm.interfaces";
+import { LlmService } from "./llm.service";
+import { PromptTemplateService } from "./prompt-template.service";
+import { HybridContextStrategy } from "./strategies/hybrid-context.strategy";
+import { SummaryRefreshService } from "./summary-refresh.service";
+import type { TraceContext } from "./trace/ai-trace.interfaces";
+import { AiTraceService } from "./trace/ai-trace.service";
+import { UsageTrackingService } from "./usage-tracking.service";
 
 /** Divider prepended before injected knowledge content in the system prompt. */
-const KNOWLEDGE_DIVIDER = '\n\n---\n\n[REFERENCE KNOWLEDGE]\n';
+const KNOWLEDGE_DIVIDER = "\n\n---\n\n[REFERENCE KNOWLEDGE]\n";
 
 /** Divider prepended before the data-collection instruction. */
-const DATA_COLLECTION_DIVIDER = '\n\n---\n\n[DATA TO COLLECT]\n';
+const DATA_COLLECTION_DIVIDER = "\n\n---\n\n[DATA TO COLLECT]\n";
 
 /**
  * Divider prepended before the running conversation summary (hybrid context
@@ -45,7 +42,7 @@ const DATA_COLLECTION_DIVIDER = '\n\n---\n\n[DATA TO COLLECT]\n';
  * the per-conversation summary never breaks the provider prompt-cache prefix
  * for the static part.
  */
-const SUMMARY_DIVIDER = '\n\n---\n\n[SUMMARY OF EARLIER CONVERSATION]\n';
+const SUMMARY_DIVIDER = "\n\n---\n\n[SUMMARY OF EARLIER CONVERSATION]\n";
 
 /**
  * Features that represent a real end-user conversation turn — the only ones
@@ -55,9 +52,9 @@ const SUMMARY_DIVIDER = '\n\n---\n\n[SUMMARY OF EARLIER CONVERSATION]\n';
  * so we cover it here too — not just the streaming widget path.
  */
 const CAPTURE_ELIGIBLE_FEATURES = new Set<string>([
-  'chat',
-  'chat-stream',
-  'voice',
+  "chat",
+  "chat-stream",
+  "voice",
 ]);
 
 /**
@@ -136,8 +133,8 @@ export class DirectChatService {
     feature: string,
     traceId: string,
   ): void {
-    const strategy = config.contextStrategy ?? 'sliding-window';
-    if (strategy !== 'hybrid' && strategy !== 'summarize') return;
+    const strategy = config.contextStrategy ?? "sliding-window";
+    if (strategy !== "hybrid" && strategy !== "summarize") return;
     if (!context.truncated && !context.olderMessagesExist) return;
     if (!CAPTURE_ELIGIBLE_FEATURES.has(feature)) return;
     this.summaryRefresh.schedule({
@@ -152,7 +149,7 @@ export class DirectChatService {
 
   /** Format the running summary for the system prompt ('' when absent). */
   private static buildSummaryBlock(summary?: string): string {
-    if (!summary) return '';
+    if (!summary) return "";
     return SUMMARY_DIVIDER + summary;
   }
 
@@ -206,8 +203,8 @@ export class DirectChatService {
     const out = messages.map((m): ModelMessage => {
       // Only user/assistant text turns carry conversation content; tool and
       // system parts pass through untouched.
-      if (m.role !== 'user' && m.role !== 'assistant') return m;
-      if (typeof m.content !== 'string') return m;
+      if (m.role !== "user" && m.role !== "assistant") return m;
+      if (typeof m.content !== "string") return m;
       let content = this.piiDetection.maskHardDrop(m.content);
       if (piiCtx) content = piiCtx.tokenize(content);
       if (content === m.content) return m;
@@ -216,7 +213,7 @@ export class DirectChatService {
     });
     if (changed > 0) {
       trace.step(
-        'pii.redact',
+        "pii.redact",
         { messagesChanged: changed, tokenized: piiCtx !== null },
         Math.round(performance.now() - start),
       );
@@ -259,7 +256,7 @@ export class DirectChatService {
    */
   private async loadContext(
     req: DirectChatRequest,
-    strategy: 'sliding-window' | 'summarize' | 'hybrid' | undefined,
+    strategy: "sliding-window" | "summarize" | "hybrid" | undefined,
     systemPrompt: string,
     modelId: string,
     config: { maxContextMessages?: number; maxInputTokens?: number },
@@ -274,7 +271,7 @@ export class DirectChatService {
       model: modelId,
       recentHistory: req.recentHistory,
     };
-    if (strategy === 'hybrid' || strategy === 'summarize') {
+    if (strategy === "hybrid" || strategy === "summarize") {
       return this.hybridStrategy.assemble({
         ...params,
         organizationId: req.agent.organizationId,
@@ -292,10 +289,10 @@ export class DirectChatService {
    */
   async send(req: DirectChatRequest): Promise<DirectChatResult> {
     const config = resolveConfig(req.agent);
-    this.log.debug('send', 'starting non-streaming send', {
+    this.log.debug("send", "starting non-streaming send", {
       agentId: req.agent.id,
       sessionId: req.externalSessionId,
-      feature: req.feature ?? 'chat',
+      feature: req.feature ?? "chat",
     });
     // Compliance floor first: Aadhaar/PAN/cards/… never survive past this
     // line, so everything below (trace, context, LLM) only ever sees masks.
@@ -309,7 +306,6 @@ export class DirectChatService {
       agentId: req.agent.id,
       sessionId: req.externalSessionId,
       userMessage: req.newUserMessage,
-      redactPreview: config.piiRedactionEnabled && config.piiLogRedaction,
     });
 
     const modelId = config.modelId ?? this.aiSdk.getDefaultModel();
@@ -329,7 +325,7 @@ export class DirectChatService {
         this.loadAgentExtras(req.agent.id).then((e) => {
           const knowledgeMs = Math.round(performance.now() - knowledgeStart);
           trace.step(
-            'knowledge.load',
+            "knowledge.load",
             {
               hasKnowledge: e.knowledge !== null,
               knowledgeTokens: e.knowledge?.tokens ?? 0,
@@ -349,9 +345,9 @@ export class DirectChatService {
         ).then((ctx) => {
           const contextMs = Math.round(performance.now() - contextStart);
           trace.step(
-            'context.load',
+            "context.load",
             {
-              strategy: config.contextStrategy ?? 'sliding-window',
+              strategy: config.contextStrategy ?? "sliding-window",
               messagesLoaded: ctx.historyCount,
               estimatedInputTokens: ctx.estimatedTokens,
               truncated: ctx.truncated,
@@ -383,14 +379,14 @@ export class DirectChatService {
         DirectChatService.buildSummaryBlock(context.summaryBlock) +
         buildExtraInstruction(req.extraSystemInstruction);
 
-      trace.step('llm.call_start', {
+      trace.step("llm.call_start", {
         model: modelId,
         streaming: false,
-        feature: req.feature ?? 'chat',
+        feature: req.feature ?? "chat",
       });
 
       const result = await trace.measure(
-        'llm.complete',
+        "llm.complete",
         () =>
           this.llmService.generateCompletion({
             modelId,
@@ -407,7 +403,7 @@ export class DirectChatService {
             agentId: req.agent.id,
             sessionId: req.externalSessionId,
             traceId: trace.traceId,
-            feature: req.feature ?? 'chat',
+            feature: req.feature ?? "chat",
             channel: req.channel,
             // Forward tools so buffered turns (WhatsApp) can escalate via the
             // connect_to_human tool too — parity with the streaming path.
@@ -454,13 +450,14 @@ export class DirectChatService {
         requestedModel: modelId,
         usage: result.usage,
         cost: result.cost,
-        feature: req.feature ?? 'chat',
+        feature: req.feature ?? "chat",
         latencyMs: result.latencyMs,
         retryCount: result.retryCount,
         finishReason: result.finishReason,
       });
 
-      const redactTraceLog = piiCtx !== null && config.piiLogRedaction;
+      // Always the tokenised forms when redaction is on (no separate log switch).
+      const redactTraceLog = piiCtx !== null;
       void trace.end({
         success: true,
         // Log redaction: persist the tokenized forms (raw model output already
@@ -479,7 +476,7 @@ export class DirectChatService {
       // (never internal send() calls like summarisation/title-gen).
       if (
         dataFields.length > 0 &&
-        CAPTURE_ELIGIBLE_FEATURES.has(req.feature ?? 'chat')
+        CAPTURE_ELIGIBLE_FEATURES.has(req.feature ?? "chat")
       ) {
         void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
       }
@@ -490,14 +487,14 @@ export class DirectChatService {
         req,
         config,
         context,
-        req.feature ?? 'chat',
+        req.feature ?? "chat",
         trace.traceId,
       );
 
       return finalResult;
     } catch (err) {
       const errorMsg = err instanceof Error ? err.message : String(err);
-      this.log.error('send', 'direct chat send failed', err, {
+      this.log.error("send", "direct chat send failed", err, {
         agentId: req.agent.id,
         sessionId: req.externalSessionId,
         traceId: trace.traceId,
@@ -522,10 +519,10 @@ export class DirectChatService {
     req: DirectChatRequest,
   ): AsyncGenerator<DirectChatStreamChunk, void, undefined> {
     const config = resolveConfig(req.agent);
-    this.log.debug('stream', 'starting streaming send', {
+    this.log.debug("stream", "starting streaming send", {
       agentId: req.agent.id,
       sessionId: req.externalSessionId,
-      feature: req.feature ?? 'chat-stream',
+      feature: req.feature ?? "chat-stream",
     });
     // Compliance floor first — see send().
     req = this.maskHardDropInRequest(req);
@@ -538,12 +535,11 @@ export class DirectChatService {
       agentId: req.agent.id,
       sessionId: req.externalSessionId,
       userMessage: req.newUserMessage,
-      redactPreview: config.piiRedactionEnabled && config.piiLogRedaction,
     });
 
-    let finalTextBuffer = '';
+    let finalTextBuffer = "";
     let finalModel: string | null = null;
-    let finalUsage: DirectChatResult['usage'] | null = null;
+    let finalUsage: DirectChatResult["usage"] | null = null;
     let finalCost: number | null = null;
     let finalFinishReason: string | null = null;
     let finalTtftMs: number | null = null;
@@ -600,10 +596,10 @@ export class DirectChatService {
         knowledgeTokens: knowledge?.tokens ?? 0,
         dataFieldCount: dataFields.length,
       };
-      trace.step('knowledge.load', knowledgeData, knowledgeMs);
+      trace.step("knowledge.load", knowledgeData, knowledgeMs);
       yield {
-        type: 'trace',
-        step: 'knowledge.load',
+        type: "trace",
+        step: "knowledge.load",
         durationMs: knowledgeMs,
         data: knowledgeData,
       };
@@ -620,7 +616,7 @@ export class DirectChatService {
         buildExtraInstruction(req.extraSystemInstruction);
 
       const contextData = {
-        strategy: config.contextStrategy ?? 'sliding-window',
+        strategy: config.contextStrategy ?? "sliding-window",
         messagesLoaded: context.historyCount,
         estimatedInputTokens: context.estimatedTokens,
         truncated: context.truncated,
@@ -628,23 +624,23 @@ export class DirectChatService {
         olderMessagesExist: context.olderMessagesExist,
         clientSuppliedHistory: Array.isArray(req.recentHistory),
       };
-      trace.step('context.load', contextData, contextMs);
+      trace.step("context.load", contextData, contextMs);
       yield {
-        type: 'trace',
-        step: 'context.load',
+        type: "trace",
+        step: "context.load",
         durationMs: contextMs,
         data: contextData,
       };
 
       // ----- Phase 2: LLM streaming call -----
-      trace.step('llm.call_start', {
+      trace.step("llm.call_start", {
         model: modelId,
         streaming: true,
-        feature: req.feature ?? 'chat-stream',
+        feature: req.feature ?? "chat-stream",
       });
       yield {
-        type: 'trace',
-        step: 'llm.call_start',
+        type: "trace",
+        step: "llm.call_start",
         durationMs: 0,
         data: { model: modelId, streaming: true },
       };
@@ -664,16 +660,15 @@ export class DirectChatService {
         agentId: req.agent.id,
         sessionId: req.externalSessionId,
         traceId: trace.traceId,
-        feature: req.feature ?? 'chat-stream',
+        feature: req.feature ?? "chat-stream",
         // Tools (e.g. human-handover's connect_to_human). The AI SDK runs the
         // tool loop; text deltas still stream through unchanged.
         tools: req.tools,
         maxSteps: req.maxSteps,
       });
 
-      let finishChunk:
-        | Extract<LlmStreamChunk, { type: 'finish' }>
-        | null = null;
+      let finishChunk: Extract<LlmStreamChunk, { type: "finish" }> | null =
+        null;
 
       // Re-hydrates placeholders in the outgoing token stream (visitor must
       // see real values). finalTextBuffer stays RAW (placeholders intact) —
@@ -682,26 +677,26 @@ export class DirectChatService {
       const detok = new StreamDetokenizer(piiCtx);
 
       for await (const chunk of handle.stream) {
-        if (chunk.type === 'text-delta') {
+        if (chunk.type === "text-delta") {
           finalTextBuffer += chunk.content;
           const visible = detok.push(chunk.content);
-          if (visible) yield { type: 'text-delta', content: visible };
-        } else if (chunk.type === 'finish') {
+          if (visible) yield { type: "text-delta", content: visible };
+        } else if (chunk.type === "finish") {
           finishChunk = chunk;
           // Keep looping in case there are follow-up events; in practice
           // the LLM stream ends here but being defensive.
-        } else if (chunk.type === 'error') {
+        } else if (chunk.type === "error") {
           throw new Error(chunk.error);
         }
       }
 
       if (!finishChunk) {
-        throw new Error('LLM stream ended without a finish event');
+        throw new Error("LLM stream ended without a finish event");
       }
 
       // Flush any placeholder fragment the detokenizer was holding back.
       const heldTail = detok.end();
-      if (heldTail) yield { type: 'text-delta', content: heldTail };
+      if (heldTail) yield { type: "text-delta", content: heldTail };
 
       finalModel = finishChunk.model;
       finalUsage = finishChunk.usage;
@@ -729,10 +724,10 @@ export class DirectChatService {
         finishReason: finishChunk.finishReason,
         ttftMs: finishChunk.ttftMs,
       };
-      trace.step('llm.complete', completeData, finishChunk.totalMs);
+      trace.step("llm.complete", completeData, finishChunk.totalMs);
       yield {
-        type: 'trace',
-        step: 'llm.complete',
+        type: "trace",
+        step: "llm.complete",
         durationMs: finishChunk.totalMs,
         data: completeData,
       };
@@ -766,18 +761,19 @@ export class DirectChatService {
         requestedModel: modelId,
         usage: finalUsage,
         cost: finalCost,
-        feature: req.feature ?? 'chat-stream',
+        feature: req.feature ?? "chat-stream",
         latencyMs: finalTotalMs,
         finishReason: finalFinishReason,
       });
 
-      yield { type: 'finish', result };
+      yield { type: "finish", result };
 
       // Fire-and-forget: response is already delivered to the user. Blocking
       // on the trace DB write would extend the SSE connection and delay the
       // client's `done` event for no benefit. Errors are logged by trace.end
       // itself via pino — they won't surface here.
-      const redactTraceLog = piiCtx !== null && config.piiLogRedaction;
+      // Always the tokenised forms when redaction is on (no separate log switch).
+      const redactTraceLog = piiCtx !== null;
       void trace.end({
         success: true,
         response: redactTraceLog ? finalTextBuffer : visibleText,
@@ -796,7 +792,7 @@ export class DirectChatService {
       // See docs/plans/agent-data-and-integrations-plan.md.
       if (
         dataFields.length > 0 &&
-        CAPTURE_ELIGIBLE_FEATURES.has(req.feature ?? 'chat-stream')
+        CAPTURE_ELIGIBLE_FEATURES.has(req.feature ?? "chat-stream")
       ) {
         void this.dataExtractionService.scheduleExtraction(req.chatSessionId);
       }
@@ -807,22 +803,22 @@ export class DirectChatService {
         req,
         config,
         context,
-        req.feature ?? 'chat-stream',
+        req.feature ?? "chat-stream",
         trace.traceId,
       );
     } catch (err) {
       settled = true;
-      const isAbort = err instanceof Error && err.name === 'AbortError';
+      const isAbort = err instanceof Error && err.name === "AbortError";
       const errorMsg = err instanceof Error ? err.message : String(err);
 
       if (isAbort) {
-        this.log.warn('stream', 'client aborted stream', {
+        this.log.warn("stream", "client aborted stream", {
           agentId: req.agent.id,
           sessionId: req.externalSessionId,
           traceId: trace.traceId,
         });
       } else {
-        this.log.error('stream', 'direct chat stream failed', err, {
+        this.log.error("stream", "direct chat stream failed", err, {
           agentId: req.agent.id,
           sessionId: req.externalSessionId,
           traceId: trace.traceId,
@@ -833,13 +829,13 @@ export class DirectChatService {
       // user action (client disconnected). We still end the trace but mark
       // success=false so analytics can distinguish from happy-path.
       trace.error(
-        isAbort ? 'llm.aborted' : 'llm.failed',
+        isAbort ? "llm.aborted" : "llm.failed",
         err instanceof Error ? err : new Error(errorMsg),
       );
       yield {
-        type: 'error',
+        type: "error",
         error: errorMsg,
-        code: isAbort ? 'ABORTED' : undefined,
+        code: isAbort ? "ABORTED" : undefined,
       };
 
       void trace.end({
@@ -856,19 +852,19 @@ export class DirectChatService {
         // fails completely silently (no log, no trace, no completion). Surface
         // it and persist a trace so it's always debuggable.
         this.log.warn(
-          'stream',
-          'stream abandoned before completion (client disconnected / consumer stopped)',
+          "stream",
+          "stream abandoned before completion (client disconnected / consumer stopped)",
           {
             agentId: req.agent.id,
             sessionId: req.externalSessionId,
             traceId: trace.traceId,
-            feature: req.feature ?? 'chat-stream',
+            feature: req.feature ?? "chat-stream",
           },
         );
         void trace.end({
           success: false,
           error:
-            'stream abandoned before completion (client disconnected / consumer stopped)',
+            "stream abandoned before completion (client disconnected / consumer stopped)",
           response: finalTextBuffer || undefined,
           model: finalModel ?? undefined,
         });
@@ -895,13 +891,15 @@ function resolveConfig(agent: Agent): AgentAiConfigDto {
   const raw = agent.aiConfig ?? {};
   const parsed = agentAiConfigSchema.safeParse(raw);
   if (parsed.success) {
-    return parsed.data;
+    // PII redaction is not optional (ADR-0005): a stored `false` from before
+    // the toggle was removed must not switch it off.
+    return { ...parsed.data, piiRedactionEnabled: true };
   }
-  const logger = new Logger('resolveAiConfig');
+  const logger = new Logger("resolveAiConfig");
   logger.warn(
     `Agent ${agent.id} has an invalid aiConfig — falling back to schema defaults. Issues: ${parsed.error.issues
-      .map((i) => `${i.path.join('.')}: ${i.message}`)
-      .join('; ')}`,
+      .map((i) => `${i.path.join(".")}: ${i.message}`)
+      .join("; ")}`,
   );
   return agentAiConfigSchema.parse({});
 }
@@ -919,7 +917,7 @@ function resolveSystemPromptTemplate(
   agent: Agent,
   config: AgentAiConfigDto,
 ): string {
-  return config.systemPromptTemplate ?? agent.systemPrompt ?? '';
+  return config.systemPromptTemplate ?? agent.systemPrompt ?? "";
 }
 
 /**
@@ -948,38 +946,40 @@ function resolveSystemPromptTemplate(
  * politely asks for REQUIRED items only when it fits the flow.
  */
 function buildCollectionInstruction(fields: AgentDataField[]): string {
-  if (!fields || fields.length === 0) return '';
+  if (!fields || fields.length === 0) return "";
   const lines = fields.map((f) => {
     const parts = [`- ${f.label} (key: ${f.key})`];
-    if (f.required) parts.push('[required]');
+    if (f.required) parts.push("[required]");
     if (f.description) parts.push(`— ${f.description}`);
-    return parts.join(' ');
+    return parts.join(" ");
   });
   const hasRequired = fields.some((f) => f.required);
   const requiredNote = hasRequired
-    ? ' For items marked [required], if the user has not provided them and it is a natural moment, politely ask — at most one missing item at a time, and only when it fits the conversation.'
-    : '';
+    ? " For items marked [required], if the user has not provided them and it is a natural moment, politely ask — at most one missing item at a time, and only when it fits the conversation."
+    : "";
   return (
     DATA_COLLECTION_DIVIDER +
-    'While helping the user, naturally note the following details if they come up. ' +
-    'Do not announce that you are collecting information, and NEVER delay or withhold ' +
-    'an answer in order to ask for it — answering the user always comes first.' +
+    "While helping the user, naturally note the following details if they come up. " +
+    "Do not announce that you are collecting information, and NEVER delay or withhold " +
+    "an answer in order to ask for it — answering the user always comes first." +
     requiredNote +
-    '\n' +
-    lines.join('\n')
+    "\n" +
+    lines.join("\n")
   );
 }
 
 function buildFallbackInstruction(agent: Agent): string {
-  const phrases = (agent.fallbackPhrases ?? []).filter((p) => p.trim().length > 0);
-  if (phrases.length === 0) return '';
-  const list = phrases.map((p) => `- ${p}`).join('\n');
+  const phrases = (agent.fallbackPhrases ?? []).filter(
+    (p) => p.trim().length > 0,
+  );
+  if (phrases.length === 0) return "";
+  const list = phrases.map((p) => `- ${p}`).join("\n");
   return (
-    '\n\n---\n\nAlways try to help first. If you have any relevant information — even ' +
-    'partial or general — give a useful answer, and point the user to the team for ' +
-    'specifics you do not have. Only when the question is entirely outside what you ' +
-    'know and you have nothing useful to offer at all, reply with exactly one of the ' +
-    'following phrases, word for word and nothing else:\n' +
+    "\n\n---\n\nAlways try to help first. If you have any relevant information — even " +
+    "partial or general — give a useful answer, and point the user to the team for " +
+    "specifics you do not have. Only when the question is entirely outside what you " +
+    "know and you have nothing useful to offer at all, reply with exactly one of the " +
+    "following phrases, word for word and nothing else:\n" +
     list
   );
 }
@@ -989,6 +989,6 @@ function buildFallbackInstruction(agent: Agent): string {
  * last so it takes precedence over the base prompt for this turn only.
  */
 function buildExtraInstruction(instruction?: string): string {
-  if (!instruction || !instruction.trim()) return '';
-  return '\n\n---\n\n[ACTIVE INSTRUCTION]\n' + instruction.trim();
+  if (!instruction || !instruction.trim()) return "";
+  return "\n\n---\n\n[ACTIVE INSTRUCTION]\n" + instruction.trim();
 }

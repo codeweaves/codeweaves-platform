@@ -1,20 +1,21 @@
-import { EventEmitter } from 'node:events';
-import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { nanoid } from 'nanoid';
-import type pino from 'pino';
+import { EventEmitter } from "node:events";
+import { Injectable, Logger } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { nanoid } from "nanoid";
+import type pino from "pino";
 
-import { getRequestContext } from '../../../common/tracer/correlation.storage';
-import { PrismaService } from '../../../services/prisma.service';
+import { getRequestContext } from "../../../common/tracer/correlation.storage";
+import { PrismaService } from "../../../services/prisma.service";
 
-import { aiTraceLogger } from './ai-trace.logger';
+import { aiTraceLogger } from "./ai-trace.logger";
 import type {
   EndTraceParams,
   StartTraceParams,
   TraceContext,
   TraceEvent,
   TraceStep,
-} from './ai-trace.interfaces';
+} from "./ai-trace.interfaces";
+import { maskPiiDeep, maskPiiText } from "../../pii/mask-pii";
 
 /**
  * Internal state we hold for each in-flight trace. Kept in memory only;
@@ -112,11 +113,11 @@ export class AiTraceService {
 
     log.info(
       {
-        userMessagePreview: params.redactPreview
-          ? '[REDACTED]'
-          : params.userMessage?.slice(0, 200),
+        // Always a masked preview (ADR-0005). Mask, then cut: cutting first
+        // could leave half a number unmasked.
+        userMessagePreview: maskPiiText(params.userMessage ?? "").slice(0, 200),
       },
-      'trace.start',
+      "trace.start",
     );
 
     return new TraceContextImpl(active, this);
@@ -127,6 +128,10 @@ export class AiTraceService {
     const active = this.activeTraces.get(traceId);
     if (!active || active.ended) return;
 
+    // Masked at intake (ADR-0005): the same step feeds the file log, the live
+    // SSE stream and the chat_traces row, and tool steps can carry arguments
+    // or results with identifiers in them.
+    step = maskPiiDeep(step);
     active.steps.push(step);
 
     // Pretty pino output: include all step.data fields at the top level so
@@ -141,7 +146,7 @@ export class AiTraceService {
       step.step,
     );
 
-    active.emitter.emit('step', { type: 'step', step } satisfies TraceEvent);
+    active.emitter.emit("step", { type: "step", step } satisfies TraceEvent);
   }
 
   /** @internal Called by TraceContext.end(). Idempotent. */
@@ -160,14 +165,14 @@ export class AiTraceService {
         stepCount: active.steps.length,
         model: result.model,
         responseLength: result.response?.length,
-        ...(result.error ? { error: result.error } : {}),
+        ...(result.error ? { error: maskPiiText(result.error) } : {}),
       },
-      'trace.end',
+      "trace.end",
     );
 
     // Emit end event so SSE subscribers can close the stream cleanly.
-    active.emitter.emit('end', {
-      type: 'end',
+    active.emitter.emit("end", {
+      type: "end",
       totalDurationMs,
       success: result.success,
     } satisfies TraceEvent);
@@ -185,15 +190,22 @@ export class AiTraceService {
           messageId: result.messageId,
           // PII log redaction passes the tokenized form here (it only exists
           // after the token map loads, i.e. later than startTrace).
-          userMessage: result.userMessage ?? active.userMessage,
-          response: result.response,
+          // Always masked (ADR-0005), whatever the agent's PII settings: with
+          // redaction on these are already the tokenised forms, so this is a
+          // no-op; with it off, the log copy still never holds an identifier.
+          userMessage: maskPiiText(
+            result.userMessage ?? active.userMessage ?? "",
+          ),
+          response: result.response
+            ? maskPiiText(result.response)
+            : result.response,
           model: result.model,
           steps: active.steps as unknown as Prisma.InputJsonValue,
           startedAt: active.startedAt,
           completedAt,
           totalDurationMs,
           success: result.success,
-          errorMessage: result.error,
+          errorMessage: result.error ? maskPiiText(result.error) : result.error,
         },
       });
     } catch (err) {
@@ -201,7 +213,7 @@ export class AiTraceService {
       // re-enter). Stick to pino.
       active.log.warn(
         { err: err instanceof Error ? err.message : String(err) },
-        'trace.persist_failed',
+        "trace.persist_failed",
       );
     } finally {
       // Allow GC of EventEmitter + steps array now that persistence is done
@@ -235,7 +247,7 @@ export class AiTraceService {
   async listRecent(agentId: string, limit = 50) {
     return this.prisma.chatTrace.findMany({
       where: { agentId },
-      orderBy: { createdAt: 'desc' },
+      orderBy: { createdAt: "desc" },
       take: Math.min(Math.max(limit, 1), 200),
     });
   }
@@ -276,7 +288,7 @@ class TraceContextImpl implements TraceContext {
     // never break a request). logStep itself is in-memory + pino, but a caller
     // can hand us a value pino cannot serialise (a BigInt, a getter that
     // throws), and that must cost us this line — not the visitor's answer.
-    this.safely('step', () =>
+    this.safely("step", () =>
       this.service.logStep(this.active.traceId, {
         step: name,
         timestamp: new Date().toISOString(),
@@ -312,7 +324,7 @@ class TraceContextImpl implements TraceContext {
       this.error(name, err as Error);
       // Duration is recorded on the failure path too, so a slow failure is
       // still visible in the trace.
-      this.safely('measure:error-step', () =>
+      this.safely("measure:error-step", () =>
         this.service.logStep(this.active.traceId, {
           step: name,
           timestamp: new Date().toISOString(),
@@ -341,7 +353,7 @@ class TraceContextImpl implements TraceContext {
   }
 
   error(name: string, err: Error, data?: Record<string, unknown>): void {
-    this.safely('error', () =>
+    this.safely("error", () =>
       this.service.logStep(this.active.traceId, {
         step: name,
         timestamp: new Date().toISOString(),
@@ -414,12 +426,12 @@ function emitterToAsyncIterable(
       };
 
       const cleanup = () => {
-        emitter.off('step', onStep);
-        emitter.off('end', onEnd);
+        emitter.off("step", onStep);
+        emitter.off("end", onEnd);
       };
 
-      emitter.on('step', onStep);
-      emitter.on('end', onEnd);
+      emitter.on("step", onStep);
+      emitter.on("end", onEnd);
 
       return {
         next(): Promise<IteratorResult<TraceEvent>> {

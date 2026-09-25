@@ -18,39 +18,42 @@ const MAX_BYTES = (() => {
 
 // Header names we NEVER persist (lowercased). Auth + signature headers.
 export const SENSITIVE_HEADERS = new Set([
-  'authorization',
-  'cookie',
-  'set-cookie',
-  'proxy-authorization',
-  'x-api-key',
-  'xi-api-key',
-  'apikey',
-  'api-subscription-key',
-  'x-goog-api-key',
-  'x-hub-signature',
-  'x-hub-signature-256',
-  'svix-signature',
-  'x-internal-secret',
+  "authorization",
+  "cookie",
+  "set-cookie",
+  "proxy-authorization",
+  "x-api-key",
+  "xi-api-key",
+  "apikey",
+  "api-subscription-key",
+  "x-goog-api-key",
+  "x-hub-signature",
+  "x-hub-signature-256",
+  "svix-signature",
+  "x-internal-secret",
+  // The widget's raw device ID. We only ever store it hashed (vd_…, ADR-0004);
+  // the consent endpoint's request log must not keep the raw value.
+  "x-device-id",
 ]);
 
 // Noisy transport headers with no debugging value — dropped to keep rows lean.
 const NOISE_HEADERS = new Set([
-  'host',
-  'connection',
-  'content-length',
-  'accept',
-  'accept-encoding',
-  'accept-language',
-  'cache-control',
-  'pragma',
-  'sec-fetch-mode',
-  'sec-fetch-site',
-  'sec-fetch-dest',
-  'sec-fetch-user',
-  'sec-ch-ua',
-  'sec-ch-ua-mobile',
-  'sec-ch-ua-platform',
-  'upgrade-insecure-requests',
+  "host",
+  "connection",
+  "content-length",
+  "accept",
+  "accept-encoding",
+  "accept-language",
+  "cache-control",
+  "pragma",
+  "sec-fetch-mode",
+  "sec-fetch-site",
+  "sec-fetch-dest",
+  "sec-fetch-user",
+  "sec-ch-ua",
+  "sec-ch-ua-mobile",
+  "sec-ch-ua-platform",
+  "upgrade-insecure-requests",
 ]);
 
 // Body/object keys whose VALUES get replaced with [REDACTED] wherever they appear.
@@ -62,26 +65,26 @@ const SENSITIVE_SUBSTR =
 // exactly what the event log exists to capture, so they must NOT be redacted.
 // Anything else containing "token" (accessToken, refreshToken, apiToken, …) IS.
 const TOKEN_METRIC_KEYS = new Set([
-  'tokens',
-  'inputtokens',
-  'outputtokens',
-  'totaltokens',
-  'cachedinputtokens',
-  'reasoningtokens',
-  'prompttokens',
-  'completiontokens',
-  'maxtokens',
-  'maxinputtokens',
-  'maxoutputtokens',
-  'timetofirsttoken',
-  'timetolasttoken',
+  "tokens",
+  "inputtokens",
+  "outputtokens",
+  "totaltokens",
+  "cachedinputtokens",
+  "reasoningtokens",
+  "prompttokens",
+  "completiontokens",
+  "maxtokens",
+  "maxinputtokens",
+  "maxoutputtokens",
+  "timetofirsttoken",
+  "timetolasttoken",
 ]);
 
 /** True when an object key's VALUE must be replaced with [REDACTED]. */
 export function isSensitiveKey(key: string): boolean {
   const k = key.toLowerCase();
   if (SENSITIVE_SUBSTR.test(k)) return true;
-  if (k.includes('token')) return !TOKEN_METRIC_KEYS.has(k);
+  if (k.includes("token")) return !TOKEN_METRIC_KEYS.has(k);
   return false;
 }
 
@@ -95,7 +98,7 @@ export function sanitizeHeaders(
 ): Record<string, string> | undefined {
   if (!headers) return undefined;
   const entries: [string, unknown][] =
-    typeof Headers !== 'undefined' && headers instanceof Headers
+    typeof Headers !== "undefined" && headers instanceof Headers
       ? [...headers.entries()]
       : Object.entries(headers as Record<string, unknown>);
   const out: Record<string, string> = {};
@@ -103,7 +106,7 @@ export function sanitizeHeaders(
     const key = k.toLowerCase();
     if (SENSITIVE_HEADERS.has(key) || NOISE_HEADERS.has(key)) continue;
     if (v == null) continue;
-    out[key] = Array.isArray(v) ? v.join(', ') : String(v);
+    out[key] = Array.isArray(v) ? v.join(", ") : String(v);
   }
   return Object.keys(out).length ? out : undefined;
 }
@@ -117,11 +120,11 @@ export function redact(value: unknown, depth = 0): unknown {
   if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
     return { _binary: true, bytes: (value as Uint8Array).byteLength };
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     return value.length > 2000 ? `${value.slice(0, 2000)}…` : value;
   }
-  if (typeof value !== 'object') return value;
-  if (depth > 6) return '[depth-capped]';
+  if (typeof value !== "object") return value;
+  if (depth > 6) return "[depth-capped]";
   if (Array.isArray(value)) {
     return value.slice(0, 50).map((v) => redact(v, depth + 1));
   }
@@ -131,8 +134,8 @@ export function redact(value: unknown, depth = 0): unknown {
     // (JSON.parse creates it as a real key), and `out[k] = …` on a plain object
     // would then walk into the prototype. These keys are attack payloads, never
     // legitimate log data, so drop them.
-    if (k === '__proto__' || k === 'constructor' || k === 'prototype') continue;
-    out[k] = isSensitiveKey(k) ? '[REDACTED]' : redact(v, depth + 1);
+    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
+    out[k] = isSensitiveKey(k) ? "[REDACTED]" : redact(v, depth + 1);
   }
   return out;
 }
@@ -152,7 +155,11 @@ export function capJson(value: unknown): unknown {
     return { _unserializable: true };
   }
   if (json.length > MAX_BYTES) {
-    return { _truncated: true, _bytes: json.length, preview: json.slice(0, 1000) };
+    return {
+      _truncated: true,
+      _bytes: json.length,
+      preview: json.slice(0, 1000),
+    };
   }
   return red;
 }
@@ -166,6 +173,6 @@ export function safeMeta(meta: Record<string, unknown>): string {
     const s = JSON.stringify(redact(meta));
     return s.length > 500 ? `${s.slice(0, 500)}…` : s;
   } catch {
-    return '[meta-unserializable]';
+    return "[meta-unserializable]";
   }
 }

@@ -7,7 +7,7 @@
  * Stored as a JSONB column on the `agents` table (`Agent.aiConfig`). Null/absent
  * = defaults to `routingMode: 'n8n'` so existing agents are unaffected.
  */
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================
 // Routing Mode
@@ -19,7 +19,7 @@ import { z } from 'zod';
  * 'direct' — native: NestJS calls OpenRouter directly with the configured
  *            model. Unlocks streaming, RAG, tool use, per-message tracing.
  */
-export const aiRoutingModeEnum = z.enum(['n8n', 'direct']);
+export const aiRoutingModeEnum = z.enum(["n8n", "direct"]);
 export type AiRoutingMode = z.infer<typeof aiRoutingModeEnum>;
 
 // ============================================
@@ -38,9 +38,9 @@ export type AiRoutingMode = z.infer<typeof aiRoutingModeEnum>;
  *                       Best overall quality; marginally more expensive.
  */
 export const aiContextStrategyEnum = z.enum([
-  'sliding-window',
-  'summarize',
-  'hybrid',
+  "sliding-window",
+  "summarize",
+  "hybrid",
 ]);
 export type AiContextStrategy = z.infer<typeof aiContextStrategyEnum>;
 
@@ -64,8 +64,8 @@ export type AiContextStrategy = z.infer<typeof aiContextStrategyEnum>;
  */
 const openRouterModelId = z
   .string()
-  .min(3, 'Model ID is required')
-  .max(128, 'Model ID is too long')
+  .min(3, "Model ID is required")
+  .max(128, "Model ID is too long")
   .regex(
     /^[a-z0-9._-]+[:/][a-z0-9.:/_-]+$/i,
     'Model ID must include a provider prefix, e.g. "openai/gpt-4o-mini" (OpenRouter) or "groq:llama-3.3-70b-versatile" (Groq direct)',
@@ -74,7 +74,7 @@ const openRouterModelId = z
 export const agentAiConfigSchema = z
   .object({
     // ----- Routing -----
-    routingMode: aiRoutingModeEnum.default('n8n'),
+    routingMode: aiRoutingModeEnum.default("n8n"),
 
     // ----- Model selection -----
     /** Override per agent; falls back to `DEFAULT_AI_MODEL` env var if absent. */
@@ -125,7 +125,7 @@ export const agentAiConfigSchema = z
      * their early context. Costs nothing until a conversation actually
      * outgrows the window.
      */
-    contextStrategy: aiContextStrategyEnum.default('hybrid'),
+    contextStrategy: aiContextStrategyEnum.default("hybrid"),
 
     // ----- RAG (Phase 3, fields included now to avoid later migrations) -----
     /** Automatically retrieve from the agent's knowledge base before answering. */
@@ -149,8 +149,11 @@ export const agentAiConfigSchema = z
      * ON by DEFAULT (compliance floor): these values are replaced with stable
      * placeholders before any LLM call AND before they are written to the
      * transcript; the real value lives only in the encrypted `pii_tokens` vault,
-     * revealed to authorised staff on demand (audited). Set to `false` only for
-     * the rare agent that genuinely needs raw values inline.
+     * revealed to authorised staff on demand (audited).
+     *
+     * ALWAYS ON (ADR-0005): the server ignores a stored `false`, and the editor
+     * no longer offers the toggle. Still accepted so stored configs that carry
+     * the key keep validating under .strict().
      *
      * Coverage note (be honest in UI copy): identifier detection works in any
      * language; name/address detection is not included yet.
@@ -161,8 +164,9 @@ export const agentAiConfigSchema = z
      */
     piiRedactionEnabled: z.boolean().default(true),
     /**
-     * When PII redaction is on, also tokenize what we persist to chat_traces
-     * (userMessage/response) and suppress raw previews in file logs.
+     * DEPRECATED and ignored (ADR-0005). Logs and AI traces are now always
+     * masked, whatever this says. Still accepted so stored configs that carry
+     * the key keep validating under .strict().
      */
     piiLogRedaction: z.boolean().default(true),
   })
@@ -181,16 +185,14 @@ export type AgentAiConfigUpdateDto = z.infer<typeof agentAiConfigUpdateSchema>;
  * Resolve the effective routing mode for an agent, given possibly-null config.
  * Centralises the 'unset means n8n' rule so every caller agrees.
  */
-export function resolveRoutingMode(
-  aiConfig: unknown,
-): AiRoutingMode {
+export function resolveRoutingMode(aiConfig: unknown): AiRoutingMode {
   if (
     aiConfig &&
-    typeof aiConfig === 'object' &&
-    'routingMode' in aiConfig &&
-    (aiConfig as { routingMode: unknown }).routingMode === 'direct'
+    typeof aiConfig === "object" &&
+    "routingMode" in aiConfig &&
+    (aiConfig as { routingMode: unknown }).routingMode === "direct"
   ) {
-    return 'direct';
+    return "direct";
   }
-  return 'n8n';
+  return "n8n";
 }

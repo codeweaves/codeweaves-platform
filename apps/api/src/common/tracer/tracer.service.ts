@@ -1,9 +1,24 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from '../../services/prisma.service';
-import { getRequestContext } from './correlation.storage';
-import { sanitizeHeaders, capJson } from '../events/redaction.util';
-import type { EventLogInput } from '../events/event-log.types';
+import { Injectable, Logger } from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { PrismaService } from "../../services/prisma.service";
+import { getRequestContext } from "./correlation.storage";
+import { sanitizeHeaders, capJson } from "../events/redaction.util";
+import type { EventLogInput } from "../events/event-log.types";
+import {
+  maskPiiDeep,
+  maskPiiText,
+  type MaskLimits,
+} from "../../modules/pii/mask-pii";
+
+/**
+ * Same caps as redact() applies right after (2000 chars per string, 50 items
+ * per array, depth 6), so masking never spends work on text that is then cut.
+ */
+const LOG_MASK_LIMITS: MaskLimits = {
+  maxStringLength: 2000,
+  maxArrayLength: 50,
+  maxDepth: 8,
+};
 
 @Injectable()
 export class TracerService {
@@ -12,7 +27,7 @@ export class TracerService {
   constructor(private readonly prisma: PrismaService) {}
 
   private get eventLogEnabled(): boolean {
-    return process.env.EVENT_LOG_ENABLED !== 'false';
+    return process.env.EVENT_LOG_ENABLED !== "false";
   }
 
   /**
@@ -32,16 +47,27 @@ export class TracerService {
     try {
       // Redact/cap up front. capJson returns `undefined` for null/undefined so we
       // OMIT the Json column rather than pass raw null (Prisma rejects null on Json).
+      //
+      // PII is masked BEFORE capping (ADR-0005): capping first could cut a card
+      // number in half and leave a partial the recognizers no longer match.
+      // This is the single writer of every event_logs row, so every channel
+      // and every route is covered, including ones added later.
       const requestHeaders = sanitizeHeaders(input.requestHeaders);
-      const requestPayload = capJson(input.requestPayload);
-      const responsePayload = capJson(input.responsePayload);
-      const metadata = input.metadata ? capJson(input.metadata) : undefined;
+      const requestPayload = capJson(
+        maskPiiDeep(input.requestPayload, LOG_MASK_LIMITS),
+      );
+      const responsePayload = capJson(
+        maskPiiDeep(input.responsePayload, LOG_MASK_LIMITS),
+      );
+      const metadata = input.metadata
+        ? capJson(maskPiiDeep(input.metadata, LOG_MASK_LIMITS))
+        : undefined;
 
       await this.prisma.eventLog.create({
         data: {
           channel: input.channel,
           eventName: input.eventName,
-          direction: input.direction ?? 'INTERNAL',
+          direction: input.direction ?? "INTERNAL",
           provider: input.provider ?? null,
           actorUserId: input.actorUserId ?? ctx?.userId ?? null,
           clerkId: input.clerkId ?? ctx?.clerkId ?? null,
@@ -54,7 +80,9 @@ export class TracerService {
           responseStatus: input.responseStatus ?? null,
           latencyMs: input.latencyMs ?? null,
           success: input.success ?? true,
-          errorMessage: input.errorMessage ?? null,
+          errorMessage: input.errorMessage
+            ? maskPiiText(input.errorMessage)
+            : null,
           ...(requestHeaders !== undefined
             ? { requestHeaders: requestHeaders as Prisma.InputJsonValue }
             : {}),
@@ -97,14 +125,15 @@ export class TracerService {
           // org from the request context (same pattern as logEvent) when the
           // caller doesn't pass one; agentId is caller-supplied only (the
           // request context doesn't carry it).
-          organizationId: scope?.organizationId ?? context?.organizationId ?? null,
+          organizationId:
+            scope?.organizationId ?? context?.organizationId ?? null,
           agentId: scope?.agentId ?? null,
           event,
           data: data as Prisma.InputJsonValue,
         },
       });
       this.logger.log(
-        `[${context?.correlationId?.slice(0, 8) ?? 'no-ctx'}] ${event} → ${contextId}`,
+        `[${context?.correlationId?.slice(0, 8) ?? "no-ctx"}] ${event} → ${contextId}`,
       );
     } catch (error) {
       this.logger.error(`Failed to write audit event ${event}: ${error}`);

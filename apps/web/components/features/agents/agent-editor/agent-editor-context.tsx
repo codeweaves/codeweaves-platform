@@ -445,7 +445,9 @@ const DEFAULT_AI_CONFIG: import("@repo/validation").AgentAiConfigDto = {
   ragRerankEnabled: true,
   ragContextualChunking: false,
   cachingEnabled: true,
-  piiRedactionEnabled: false,
+  // PII redaction is always on server-side (ADR-0005); these mirror the
+  // server so a saved config never carries a misleading "off".
+  piiRedactionEnabled: true,
   piiLogRedaction: true,
 };
 

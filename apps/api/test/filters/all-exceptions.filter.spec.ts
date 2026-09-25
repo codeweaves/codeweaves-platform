@@ -1,16 +1,20 @@
-import { ArgumentsHost, HttpException } from '@nestjs/common';
-import { AllExceptionsFilter } from '../../src/filters/all-exceptions.filter';
+import { ArgumentsHost, HttpException } from "@nestjs/common";
+import { AllExceptionsFilter } from "../../src/filters/all-exceptions.filter";
 import {
   requestContextStorage,
   RequestContext,
-} from '../../src/common/tracer/correlation.storage';
-import { SentryService } from '../../src/common/sentry/sentry.service';
-import { TracerService } from '../../src/common/tracer/tracer.service';
+} from "../../src/common/tracer/correlation.storage";
+import { SentryService } from "../../src/common/sentry/sentry.service";
+import { TracerService } from "../../src/common/tracer/tracer.service";
+import { CryptoService } from "../../src/common/crypto/crypto.service";
 
-describe('AllExceptionsFilter', () => {
+describe("AllExceptionsFilter", () => {
   let filter: AllExceptionsFilter;
-  let mockSentryService: jest.Mocked<Pick<SentryService, 'captureException'>>;
+  let mockSentryService: jest.Mocked<Pick<SentryService, "captureException">>;
   const logEvent = jest.fn().mockResolvedValue(undefined);
+  const hashVisitorDevice = jest.fn((id?: string) =>
+    id ? `vd_${id}` : undefined,
+  );
 
   beforeEach(() => {
     jest.clearAllMocks();
@@ -21,10 +25,18 @@ describe('AllExceptionsFilter', () => {
     filter = new AllExceptionsFilter(
       mockSentryService as unknown as SentryService,
       { logEvent } as unknown as TracerService,
+      { hashVisitorDevice } as unknown as CryptoService,
+    );
+    hashVisitorDevice.mockImplementation((id?: string) =>
+      id ? `vd_${id}` : undefined,
     );
   });
 
-  function createMockHost(method = 'GET', originalUrl = '/api/klivo/v1/test') {
+  function createMockHost(
+    method = "GET",
+    originalUrl = "/api/klivo/v1/test",
+    params: Record<string, string> = {},
+  ) {
     const json = jest.fn();
     const status = jest.fn().mockReturnValue({ json });
 
@@ -32,9 +44,9 @@ describe('AllExceptionsFilter', () => {
     const request = {
       method,
       originalUrl,
-      params: {},
-      headers: {},
-      body: {},
+      params,
+      headers: {} as Record<string, unknown>,
+      body: {} as Record<string, unknown>,
     };
 
     const host = {
@@ -44,54 +56,54 @@ describe('AllExceptionsFilter', () => {
       }),
     } as unknown as ArgumentsHost;
 
-    return { host, status, json };
+    return { host, status, json, request };
   }
 
-  it('should return correlationId in error response body', () => {
+  it("should return correlationId in error response body", () => {
     const { host, json } = createMockHost();
-    const context: RequestContext = { correlationId: 'test-corr-id' };
+    const context: RequestContext = { correlationId: "test-corr-id" };
 
     requestContextStorage.run(context, () => {
-      filter.catch(new HttpException('Bad', 400), host);
+      filter.catch(new HttpException("Bad", 400), host);
     });
 
     expect(json).toHaveBeenCalledWith(
-      expect.objectContaining({ correlationId: 'test-corr-id' }),
+      expect.objectContaining({ correlationId: "test-corr-id" }),
     );
   });
 
-  it('should preserve original status/message for HttpException', () => {
+  it("should preserve original status/message for HttpException", () => {
     const { host, status, json } = createMockHost();
 
-    filter.catch(new HttpException('Not Found', 404), host);
+    filter.catch(new HttpException("Not Found", 404), host);
 
     expect(status).toHaveBeenCalledWith(404);
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({
         statusCode: 404,
-        message: 'Not Found',
+        message: "Not Found",
       }),
     );
   });
 
-  it('should return 500 with generic message for unknown errors', () => {
+  it("should return 500 with generic message for unknown errors", () => {
     const { host, status, json } = createMockHost();
 
-    filter.catch(new Error('unexpected'), host);
+    filter.catch(new Error("unexpected"), host);
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({
         statusCode: 500,
-        message: 'Internal server error',
+        message: "Internal server error",
       }),
     );
   });
 
-  it('should include timestamp in response', () => {
+  it("should include timestamp in response", () => {
     const { host, json } = createMockHost();
 
-    filter.catch(new HttpException('err', 400), host);
+    filter.catch(new HttpException("err", 400), host);
 
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -100,26 +112,26 @@ describe('AllExceptionsFilter', () => {
     );
   });
 
-  it('should handle non-Error exceptions gracefully', () => {
+  it("should handle non-Error exceptions gracefully", () => {
     const { host, status, json } = createMockHost();
 
-    filter.catch('string error', host);
+    filter.catch("string error", host);
 
     expect(status).toHaveBeenCalledWith(500);
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({
         statusCode: 500,
-        message: 'Internal server error',
+        message: "Internal server error",
       }),
     );
   });
 
-  it('should preserve extra fields from structured HttpException responses', () => {
+  it("should preserve extra fields from structured HttpException responses", () => {
     const { host, status, json } = createMockHost();
 
     filter.catch(
       new HttpException(
-        { message: 'Invitation has expired', reissueToken: 'abc-123' },
+        { message: "Invitation has expired", reissueToken: "abc-123" },
         400,
       ),
       host,
@@ -129,73 +141,73 @@ describe('AllExceptionsFilter', () => {
     expect(json).toHaveBeenCalledWith(
       expect.objectContaining({
         statusCode: 400,
-        message: 'Invitation has expired',
-        reissueToken: 'abc-123',
+        message: "Invitation has expired",
+        reissueToken: "abc-123",
       }),
     );
   });
 
-  it('should call sentryService.captureException for 5xx errors', () => {
+  it("should call sentryService.captureException for 5xx errors", () => {
     const { host } = createMockHost();
-    const error = new Error('internal failure');
+    const error = new Error("internal failure");
 
-    const context: RequestContext = { correlationId: 'corr-5xx' };
+    const context: RequestContext = { correlationId: "corr-5xx" };
 
     requestContextStorage.run(context, () => {
       filter.catch(error, host);
     });
 
     expect(mockSentryService.captureException).toHaveBeenCalledWith(error, {
-      correlationId: 'corr-5xx',
-      method: 'GET',
-      url: '/api/klivo/v1/test',
+      correlationId: "corr-5xx",
+      method: "GET",
+      url: "/api/klivo/v1/test",
     });
   });
 
-  it('should call sentryService.captureException for HttpException with status >= 500', () => {
+  it("should call sentryService.captureException for HttpException with status >= 500", () => {
     const { host } = createMockHost();
-    const error = new HttpException('Service Unavailable', 503);
+    const error = new HttpException("Service Unavailable", 503);
 
     filter.catch(error, host);
 
     expect(mockSentryService.captureException).toHaveBeenCalledWith(
       error,
-      expect.objectContaining({ method: 'GET' }),
+      expect.objectContaining({ method: "GET" }),
     );
   });
 
-  it('should NOT call sentryService.captureException for 4xx errors', () => {
+  it("should NOT call sentryService.captureException for 4xx errors", () => {
     const { host } = createMockHost();
 
-    filter.catch(new HttpException('Bad Request', 400), host);
+    filter.catch(new HttpException("Bad Request", 400), host);
 
     expect(mockSentryService.captureException).not.toHaveBeenCalled();
   });
 
-  it('should NOT call sentryService.captureException for 404 errors', () => {
+  it("should NOT call sentryService.captureException for 404 errors", () => {
     const { host } = createMockHost();
 
-    filter.catch(new HttpException('Not Found', 404), host);
+    filter.catch(new HttpException("Not Found", 404), host);
 
     expect(mockSentryService.captureException).not.toHaveBeenCalled();
   });
 
-  it('writes a failed-request envelope (with stack) for a 5xx on a mutating route', () => {
-    const { host } = createMockHost('POST');
-    filter.catch(new Error('kaboom'), host);
+  it("writes a failed-request envelope (with stack) for a 5xx on a mutating route", () => {
+    const { host } = createMockHost("POST");
+    filter.catch(new Error("kaboom"), host);
 
     expect(logEvent).toHaveBeenCalledTimes(1);
     const arg = logEvent.mock.calls[0][0];
-    expect(arg.eventName).toBe('DASHBOARD_HTTP_ERROR');
+    expect(arg.eventName).toBe("DASHBOARD_HTTP_ERROR");
     expect(arg.responseStatus).toBe(500);
     expect(arg.success).toBe(false);
-    expect(arg.errorMessage).toBe('kaboom');
-    expect(typeof arg.metadata.stack).toBe('string');
+    expect(arg.errorMessage).toBe("kaboom");
+    expect(typeof arg.metadata.stack).toBe("string");
   });
 
-  it('captures a 4xx auth/business rejection on a mutating route (no stack)', () => {
-    const { host } = createMockHost('DELETE');
-    filter.catch(new HttpException('Forbidden', 403), host);
+  it("captures a 4xx auth/business rejection on a mutating route (no stack)", () => {
+    const { host } = createMockHost("DELETE");
+    filter.catch(new HttpException("Forbidden", 403), host);
 
     expect(logEvent).toHaveBeenCalledTimes(1);
     const arg = logEvent.mock.calls[0][0];
@@ -204,22 +216,65 @@ describe('AllExceptionsFilter', () => {
     expect(arg.metadata.stack).toBeUndefined();
   });
 
-  it('does NOT capture non-mutating (GET) failures', () => {
-    const { host } = createMockHost('GET');
-    filter.catch(new Error('kaboom'), host);
+  it("does NOT capture non-mutating (GET) failures", () => {
+    const { host } = createMockHost("GET");
+    filter.catch(new Error("kaboom"), host);
     expect(logEvent).not.toHaveBeenCalled();
   });
 
-  it('does NOT capture excluded channels (widget carries raw visitor bodies)', () => {
-    const { host } = createMockHost('POST', '/api/klivo/v1/public/chat/stream');
-    filter.catch(new Error('kaboom'), host);
+  it("captures failed widget requests too (bodies are PII-masked by the event_logs writer)", () => {
+    const { host } = createMockHost("POST", "/api/klivo/v1/public/chat/stream");
+    filter.catch(new Error("kaboom"), host);
+    expect(logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "WIDGET",
+        eventName: "WIDGET_HTTP_ERROR",
+        success: false,
+      }),
+    );
+  });
+
+  it("does not log client errors on public channels (bot and scanner noise)", () => {
+    const { host } = createMockHost("POST", "/api/klivo/v1/public/chat/send");
+    filter.catch(new HttpException("bad input", 400), host);
     expect(logEvent).not.toHaveBeenCalled();
   });
 
-  it('does not write when EVENT_LOG_HTTP_CAPTURE=false', () => {
-    process.env.EVENT_LOG_HTTP_CAPTURE = 'false';
-    const { host } = createMockHost('POST');
-    filter.catch(new Error('kaboom'), host);
+  it("links a failed public request to its conversation and hashed visitor, so erasure finds it", () => {
+    const { host, request } = createMockHost(
+      "POST",
+      "/api/klivo/v1/public/chat/send",
+    );
+    request.body = { sessionId: "pub-session-1", chatInput: "hi" };
+    request.headers = { "x-device-id": "device-1" };
+    filter.catch(new Error("kaboom"), host);
+    expect(logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        channel: "WIDGET",
+        sessionId: "pub-session-1",
+        visitorId: "vd_device-1",
+      }),
+    );
+  });
+
+  it("puts the conversation id in the sessionId column for Inbox routes", () => {
+    const { host } = createMockHost(
+      "POST",
+      "/api/klivo/v1/handover/sess-123/messages",
+      {
+        sessionId: "sess-123",
+      },
+    );
+    filter.catch(new Error("kaboom"), host);
+    expect(logEvent).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionId: "sess-123" }),
+    );
+  });
+
+  it("does not write when EVENT_LOG_HTTP_CAPTURE=false", () => {
+    process.env.EVENT_LOG_HTTP_CAPTURE = "false";
+    const { host } = createMockHost("POST");
+    filter.catch(new Error("kaboom"), host);
     expect(logEvent).not.toHaveBeenCalled();
   });
 });

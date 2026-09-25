@@ -1,42 +1,43 @@
-'use client';
+"use client";
 
-import { useState } from 'react';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { RadioGroup, RadioGroupItem } from '@/components/ui/radio-group';
+import { useState } from "react";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { Slider } from '@/components/ui/slider';
+} from "@/components/ui/select";
+import { Slider } from "@/components/ui/slider";
 import {
   Accordion,
   AccordionContent,
   AccordionItem,
   AccordionTrigger,
-} from '@/components/ui/accordion';
-import { X, Plus, Zap, Webhook } from 'lucide-react';
-import { InfoTooltip } from '@/components/ui/info-tooltip';
-import { ToggleRow } from '../toggle-row';
-import { useAgentEditor } from '../agent-editor-context';
-import { usePermissions } from '@/hooks/use-permissions';
-import type { AgentAiConfigDto } from '@repo/validation';
+} from "@/components/ui/accordion";
+import { X, Plus, Zap, Webhook } from "lucide-react";
+import { InfoTooltip } from "@/components/ui/info-tooltip";
+import { useAgentEditor } from "../agent-editor-context";
+import { usePermissions } from "@/hooks/use-permissions";
+import type { AgentAiConfigDto } from "@repo/validation";
 
 function normalizeDomain(s: string) {
   return s
     .trim()
     .toLowerCase()
-    .replace(/^https?:\/\//, '')
-    .replace(/\/.*/, '')
-    .replace(/\/$/, '');
+    .replace(/^https?:\/\//, "")
+    .replace(/\/.*/, "")
+    .replace(/\/$/, "");
 }
 
 function isValidDomain(s: string) {
-  return /^(localhost(?::\d+)?|\d+\.\d+\.\d+\.\d+|[a-z0-9.-]+(?::\d+)?)$/.test(s);
+  return /^(localhost(?::\d+)?|\d+\.\d+\.\d+\.\d+|[a-z0-9.-]+(?::\d+)?)$/.test(
+    s,
+  );
 }
 
 /**
@@ -69,81 +70,88 @@ interface ModelOption {
 //     New addition pending integration testing.
 const CURATED_MODELS: ModelOption[] = [
   {
-    value: 'openai:gpt-4.1',
-    label: 'GPT-4.1 (OpenAI)',
-    hint: 'Best instruction-following. Premium quality, higher cost.',
+    value: "openai:gpt-4.1",
+    label: "GPT-4.1 (OpenAI)",
+    hint: "Best instruction-following. Premium quality, higher cost.",
     detail:
-      'Obeys strict rules, like character-limit caps, more reliably than the others. Auto prompt-caching with 24h retention is configured. Costs more per token, so pick it when precision matters more than price.',
+      "Obeys strict rules, like character-limit caps, more reliably than the others. Auto prompt-caching with 24h retention is configured. Costs more per token, so pick it when precision matters more than price.",
   },
   {
-    value: 'openai:gpt-4.1-mini',
-    label: 'GPT-4.1 mini (OpenAI)',
-    hint: 'Balanced quality and speed. Recommended default.',
+    value: "openai:gpt-4.1-mini",
+    label: "GPT-4.1 mini (OpenAI)",
+    hint: "Balanced quality and speed. Recommended default.",
     detail:
-      '10× cheaper than GPT-4.1 with comparable quality for most agents. Auto prompt-caching with 24h retention. Start here unless you have a reason not to.',
+      "10× cheaper than GPT-4.1 with comparable quality for most agents. Auto prompt-caching with 24h retention. Start here unless you have a reason not to.",
   },
   {
-    value: 'gemini:gemini-2.5-flash',
-    label: 'Gemini 2.5 Flash (Google)',
-    hint: 'Huge 1M context. Cheapest quality option.',
+    value: "gemini:gemini-2.5-flash",
+    label: "Gemini 2.5 Flash (Google)",
+    hint: "Huge 1M context. Cheapest quality option.",
     detail:
-      '1M-token context window with thinking disabled for low latency. Free tier covers 1500 requests/day. Strong multilingual, and the cheapest paid tier among the quality models. Good for long-document agents.',
+      "1M-token context window with thinking disabled for low latency. Free tier covers 1500 requests/day. Strong multilingual, and the cheapest paid tier among the quality models. Good for long-document agents.",
   },
   {
-    value: 'groq:qwen/qwen3-32b',
-    label: 'Qwen 3 32B (Groq)',
-    hint: 'Fastest from India. Strong multilingual.',
+    value: "groq:qwen/qwen3-32b",
+    label: "Qwen 3 32B (Groq)",
+    hint: "Fastest from India. Strong multilingual.",
     detail:
-      'Measured ~156ms time-to-first-token from India, and handles 29+ languages well. Free tier is capped at 60 requests/min and 500K tokens/day, production-ready once on a paid plan. Currently free during preview.',
+      "Measured ~156ms time-to-first-token from India, and handles 29+ languages well. Free tier is capped at 60 requests/min and 500K tokens/day, production-ready once on a paid plan. Currently free during preview.",
   },
   {
-    value: 'anthropic/claude-haiku-4-5',
-    label: 'Claude Haiku 4.5 (Anthropic)',
-    hint: 'Fastest published benchmarks. Not yet battle-tested here.',
+    value: "anthropic/claude-haiku-4-5",
+    label: "Claude Haiku 4.5 (Anthropic)",
+    hint: "Fastest published benchmarks. Not yet battle-tested here.",
     detail:
-      'Fastest published time-to-first-token in 2026 benchmarks (~597ms median). A recent addition, still pending production testing in this codebase, so prefer it for experiments over critical agents.',
+      "Fastest published time-to-first-token in 2026 benchmarks (~597ms median). A recent addition, still pending production testing in this codebase, so prefer it for experiments over critical agents.",
   },
 ];
 
 export function IntegrationSettings() {
   const { can } = usePermissions();
   const { formData, updateFormData } = useAgentEditor();
-  const [newDomain, setNewDomain] = useState('');
+  const [newDomain, setNewDomain] = useState("");
 
   const aiConfig = formData.aiConfig;
 
-  const isAdmin = can('AgentSecret:Read');
+  const isAdmin = can("AgentSecret:Read");
   if (!isAdmin) return null;
 
-  const routingMode = aiConfig.routingMode ?? 'n8n';
+  const routingMode = aiConfig.routingMode ?? "n8n";
 
   const patchAiConfig = (patch: Partial<AgentAiConfigDto>) => {
-    updateFormData('aiConfig', { ...aiConfig, ...patch });
+    updateFormData("aiConfig", { ...aiConfig, ...patch });
   };
 
   // ---- n8n webhook handlers (unchanged behaviour) -----------------------
   const domains = formData.allowedDomains;
   const addDomains = (input: string) => {
-    const parts = input.split(/[\s,]+/g).map(normalizeDomain).filter(Boolean);
+    const parts = input
+      .split(/[\s,]+/g)
+      .map(normalizeDomain)
+      .filter(Boolean);
     if (!parts.length) return;
     const next = [...domains];
     for (const p of parts) {
       if (!isValidDomain(p)) continue;
       if (!next.includes(p)) next.push(p);
     }
-    updateFormData('allowedDomains', next);
-    setNewDomain('');
+    updateFormData("allowedDomains", next);
+    setNewDomain("");
   };
   const removeDomain = (d: string) => {
-    updateFormData('allowedDomains', domains.filter((x) => x !== d));
+    updateFormData(
+      "allowedDomains",
+      domains.filter((x) => x !== d),
+    );
   };
 
   // If the saved model isn't in our curated list (e.g. an older agent set to
   // a now-removed model), snap to the recommended default. The picker is
   // curated-only now — no custom input — so the value MUST match an option.
-  const modelSelectValue = aiConfig.modelId && CURATED_MODELS.some((m) => m.value === aiConfig.modelId)
-    ? aiConfig.modelId
-    : CURATED_MODELS[0]!.value;
+  const modelSelectValue =
+    aiConfig.modelId && CURATED_MODELS.some((m) => m.value === aiConfig.modelId)
+      ? aiConfig.modelId
+      : CURATED_MODELS[0]!.value;
 
   return (
     <div className="space-y-6">
@@ -154,8 +162,8 @@ export function IntegrationSettings() {
             label="Integration"
             content={
               <p>
-                Choose how this agent handles chat: the legacy n8n webhook, or our
-                native AI orchestrator with built-in streaming, caching and
+                Choose how this agent handles chat: the legacy n8n webhook, or
+                our native AI orchestrator with built-in streaming, caching and
                 observability.
               </p>
             }
@@ -179,17 +187,17 @@ export function IntegrationSettings() {
             content={
               <>
                 <p>
-                  Whitelist of domains where this agent&apos;s widget is allowed to
-                  load. Leave empty to allow any origin, which is useful while
-                  developing.
+                  Whitelist of domains where this agent&apos;s widget is allowed
+                  to load. Leave empty to allow any origin, which is useful
+                  while developing.
                 </p>
                 <p>
-                  Applies to both n8n and direct routing modes. It is not gated by
-                  that choice.
+                  Applies to both n8n and direct routing modes. It is not gated
+                  by that choice.
                 </p>
                 <p>
-                  Press Enter or comma after each domain. Ports are supported, e.g.{' '}
-                  <code>localhost:5000</code>.
+                  Press Enter or comma after each domain. Ports are supported,
+                  e.g. <code>localhost:5000</code>.
                 </p>
               </>
             }
@@ -203,7 +211,7 @@ export function IntegrationSettings() {
             value={newDomain}
             onChange={(e) => setNewDomain(e.target.value)}
             onKeyDown={(e) => {
-              if (e.key === 'Enter' || e.key === ',') {
+              if (e.key === "Enter" || e.key === ",") {
                 e.preventDefault();
                 addDomains(newDomain);
               }
@@ -239,13 +247,17 @@ export function IntegrationSettings() {
       {/* Routing mode radio ------------------------------------------------ */}
       <RadioGroup
         value={routingMode}
-        onValueChange={(v) => patchAiConfig({ routingMode: v as 'n8n' | 'direct' })}
+        onValueChange={(v) =>
+          patchAiConfig({ routingMode: v as "n8n" | "direct" })
+        }
         className="grid grid-cols-1 gap-3 sm:grid-cols-2"
       >
         <label
           htmlFor="routing-n8n"
           className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors ${
-            routingMode === 'n8n' ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
+            routingMode === "n8n"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:bg-muted/40"
           }`}
         >
           <RadioGroupItem value="n8n" id="routing-n8n" className="mt-1" />
@@ -264,7 +276,9 @@ export function IntegrationSettings() {
         <label
           htmlFor="routing-direct"
           className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors ${
-            routingMode === 'direct' ? 'border-primary bg-primary/5' : 'border-border hover:bg-muted/40'
+            routingMode === "direct"
+              ? "border-primary bg-primary/5"
+              : "border-border hover:bg-muted/40"
           }`}
         >
           <RadioGroupItem value="direct" id="routing-direct" className="mt-1" />
@@ -282,13 +296,13 @@ export function IntegrationSettings() {
       </RadioGroup>
 
       {/* Conditional LLM config panel ------------------------------------- */}
-      {routingMode === 'n8n' ? (
+      {routingMode === "n8n" ? (
         <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
           <div className="space-y-2">
             <Label className="text-sm font-medium">Webhook URL</Label>
             <Input
               value={formData.webhookUrl}
-              onChange={(e) => updateFormData('webhookUrl', e.target.value)}
+              onChange={(e) => updateFormData("webhookUrl", e.target.value)}
               placeholder="https://your-api.com/webhook"
             />
             <p className="text-xs text-muted-foreground">
@@ -303,7 +317,6 @@ export function IntegrationSettings() {
           modelSelectValue={modelSelectValue}
         />
       )}
-
     </div>
   );
 }
@@ -323,7 +336,9 @@ function DirectModeConfig({
   patch: (p: Partial<AgentAiConfigDto>) => void;
   modelSelectValue: string;
 }) {
-  const selectedCurated = CURATED_MODELS.find((m) => m.value === modelSelectValue);
+  const selectedCurated = CURATED_MODELS.find(
+    (m) => m.value === modelSelectValue,
+  );
 
   // The advanced numeric fields live in a collapsed accordion. If either is
   // out of range, default the accordion open so its inline error is visible —
@@ -344,7 +359,7 @@ function DirectModeConfig({
           {/* Tooltip follows the SELECTED model, so the caveats you get are the
               caveats for what you actually picked. */}
           <InfoTooltip
-            label={selectedCurated ? selectedCurated.label : 'Model'}
+            label={selectedCurated ? selectedCurated.label : "Model"}
             content={selectedCurated ? <p>{selectedCurated.detail}</p> : null}
           />
         </div>
@@ -364,7 +379,9 @@ function DirectModeConfig({
           </SelectContent>
         </Select>
         {selectedCurated && (
-          <p className="text-xs text-muted-foreground">{selectedCurated.hint}</p>
+          <p className="text-xs text-muted-foreground">
+            {selectedCurated.hint}
+          </p>
         )}
       </div>
 
@@ -391,7 +408,9 @@ function DirectModeConfig({
       {/* Max output tokens ---------------------------------------------- */}
       <div className="space-y-2">
         <div className="flex items-center gap-1.5">
-          <Label className="text-sm font-medium">Max response length (tokens)</Label>
+          <Label className="text-sm font-medium">
+            Max response length (tokens)
+          </Label>
           <InfoTooltip
             label="Max response length"
             content={
@@ -408,10 +427,10 @@ function DirectModeConfig({
           // clearing the field and retyping). The 1-32000 range is enforced by
           // the inline error below + the save-time guard, instead of silently
           // rejecting keystrokes.
-          value={aiConfig.maxTokens ?? ''}
+          value={aiConfig.maxTokens ?? ""}
           onChange={(e) => {
             const raw = e.target.value;
-            const n = raw === '' ? 0 : Number.parseInt(raw, 10);
+            const n = raw === "" ? 0 : Number.parseInt(raw, 10);
             if (Number.isFinite(n) && n >= 0) patch({ maxTokens: n });
           }}
         />
@@ -429,7 +448,7 @@ function DirectModeConfig({
       <Accordion
         type="single"
         collapsible
-        defaultValue={advancedInvalid ? 'advanced' : undefined}
+        defaultValue={advancedInvalid ? "advanced" : undefined}
       >
         <AccordionItem value="advanced" className="border-b-0">
           <AccordionTrigger className="cursor-pointer py-2 text-sm font-medium">
@@ -443,11 +462,12 @@ function DirectModeConfig({
               </Label>
               <Input
                 type="number"
-                value={aiConfig.maxContextMessages ?? ''}
+                value={aiConfig.maxContextMessages ?? ""}
                 onChange={(e) => {
                   const raw = e.target.value;
-                  const n = raw === '' ? 0 : Number.parseInt(raw, 10);
-                  if (Number.isFinite(n) && n >= 0) patch({ maxContextMessages: n });
+                  const n = raw === "" ? 0 : Number.parseInt(raw, 10);
+                  if (Number.isFinite(n) && n >= 0)
+                    patch({ maxContextMessages: n });
                 }}
               />
               <p className="text-xs text-muted-foreground">
@@ -464,19 +484,22 @@ function DirectModeConfig({
             {/* Max input tokens */}
             <div className="space-y-2">
               <div className="flex items-center gap-1.5">
-                <Label className="text-sm font-medium">Input token budget</Label>
+                <Label className="text-sm font-medium">
+                  Input token budget
+                </Label>
                 <InfoTooltip
                   label="Input token budget"
                   content={
                     <>
                       <p>
-                        Total budget for the system prompt, knowledge, history and the
-                        new message combined. The context assembler drops the oldest
-                        messages to fit.
+                        Total budget for the system prompt, knowledge, history
+                        and the new message combined. The context assembler
+                        drops the oldest messages to fit.
                       </p>
                       <p>
-                        Range 500–1,000,000. <strong>8000</strong> fits every model;
-                        raise to 200,000+ for long-document agents, or 1M for Gemini.
+                        Range 500–1,000,000. <strong>8000</strong> fits every
+                        model; raise to 200,000+ for long-document agents, or 1M
+                        for Gemini.
                       </p>
                     </>
                   }
@@ -484,11 +507,12 @@ function DirectModeConfig({
               </div>
               <Input
                 type="number"
-                value={aiConfig.maxInputTokens ?? ''}
+                value={aiConfig.maxInputTokens ?? ""}
                 onChange={(e) => {
                   const raw = e.target.value;
-                  const n = raw === '' ? 0 : Number.parseInt(raw, 10);
-                  if (Number.isFinite(n) && n >= 0) patch({ maxInputTokens: n });
+                  const n = raw === "" ? 0 : Number.parseInt(raw, 10);
+                  if (Number.isFinite(n) && n >= 0)
+                    patch({ maxInputTokens: n });
                 }}
               />
               <p className="text-xs text-muted-foreground">
@@ -511,61 +535,45 @@ function DirectModeConfig({
                   content={
                     <>
                       <p>
-                        <strong>Hybrid</strong> keeps recent messages verbatim and
-                        summarizes older ones in the background. No added reply time,
-                        and the bot keeps early details (like a name given at the
-                        start).
+                        <strong>Hybrid</strong> keeps recent messages verbatim
+                        and summarizes older ones in the background. No added
+                        reply time, and the bot keeps early details (like a name
+                        given at the start).
                       </p>
-                      <p>Costs nothing until a conversation actually gets long.</p>
+                      <p>
+                        Costs nothing until a conversation actually gets long.
+                      </p>
                     </>
                   }
                 />
               </div>
               <Select
-                value={aiConfig.contextStrategy ?? 'hybrid'}
+                value={aiConfig.contextStrategy ?? "hybrid"}
                 onValueChange={(v) =>
-                  patch({ contextStrategy: v as AgentAiConfigDto['contextStrategy'] })
+                  patch({
+                    contextStrategy: v as AgentAiConfigDto["contextStrategy"],
+                  })
                 }
               >
                 <SelectTrigger>
                   <SelectValue />
                 </SelectTrigger>
                 <SelectContent>
-                  <SelectItem value="hybrid">Hybrid: recent + summary (default)</SelectItem>
-                  <SelectItem value="sliding-window">Sliding window only</SelectItem>
-                  <SelectItem value="summarize">Summarize older messages</SelectItem>
+                  <SelectItem value="hybrid">
+                    Hybrid: recent + summary (default)
+                  </SelectItem>
+                  <SelectItem value="sliding-window">
+                    Sliding window only
+                  </SelectItem>
+                  <SelectItem value="summarize">
+                    Summarize older messages
+                  </SelectItem>
                 </SelectContent>
               </Select>
               <p className="text-xs text-muted-foreground">
                 How the agent remembers long conversations.
               </p>
             </div>
-
-            {/* PII redaction */}
-            <ToggleRow
-              id="piiRedactionEnabled"
-              label="PII protection"
-              description="Hide sensitive details from the AI model and logs."
-              info={
-                <>
-                  <p>
-                    Replaces bank/account numbers, dates of birth and IFSC codes with
-                    placeholders before they reach the AI model or stored logs. Your
-                    team still sees the real values in the Inbox.
-                  </p>
-                  <p>
-                    Detects identifiers in any language. Name and address detection is
-                    not included yet.
-                  </p>
-                  <p>
-                    <strong>Always blocked regardless of this setting:</strong>{' '}
-                    government IDs and card numbers (Aadhaar, PAN, passport, cards).
-                  </p>
-                </>
-              }
-              checked={aiConfig.piiRedactionEnabled ?? false}
-              onChange={(v) => patch({ piiRedactionEnabled: v })}
-            />
           </AccordionContent>
         </AccordionItem>
       </Accordion>
