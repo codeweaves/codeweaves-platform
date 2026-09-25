@@ -128,16 +128,21 @@ export function redact(value: unknown, depth = 0): unknown {
   if (Array.isArray(value)) {
     return value.slice(0, 50).map((v) => redact(v, depth + 1));
   }
-  const out: Record<string, unknown> = {};
-  for (const [k, v] of Object.entries(value as Record<string, unknown>)) {
-    // Prototype-pollution guard: a remote payload can carry an own "__proto__"
-    // (JSON.parse creates it as a real key), and `out[k] = …` on a plain object
-    // would then walk into the prototype. These keys are attack payloads, never
-    // legitimate log data, so drop them.
-    if (k === "__proto__" || k === "constructor" || k === "prototype") continue;
-    out[k] = isSensitiveKey(k) ? "[REDACTED]" : redact(v, depth + 1);
-  }
-  return out;
+  // Prototype-pollution guard: a remote payload can carry an own "__proto__"
+  // (JSON.parse creates it as a real key). Those keys are attack payloads,
+  // never legitimate log data, so they are dropped; and Object.fromEntries
+  // defines plain own properties, so no key is ever written through the
+  // prototype chain.
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(
+        ([k]) => k !== "__proto__" && k !== "constructor" && k !== "prototype",
+      )
+      .map(([k, v]) => [
+        k,
+        isSensitiveKey(k) ? "[REDACTED]" : redact(v, depth + 1),
+      ]),
+  );
 }
 
 /**

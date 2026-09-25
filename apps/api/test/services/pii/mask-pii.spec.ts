@@ -109,3 +109,16 @@ describe("maskPiiDeep", () => {
     expect(maskPiiDeep(7)).toBe(7);
   });
 });
+
+describe("maskPiiDeep against prototype pollution", () => {
+  it("drops __proto__ / constructor / prototype keys and never touches a prototype", () => {
+    const payload = JSON.parse(
+      '{"__proto__":{"polluted":"yes"},"constructor":{"x":1},"note":"ok"}',
+    );
+    const out = maskPiiDeep(payload) as Record<string, unknown>;
+
+    expect(Object.getPrototypeOf(out)).toBe(Object.prototype);
+    expect(Object.keys(out)).toEqual(["note"]);
+    expect(({} as Record<string, unknown>).polluted).toBeUndefined();
+  });
+});

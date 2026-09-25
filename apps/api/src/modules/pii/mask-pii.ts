@@ -47,6 +47,7 @@ export interface MaskLimits {
 }
 
 const CUT_MARGIN = 64;
+const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 const DEFAULT_MAX_DEPTH = 20;
 
 /**
@@ -93,9 +94,15 @@ export function maskPiiDeep<T>(
         : value;
     return items.map((v: unknown) => maskPiiDeep(v, limits, depth + 1)) as T;
   }
-  const out: Record<string, unknown> = {};
-  for (const [key, v] of Object.entries(value as Record<string, unknown>)) {
-    out[key] = ID_FIELD.test(key) ? v : maskPiiDeep(v, limits, depth + 1);
-  }
-  return out as T;
+  // Object.fromEntries defines plain own properties, so a remote key such as
+  // "__proto__" can never reach the prototype. Those keys are attack
+  // payloads, never log data, and are dropped as redact() does.
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .filter(([key]) => !UNSAFE_KEYS.has(key))
+      .map(([key, v]) => [
+        key,
+        ID_FIELD.test(key) ? v : maskPiiDeep(v, limits, depth + 1),
+      ]),
+  ) as T;
 }
