@@ -234,7 +234,7 @@ export function ConsentSettings() {
                     onChange={(e) =>
                       updateThemeData("consent.withdrawLabel", e.target.value)
                     }
-                    placeholder="Withdraw consent"
+                    placeholder="Opt out"
                     maxLength={40}
                   />
                 </div>

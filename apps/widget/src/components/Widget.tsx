@@ -104,6 +104,14 @@ const domainBlocked = signal(false);
 let widgetMounted = false;
 
 /** Main widget container — renders trigger button and conditionally renders chat window */
+function readBubbleDismissed(key: string): boolean {
+  try {
+    return sessionStorage.getItem(key) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function Widget({ agentId, apiBaseUrl = "", hostElement }: WidgetProps) {
   const handleOpen = () => {
     widgetState.value = "expanded";
@@ -242,7 +250,11 @@ export function Widget({ agentId, apiBaseUrl = "", hostElement }: WidgetProps) {
 
   // Hooks must be called unconditionally (before any early returns)
   const [showBubble, setShowBubble] = useState(false);
-  const bubbleDismissed = useRef(false);
+  // Once the visitor closes the bubble it stays closed for the rest of the
+  // visit (this tab), not just this page. Showing it again on every page after
+  // an explicit "not now" is nagging; the launcher is always there.
+  const bubbleKey = `cw_bubble_dismissed_${agentId}`;
+  const bubbleDismissed = useRef(readBubbleDismissed(bubbleKey));
 
   // Body scroll lock + VirtualKeyboard API opt-in when widget is expanded on mobile.
   // Pure-CSS approach: 100dvh + env(keyboard-inset-height) handle keyboard sizing
@@ -336,11 +348,19 @@ export function Widget({ agentId, apiBaseUrl = "", hostElement }: WidgetProps) {
     if (state !== "closed") setShowBubble(false);
   }, [state]);
 
-  const dismissBubble = useCallback((e?: MouseEvent) => {
-    e?.stopPropagation();
-    bubbleDismissed.current = true;
-    setShowBubble(false);
-  }, []);
+  const dismissBubble = useCallback(
+    (e?: MouseEvent) => {
+      e?.stopPropagation();
+      bubbleDismissed.current = true;
+      try {
+        sessionStorage.setItem(bubbleKey, "1");
+      } catch {
+        /* storage blocked: dismissed for this page only */
+      }
+      setShowBubble(false);
+    },
+    [bubbleKey],
+  );
 
   // If config can't load (API down, 404, network error) or domain is not
   // authorized — render nothing so the customer's site stays clean. We also
@@ -400,28 +420,39 @@ export function Widget({ agentId, apiBaseUrl = "", hostElement }: WidgetProps) {
       {/* Bubble notification */}
       {showBubble && state === "closed" && (
         <div
-          class={`cw-bubble pointer-events-auto absolute ${iconOnRight ? "bottom-22 right-5" : "bottom-22 left-5"} z-10 max-w-xs cursor-pointer rounded-2xl px-4 py-3 shadow-lg transition-all duration-300 hover:scale-105`}
+          class={`cw-bubble pointer-events-auto absolute ${iconOnRight ? "bottom-22 right-5" : "bottom-22 left-5"} z-10 max-w-xs rounded-2xl shadow-lg transition-all duration-300 hover:scale-105`}
           style={{
             backgroundColor: bubbleBg,
             color: bubbleTextColor,
             boxShadow:
               "0 10px 15px -3px rgba(0,0,0,0.1), 0 4px 6px -4px rgba(0,0,0,0.1)",
           }}
-          onClick={() => {
-            dismissBubble();
-            handleOpen();
-          }}
         >
-          <div class="cw-bubble-content">
+          {/* A real button (WCAG 2.1.1): reachable with Tab, opens on Enter or
+              Space. It is a sibling of the close button, never its parent, so
+              two controls are not nested. */}
+          <button
+            type="button"
+            class="cw-bubble-content block w-full cursor-pointer border-0 bg-transparent px-4 py-3 text-left"
+            style={{
+              color: "inherit",
+              font: "inherit",
+              borderRadius: "inherit",
+            }}
+            onClick={() => {
+              dismissBubble();
+              handleOpen();
+            }}
+          >
             <span class="cw-bubble-text text-sm font-medium leading-snug">
               {bubbleConfig.text}
             </span>
-          </div>
+          </button>
           <button
             onClick={(e) => dismissBubble(e as unknown as MouseEvent)}
             class="cw-bubble-close"
             type="button"
-            aria-label="Dismiss"
+            aria-label="Dismiss message"
             style={{
               position: "absolute",
               top: "-4px",

@@ -8,6 +8,8 @@ interface IconProps {
 export function MessageCircleIcon({ class: cls = "w-7 h-7" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -24,6 +26,8 @@ export function MessageCircleIcon({ class: cls = "w-7 h-7" }: IconProps) {
 export function Minimize2Icon({ class: cls = "w-4 h-4" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -40,9 +44,69 @@ export function Minimize2Icon({ class: cls = "w-4 h-4" }: IconProps) {
   );
 }
 
+export function ShieldIcon({ class: cls = "w-4 h-4" }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      class={cls}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M20 13c0 5-3.5 7.5-7.66 8.95a1 1 0 0 1-.67-.01C7.5 20.5 4 18 4 13V6a1 1 0 0 1 1-1c2 0 4.5-1.2 6.24-2.72a1.17 1.17 0 0 1 1.52 0C14.51 3.81 17 5 19 5a1 1 0 0 1 1 1z" />
+    </svg>
+  );
+}
+
+export function LogOutIcon({ class: cls = "w-4 h-4" }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      class={cls}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M9 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h4" />
+      <polyline points="16 17 21 12 16 7" />
+      <line x1="21" x2="9" y1="12" y2="12" />
+    </svg>
+  );
+}
+
+export function ExternalLinkIcon({ class: cls = "w-4 h-4" }: IconProps) {
+  return (
+    <svg
+      aria-hidden="true"
+      focusable="false"
+      class={cls}
+      viewBox="0 0 24 24"
+      fill="none"
+      stroke="currentColor"
+      stroke-width="2"
+      stroke-linecap="round"
+      stroke-linejoin="round"
+    >
+      <path d="M15 3h6v6" />
+      <path d="M10 14 21 3" />
+      <path d="M18 13v6a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2V8a2 2 0 0 1 2-2h6" />
+    </svg>
+  );
+}
+
 export function XIcon({ class: cls = "w-4 h-4" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -60,6 +124,8 @@ export function XIcon({ class: cls = "w-4 h-4" }: IconProps) {
 export function EllipsisIcon({ class: cls = "w-4 h-4" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -78,6 +144,8 @@ export function EllipsisIcon({ class: cls = "w-4 h-4" }: IconProps) {
 export function BotIcon({ class: cls = "w-6 h-6" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -99,6 +167,8 @@ export function BotIcon({ class: cls = "w-6 h-6" }: IconProps) {
 export function SettingsIcon({ class: cls = "w-6 h-6" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -116,6 +186,8 @@ export function SettingsIcon({ class: cls = "w-6 h-6" }: IconProps) {
 export function ZapIcon({ class: cls = "w-6 h-6" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -132,6 +204,8 @@ export function ZapIcon({ class: cls = "w-6 h-6" }: IconProps) {
 export function HeadphonesIcon({ class: cls = "w-6 h-6" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -148,6 +222,8 @@ export function HeadphonesIcon({ class: cls = "w-6 h-6" }: IconProps) {
 export function UserIcon({ class: cls = "w-6 h-6" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -165,6 +241,8 @@ export function UserIcon({ class: cls = "w-6 h-6" }: IconProps) {
 export function UserCheckIcon({ class: cls = "w-6 h-6" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -183,6 +261,8 @@ export function UserCheckIcon({ class: cls = "w-6 h-6" }: IconProps) {
 export function SendIcon({ class: cls = "w-4 h-4" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -200,6 +280,8 @@ export function SendIcon({ class: cls = "w-4 h-4" }: IconProps) {
 export function MicIcon({ class: cls = "w-4 h-4" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -218,6 +300,8 @@ export function MicIcon({ class: cls = "w-4 h-4" }: IconProps) {
 export function SquareIcon({ class: cls = "w-3.5 h-3.5" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="currentColor"
@@ -234,6 +318,8 @@ export function SquareIcon({ class: cls = "w-3.5 h-3.5" }: IconProps) {
 export function Loader2Icon({ class: cls = "w-4 h-4" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={`${cls} animate-spin`}
       viewBox="0 0 24 24"
       fill="none"
@@ -250,6 +336,8 @@ export function Loader2Icon({ class: cls = "w-4 h-4" }: IconProps) {
 export function Volume2Icon({ class: cls = "w-4 h-4" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
@@ -268,6 +356,8 @@ export function Volume2Icon({ class: cls = "w-4 h-4" }: IconProps) {
 export function ArrowUpIcon({ class: cls = "w-4 h-4" }: IconProps) {
   return (
     <svg
+      aria-hidden="true"
+      focusable="false"
       class={cls}
       viewBox="0 0 24 24"
       fill="none"
