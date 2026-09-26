@@ -7,7 +7,8 @@ A teammate signs in with email and password and lands on the overview. It shows 
 - `signin-password`: the custom email and password form signs in and redirects to `/dashboard`.
 - `overview-kpis`: Conversations, Leads captured, Handover rate and Avg response, with 7D, 30D and 90D ranges.
 - `overview-attention`: "Needs your attention" lists conversations waiting for a human, or "All clear."
-- `overview-agents`: one card per agent with live status and conversation count, plus "New agent".
+- `overview-agents`: one card per agent with live status, a conversation count (only with `Analytics:Read`), and a "New agent" tile (only with `Agent:Create`, which is platform-only).
+- `overview-by-role`: panels built on analytics (KPI row, Handover health, agent counts, the `Analytics` link) render only for users with `Analytics:Read`. Other users get no analytics calls at all.
 - `overview-recent`: the latest conversations, each with agent, channel and message count.
 
 ## How to get to it (user POV)
@@ -26,10 +27,16 @@ Preconditions:
 - **Agents.** Run `cw-verify browser text --text "Verify Chat Bot"`. Expect at least one match. The "Your agents" cards list "Verify Chat Bot" and "Verify Voice Bot" as Live.
 - **Range switch.** Run `cw-verify browser click --role button --name "7D"`. The KPI values refresh for 7 days.
 - **No errors.** Run `cw-verify browser events --type pageerror` (expect a count of 0), and check `--type response` for no 4xx or 5xx from `:3001`.
-- **Teammate view.**
-  1. Run `dashboard login --as teammate`, then `browser goto http://localhost:3000/dashboard`.
-  2. `browser events --type response` shows `GET /analytics/summary`, `/analytics/handover`, `/analytics/leads` and `/analytics/agents` returning 403. That is correct, because org.inbox_agent has no `Analytics:Read`.
-  3. The page shows KPI tiles as "-", every agent card as "0 conversations", and Handover health as "No handovers in this period yet", while "Recent conversations" lists real chats. Report this as open finding F-01. Do not treat the zeros as data.
+- **View per role.** For each role, run `dashboard login --as <role>`, `browser goto http://localhost:3000/dashboard`, wait for `heading "Your agents"`, then `browser settle --quiet 1500` and snapshot. Count the `/analytics/` calls in `browser events --type response --since <ISO before goto>`:
+
+  | Role         | `/analytics/` calls | KPI row | Handover health | Agent counts | `Analytics` link | `New agent` |
+  | ------------ | ------------------- | ------- | --------------- | ------------ | ---------------- | ----------- |
+  | `teammate`   | none                | hidden  | hidden          | hidden       | hidden           | hidden      |
+  | `owner`      | all 200             | shown   | shown           | shown        | shown            | hidden      |
+  | `superadmin` | all 200             | shown   | shown           | shown        | shown            | shown       |
+
+  Any 403 from `/analytics/` on this page, or "0 conversations" for a teammate, is a regression of F-01 to F-03 (fixed 2026-09-27).
+
 - **Proof.** Run `cw-verify browser screenshot --path .verify/artifacts/dashboard-overview/overview.png` and `cw-verify browser snapshot --path .verify/artifacts/dashboard-overview/overview.aria.txt`.
 
 ## Gotchas
@@ -39,5 +46,6 @@ Preconditions:
 - `dashboard login` always starts signed out. It first leaves the app for `about:blank`, then clears cookies and site storage. An open dashboard tab re-creates Clerk's session from its in-memory dev-browser token, so a plain cookie clear is not enough. The command then fails unless Clerk reports the seeded email.
 - **Not a bug: narrow screens scroll sideways by design.** Dashboard content has a 1080 px minimum width (`min-w-270` in `apps/web/components/layout/dashboard-shell.tsx`) and scrolls sideways inside the content area. At a 1280 px viewport the sidebar leaves 1016 px, so a screenshot clips the right 64 px. Use a viewport of at least 1340 px when a screenshot must show the full width.
 - KPIs count every conversation in the org, including failed turns.
-- **Roles without `Analytics:Read` see failures rendered as zero or empty (open findings F-01 to F-03).** The agent cards say "0 conversations" and Handover health says "No handovers". The page also offers the `Analytics` link and the `New agent` tile, which that role cannot use, and repeats the four 403 calls on every refresh.
+- Permission gating is client-side UX. The API still enforces `Analytics:Read` and `Agent:Create`. The page reads permissions from `usePermissions()` and keeps skeletons while they load, so the owner's view does not jump.
+- The analytics hooks (`use-analytics.ts`) honor `enabled: false`. Before the F-01 fix, three of them ignored it and always fetched.
 - With zero handovers, the Handover health ring shows 100% contained, not "no data".

@@ -29,14 +29,18 @@ Preconditions:
   2. Fill `--label "Agent Name"` with `Verify Temp Agent`. Click `--css "#agent-org"`, then `--role option --name "Verify Sandbox" --exact`, then `--role button --name "Create" --exact`.
   3. Expect toast "Agent created successfully" and a URL under `/dashboard/agents/<id>`.
   4. Cross-check: `db query "select a.status, o.slug from agents a join organizations o on o.id = a.\"organizationId\" where a.name = 'Verify Temp Agent' and a.\"deletedAt\" is null"` returns ACTIVE in `verify-sandbox`, and `audit_logs` has a new `AGENT_CREATED`.
-- **Delete denied (teammate).** As `teammate`, click the row trash: `browser click --css 'tbody tr:has-text("Verify Temp Agent") >> button >> nth=3'`. Fill `--css 'input[placeholder="Type DELETE to confirm"]' --value DELETE`, then click `--role button --name "Delete" --exact`. Expect toast "Failed to delete agent", a `DELETE /agents/<id>` response of 403 in `browser events --type response`, and the agent still present.
-- **Delete (superadmin).** Same steps. The dialog is `alertdialog "Delete Agent"`. Expect toast `Agent "Verify Temp Agent" deleted successfully`. The row has `deletedAt` set, and `GET /api/klivo/v1/public/agents/<publicId>/config` returns 404.
+- **Delete hidden (teammate).** As `teammate`, the row for `Verify Temp Agent` shows `Edit Verify Temp Agent`, `Embed code for Verify Temp Agent` and `Open demo for Verify Temp Agent`, and no `Delete …` button.
+- **Delete refused by the API (teammate).** Take the teammate's token (see Tenant isolation in [multi-surface-journeys.md](./multi-surface-journeys.md)) and send `DELETE /api/klivo/v1/agents/<temp agent id>`. Expect 403, and the agent still present with `deletedAt` null.
+- **Delete (superadmin).**
+  1. `browser click --role button --name "Delete Verify Temp Agent"`, then wait for `--role alertdialog --name "Delete Agent"`.
+  2. Fill `--css 'input[placeholder="Type DELETE to confirm"]' --value DELETE`, then click `--role button --name "Delete" --exact`.
+  3. Expect toast `Agent "Verify Temp Agent" deleted successfully`. The row has `deletedAt` set, and `GET /api/klivo/v1/public/agents/<publicId>/config` returns 404.
 - **Proof.** Save screenshots under `.verify/artifacts/agents-list/`, `agent-create/` and `agent-delete/`.
 
 ## Gotchas
 
-- The trash icon shows for every role. A role without `Agent:Delete` gets a 403 and a toast (open finding F-05). The server is correct.
-- The row action icons have no accessible name (open finding F-06). Target them by row and position, as above.
-- The org owner cannot create agents. `Agent:Create` is platform-only, yet the overview's `New agent` tile still shows.
+- The Delete button shows only with `Agent:Delete`. Hiding it is UX; the API also refuses, which the teammate step proves. F-05, fixed 2026-09-27: the button used to show for every role.
+- Row action buttons are named with the agent: `Edit <name>`, `Embed code for <name>`, `Open demo for <name>`, `Delete <name>`. F-06, fixed 2026-09-27: they had no accessible name.
+- The org owner cannot create agents. `Agent:Create` is platform-only, and the overview's `New agent` tile shows only for users who have it.
 - Delete is soft and has no undelete in the UI. The widget stops loading at once.
 - The seed upserts agents by name. Renaming a seeded agent makes the next `seed` create a duplicate.

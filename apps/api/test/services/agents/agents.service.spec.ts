@@ -1454,7 +1454,7 @@ describe("AgentsService", () => {
       expect(result.config.agent.starters).toEqual(["Hello"]);
       expect(result.config.allowedDomains).toEqual(["example.com"]);
       expect(result.config.theme).toBeDefined();
-      expect(result.version).toBe(5);
+      expect(result.etag).toMatch(/^"[A-Za-z0-9_-]{22}"$/);
       expect(mockPrismaService.agent.findFirst).toHaveBeenCalledWith({
         where: { publicId, deletedAt: null, status: "ACTIVE" },
         select: {
@@ -1539,7 +1539,7 @@ describe("AgentsService", () => {
       expect(theme.consent.mode).toBe("consent");
     });
 
-    it("should return version 0 and null theme when no theme exists", async () => {
+    it("should return a null theme and an ETag when no theme exists", async () => {
       mockPrismaService.agent.findFirst.mockResolvedValue({
         id: agentId,
         name: "Test Agent",
@@ -1553,7 +1553,54 @@ describe("AgentsService", () => {
       expect(result.config.theme).toBeNull();
       expect(result.config.agent.greeting).toBe("");
       expect(result.config.agent.starters).toEqual([]);
-      expect(result.version).toBe(0);
+      expect(result.etag).toMatch(/^"[A-Za-z0-9_-]{22}"$/);
+    });
+
+    describe("ETag", () => {
+      const baseAgent = {
+        id: agentId,
+        name: "Test Agent",
+        welcomeMessage: "Hi there",
+        allowedDomains: ["example.com"],
+        voiceEnabled: false,
+        voiceConfig: null,
+        humanTakeoverEnabled: false,
+        showTalkToHumanButton: false,
+        humanConnectedLabel: null,
+      };
+      // The same theme row both times: its version never moves.
+      const theme = { config: { icon: { position: "right" } }, version: 5 };
+
+      async function etagFor(agent: Record<string, unknown>) {
+        mockPrismaService.agent.findFirst.mockResolvedValue(agent);
+        mockPrismaService.agentTheme.findUnique.mockResolvedValue(theme);
+        return (await service.getWidgetConfig(publicId)).etag;
+      }
+
+      it("changes when an agent field changes and the theme version does not", async () => {
+        const before = await etagFor(baseAgent);
+        const after = await etagFor({
+          ...baseAgent,
+          welcomeMessage: "A new greeting",
+        });
+
+        expect(after).not.toBe(before);
+      });
+
+      it("changes when voice is turned on and the theme version does not", async () => {
+        const before = await etagFor(baseAgent);
+        const after = await etagFor({
+          ...baseAgent,
+          voiceEnabled: true,
+          voiceConfig: { sttEnabled: true, ttsEnabled: true },
+        });
+
+        expect(after).not.toBe(before);
+      });
+
+      it("stays the same for an unchanged payload, so cached widgets still get 304", async () => {
+        expect(await etagFor(baseAgent)).toBe(await etagFor(baseAgent));
+      });
     });
 
     it("should throw NotFoundException for unknown publicId", async () => {

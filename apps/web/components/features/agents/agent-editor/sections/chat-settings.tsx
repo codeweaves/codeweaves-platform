@@ -98,10 +98,14 @@ export function ChatSettings() {
     <div className="space-y-6">
       <div className="space-y-4">
         <div className="grid grid-cols-3 gap-4 items-center">
-          <Label className="text-sm font-medium text-foreground">
+          <Label
+            htmlFor="headerTitle"
+            className="text-sm font-medium text-foreground"
+          >
             Header Title
           </Label>
           <Input
+            id="headerTitle"
             value={themeData.header.title}
             onChange={(e) => updateThemeData("header.title", e.target.value)}
             placeholder="Chat Support"
@@ -110,10 +114,14 @@ export function ChatSettings() {
         </div>
 
         <div className="grid grid-cols-3 gap-4 items-center">
-          <Label className="text-sm font-medium text-foreground">
+          <Label
+            htmlFor="headerSubtitle"
+            className="text-sm font-medium text-foreground"
+          >
             Header Subtitle
           </Label>
           <Input
+            id="headerSubtitle"
             value={themeData.header.subtitle ?? ""}
             onChange={(e) =>
               updateThemeData("header.subtitle", e.target.value || undefined)

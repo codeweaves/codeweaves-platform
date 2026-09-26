@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import { useEffect, useMemo, useRef, useState } from 'react';
-import { Loader2, Play, Square } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { Switch } from '@/components/ui/switch';
+import { useEffect, useMemo, useRef, useState } from "react";
+import { Loader2, Play, Square } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { Switch } from "@/components/ui/switch";
 import {
   Select,
   SelectContent,
@@ -13,16 +13,16 @@ import {
   SelectLabel,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import { useAgentEditor } from '../agent-editor-context';
-import { FormSection } from '../form-section';
-import { ToggleRow } from '../toggle-row';
-import { useVoices, usePreviewVoice } from '@/hooks/use-voices';
+} from "@/components/ui/select";
+import { useAgentEditor } from "../agent-editor-context";
+import { FormSection } from "../form-section";
+import { ToggleRow } from "../toggle-row";
+import { useVoices, usePreviewVoice } from "@/hooks/use-voices";
 import type {
   VoiceConfigDto,
   TtsProviderEnum,
   SupportedLanguageEnum,
-} from '@repo/validation';
+} from "@repo/validation";
 
 // Auto routing removed from the picker — it triggered a second STT call
 // (Sarvam detect → Deepgram retry for English) which cost ~800-1500ms per
@@ -31,14 +31,14 @@ import type {
 // audience. The backend's auto-routing code is still there as a defensive
 // fallback when sttProvider happens to be undefined.
 const STT_PROVIDERS = [
-  { value: 'sarvam', label: 'Sarvam AI' },
-  { value: 'deepgram', label: 'Deepgram' },
-  { value: 'elevenlabs', label: 'ElevenLabs' },
+  { value: "sarvam", label: "Sarvam AI" },
+  { value: "deepgram", label: "Deepgram" },
+  { value: "elevenlabs", label: "ElevenLabs" },
 ];
 
 const TTS_PROVIDERS: { value: TtsProviderEnum; label: string }[] = [
-  { value: 'sarvam', label: 'Sarvam AI' },
-  { value: 'elevenlabs', label: 'ElevenLabs' },
+  { value: "sarvam", label: "Sarvam AI" },
+  { value: "elevenlabs", label: "ElevenLabs" },
 ];
 
 // Defaults for a new agent. Sarvam-first across the board because:
@@ -51,11 +51,11 @@ const TTS_PROVIDERS: { value: TtsProviderEnum; label: string }[] = [
 // Users can switch to ElevenLabs / Deepgram per agent if they prefer.
 const DEFAULT_VOICE_CONFIG: VoiceConfigDto = {
   sttEnabled: true,
-  sttProvider: 'sarvam',
+  sttProvider: "sarvam",
   ttsEnabled: true,
-  ttsProvider: 'sarvam',
-  defaultLanguage: 'en',
-  supportedLanguages: ['en'],
+  ttsProvider: "sarvam",
+  defaultLanguage: "en",
+  supportedLanguages: ["en"],
   // ttsSpeed kept at the schema default (1.0) — UI control is removed but the field
   // still flows through to providers, so leaving it set ensures consistent behaviour.
   ttsSpeed: 1.0,
@@ -69,8 +69,8 @@ const DEFAULT_VOICE_CONFIG: VoiceConfigDto = {
 };
 
 const PROVIDER_LABEL: Record<TtsProviderEnum, string> = {
-  elevenlabs: 'ElevenLabs',
-  sarvam: 'Sarvam AI',
+  elevenlabs: "ElevenLabs",
+  sarvam: "Sarvam AI",
 };
 
 function base64ToArrayBuffer(base64: string): ArrayBuffer {
@@ -80,7 +80,7 @@ function base64ToArrayBuffer(base64: string): ArrayBuffer {
   return arr.buffer;
 }
 
-const NONE_VALUE = '__provider_default__';
+const NONE_VALUE = "__provider_default__";
 
 /** Small UX delay between the audio being ready and playback actually starting. Avoids
  *  the jarring "click → instant audio" feel. */
@@ -95,7 +95,11 @@ const SILENT_PRIMER_S = 1.5;
 
 /** Play a silent buffer to wake the OS audio output. Cheap, ~no perceptible cost. */
 function primeAudioOutput(ctx: AudioContext): void {
-  const buffer = ctx.createBuffer(1, Math.max(1, Math.floor(ctx.sampleRate * SILENT_PRIMER_S)), ctx.sampleRate);
+  const buffer = ctx.createBuffer(
+    1,
+    Math.max(1, Math.floor(ctx.sampleRate * SILENT_PRIMER_S)),
+    ctx.sampleRate,
+  );
   const source = ctx.createBufferSource();
   source.buffer = buffer;
   source.connect(ctx.destination);
@@ -109,7 +113,12 @@ interface VoicePickerProps {
   previewLanguage: SupportedLanguageEnum;
 }
 
-function VoicePicker({ value, onChange, preferredProvider, previewLanguage }: VoicePickerProps) {
+function VoicePicker({
+  value,
+  onChange,
+  preferredProvider,
+  previewLanguage,
+}: VoicePickerProps) {
   const { data, isLoading, isError } = useVoices();
   const previewVoice = usePreviewVoice();
 
@@ -120,7 +129,9 @@ function VoicePicker({ value, onChange, preferredProvider, previewLanguage }: Vo
   // "first word clipped" bug. See voice.service.ts → previewVoice → synthesizePreview.
   const audioContextRef = useRef<AudioContext | null>(null);
   const sourceRef = useRef<AudioBufferSourceNode | null>(null);
-  const [previewState, setPreviewState] = useState<'idle' | 'loading' | 'playing'>('idle');
+  const [previewState, setPreviewState] = useState<
+    "idle" | "loading" | "playing"
+  >("idle");
 
   const stop = () => {
     if (sourceRef.current) {
@@ -133,7 +144,7 @@ function VoicePicker({ value, onChange, preferredProvider, previewLanguage }: Vo
       sourceRef.current.disconnect();
       sourceRef.current = null;
     }
-    setPreviewState('idle');
+    setPreviewState("idle");
   };
 
   // Stop any in-flight audio + release the AudioContext when the component unmounts
@@ -171,18 +182,19 @@ function VoicePicker({ value, onChange, preferredProvider, previewLanguage }: Vo
   // If the selected voice belongs to a hidden provider (e.g., user just switched ttsProvider),
   // fall back to the placeholder rather than confusing the trigger.
   const triggerValue =
-    selectedVoice && (!preferredProvider || selectedVoice.provider === preferredProvider)
+    selectedVoice &&
+    (!preferredProvider || selectedVoice.provider === preferredProvider)
       ? value
       : undefined;
 
   const handlePlay = async () => {
     if (!selectedVoice) return;
-    if (previewState === 'playing') {
+    if (previewState === "playing") {
       stop();
       return;
     }
     stop();
-    setPreviewState('loading');
+    setPreviewState("loading");
 
     try {
       // Lazily create / reuse the AudioContext. Browsers gate AudioContext on a user
@@ -190,7 +202,7 @@ function VoicePicker({ value, onChange, preferredProvider, previewLanguage }: Vo
       // awaited even when not strictly suspended — hardware can take a tick to come up.
       const ctx = audioContextRef.current ?? new AudioContext();
       audioContextRef.current = ctx;
-      if (ctx.state !== 'running') {
+      if (ctx.state !== "running") {
         await ctx.resume().catch(() => undefined);
       }
 
@@ -220,17 +232,17 @@ function VoicePicker({ value, onChange, preferredProvider, previewLanguage }: Vo
       // Schedule a small delay between "decoded" and "speaking" — feels less jarring than
       // an instant start, and gives the OS audio output a moment to settle on first play.
       source.start(ctx.currentTime + PLAYBACK_LEAD_IN_S);
-      setPreviewState('playing');
+      setPreviewState("playing");
     } catch {
       stop();
     }
   };
 
   const placeholder = isLoading
-    ? 'Loading voices…'
+    ? "Loading voices…"
     : isError
-      ? 'Could not load voices'
-      : 'Use provider default';
+      ? "Could not load voices"
+      : "Use provider default";
 
   return (
     <div className="flex gap-2">
@@ -242,7 +254,7 @@ function VoicePicker({ value, onChange, preferredProvider, previewLanguage }: Vo
         }}
         disabled={isLoading}
       >
-        <SelectTrigger className="flex-1">
+        <SelectTrigger id="ttsVoice" className="flex-1">
           <SelectValue placeholder={placeholder} />
         </SelectTrigger>
         <SelectContent>
@@ -251,12 +263,14 @@ function VoicePicker({ value, onChange, preferredProvider, previewLanguage }: Vo
             <SelectGroup key={g.provider}>
               <SelectLabel>{PROVIDER_LABEL[g.provider]}</SelectLabel>
               {g.voices.map((v) => {
-                const meta = [v.gender, v.category].filter(Boolean).join(' · ');
+                const meta = [v.gender, v.category].filter(Boolean).join(" · ");
                 return (
                   <SelectItem key={`${g.provider}:${v.id}`} value={v.id}>
                     <span>{v.name}</span>
                     {meta && (
-                      <span className="ml-2 text-xs text-muted-foreground">{meta}</span>
+                      <span className="ml-2 text-xs text-muted-foreground">
+                        {meta}
+                      </span>
                     )}
                   </SelectItem>
                 );
@@ -270,13 +284,17 @@ function VoicePicker({ value, onChange, preferredProvider, previewLanguage }: Vo
         variant="outline"
         size="icon"
         onClick={handlePlay}
-        disabled={!selectedVoice || previewState === 'loading'}
-        aria-label={previewState === 'playing' ? 'Stop preview' : 'Play voice preview'}
-        title={previewState === 'playing' ? 'Stop preview' : 'Play voice preview'}
+        disabled={!selectedVoice || previewState === "loading"}
+        aria-label={
+          previewState === "playing" ? "Stop preview" : "Play voice preview"
+        }
+        title={
+          previewState === "playing" ? "Stop preview" : "Play voice preview"
+        }
       >
-        {previewState === 'loading' ? (
+        {previewState === "loading" ? (
           <Loader2 className="h-4 w-4 animate-spin" />
-        ) : previewState === 'playing' ? (
+        ) : previewState === "playing" ? (
           <Square className="h-4 w-4" />
         ) : (
           <Play className="h-4 w-4" />
@@ -293,14 +311,14 @@ export function VoiceSettings() {
   const config = formData.voiceConfig ?? DEFAULT_VOICE_CONFIG;
 
   const updateConfig = (updates: Partial<VoiceConfigDto>) => {
-    updateFormData('voiceConfig', { ...config, ...updates });
+    updateFormData("voiceConfig", { ...config, ...updates });
   };
 
   const handleVoiceToggle = (checked: boolean) => {
-    updateFormData('voiceEnabled', checked);
+    updateFormData("voiceEnabled", checked);
     // Apply defaults when enabling for the first time
     if (checked && !formData.voiceConfig) {
-      updateFormData('voiceConfig', { ...DEFAULT_VOICE_CONFIG });
+      updateFormData("voiceConfig", { ...DEFAULT_VOICE_CONFIG });
     }
   };
 
@@ -312,12 +330,15 @@ export function VoiceSettings() {
       {/* Master toggle */}
       <div className="flex items-center justify-between rounded-lg border p-4">
         <div>
-          <Label className="text-sm font-medium">Enable Voice</Label>
+          <Label htmlFor="voiceEnabled" className="text-sm font-medium">
+            Enable Voice
+          </Label>
           <p className="text-xs text-muted-foreground">
             Allow users to interact with this agent using voice
           </p>
         </div>
         <Switch
+          id="voiceEnabled"
           checked={voiceEnabled}
           onCheckedChange={handleVoiceToggle}
         />
@@ -329,29 +350,36 @@ export function VoiceSettings() {
           <div className="space-y-4 rounded-lg border p-4">
             <div className="flex items-center justify-between">
               <div>
-                <Label className="text-sm font-medium">Voice Input (STT)</Label>
+                <Label htmlFor="sttEnabled" className="text-sm font-medium">
+                  Voice Input (STT)
+                </Label>
                 <p className="text-xs text-muted-foreground">
                   Enable Speech-to-Text
                 </p>
               </div>
               <Switch
+                id="sttEnabled"
                 checked={config.sttEnabled}
-                onCheckedChange={(checked) => updateConfig({ sttEnabled: checked })}
+                onCheckedChange={(checked) =>
+                  updateConfig({ sttEnabled: checked })
+                }
               />
             </div>
 
             {config.sttEnabled && (
               <div className="space-y-2">
-                <Label className="text-sm">STT Provider</Label>
+                <Label htmlFor="sttProvider" className="text-sm">
+                  STT Provider
+                </Label>
                 <Select
-                  value={config.sttProvider ?? 'sarvam'}
+                  value={config.sttProvider ?? "sarvam"}
                   onValueChange={(value) =>
                     updateConfig({
-                      sttProvider: value as VoiceConfigDto['sttProvider'],
+                      sttProvider: value as VoiceConfigDto["sttProvider"],
                     })
                   }
                 >
-                  <SelectTrigger>
+                  <SelectTrigger id="sttProvider">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -370,23 +398,30 @@ export function VoiceSettings() {
           <div className="space-y-4 rounded-lg border p-4">
             <div className="flex items-center justify-between">
               <div>
-                <Label className="text-sm font-medium">Voice Output (TTS)</Label>
+                <Label htmlFor="ttsEnabled" className="text-sm font-medium">
+                  Voice Output (TTS)
+                </Label>
                 <p className="text-xs text-muted-foreground">
                   Enable Text-to-Speech
                 </p>
               </div>
               <Switch
+                id="ttsEnabled"
                 checked={config.ttsEnabled}
-                onCheckedChange={(checked) => updateConfig({ ttsEnabled: checked })}
+                onCheckedChange={(checked) =>
+                  updateConfig({ ttsEnabled: checked })
+                }
               />
             </div>
 
             {config.ttsEnabled && (
               <div className="space-y-4">
                 <div className="space-y-2">
-                  <Label className="text-sm">TTS Provider</Label>
+                  <Label htmlFor="ttsProvider" className="text-sm">
+                    TTS Provider
+                  </Label>
                   <Select
-                    value={config.ttsProvider ?? 'sarvam'}
+                    value={config.ttsProvider ?? "sarvam"}
                     onValueChange={(value) => {
                       const provider = value as TtsProviderEnum;
                       // Switching providers invalidates the previously selected voice id
@@ -398,13 +433,13 @@ export function VoiceSettings() {
                         ttsProvider: provider,
                         ttsVoiceId: undefined,
                       };
-                      if (provider !== 'sarvam') {
+                      if (provider !== "sarvam") {
                         patch.ttsStreaming = false;
                       }
                       updateConfig(patch);
                     }}
                   >
-                    <SelectTrigger>
+                    <SelectTrigger id="ttsProvider">
                       <SelectValue />
                     </SelectTrigger>
                     <SelectContent>
@@ -418,10 +453,14 @@ export function VoiceSettings() {
                 </div>
 
                 <div className="space-y-2">
-                  <Label className="text-sm">Voice</Label>
+                  <Label htmlFor="ttsVoice" className="text-sm">
+                    Voice
+                  </Label>
                   <VoicePicker
                     value={config.ttsVoiceId}
-                    onChange={(voiceId) => updateConfig({ ttsVoiceId: voiceId })}
+                    onChange={(voiceId) =>
+                      updateConfig({ ttsVoiceId: voiceId })
+                    }
                     preferredProvider={config.ttsProvider}
                     // Preview always plays in English. Production conversations auto-detect
                     // language from each user's audio (no defaultLanguage hint sent).
@@ -435,7 +474,7 @@ export function VoiceSettings() {
                     livekit/agents and pipecat. EL stays on batch HTTP, which
                     still benefits from outer sentence-level streaming (chunks
                     delivered per sentence as each completes). */}
-                {config.ttsProvider === 'sarvam' && (
+                {config.ttsProvider === "sarvam" && (
                   <div className="pt-2 border-t">
                     <ToggleRow
                       id="ttsStreaming"
@@ -444,26 +483,26 @@ export function VoiceSettings() {
                       info={
                         <>
                           <p>
-                            Uses Sarvam&apos;s WebSocket endpoint for{' '}
-                            <strong>within-sentence</strong> audio streaming: first audio
-                            in ~200ms versus ~600ms for batch.
+                            Uses Sarvam&apos;s WebSocket endpoint for{" "}
+                            <strong>within-sentence</strong> audio streaming:
+                            first audio in ~200ms versus ~600ms for batch.
                           </p>
                           <p>
-                            Sentence-level streaming works either way, so this only
-                            affects how quickly the first words start.
+                            Sentence-level streaming works either way, so this
+                            only affects how quickly the first words start.
                           </p>
                         </>
                       }
                       checked={config.ttsStreaming ?? false}
-                      onChange={(checked) => updateConfig({ ttsStreaming: checked })}
+                      onChange={(checked) =>
+                        updateConfig({ ttsStreaming: checked })
+                      }
                     />
                   </div>
                 )}
-
               </div>
             )}
           </div>
-
         </>
       )}
     </FormSection>

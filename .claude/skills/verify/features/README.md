@@ -23,7 +23,7 @@ Behavior-level inventory of the Klivo dashboard and the embeddable chat widget. 
 ## Driving conventions
 
 - Prefer ARIA role plus accessible name. The widget is in an open shadow root, and role locators pierce it.
-- Where a control has no accessible name (open findings), target it by row and position, by placeholder, or by an adjacent label, as each file shows. Never by a styling class.
+- Where a control still has no accessible name, target it by row and position, by placeholder, or by an adjacent label, as each file shows. Never by a styling class. When you meet an unnamed control, fixing the app (a linked label or an `aria-label`) beats adding another workaround here.
 - Wait on observable end states (`browser wait`, `browser settle`, `widget wait-message --new`), never fixed sleeps.
 - `browser eval` only reads state after the user path ran. It never drives the app.
 - Restore after every mutation: `Reset to Defaults` for the editor agent's theme, then `cw-verify seed`.

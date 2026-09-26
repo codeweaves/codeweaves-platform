@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import * as React from 'react';
-import Link from 'next/link';
+import * as React from "react";
+import Link from "next/link";
 import {
   ArrowLeftRight,
   ArrowUpRight,
@@ -17,28 +17,32 @@ import {
   TrendingDown,
   TrendingUp,
   UserPlus,
-} from 'lucide-react';
-import { useProfile } from '@/hooks/use-profile';
-import { usePageHeader } from '@/components/layout/page-header';
+} from "lucide-react";
+import { useProfile } from "@/hooks/use-profile";
+import { usePermissions } from "@/hooks/use-permissions";
+import { usePageHeader } from "@/components/layout/page-header";
 import {
   useAgentAnalytics,
   useAnalyticsSummary,
   useHandoverAnalytics,
   useLeadsCaptured,
   type AnalyticsSummaryResponse,
-} from '@/hooks/use-analytics';
-import { useAgents, type Agent } from '@/hooks/use-agents';
-import { useInbox, type InboxItem } from '@/hooks/use-handover';
-import { useConversations, type ConversationListItem } from '@/hooks/use-conversations';
-import { Card } from '@/components/ui/card';
-import { Button } from '@/components/ui/button';
-import { Skeleton } from '@/components/ui/skeleton';
-import { cn } from '@/lib/utils';
+} from "@/hooks/use-analytics";
+import { useAgents, type Agent } from "@/hooks/use-agents";
+import { useInbox, type InboxItem } from "@/hooks/use-handover";
+import {
+  useConversations,
+  type ConversationListItem,
+} from "@/hooks/use-conversations";
+import { Card } from "@/components/ui/card";
+import { Button } from "@/components/ui/button";
+import { Skeleton } from "@/components/ui/skeleton";
+import { cn } from "@/lib/utils";
 
 /* ── helpers ──────────────────────────────────────────────────────────── */
 
 function pad(n: number) {
-  return String(n).padStart(2, '0');
+  return String(n).padStart(2, "0");
 }
 function formatDateLocal(d: Date) {
   return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`;
@@ -58,18 +62,21 @@ function toIsoEndOfDay(d: string) {
   return new Date(`${d}T23:59:59.999`).toISOString();
 }
 function formatCount(n: number | undefined | null) {
-  if (n == null || Number.isNaN(n)) return '-';
+  if (n == null || Number.isNaN(n)) return "-";
   return Math.round(n).toLocaleString();
 }
 function formatDuration(ms: number | undefined | null) {
-  if (ms == null || Number.isNaN(ms) || ms <= 0) return '-';
+  if (ms == null || Number.isNaN(ms) || ms <= 0) return "-";
   if (ms < 1000) return `${Math.round(ms)}ms`;
   return `${(ms / 1000).toFixed(ms < 10000 ? 1 : 0)}s`;
 }
 function timeAgo(iso: string | null | undefined) {
-  if (!iso) return '';
-  const secs = Math.max(0, Math.floor((Date.now() - new Date(iso).getTime()) / 1000));
-  if (secs < 60) return 'just now';
+  if (!iso) return "";
+  const secs = Math.max(
+    0,
+    Math.floor((Date.now() - new Date(iso).getTime()) / 1000),
+  );
+  if (secs < 60) return "just now";
   const mins = Math.floor(secs / 60);
   if (mins < 60) return `${mins}m ago`;
   const hrs = Math.floor(mins / 60);
@@ -78,9 +85,9 @@ function timeAgo(iso: string | null | undefined) {
 }
 
 const CHANNEL_LABELS: Record<string, string> = {
-  WIDGET: 'Widget',
-  WHATSAPP: 'WhatsApp',
-  DEMO: 'Demo',
+  WIDGET: "Widget",
+  WHATSAPP: "WhatsApp",
+  DEMO: "Demo",
 };
 
 /* ── range control ────────────────────────────────────────────────────── */
@@ -88,7 +95,13 @@ const CHANNEL_LABELS: Record<string, string> = {
 const RANGES = [7, 30, 90] as const;
 type RangeDays = (typeof RANGES)[number];
 
-function RangeToggle({ value, onChange }: { value: RangeDays; onChange: (v: RangeDays) => void }) {
+function RangeToggle({
+  value,
+  onChange,
+}: {
+  value: RangeDays;
+  onChange: (v: RangeDays) => void;
+}) {
   return (
     <div className="inline-flex items-center rounded-lg border border-border bg-card p-0.5">
       {RANGES.map((d) => (
@@ -98,8 +111,10 @@ function RangeToggle({ value, onChange }: { value: RangeDays; onChange: (v: Rang
           onClick={() => onChange(d)}
           aria-pressed={value === d}
           className={cn(
-            'cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium tabular-nums transition-colors',
-            value === d ? 'bg-primary text-primary-foreground' : 'text-muted-foreground hover:text-foreground',
+            "cursor-pointer rounded-md px-2.5 py-1 text-xs font-medium tabular-nums transition-colors",
+            value === d
+              ? "bg-primary text-primary-foreground"
+              : "text-muted-foreground hover:text-foreground",
           )}
         >
           {d}D
@@ -111,13 +126,21 @@ function RangeToggle({ value, onChange }: { value: RangeDays; onChange: (v: Rang
 
 /* ── trend text ───────────────────────────────────────────────────────── */
 
-function TrendText({ value, positiveIsGood = true }: { value?: number | null; positiveIsGood?: boolean }) {
+function TrendText({
+  value,
+  positiveIsGood = true,
+}: {
+  value?: number | null;
+  positiveIsGood?: boolean;
+}) {
   // No data (loading / no prior period) reads as "-"; a genuine flat 0% stays "0%".
   if (value == null || !Number.isFinite(value)) {
     return <span className="text-xs font-medium text-muted-foreground">-</span>;
   }
   if (value === 0) {
-    return <span className="text-xs font-medium text-muted-foreground">0%</span>;
+    return (
+      <span className="text-xs font-medium text-muted-foreground">0%</span>
+    );
   }
   const isUp = value > 0;
   const isGood = isUp === positiveIsGood;
@@ -125,8 +148,8 @@ function TrendText({ value, positiveIsGood = true }: { value?: number | null; po
   return (
     <span
       className={cn(
-        'inline-flex items-center gap-0.5 text-xs font-medium tabular-nums',
-        isGood ? 'text-success-foreground' : 'text-error-foreground',
+        "inline-flex items-center gap-0.5 text-xs font-medium tabular-nums",
+        isGood ? "text-success-foreground" : "text-error-foreground",
       )}
     >
       <Icon className="size-3.5" />
@@ -135,7 +158,13 @@ function TrendText({ value, positiveIsGood = true }: { value?: number | null; po
   );
 }
 
-function SectionLink({ href, children }: { href: string; children: React.ReactNode }) {
+function SectionLink({
+  href,
+  children,
+}: {
+  href: string;
+  children: React.ReactNode;
+}) {
   return (
     <Link
       href={href}
@@ -149,20 +178,46 @@ function SectionLink({ href, children }: { href: string; children: React.ReactNo
 
 /* ── KPI config ───────────────────────────────────────────────────────── */
 
-type KpiKey = keyof AnalyticsSummaryResponse['kpis'];
+type KpiKey = keyof AnalyticsSummaryResponse["kpis"];
 
 const KPIS: Array<{
   key: string;
   label: string;
   icon: typeof MessageSquare;
-  kind: 'count' | 'duration' | 'rate';
-  source: 'summary' | 'handover' | 'leads';
+  kind: "count" | "duration" | "rate";
+  source: "summary" | "handover" | "leads";
   positiveIsGood?: boolean;
 }> = [
-  { key: 'totalConversations', label: 'Conversations', icon: MessageSquare, kind: 'count', source: 'summary' },
-  { key: 'totalLeads', label: 'Leads captured', icon: UserPlus, kind: 'count', source: 'leads' },
-  { key: 'handoverRate', label: 'Handover rate', icon: ArrowLeftRight, kind: 'rate', source: 'handover', positiveIsGood: false },
-  { key: 'avgResponseTimeMs', label: 'Avg response', icon: Gauge, kind: 'duration', source: 'summary', positiveIsGood: false },
+  {
+    key: "totalConversations",
+    label: "Conversations",
+    icon: MessageSquare,
+    kind: "count",
+    source: "summary",
+  },
+  {
+    key: "totalLeads",
+    label: "Leads captured",
+    icon: UserPlus,
+    kind: "count",
+    source: "leads",
+  },
+  {
+    key: "handoverRate",
+    label: "Handover rate",
+    icon: ArrowLeftRight,
+    kind: "rate",
+    source: "handover",
+    positiveIsGood: false,
+  },
+  {
+    key: "avgResponseTimeMs",
+    label: "Avg response",
+    icon: Gauge,
+    kind: "duration",
+    source: "summary",
+    positiveIsGood: false,
+  },
 ];
 
 /* ── Needs attention ──────────────────────────────────────────────────── */
@@ -182,16 +237,21 @@ function AttentionPanel({
   // Never fall through to "all clear" when the inbox check failed — this panel's
   // whole job is flagging unresolved handovers, so a false negative is the worst case.
   const iconTone = isError
-    ? 'bg-warning text-warning-foreground'
+    ? "bg-warning text-warning-foreground"
     : count > 0
-      ? 'bg-error text-error-foreground'
-      : 'bg-success text-success-foreground';
+      ? "bg-error text-error-foreground"
+      : "bg-success text-success-foreground";
 
   return (
     <Card className="h-full gap-0 p-6">
       <div className="flex items-center justify-between gap-4">
         <div className="flex items-center gap-2">
-          <span className={cn('flex size-9 items-center justify-center rounded-lg', iconTone)}>
+          <span
+            className={cn(
+              "flex size-9 items-center justify-center rounded-lg",
+              iconTone,
+            )}
+          >
             {!isError && count === 0 ? (
               <ShieldCheck className="size-[1.15rem]" />
             ) : (
@@ -199,20 +259,22 @@ function AttentionPanel({
             )}
           </span>
           <div>
-            <h2 className="text-base font-semibold tracking-tight">Needs your attention</h2>
+            <h2 className="text-base font-semibold tracking-tight">
+              Needs your attention
+            </h2>
             <p className="mt-0.5 text-sm text-muted-foreground">
               {isLoading
-                ? 'Checking the inbox…'
+                ? "Checking the inbox…"
                 : isError
                   ? "Couldn't check the inbox. Open it to see what's waiting."
                   : count > 0
-                    ? `${count} conversation${count === 1 ? '' : 's'} waiting for a human${oldest ? ` · oldest ${timeAgo(oldest)}` : ''}`
-                    : 'All clear. No conversations are waiting for a human.'}
+                    ? `${count} conversation${count === 1 ? "" : "s"} waiting for a human${oldest ? ` · oldest ${timeAgo(oldest)}` : ""}`
+                    : "All clear. No conversations are waiting for a human."}
             </p>
           </div>
         </div>
         {(count > 0 || isError) && (
-          <Button asChild size="sm" variant={isError ? 'outline' : 'default'}>
+          <Button asChild size="sm" variant={isError ? "outline" : "default"}>
             <Link href="/dashboard/inbox">Open inbox</Link>
           </Button>
         )}
@@ -232,7 +294,10 @@ function AttentionPanel({
               href="/dashboard/inbox"
               className="flex items-center gap-3 px-4 py-3 transition-colors hover:bg-accent"
             >
-              <span className="size-2 shrink-0 rounded-full bg-error" aria-hidden="true" />
+              <span
+                className="size-2 shrink-0 rounded-full bg-error"
+                aria-hidden="true"
+              />
               <div className="min-w-0 flex-1">
                 <div className="truncate text-sm font-medium">
                   {item.agent.name}
@@ -241,7 +306,9 @@ function AttentionPanel({
                   </span>
                 </div>
                 {item.lastMessage?.content && (
-                  <div className="truncate text-xs text-muted-foreground">{item.lastMessage.content}</div>
+                  <div className="truncate text-xs text-muted-foreground">
+                    {item.lastMessage.content}
+                  </div>
                 )}
               </div>
               <span className="flex shrink-0 items-center gap-1 text-xs text-muted-foreground tabular-nums">
@@ -263,26 +330,38 @@ function AgentsPanel({
   agents,
   convByAgent,
   isLoading,
+  showCounts,
+  canCreate,
 }: {
   agents: Agent[];
   convByAgent: Map<string, number>;
   isLoading: boolean;
+  /** Counts come from analytics. Without Analytics:Read they are unknown, not zero. */
+  showCounts: boolean;
+  /** Agent:Create is platform-only; the tile would lead to a page that cannot create. */
+  canCreate: boolean;
 }) {
   return (
     <Card className="gap-0 p-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold tracking-tight">Your agents</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">Status and volume at a glance</p>
+          <h2 className="text-base font-semibold tracking-tight">
+            Your agents
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Status and volume at a glance
+          </p>
         </div>
         <SectionLink href="/dashboard/agents">Manage all</SectionLink>
       </div>
 
       <div className="mt-4 grid grid-cols-2 gap-3">
         {isLoading
-          ? Array.from({ length: 4 }).map((_, i) => <Skeleton key={i} className="h-24 rounded-xl" />)
+          ? Array.from({ length: 4 }).map((_, i) => (
+              <Skeleton key={i} className="h-24 rounded-xl" />
+            ))
           : agents.slice(0, 5).map((agent) => {
-              const live = agent.status === 'ACTIVE';
+              const live = agent.status === "ACTIVE";
               return (
                 <Link
                   key={agent.id}
@@ -294,31 +373,42 @@ function AgentsPanel({
                       <Bot className="size-[1.1rem]" />
                     </span>
                     <div className="min-w-0 flex-1">
-                      <div className="truncate text-sm font-medium">{agent.name}</div>
+                      <div className="truncate text-sm font-medium">
+                        {agent.name}
+                      </div>
                       <span
                         className={cn(
-                          'inline-flex items-center gap-1 text-xs font-medium',
-                          live ? 'text-success-foreground' : 'text-muted-foreground',
+                          "inline-flex items-center gap-1 text-xs font-medium",
+                          live
+                            ? "text-success-foreground"
+                            : "text-muted-foreground",
                         )}
                       >
                         <span
-                          className={cn('size-1.5 rounded-full', live ? 'bg-success-foreground' : 'bg-muted-foreground')}
+                          className={cn(
+                            "size-1.5 rounded-full",
+                            live
+                              ? "bg-success-foreground"
+                              : "bg-muted-foreground",
+                          )}
                         />
-                        {live ? 'Live' : 'Inactive'}
+                        {live ? "Live" : "Inactive"}
                       </span>
                     </div>
                   </div>
-                  <div className="mt-3 border-t border-border pt-2.5 text-xs text-muted-foreground">
-                    <span className="font-semibold tabular-nums text-foreground">
-                      {formatCount(convByAgent.get(agent.id) ?? 0)}
-                    </span>{' '}
-                    conversations
-                  </div>
+                  {showCounts && (
+                    <div className="mt-3 border-t border-border pt-2.5 text-xs text-muted-foreground">
+                      <span className="font-semibold tabular-nums text-foreground">
+                        {formatCount(convByAgent.get(agent.id) ?? 0)}
+                      </span>{" "}
+                      conversations
+                    </div>
+                  )}
                 </Link>
               );
             })}
 
-        {!isLoading && (
+        {!isLoading && canCreate && (
           <Link
             href="/dashboard/agents"
             className="flex min-h-24 flex-col items-center justify-center gap-1.5 rounded-xl border border-dashed border-border p-4 text-center transition-colors hover:border-primary/50 hover:bg-accent"
@@ -355,10 +445,16 @@ function HandoverHealth({
     <Card className="h-full gap-0 p-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold tracking-tight">Handover health</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">Resolved without a human</p>
+          <h2 className="text-base font-semibold tracking-tight">
+            Handover health
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Resolved without a human
+          </p>
         </div>
-        <SectionLink href="/dashboard/analytics?tab=handover">Details</SectionLink>
+        <SectionLink href="/dashboard/analytics?tab=handover">
+          Details
+        </SectionLink>
       </div>
 
       {isLoading ? (
@@ -374,7 +470,14 @@ function HandoverHealth({
           <div className="mt-5 flex items-center gap-5">
             <div className="relative shrink-0">
               <svg viewBox="0 0 36 36" className="size-24 -rotate-90">
-                <circle cx="18" cy="18" r="15.9" fill="none" stroke="var(--muted)" strokeWidth="3.4" />
+                <circle
+                  cx="18"
+                  cy="18"
+                  r="15.9"
+                  fill="none"
+                  stroke="var(--muted)"
+                  strokeWidth="3.4"
+                />
                 <circle
                   cx="18"
                   cy="18"
@@ -387,16 +490,21 @@ function HandoverHealth({
                 />
               </svg>
               <span className="absolute inset-0 flex items-center justify-center text-lg font-semibold tabular-nums">
-                {containedPct == null ? '-' : `${pct}%`}
+                {containedPct == null ? "-" : `${pct}%`}
               </span>
             </div>
             {containedPct == null ? (
-              <p className="text-sm text-muted-foreground">No handovers in this period yet.</p>
+              <p className="text-sm text-muted-foreground">
+                No handovers in this period yet.
+              </p>
             ) : (
               <p className="text-sm text-muted-foreground">
-                <span className="font-medium text-foreground">{pct}%</span> of conversations were resolved without a
-                human. The remaining <span className="font-medium text-foreground">{handoverRate}%</span> were handed
-                off.
+                <span className="font-medium text-foreground">{pct}%</span> of
+                conversations were resolved without a human. The remaining{" "}
+                <span className="font-medium text-foreground">
+                  {handoverRate}%
+                </span>{" "}
+                were handed off.
               </p>
             )}
           </div>
@@ -404,14 +512,16 @@ function HandoverHealth({
           <div className="mt-5 space-y-2 border-t border-border pt-4 text-sm">
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Resolved by a human</span>
-              <span className="font-semibold tabular-nums">{formatCount(resolvedByHuman)}</span>
+              <span className="font-semibold tabular-nums">
+                {formatCount(resolvedByHuman)}
+              </span>
             </div>
             <div className="flex items-center justify-between">
               <span className="text-muted-foreground">Waiting now</span>
               <span
                 className={cn(
-                  'font-semibold tabular-nums',
-                  waitingNow > 0 ? 'text-error-foreground' : 'text-foreground',
+                  "font-semibold tabular-nums",
+                  waitingNow > 0 ? "text-error-foreground" : "text-foreground",
                 )}
               >
                 {formatCount(waitingNow)}
@@ -426,13 +536,23 @@ function HandoverHealth({
 
 /* ── Recent conversations ─────────────────────────────────────────────── */
 
-function RecentConversations({ items, isLoading }: { items: ConversationListItem[]; isLoading: boolean }) {
+function RecentConversations({
+  items,
+  isLoading,
+}: {
+  items: ConversationListItem[];
+  isLoading: boolean;
+}) {
   return (
     <Card className="gap-0 p-6">
       <div className="flex items-center justify-between gap-4">
         <div>
-          <h2 className="text-base font-semibold tracking-tight">Recent conversations</h2>
-          <p className="mt-0.5 text-sm text-muted-foreground">Latest activity</p>
+          <h2 className="text-base font-semibold tracking-tight">
+            Recent conversations
+          </h2>
+          <p className="mt-0.5 text-sm text-muted-foreground">
+            Latest activity
+          </p>
         </div>
         <SectionLink href="/dashboard/conversations">View all</SectionLink>
       </div>
@@ -453,9 +573,12 @@ function RecentConversations({ items, isLoading }: { items: ConversationListItem
                 className="-mx-2 flex items-center gap-3 rounded-lg px-2 py-2.5 transition-colors hover:bg-accent"
               >
                 <div className="min-w-0 flex-1">
-                  <div className="truncate text-sm font-medium">{c.title || c.agent.name}</div>
+                  <div className="truncate text-sm font-medium">
+                    {c.title || c.agent.name}
+                  </div>
                   <div className="truncate text-xs text-muted-foreground">
-                    {c.agent.name} · {CHANNEL_LABELS[c.source] ?? c.source} · {c.messageCount} msg
+                    {c.agent.name} · {CHANNEL_LABELS[c.source] ?? c.source} ·{" "}
+                    {c.messageCount} msg
                   </div>
                 </div>
                 <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
@@ -465,7 +588,9 @@ function RecentConversations({ items, isLoading }: { items: ConversationListItem
             ))}
           </div>
         ) : (
-          <p className="py-6 text-center text-sm text-muted-foreground">No conversations in this range yet.</p>
+          <p className="py-6 text-center text-sm text-muted-foreground">
+            No conversations in this range yet.
+          </p>
         )}
       </div>
     </Card>
@@ -480,8 +605,8 @@ export function DashboardOverview() {
   const [rangeDays, setRangeDays] = React.useState<RangeDays>(30);
 
   React.useEffect(() => {
-    setTitle('Dashboard');
-    return () => setTitle('');
+    setTitle("Dashboard");
+    return () => setTitle("");
   }, [setTitle]);
 
   const params = React.useMemo(() => {
@@ -489,110 +614,149 @@ export function DashboardOverview() {
     return {
       startDate: formatDateLocal(subDays(now, rangeDays - 1)),
       endDate: formatDateLocal(now),
-      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || 'UTC',
+      timezone: Intl.DateTimeFormat().resolvedOptions().timeZone || "UTC",
     };
   }, [rangeDays]);
 
-  const summaryQuery = useAnalyticsSummary(params);
-  const handoverQuery = useHandoverAnalytics(params);
-  const leadsQuery = useLeadsCaptured(params);
-  const waitingQuery = useInbox('needs');
+  // Analytics is permission-gated on the API. Without Analytics:Read the four
+  // calls only 403 on every refresh, so they are not made, and the panels built
+  // on them are hidden rather than shown as zero. While permissions load, the
+  // panels keep their skeletons so the page does not jump for users who have it.
+  const { can, isLoading: permissionsLoading } = usePermissions();
+  const canReadAnalytics = can("Analytics:Read");
+  const showAnalytics = permissionsLoading || canReadAnalytics;
+  const analyticsOptions = { enabled: canReadAnalytics };
+
+  const summaryQuery = useAnalyticsSummary(params, analyticsOptions);
+  const handoverQuery = useHandoverAnalytics(params, analyticsOptions);
+  const leadsQuery = useLeadsCaptured(params, analyticsOptions);
+  const waitingQuery = useInbox("needs");
   const agentsQuery = useAgents({ limit: 6 });
   // Pull conversation counts for the whole agent set (not just a separate top-6
   // slice) so the counts line up with whichever agents the panel actually shows.
-  const agentPerfQuery = useAgentAnalytics({
-    ...params,
-    page: 1,
-    limit: 100,
-    sortBy: 'conversations',
-    sortOrder: 'desc',
-  });
+  const agentPerfQuery = useAgentAnalytics(
+    {
+      ...params,
+      page: 1,
+      limit: 100,
+      sortBy: "conversations",
+      sortOrder: "desc",
+    },
+    analyticsOptions,
+  );
   const recentQuery = useConversations({
     limit: 6,
-    sortBy: 'lastMessageAt',
-    sortOrder: 'desc',
+    sortBy: "lastMessageAt",
+    sortOrder: "desc",
     from: toIsoStartOfDay(params.startDate),
     to: toIsoEndOfDay(params.endDate),
   });
 
-  const firstName = (profile?.name?.trim() || profile?.email || 'there').split(' ')[0];
+  const firstName = (profile?.name?.trim() || profile?.email || "there").split(
+    " ",
+  )[0];
 
   const convByAgent = React.useMemo(() => {
     const m = new Map<string, number>();
-    for (const row of agentPerfQuery.data?.data ?? []) m.set(row.agentId, row.conversations);
+    for (const row of agentPerfQuery.data?.data ?? [])
+      m.set(row.agentId, row.conversations);
     return m;
   }, [agentPerfQuery.data]);
 
   const handoverRate = handoverQuery.data?.handoverRate ?? 0;
-  const containedPct = handoverQuery.data ? Math.max(0, Math.round((100 - handoverRate) * 10) / 10) : null;
+  const containedPct = handoverQuery.data
+    ? Math.max(0, Math.round((100 - handoverRate) * 10) / 10)
+    : null;
 
   return (
     <div className="space-y-5">
       {/* Header */}
       <div className="flex flex-wrap items-end justify-between gap-4">
         <div>
-          <h1 className="text-2xl font-semibold tracking-tight">Welcome back, {firstName}</h1>
+          <h1 className="text-2xl font-semibold tracking-tight">
+            Welcome back, {firstName}
+          </h1>
           <p className="mt-1 text-sm text-muted-foreground">
             Here&apos;s what needs you, and how your agents are running.
           </p>
         </div>
         <div className="flex items-center gap-2">
           <RangeToggle value={rangeDays} onChange={setRangeDays} />
-          <Button asChild variant="outline">
-            <Link href="/dashboard/analytics">
-              <BarChart3 className="size-4" />
-              Analytics
-            </Link>
-          </Button>
+          {canReadAnalytics && (
+            <Button asChild variant="outline">
+              <Link href="/dashboard/analytics">
+                <BarChart3 className="size-4" />
+                Analytics
+              </Link>
+            </Button>
+          )}
         </div>
       </div>
 
       {/* KPI row */}
-      <Card className="gap-0 overflow-hidden p-0">
-        <div className="grid grid-cols-2 divide-x divide-y divide-border lg:grid-cols-4 lg:divide-y-0">
-          {KPIS.map((k) => {
-            const kpi =
-              k.source === 'handover'
-                ? { value: handoverQuery.data?.handoverRate, trend: handoverQuery.data?.handoverRateTrend }
-                : k.source === 'leads'
-                  ? { value: leadsQuery.data?.totalLeads, trend: leadsQuery.data?.totalLeadsTrend }
-                  : summaryQuery.data?.kpis?.[k.key as KpiKey];
-            const loading =
-              k.source === 'handover'
-                ? handoverQuery.isLoading
-                : k.source === 'leads'
-                  ? leadsQuery.isLoading
-                  : summaryQuery.isLoading;
-            const value =
-              k.kind === 'duration'
-                ? formatDuration(kpi?.value ?? undefined)
-                : k.kind === 'rate'
-                  ? kpi?.value == null
-                    ? '-'
-                    : `${kpi.value}%`
-                  : formatCount(kpi?.value ?? undefined);
-            return (
-              <div key={k.key} className="flex flex-col">
-                <div className="flex items-center gap-2 border-b border-border px-5 py-3">
-                  <k.icon className="size-4 text-muted-foreground" />
-                  <span className="text-sm font-medium text-foreground">{k.label}</span>
-                </div>
-                <div className="px-5 py-4">
-                  {loading ? (
-                    <Skeleton className="h-8 w-24" />
-                  ) : (
-                    <div className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">{value}</div>
-                  )}
-                  <div className="mt-1.5 flex items-center gap-1.5">
-                    <TrendText value={kpi?.trend ?? undefined} positiveIsGood={k.positiveIsGood} />
-                    <span className="text-xs text-muted-foreground">vs previous {rangeDays}d</span>
+      {showAnalytics && (
+        <Card className="gap-0 overflow-hidden p-0">
+          <div className="grid grid-cols-2 divide-x divide-y divide-border lg:grid-cols-4 lg:divide-y-0">
+            {KPIS.map((k) => {
+              const kpi =
+                k.source === "handover"
+                  ? {
+                      value: handoverQuery.data?.handoverRate,
+                      trend: handoverQuery.data?.handoverRateTrend,
+                    }
+                  : k.source === "leads"
+                    ? {
+                        value: leadsQuery.data?.totalLeads,
+                        trend: leadsQuery.data?.totalLeadsTrend,
+                      }
+                    : summaryQuery.data?.kpis?.[k.key as KpiKey];
+              const loading =
+                permissionsLoading ||
+                (k.source === "handover"
+                  ? handoverQuery.isLoading
+                  : k.source === "leads"
+                    ? leadsQuery.isLoading
+                    : summaryQuery.isLoading);
+              const value =
+                k.kind === "duration"
+                  ? formatDuration(kpi?.value ?? undefined)
+                  : k.kind === "rate"
+                    ? kpi?.value == null
+                      ? "-"
+                      : `${kpi.value}%`
+                    : formatCount(kpi?.value ?? undefined);
+              return (
+                <div key={k.key} className="flex flex-col">
+                  <div className="flex items-center gap-2 border-b border-border px-5 py-3">
+                    <k.icon className="size-4 text-muted-foreground" />
+                    <span className="text-sm font-medium text-foreground">
+                      {k.label}
+                    </span>
+                  </div>
+                  <div className="px-5 py-4">
+                    {loading ? (
+                      <Skeleton className="h-8 w-24" />
+                    ) : (
+                      <div className="text-3xl font-semibold tracking-tight tabular-nums text-foreground">
+                        {value}
+                      </div>
+                    )}
+                    <div className="mt-1.5 flex items-center gap-1.5">
+                      <TrendText
+                        value={kpi?.trend ?? undefined}
+                        positiveIsGood={k.positiveIsGood}
+                      />
+                      <span className="text-xs text-muted-foreground">
+                        vs previous {rangeDays}d
+                      </span>
+                    </div>
                   </div>
                 </div>
-              </div>
-            );
-          })}
-        </div>
-      </Card>
+              );
+            })}
+          </div>
+        </Card>
+      )}
 
       {/* Command center: attention + agents (left), containment + activity (right) */}
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
@@ -606,17 +770,26 @@ export function DashboardOverview() {
             agents={agentsQuery.data?.data ?? []}
             convByAgent={convByAgent}
             isLoading={agentsQuery.isLoading}
+            // Only once the counts actually exist: while permissions or the
+            // per-agent query load, the map is empty and would render "0".
+            showCounts={canReadAnalytics && !agentPerfQuery.isLoading}
+            canCreate={can("Agent:Create")}
           />
         </div>
         <div className="space-y-5 lg:col-span-1">
-          <HandoverHealth
-            containedPct={containedPct}
-            resolvedByHuman={handoverQuery.data?.resolvedByHuman ?? 0}
-            handoverRate={handoverRate}
-            waitingNow={waitingQuery.data?.length ?? 0}
-            isLoading={handoverQuery.isLoading}
+          {showAnalytics && (
+            <HandoverHealth
+              containedPct={containedPct}
+              resolvedByHuman={handoverQuery.data?.resolvedByHuman ?? 0}
+              handoverRate={handoverRate}
+              waitingNow={waitingQuery.data?.length ?? 0}
+              isLoading={permissionsLoading || handoverQuery.isLoading}
+            />
+          )}
+          <RecentConversations
+            items={recentQuery.data?.data ?? []}
+            isLoading={recentQuery.isLoading}
           />
-          <RecentConversations items={recentQuery.data?.data ?? []} isLoading={recentQuery.isLoading} />
         </div>
       </div>
     </div>

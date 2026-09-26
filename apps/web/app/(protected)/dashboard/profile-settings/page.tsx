@@ -1,21 +1,21 @@
-'use client';
+"use client";
 
-import { useState, useEffect } from 'react';
-import { useMutation, useQueryClient } from '@tanstack/react-query';
-import { useProfile } from '@/hooks/use-profile';
-import { usePageHeader } from '@/components/layout/page-header';
-import { useApiClient } from '@/lib/api-client';
-import { accountRoleLabel } from '@/lib/role-label';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
+import { useState, useEffect } from "react";
+import { useMutation, useQueryClient } from "@tanstack/react-query";
+import { useProfile } from "@/hooks/use-profile";
+import { usePageHeader } from "@/components/layout/page-header";
+import { useApiClient } from "@/lib/api-client";
+import { accountRoleLabel } from "@/lib/role-label";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
 import {
   Card,
   CardContent,
   CardDescription,
   CardHeader,
   CardTitle,
-} from '@/components/ui/card';
+} from "@/components/ui/card";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -26,10 +26,10 @@ import {
   AlertDialogHeader,
   AlertDialogTitle,
   AlertDialogTrigger,
-} from '@/components/ui/alert-dialog';
-import { toast } from 'sonner';
-import { Loader2 } from 'lucide-react';
-import { useClerk } from '@clerk/nextjs';
+} from "@/components/ui/alert-dialog";
+import { toast } from "sonner";
+import { Loader2 } from "lucide-react";
+import { useClerk } from "@clerk/nextjs";
 
 export default function SettingsPage() {
   const { profile, isLoading } = useProfile();
@@ -38,7 +38,7 @@ export default function SettingsPage() {
   const queryClient = useQueryClient();
   const { signOut } = useClerk();
 
-  const [name, setName] = useState('');
+  const [name, setName] = useState("");
   const [hasChanges, setHasChanges] = useState(false);
 
   /**
@@ -52,12 +52,12 @@ export default function SettingsPage() {
    * the option does should not be logged out for their curiosity.
    */
   const startPasswordReset = () => {
-    void signOut({ redirectUrl: '/reset-password' });
+    void signOut({ redirectUrl: "/reset-password" });
   };
 
   useEffect(() => {
-    setTitle('Settings');
-    return () => setTitle('');
+    setTitle("Settings");
+    return () => setTitle("");
   }, [setTitle]);
 
   useEffect(() => {
@@ -67,17 +67,17 @@ export default function SettingsPage() {
   }, [profile?.name]);
 
   useEffect(() => {
-    setHasChanges(name.trim() !== (profile?.name ?? ''));
+    setHasChanges(name.trim() !== (profile?.name ?? ""));
   }, [name, profile?.name]);
 
   const updateProfile = useMutation({
-    mutationFn: (data: { name: string }) => api.patch('auth/users/me', data),
+    mutationFn: (data: { name: string }) => api.patch("auth/users/me", data),
     onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ['profile'] });
-      toast.success('Profile updated');
+      queryClient.invalidateQueries({ queryKey: ["profile"] });
+      toast.success("Profile updated");
     },
     onError: () => {
-      toast.error('Failed to update profile');
+      toast.error("Failed to update profile");
     },
   });
 
@@ -91,7 +91,7 @@ export default function SettingsPage() {
     return null;
   }
 
-  const roleLabel = accountRoleLabel(profile) ?? '';
+  const roleLabel = accountRoleLabel(profile) ?? "";
 
   return (
     <div className="mx-auto max-w-2xl space-y-6">
@@ -115,29 +115,34 @@ export default function SettingsPage() {
             <Label htmlFor="email">Email</Label>
             <Input
               id="email"
-              value={profile?.email ?? ''}
+              value={profile?.email ?? ""}
               disabled
               className="text-muted-foreground"
             />
-            <p className="text-xs text-muted-foreground">Email is managed by your authentication provider.</p>
+            <p className="text-xs text-muted-foreground">
+              Email is managed by your authentication provider.
+            </p>
           </div>
 
           <div className="space-y-2">
-            <Label>Roles</Label>
+            <Label htmlFor="roles">Roles</Label>
             <Input
+              id="roles"
               value={roleLabel}
               disabled
               className="text-muted-foreground"
             />
             <p className="text-xs text-muted-foreground">
-              Roles are additive and only a platform administrator can change them.
+              Roles are additive and only a platform administrator can change
+              them.
             </p>
           </div>
 
           {profile?.organization && (
             <div className="space-y-2">
-              <Label>Organization</Label>
+              <Label htmlFor="organization">Organization</Label>
               <Input
+                id="organization"
                 value={profile.organization.name}
                 disabled
                 className="text-muted-foreground"
@@ -150,7 +155,9 @@ export default function SettingsPage() {
               onClick={handleSave}
               disabled={!hasChanges || updateProfile.isPending}
             >
-              {updateProfile.isPending && <Loader2 className="size-4 animate-spin" />}
+              {updateProfile.isPending && (
+                <Loader2 className="size-4 animate-spin" />
+              )}
               Save Changes
             </Button>
           </div>
@@ -160,7 +167,9 @@ export default function SettingsPage() {
       <Card>
         <CardHeader>
           <CardTitle>Security</CardTitle>
-          <CardDescription>Manage your password and account security.</CardDescription>
+          <CardDescription>
+            Manage your password and account security.
+          </CardDescription>
         </CardHeader>
         <CardContent>
           <div className="flex items-center justify-between">

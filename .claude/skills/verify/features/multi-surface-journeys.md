@@ -24,8 +24,9 @@ Send a message in the widget ([widget-chat.md](./widget-chat.md)). As `owner`, t
 
 ## Editor change reaches the widget
 
-- **Theme fields reach visitors.** A theme-field save (header title, colors, launcher position, handover button label, consent) bumps the config ETag. The next widget load shows it.
-- **Agent fields do not (open finding F-07).** An agent-field save (greeting, name, voice, handover toggles) does not bump the ETag, so an already-loaded browser keeps the old value.
+- **Every saved field reaches visitors.** The public config ETag is a hash of the whole payload, so any save changes it: theme fields (header title, colors, launcher position, handover button label, consent) and agent fields (greeting, name, voice, handover switches). The next widget load gets 200 and shows the change, with no cache clearing. A load with nothing changed still gets 304.
+- F-07, fixed 2026-09-27: the tag used to be the theme version only, and agent-field saves stayed stale in the widget's localStorage and the browser HTTP cache.
+- "Next load" holds because the widget's config cache time is 0 (`apps/widget/src/services/config-loader.ts`), so it asks the server on every load. If that time is ever raised, a change appears only after it expires.
 - Proof steps are in [agent-editor.md](./agent-editor.md) and [widget-voice.md](./widget-voice.md).
 
 ## Knowledge reaches replies

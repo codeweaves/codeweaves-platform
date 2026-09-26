@@ -1,24 +1,33 @@
-'use client';
+"use client";
 
-import { useCallback, useState } from 'react';
-import Link from 'next/link';
-import { useRouter } from 'next/navigation';
-import type { ColumnDef } from '@tanstack/react-table';
-import { AlertCircle, Bot, Pencil, Code, ExternalLink, Loader2, RefreshCw, Trash2 } from 'lucide-react';
+import { useCallback, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import type { ColumnDef } from "@tanstack/react-table";
+import {
+  AlertCircle,
+  Bot,
+  Pencil,
+  Code,
+  ExternalLink,
+  Loader2,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableFetchParams,
   type DataTableFilterConfig,
-} from '@/components/ui/data-table';
-import { Badge } from '@/components/ui/badge';
-import { Button } from '@/components/ui/button';
+} from "@/components/ui/data-table";
+import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
+} from "@/components/ui/tooltip";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,18 +37,18 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { useAgents, useDeleteAgent, type Agent } from '@/hooks/use-agents';
-import { usePermissions } from '@/hooks/use-permissions';
-import { useOrganizations } from '@/hooks/use-organizations';
-import { formatDate } from '@/lib/utils';
-import { EmbedCodeDialog } from './embed-code-dialog';
-import { toast } from 'sonner';
+} from "@/components/ui/alert-dialog";
+import { useAgents, useDeleteAgent, type Agent } from "@/hooks/use-agents";
+import { usePermissions } from "@/hooks/use-permissions";
+import { useOrganizations } from "@/hooks/use-organizations";
+import { formatDate } from "@/lib/utils";
+import { EmbedCodeDialog } from "./embed-code-dialog";
+import { toast } from "sonner";
 
 const SORTABLE_COLUMNS: Record<string, string> = {
-  name: 'name',
-  createdAt: 'createdAt',
-  updatedAt: 'updatedAt',
+  name: "name",
+  createdAt: "createdAt",
+  updatedAt: "updatedAt",
 };
 
 interface AgentsDataTableProps {
@@ -49,20 +58,20 @@ interface AgentsDataTableProps {
 export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
   const router = useRouter();
   const { can } = usePermissions();
-  const isAdmin = can('Agent:Delete');
-  const canListOrganizations = can('Organization:ReadAll');
+  const isAdmin = can("Agent:Delete");
+  const canListOrganizations = can("Organization:ReadAll");
 
   const [fetchParams, setFetchParams] = useState<DataTableFetchParams>({
     page: 0,
     pageSize: 10,
     sorting: [],
-    search: '',
+    search: "",
     filters: {},
   });
 
   const [embedAgent, setEmbedAgent] = useState<Agent | null>(null);
   const [deleteAgent, setDeleteAgent] = useState<Agent | null>(null);
-  const [deleteConfirmText, setDeleteConfirmText] = useState('');
+  const [deleteConfirmText, setDeleteConfirmText] = useState("");
 
   const deleteAgentMutation = useDeleteAgent();
 
@@ -79,12 +88,14 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
   const sortField = fetchParams.sorting[0];
   const sortBy = sortField
     ? (SORTABLE_COLUMNS[sortField.id] ?? sortField.id)
-    : 'createdAt';
-  const sortOrder = sortField ? (sortField.desc ? 'desc' : 'asc') : 'desc';
+    : "createdAt";
+  const sortOrder = sortField ? (sortField.desc ? "desc" : "asc") : "desc";
 
   const statusRaw = fetchParams.filters?.status;
   const statusFilter = Array.isArray(statusRaw)
-    ? (statusRaw.length === 1 ? statusRaw[0] : undefined)
+    ? statusRaw.length === 1
+      ? statusRaw[0]
+      : undefined
     : statusRaw;
   const orgFilter = fetchParams.filters?.organizationId as string | undefined;
 
@@ -92,11 +103,12 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
     page: fetchParams.page + 1, // API is 1-based
     limit: fetchParams.pageSize,
     search: fetchParams.search || undefined,
-    status: statusFilter && statusFilter !== 'all'
-      ? (statusFilter as 'ACTIVE' | 'INACTIVE')
-      : undefined,
-    organizationId: orgFilter && orgFilter !== 'all' ? orgFilter : undefined,
-    sortBy: sortBy as 'name' | 'createdAt' | 'updatedAt',
+    status:
+      statusFilter && statusFilter !== "all"
+        ? (statusFilter as "ACTIVE" | "INACTIVE")
+        : undefined,
+    organizationId: orgFilter && orgFilter !== "all" ? orgFilter : undefined,
+    sortBy: sortBy as "name" | "createdAt" | "updatedAt",
     sortOrder,
   });
 
@@ -110,17 +122,17 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
       await deleteAgentMutation.mutateAsync(deleteAgent.id);
       toast.success(`Agent "${deleteAgent.name}" deleted successfully`);
     } catch {
-      toast.error('Failed to delete agent. Please try again.');
+      toast.error("Failed to delete agent. Please try again.");
     } finally {
       setDeleteAgent(null);
-      setDeleteConfirmText('');
+      setDeleteConfirmText("");
     }
   };
 
   // Build columns based on role
   const columns: ColumnDef<Agent, unknown>[] = [
     {
-      accessorKey: 'name',
+      accessorKey: "name",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Name" />
       ),
@@ -129,7 +141,7 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
           href={`/dashboard/agents/${row.original.id}`}
           className="font-medium text-primary hover:underline"
         >
-          {row.getValue('name')}
+          {row.getValue("name")}
         </Link>
       ),
     },
@@ -137,95 +149,108 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
     ...(isAdmin
       ? [
           {
-            id: 'organization',
-            accessorFn: (row: Agent) => row.organization?.name ?? '-',
-            header: 'Organization',
+            id: "organization",
+            accessorFn: (row: Agent) => row.organization?.name ?? "-",
+            header: "Organization",
             enableSorting: false,
           } satisfies ColumnDef<Agent, unknown>,
         ]
       : []),
     {
-      accessorKey: 'status',
-      header: 'Status',
+      accessorKey: "status",
+      header: "Status",
       cell: ({ row }) => {
         const status = row.original.status;
         return (
-          <Badge className='text-sm' variant={status === 'ACTIVE' ? 'success' : 'error'}>
-            {status === 'ACTIVE' ? 'Active' : 'Inactive'}
+          <Badge
+            className="text-sm"
+            variant={status === "ACTIVE" ? "success" : "error"}
+          >
+            {status === "ACTIVE" ? "Active" : "Inactive"}
           </Badge>
         );
       },
       enableSorting: false,
     },
     {
-      accessorKey: 'createdAt',
+      accessorKey: "createdAt",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Created" />
       ),
-      cell: ({ row }) => formatDate(row.getValue('createdAt')),
+      cell: ({ row }) => formatDate(row.getValue("createdAt")),
     },
     {
-      id: 'actions',
+      id: "actions",
       header: () => <div className="text-center">Actions</div>,
       enableSorting: false,
       cell: ({ row }) => {
         const agent = row.original;
         return (
           <TooltipProvider>
-          <div className="flex items-center justify-center gap-1">
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
-                >
-                  <Pencil className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Edit</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => setEmbedAgent(agent)}
-                >
-                  <Code className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Embed</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8"
-                  onClick={() => window.open(`/agents/demo/${agent.id}`, '_blank')}
-                >
-                  <ExternalLink className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Demo</TooltipContent>
-            </Tooltip>
-            <Tooltip>
-              <TooltipTrigger asChild>
-                <Button
-                  variant="ghost"
-                  size="icon"
-                  className="h-8 w-8 text-destructive hover:text-destructive"
-                  onClick={() => setDeleteAgent(agent)}
-                >
-                  <Trash2 className="h-4 w-4" />
-                </Button>
-              </TooltipTrigger>
-              <TooltipContent>Delete</TooltipContent>
-            </Tooltip>
-          </div>
+            <div className="flex items-center justify-center gap-1">
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label={`Edit ${agent.name}`}
+                    onClick={() => router.push(`/dashboard/agents/${agent.id}`)}
+                  >
+                    <Pencil className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Edit</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label={`Embed code for ${agent.name}`}
+                    onClick={() => setEmbedAgent(agent)}
+                  >
+                    <Code className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Embed</TooltipContent>
+              </Tooltip>
+              <Tooltip>
+                <TooltipTrigger asChild>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    className="h-8 w-8"
+                    aria-label={`Open demo for ${agent.name}`}
+                    onClick={() =>
+                      window.open(`/agents/demo/${agent.id}`, "_blank")
+                    }
+                  >
+                    <ExternalLink className="h-4 w-4" />
+                  </Button>
+                </TooltipTrigger>
+                <TooltipContent>Demo</TooltipContent>
+              </Tooltip>
+              {/* Only offered with Agent:Delete. The API refuses it anyway; showing
+                it to other roles just ends in a 403 toast. */}
+              {isAdmin && (
+                <Tooltip>
+                  <TooltipTrigger asChild>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      className="h-8 w-8 text-destructive hover:text-destructive"
+                      aria-label={`Delete ${agent.name}`}
+                      onClick={() => setDeleteAgent(agent)}
+                    >
+                      <Trash2 className="h-4 w-4" />
+                    </Button>
+                  </TooltipTrigger>
+                  <TooltipContent>Delete</TooltipContent>
+                </Tooltip>
+              )}
+            </div>
           </TooltipProvider>
         );
       },
@@ -238,10 +263,10 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
     ...(isAdmin && orgsData?.data
       ? [
           {
-            id: 'organizationId',
-            label: 'Organization',
-            placeholder: 'Organization',
-            type: 'combobox' as const,
+            id: "organizationId",
+            label: "Organization",
+            placeholder: "Organization",
+            type: "combobox" as const,
             options: orgsData.data.map((org) => ({
               label: org.name,
               value: org.id,
@@ -250,19 +275,24 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
         ]
       : []),
     {
-      id: 'status',
-      label: 'Status',
-      placeholder: 'Status',
+      id: "status",
+      label: "Status",
+      placeholder: "Status",
       multiSelect: true,
       options: [
-        { label: 'Active', value: 'ACTIVE' },
-        { label: 'Inactive', value: 'INACTIVE' },
+        { label: "Active", value: "ACTIVE" },
+        { label: "Inactive", value: "INACTIVE" },
       ],
     },
   ];
 
   const isEmpty =
-    !isLoading && !isError && data?.meta.total === 0 && !fetchParams.search && !statusFilter && !orgFilter;
+    !isLoading &&
+    !isError &&
+    data?.meta.total === 0 &&
+    !fetchParams.search &&
+    !statusFilter &&
+    !orgFilter;
 
   if (isEmpty && emptyAction) {
     return (
@@ -299,14 +329,18 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
           renderEmpty: () => (
             <div className="flex h-32 flex-col items-center justify-center gap-2">
               <AlertCircle className="size-6 text-destructive" />
-              <span className="text-sm text-muted-foreground">Failed to load agents</span>
+              <span className="text-sm text-muted-foreground">
+                Failed to load agents
+              </span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => refetch()}
                 disabled={isFetching}
               >
-                <RefreshCw className={`size-3 ${isFetching ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`size-3 ${isFetching ? "animate-spin" : ""}`}
+                />
                 Try again
               </Button>
             </div>
@@ -316,8 +350,8 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
         initialPageSize={10}
         pageSizeOptions={[5, 10, 50, 100]}
         searchConfig={{
-          placeholder: 'Search agents...',
-          searchKey: 'search',
+          placeholder: "Search agents...",
+          searchKey: "search",
         }}
         filters={filters}
         showHeader={false}
@@ -341,7 +375,7 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
         onOpenChange={(open) => {
           if (!open) {
             setDeleteAgent(null);
-            setDeleteConfirmText('');
+            setDeleteConfirmText("");
           }
         }}
       >
@@ -349,8 +383,9 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
           <AlertDialogHeader>
             <AlertDialogTitle>Delete Agent</AlertDialogTitle>
             <AlertDialogDescription>
-              Are you sure you want to delete &quot;{deleteAgent?.name}&quot;? This action
-              cannot be undone. Type <span className="font-semibold">DELETE</span> to confirm.
+              Are you sure you want to delete &quot;{deleteAgent?.name}&quot;?
+              This action cannot be undone. Type{" "}
+              <span className="font-semibold">DELETE</span> to confirm.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <input
@@ -361,15 +396,17 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
             className="w-full rounded-md border border-input bg-background px-3 py-2 text-sm outline-none focus:ring-2 focus:ring-destructive"
           />
           <AlertDialogFooter>
-            <AlertDialogCancel onClick={() => setDeleteConfirmText('')}>
+            <AlertDialogCancel onClick={() => setDeleteConfirmText("")}>
               Cancel
             </AlertDialogCancel>
             <AlertDialogAction
               onClick={handleDelete}
-              disabled={deleteConfirmText !== 'DELETE' || deleteAgentMutation.isPending}
+              disabled={
+                deleteConfirmText !== "DELETE" || deleteAgentMutation.isPending
+              }
               className="bg-destructive text-destructive-foreground hover:bg-destructive/90 disabled:opacity-50 disabled:pointer-events-none"
             >
-              {deleteAgentMutation.isPending ? 'Deleting...' : 'Delete'}
+              {deleteAgentMutation.isPending ? "Deleting..." : "Delete"}
             </AlertDialogAction>
           </AlertDialogFooter>
         </AlertDialogContent>
