@@ -5,6 +5,7 @@ import {
   BadRequestException,
   ForbiddenException,
 } from "@nestjs/common";
+import { createHash } from "node:crypto";
 import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "./prisma.service";
 import { Prisma, Agent } from "@prisma/client";
@@ -513,7 +514,12 @@ export class AgentsService {
 
   /**
    * Public: fetch widget configuration by publicId (no auth required).
-   * Returns theme, agent info, allowed domains, and theme version for ETag.
+   * Returns theme, agent info, allowed domains, and an ETag for the payload.
+   *
+   * The ETag is a hash of the exact config returned, not the theme version:
+   * agent columns (name, greeting, voice, handover switches, allowed domains)
+   * are in the payload too, and a theme-only tag let browsers and the widget's
+   * cache keep them stale indefinitely after a save.
    */
   async getWidgetConfig(publicId: string) {
     const agent = await this.prisma.agent.findFirst({
@@ -550,40 +556,39 @@ export class AgentsService {
           .filter(Boolean)
       : [];
 
-    return {
-      config: {
-        // Consent section fully defaulted: the widget shows exactly the
-        // wording that computeNoticeHash covers and the consent row snapshots.
-        theme: withNormalizedConsent(themeConfig),
-        agent: {
-          name: agent.name,
-          greeting: agent.welcomeMessage ?? "",
-          starters,
-          voiceEnabled: agent.voiceEnabled && !!agent.voiceConfig,
-          voiceConfig:
-            agent.voiceEnabled && agent.voiceConfig
-              ? this.sanitizeVoiceConfigForWidget(
-                  agent.voiceConfig as Record<string, unknown>,
-                )
-              : null,
-          // Human handover (live agent takeover). The widget renders the
-          // "Talk to a human" button only when both are true; humanConnectedLabel
-          // is the text shown when a teammate joins.
-          humanTakeoverEnabled: agent.humanTakeoverEnabled,
-          showTalkToHumanButton:
-            agent.humanTakeoverEnabled && agent.showTalkToHumanButton,
-          humanConnectedLabel: agent.humanConnectedLabel,
-          // Revision of the chat-start privacy notice (null = notice off). The
-          // widget stores the hash it consented to and asks again on change,
-          // and sends it back with a GRANT so the server can refuse a stale one.
-          consentNoticeHash: isNoticeActive(consent)
-            ? computeNoticeHash(consent)
+    const config = {
+      // Consent section fully defaulted: the widget shows exactly the
+      // wording that computeNoticeHash covers and the consent row snapshots.
+      theme: withNormalizedConsent(themeConfig),
+      agent: {
+        name: agent.name,
+        greeting: agent.welcomeMessage ?? "",
+        starters,
+        voiceEnabled: agent.voiceEnabled && !!agent.voiceConfig,
+        voiceConfig:
+          agent.voiceEnabled && agent.voiceConfig
+            ? this.sanitizeVoiceConfigForWidget(
+                agent.voiceConfig as Record<string, unknown>,
+              )
             : null,
-        },
-        allowedDomains: agent.allowedDomains,
+        // Human handover (live agent takeover). The widget renders the
+        // "Talk to a human" button only when both are true; humanConnectedLabel
+        // is the text shown when a teammate joins.
+        humanTakeoverEnabled: agent.humanTakeoverEnabled,
+        showTalkToHumanButton:
+          agent.humanTakeoverEnabled && agent.showTalkToHumanButton,
+        humanConnectedLabel: agent.humanConnectedLabel,
+        // Revision of the chat-start privacy notice (null = notice off). The
+        // widget stores the hash it consented to and asks again on change,
+        // and sends it back with a GRANT so the server can refuse a stale one.
+        consentNoticeHash: isNoticeActive(consent)
+          ? computeNoticeHash(consent)
+          : null,
       },
-      version: theme?.version ?? 0,
+      allowedDomains: agent.allowedDomains,
     };
+    const etag = `"${createHash("sha256").update(JSON.stringify(config)).digest("base64url").slice(0, 22)}"`;
+    return { config, etag };
   }
 
   /** Strip provider internals from voiceConfig before exposing to public widget endpoint */

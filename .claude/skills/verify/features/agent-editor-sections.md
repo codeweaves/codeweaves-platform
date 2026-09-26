@@ -1,6 +1,6 @@
 # Agent editor sections
 
-The sections inside the agent editor. Each writes either agent-level columns (saved with `PATCH /agents/:id`) or the theme (`PUT /agents/:id/theme`, which bumps the config version). Which kind a field is decides whether an already-loaded widget sees the change (open finding F-07). Shell, save, reset and status are in [agent-editor.md](./agent-editor.md).
+The sections inside the agent editor. Each writes either agent-level columns (saved with `PATCH /agents/:id`) or the theme (`PUT /agents/:id/theme`). Both kinds reach the widget on its next load, because the public config ETag hashes the whole payload. Shell, save, reset and status are in [agent-editor.md](./agent-editor.md).
 
 ## Sub-features
 
@@ -24,8 +24,8 @@ Preconditions:
 
 - Baseline from the index. Change only the `editor` agent. As `owner` unless noted. Save each change with `Save Changes` and wait for "Changes saved successfully".
 
-- **Behavior.** `browser fill --css 'textarea[placeholder="Hello! How can I help you today?"]'` for the greeting. It persists across a reload. The public config returns `agent.greeting`.
-- **Chat Interface.** On the Header tab, `browser fill --role textbox --name "Chat Support" --value "<title>"`. The name is the placeholder. The widget dialog becomes `"<title> chat"`.
+- **Behavior.** `browser fill --role textbox --name "Greeting Message" --value "<text>"` for the greeting. It persists across a reload. The public config returns `agent.greeting`. The typing toggle is `switch "Typing Indicator"`.
+- **Chat Interface.** On the Header tab, `browser fill --role textbox --name "Header Title" --value "<title>"` (subtitle: `"Header Subtitle"`). The widget dialog becomes `"<title> chat"`.
 - **Privacy Notice.** See [widget-consent.md](./widget-consent.md).
 - **Human Handover.**
   1. `browser click --role switch --name "Enable human takeover"`. It reveals the message fields and two more switches.
@@ -40,20 +40,20 @@ Preconditions:
   2. Add "billing" into `input[placeholder^="Add another"]`. The text `"billing" is already in the list.` appears.
   3. Save. `agents.categoryKeywords` is `["Billing"]`.
 - **Appearance.**
-  1. Click `--role button --name "Bottom Left"`, then open tab `Bubble Prompt`. Fill `--role textbox --name "Bubble Background Color" --value "#123456"` and press Tab.
+  1. Click `--role button --name "Bottom Left"`, then open tab `Bubble Prompt`. Fill `--role textbox --name "Bubble Background Color" --value "#123456"` and press Tab. The same tab has `textbox "Bubble Text"` and `switch "Enable Bubble"`.
   2. Save. The config theme has `icon.position` left and `bubble.backgroundColor` #123456. The widget launcher renders on the left.
 - **Voice.**
-  1. The Enable Voice switch has no name. Click it with `--css 'text=Enable Voice >> xpath=following::*[@role="switch"][1]'`.
-  2. Open the voice picker with `--css '[role=combobox]:has-text("Use provider default")'` and pick `--role option --name "Aditya male"`.
+  1. `browser click --role switch --name "Enable Voice"`. It reveals `switch "Voice Input (STT)"`, `combobox "STT Provider"`, `switch "Voice Output (TTS)"`, `combobox "TTS Provider"` and `combobox "Voice"`.
+  2. `browser click --role combobox --name "Voice"` and pick `--role option --name "Aditya male"`.
   3. `Play voice preview` sends `POST /voices/preview` (201).
-  4. Save. `agents.voiceEnabled` is true and `voiceConfig` has `ttsProvider` sarvam and `ttsVoiceId` aditya. The widget mic needs a fresh config (see Gotchas).
+  4. Save. `agents.voiceEnabled` is true and `voiceConfig` has `ttsProvider` sarvam and `ttsVoiceId` aditya. The widget's next load shows the mic.
 - **Restore.** Run `Reset to Defaults` in the editor (theme), then `cw-verify seed` (agent fields, knowledge and categories on the editor agent).
 - **Proof.** Save a snapshot per section under `.verify/artifacts/agent-editor-sections/`, plus the DB rows and widget screenshots.
 
 ## Gotchas
 
-- **Agent-level fields do not reach an already-loaded widget (open finding F-07).** Greeting, name, voice, and the takeover and button switches keep the old ETag. Handover and consent looked immediate here only because the same save also changed theme fields.
-- Voice STT and TTS switches, provider pickers, the Enable Bubble switch, and the Greeting and Header labels have no accessible names (open finding F-08). Target them as shown.
+- Agent-level fields (greeting, name, voice, the takeover and button switches) reach an already-loaded widget on its next load. Before the F-07 fix (2026-09-27) they stayed stale until a theme field changed. If a saved agent field does not show in the widget, that is a regression: check that `GET .../config` returned 200, not 304.
+- The controls above are named by their visible labels (F-08, fixed 2026-09-27). Some other editor controls still have no name (Branding, Data Capture, Integration and WhatsApp inputs, avatar and timestamp switches, font selects), so target those by adjacent label or placeholder until they are fixed.
 - The Integration section on this branch has routing and model fields only. There are no HubSpot, Slack or Salesforce connections.
 - WhatsApp connect calls Meta Graph. Without a real phone-number ID and token it is verified-unreachable.
 - Branding, Data Capture, Integration and WhatsApp are hidden for the owner. Use `superadmin`.

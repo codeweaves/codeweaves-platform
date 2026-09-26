@@ -18,7 +18,7 @@ Preconditions:
 
 - Baseline from the index. Use the `teammate` user so a failed restore never renames the owner.
 
-- **Open.** Run `cw-verify browser goto http://localhost:3000/dashboard/profile-settings`, then `browser settle`. The snapshot shows `textbox "Name"`, disabled `textbox "Email"`, two unnamed disabled textboxes (Roles, Organization), `button "Save Changes" [disabled]`, and `button "Reset Password"`.
+- **Open.** Run `cw-verify browser goto http://localhost:3000/dashboard/profile-settings`, then `browser settle`. The snapshot shows `textbox "Name"`, and disabled textboxes `"Email"`, `"Roles"` and `"Organization"`, plus `button "Save Changes" [disabled]` and `button "Reset Password"`.
 - **Save.** Run `browser fill --role textbox --name "Name" --value "Verify Teammate Renamed"`, then `browser click --role button --name "Save Changes"`, then `browser wait --text "Profile updated"`.
 - **Persistence.** Reload with `browser goto` on the same URL and read the field: `browser eval --js "document.querySelector('input[placeholder=\"Enter your name\"]')?.value"`. Cross-check with `cw-verify db query "select name from users where id = '<users.teammate.id from .verify/state.json>'"`.
 - **Restore.** Fill `Verify Teammate` and save again.
@@ -30,4 +30,4 @@ Preconditions:
 - The name is not synced to Clerk. The account menu shows the database name.
 - `Save Changes` stays disabled until the trimmed name differs from the saved one.
 - The server strips `<` and `>` and caps the name at 100 characters.
-- Roles and Organization have no accessible name (open finding F-04). Do not target them by name.
+- Roles and Organization are named by their labels (F-04, fixed 2026-09-27). Organization shows only for users who belong to an org, so the super admin does not see it.

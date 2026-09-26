@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useQuery } from '@tanstack/react-query';
-import { useApiClient } from '@/lib/api-client';
-import { useAuth } from '@/hooks/use-auth';
+import { useQuery } from "@tanstack/react-query";
+import { useApiClient } from "@/lib/api-client";
+import { useAuth } from "@/hooks/use-auth";
 
 export interface AnalyticsParams {
   startDate: string;
@@ -22,8 +22,8 @@ export interface AnalyticsParams {
   orgId?: string;
   /** Multiple org filter */
   orgIds?: string[];
-  source?: 'WIDGET' | 'WHATSAPP' | 'DEMO';
-  sources?: Array<'WIDGET' | 'WHATSAPP' | 'DEMO'>;
+  source?: "WIDGET" | "WHATSAPP" | "DEMO";
+  sources?: Array<"WIDGET" | "WHATSAPP" | "DEMO">;
 }
 
 // Matches API: analytics.service.ts → getSummary()
@@ -129,17 +129,23 @@ export interface PaginatedAgentAnalytics {
 // Match backend Cache-Control: private, max-age=300
 const ANALYTICS_STALE_TIME = 5 * 60 * 1000;
 
-function buildQueryString(params: AnalyticsParams, extra?: Record<string, string | number | undefined>): string {
+function buildQueryString(
+  params: AnalyticsParams,
+  extra?: Record<string, string | number | undefined>,
+): string {
   const qp = new URLSearchParams();
-  qp.set('startDate', params.startDate);
-  qp.set('endDate', params.endDate);
-  if (params.timezone) qp.set('timezone', params.timezone);
-  if (params.agentId) qp.set('agentId', params.agentId);
-  if (params.agentIds && params.agentIds.length > 0) qp.set('agentIds', params.agentIds.join(','));
-  if (params.orgId) qp.set('orgId', params.orgId);
-  if (params.orgIds && params.orgIds.length > 0) qp.set('orgIds', params.orgIds.join(','));
-  if (params.source) qp.set('source', params.source);
-  if (params.sources && params.sources.length > 0) qp.set('sources', params.sources.join(','));
+  qp.set("startDate", params.startDate);
+  qp.set("endDate", params.endDate);
+  if (params.timezone) qp.set("timezone", params.timezone);
+  if (params.agentId) qp.set("agentId", params.agentId);
+  if (params.agentIds && params.agentIds.length > 0)
+    qp.set("agentIds", params.agentIds.join(","));
+  if (params.orgId) qp.set("orgId", params.orgId);
+  if (params.orgIds && params.orgIds.length > 0)
+    qp.set("orgIds", params.orgIds.join(","));
+  if (params.source) qp.set("source", params.source);
+  if (params.sources && params.sources.length > 0)
+    qp.set("sources", params.sources.join(","));
   if (extra) {
     for (const [k, v] of Object.entries(extra)) {
       if (v !== undefined) qp.set(k, String(v));
@@ -159,27 +165,34 @@ function resolveStaleTime(options?: AnalyticsQueryOptions): number {
   return options?.refetchInterval ? 0 : ANALYTICS_STALE_TIME;
 }
 
-export function useAnalyticsSummary(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useAnalyticsSummary(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<AnalyticsSummaryResponse>({
-    queryKey: ['analytics', 'summary', params],
+    queryKey: ["analytics", "summary", params],
     queryFn: () => api.get(`/analytics/summary?${buildQueryString(params)}`),
-    enabled: isAuthenticated && !authLoading,
+    enabled: isAuthenticated && !authLoading && options?.enabled !== false,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
     refetchIntervalInBackground: false,
   });
 }
 
-export function useConversationsChart(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useConversationsChart(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<ConversationsChartResponse>({
-    queryKey: ['analytics', 'conversations', params],
-    queryFn: () => api.get(`/analytics/charts/conversations?${buildQueryString(params)}`),
+    queryKey: ["analytics", "conversations", params],
+    queryFn: () =>
+      api.get(`/analytics/charts/conversations?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -187,13 +200,17 @@ export function useConversationsChart(params: AnalyticsParams, options?: Analyti
   });
 }
 
-export function useResponseTimesChart(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useResponseTimesChart(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<ResponseTimesChartResponse>({
-    queryKey: ['analytics', 'response-times', params],
-    queryFn: () => api.get(`/analytics/charts/response-times?${buildQueryString(params)}`),
+    queryKey: ["analytics", "response-times", params],
+    queryFn: () =>
+      api.get(`/analytics/charts/response-times?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -201,13 +218,17 @@ export function useResponseTimesChart(params: AnalyticsParams, options?: Analyti
   });
 }
 
-export function useMessageVolumeChart(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useMessageVolumeChart(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<MessageVolumeResponse>({
-    queryKey: ['analytics', 'message-volume', params],
-    queryFn: () => api.get(`/analytics/charts/message-volume?${buildQueryString(params)}`),
+    queryKey: ["analytics", "message-volume", params],
+    queryFn: () =>
+      api.get(`/analytics/charts/message-volume?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -215,13 +236,19 @@ export function useMessageVolumeChart(params: AnalyticsParams, options?: Analyti
   });
 }
 
-export function useConversationsByWeekday(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useConversationsByWeekday(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<WeekdayConversationsResponse>({
-    queryKey: ['analytics', 'conversations-by-weekday', params],
-    queryFn: () => api.get(`/analytics/charts/conversations-by-weekday?${buildQueryString(params)}`),
+    queryKey: ["analytics", "conversations-by-weekday", params],
+    queryFn: () =>
+      api.get(
+        `/analytics/charts/conversations-by-weekday?${buildQueryString(params)}`,
+      ),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -268,13 +295,19 @@ export interface ConversationChannelsResponse {
   channels: ChannelEntry[];
 }
 
-export function useConversationCategories(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useConversationCategories(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<ConversationCategoriesResponse>({
-    queryKey: ['analytics', 'conversation-categories', params],
-    queryFn: () => api.get(`/analytics/conversations/categories?${buildQueryString(params)}`),
+    queryKey: ["analytics", "conversation-categories", params],
+    queryFn: () =>
+      api.get(
+        `/analytics/conversations/categories?${buildQueryString(params)}`,
+      ),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -282,13 +315,17 @@ export function useConversationCategories(params: AnalyticsParams, options?: Ana
   });
 }
 
-export function useConversationLanguages(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useConversationLanguages(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<ConversationLanguagesResponse>({
-    queryKey: ['analytics', 'conversation-languages', params],
-    queryFn: () => api.get(`/analytics/conversations/languages?${buildQueryString(params)}`),
+    queryKey: ["analytics", "conversation-languages", params],
+    queryFn: () =>
+      api.get(`/analytics/conversations/languages?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -296,13 +333,17 @@ export function useConversationLanguages(params: AnalyticsParams, options?: Anal
   });
 }
 
-export function useConversationChannels(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useConversationChannels(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<ConversationChannelsResponse>({
-    queryKey: ['analytics', 'conversation-channels', params],
-    queryFn: () => api.get(`/analytics/conversations/channels?${buildQueryString(params)}`),
+    queryKey: ["analytics", "conversation-channels", params],
+    queryFn: () =>
+      api.get(`/analytics/conversations/channels?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -354,14 +395,17 @@ export interface HandoverAnalyticsResponse {
   reasons: HandoverReasonEntry[];
 }
 
-export function useHandoverAnalytics(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useHandoverAnalytics(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<HandoverAnalyticsResponse>({
-    queryKey: ['analytics', 'handover', params],
+    queryKey: ["analytics", "handover", params],
     queryFn: () => api.get(`/analytics/handover?${buildQueryString(params)}`),
-    enabled: isAuthenticated && !authLoading,
+    enabled: isAuthenticated && !authLoading && options?.enabled !== false,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
     refetchIntervalInBackground: false,
@@ -379,14 +423,17 @@ export interface LeadsCapturedResponse {
   totalLeadsTrend: number;
 }
 
-export function useLeadsCaptured(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useLeadsCaptured(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<LeadsCapturedResponse>({
-    queryKey: ['analytics', 'leads', params],
+    queryKey: ["analytics", "leads", params],
     queryFn: () => api.get(`/analytics/leads?${buildQueryString(params)}`),
-    enabled: isAuthenticated && !authLoading,
+    enabled: isAuthenticated && !authLoading && options?.enabled !== false,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
     refetchIntervalInBackground: false,
@@ -442,13 +489,17 @@ export interface VoiceLatencyResponse {
   ttsAggregate: LatencyAggregate | null;
 }
 
-export function useVoiceSummary(params: AnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useVoiceSummary(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<VoiceSummaryResponse>({
-    queryKey: ['analytics', 'voice-summary', params],
-    queryFn: () => api.get(`/analytics/voice/summary?${buildQueryString(params)}`),
+    queryKey: ["analytics", "voice-summary", params],
+    queryFn: () =>
+      api.get(`/analytics/voice/summary?${buildQueryString(params)}`),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
@@ -456,28 +507,36 @@ export function useVoiceSummary(params: AnalyticsParams, options?: AnalyticsQuer
   });
 }
 
-export function useLanguageDistribution(params: AnalyticsParams, options?: AnalyticsQueryOptions & { enabled?: boolean }) {
+export function useLanguageDistribution(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions & { enabled?: boolean },
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<LanguageDistributionResponse>({
-    queryKey: ['analytics', 'voice-languages', params],
-    queryFn: () => api.get(`/analytics/voice/languages?${buildQueryString(params)}`),
-    enabled: isAuthenticated && !authLoading && (options?.enabled !== false),
+    queryKey: ["analytics", "voice-languages", params],
+    queryFn: () =>
+      api.get(`/analytics/voice/languages?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading && options?.enabled !== false,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
     refetchIntervalInBackground: false,
   });
 }
 
-export function useVoiceLatency(params: AnalyticsParams, options?: AnalyticsQueryOptions & { enabled?: boolean }) {
+export function useVoiceLatency(
+  params: AnalyticsParams,
+  options?: AnalyticsQueryOptions & { enabled?: boolean },
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   return useQuery<VoiceLatencyResponse>({
-    queryKey: ['analytics', 'voice-latency', params],
-    queryFn: () => api.get(`/analytics/voice/latency?${buildQueryString(params)}`),
-    enabled: isAuthenticated && !authLoading && (options?.enabled !== false),
+    queryKey: ["analytics", "voice-latency", params],
+    queryFn: () =>
+      api.get(`/analytics/voice/latency?${buildQueryString(params)}`),
+    enabled: isAuthenticated && !authLoading && options?.enabled !== false,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
     refetchIntervalInBackground: false,
@@ -488,20 +547,25 @@ export interface AgentAnalyticsParams extends AnalyticsParams {
   page?: number;
   limit?: number;
   sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: "asc" | "desc";
 }
 
-export function useAgentAnalytics(params: AgentAnalyticsParams, options?: AnalyticsQueryOptions) {
+export function useAgentAnalytics(
+  params: AgentAnalyticsParams,
+  options?: AnalyticsQueryOptions,
+) {
   const { isAuthenticated, isLoading: authLoading } = useAuth();
   const api = useApiClient();
 
   const { page, limit, sortBy, sortOrder, ...baseParams } = params;
 
   return useQuery<PaginatedAgentAnalytics>({
-    queryKey: ['analytics', 'agents', params],
+    queryKey: ["analytics", "agents", params],
     queryFn: () =>
-      api.get(`/analytics/agents?${buildQueryString(baseParams, { page, limit, sortBy, sortOrder })}`),
-    enabled: isAuthenticated && !authLoading && (options?.enabled !== false),
+      api.get(
+        `/analytics/agents?${buildQueryString(baseParams, { page, limit, sortBy, sortOrder })}`,
+      ),
+    enabled: isAuthenticated && !authLoading && options?.enabled !== false,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
     refetchIntervalInBackground: false,

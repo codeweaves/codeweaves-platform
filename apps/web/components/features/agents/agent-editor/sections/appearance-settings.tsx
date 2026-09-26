@@ -95,10 +95,14 @@ export function AppearanceSettings() {
   const renderBubbleSettings = () => (
     <div className="space-y-6">
       <div className="grid grid-cols-3 gap-4 items-center">
-        <Label className="text-sm font-medium text-foreground">
+        <Label
+          htmlFor="bubbleText"
+          className="text-sm font-medium text-foreground"
+        >
           Bubble Text
         </Label>
         <Input
+          id="bubbleText"
           value={themeData.bubble.text}
           onChange={(e) => updateThemeData("bubble.text", e.target.value)}
           placeholder="Need help?"
@@ -132,7 +136,10 @@ export function AppearanceSettings() {
 
       <div className="flex items-center justify-between p-4 bg-muted/50 rounded-lg">
         <div>
-          <Label className="text-sm font-medium text-foreground">
+          <Label
+            htmlFor="bubbleEnabled"
+            className="text-sm font-medium text-foreground"
+          >
             Enable Bubble
           </Label>
           <p className="text-xs text-muted-foreground mt-1">
@@ -140,6 +147,7 @@ export function AppearanceSettings() {
           </p>
         </div>
         <Switch
+          id="bubbleEnabled"
           checked={themeData.bubble.enabled}
           onCheckedChange={(checked) =>
             updateThemeData("bubble.enabled", checked)

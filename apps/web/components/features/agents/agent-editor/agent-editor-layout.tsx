@@ -1,24 +1,32 @@
-'use client';
+"use client";
 
-import { useState, useEffect, useRef, useMemo, useCallback } from 'react';
-import { Save, RotateCcw, ChevronDown, Loader2, RotateCw, ExternalLink, ArrowLeft } from 'lucide-react';
-import { useRouter } from 'next/navigation';
-import { toast } from 'sonner';
-import { useQueryClient } from '@tanstack/react-query';
+import { useState, useEffect, useRef, useMemo, useCallback } from "react";
+import {
+  Save,
+  RotateCcw,
+  ChevronDown,
+  Loader2,
+  RotateCw,
+  ExternalLink,
+  ArrowLeft,
+} from "lucide-react";
+import { useRouter } from "next/navigation";
+import { toast } from "sonner";
+import { useQueryClient } from "@tanstack/react-query";
 import {
   agentAiConfigUpdateSchema,
   defaultWidgetTheme,
   voiceConfigSchema,
-} from '@repo/validation';
-import { Button } from '@/components/ui/button';
-import { Switch } from '@/components/ui/switch';
-import { Badge } from '@/components/ui/badge';
+} from "@repo/validation";
+import { Button } from "@/components/ui/button";
+import { Switch } from "@/components/ui/switch";
+import { Badge } from "@/components/ui/badge";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
+} from "@/components/ui/dropdown-menu";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -28,21 +36,24 @@ import {
   AlertDialogFooter,
   AlertDialogHeader,
   AlertDialogTitle,
-} from '@/components/ui/alert-dialog';
-import { useSidebar } from '@/components/ui/sidebar';
-import { usePageHeader } from '@/components/layout/page-header';
-import { useApiClient } from '@/lib/api-client';
-import { useUpdateAgent, type Agent } from '@/hooks/use-agents';
-import { useUpdateAgentTheme, useResetAgentTheme } from '@/hooks/use-agent-theme';
-import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning';
+} from "@/components/ui/alert-dialog";
+import { useSidebar } from "@/components/ui/sidebar";
+import { usePageHeader } from "@/components/layout/page-header";
+import { useApiClient } from "@/lib/api-client";
+import { useUpdateAgent, type Agent } from "@/hooks/use-agents";
+import {
+  useUpdateAgentTheme,
+  useResetAgentTheme,
+} from "@/hooks/use-agent-theme";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import {
   agentEditorConfigQueryKey,
   type AgentEditorConfigResponse,
-} from '@/hooks/use-agent-editor-config';
-import { EmbedCodeDialog } from '../embed-code-dialog';
-import { AgentEditorSidebar, type CategoryId } from './agent-editor-sidebar';
-import { AgentEditorForm } from './agent-editor-form';
-import { AgentPreview, type PreviewMessage } from './agent-preview';
+} from "@/hooks/use-agent-editor-config";
+import { EmbedCodeDialog } from "../embed-code-dialog";
+import { AgentEditorSidebar, type CategoryId } from "./agent-editor-sidebar";
+import { AgentEditorForm } from "./agent-editor-form";
+import { AgentPreview, type PreviewMessage } from "./agent-preview";
 import {
   AgentEditorProvider,
   useAgentEditor,
@@ -51,7 +62,7 @@ import {
   type AgentFormData,
   type InitialAgentKnowledge,
   type EditorDataField,
-} from './agent-editor-context';
+} from "./agent-editor-context";
 
 // Inner component that uses context
 function AgentEditorContent() {
@@ -76,10 +87,12 @@ function AgentEditorContent() {
   const router = useRouter();
 
   const [selectedCategory, setSelectedCategory] =
-    useState<CategoryId>('general');
+    useState<CategoryId>("general");
   const [status, setStatus] = useState(agent.status);
   const [statusPending, setStatusPending] = useState(false);
-  const [pendingDirection, setPendingDirection] = useState<'activating' | 'deactivating' | null>(null);
+  const [pendingDirection, setPendingDirection] = useState<
+    "activating" | "deactivating" | null
+  >(null);
   const [saving, setSaving] = useState(false);
   const [resetDefaultsOpen, setResetDefaultsOpen] = useState(false);
 
@@ -108,18 +121,18 @@ function AgentEditorContent() {
   // Stable ref for toggle handler to avoid infinite re-render loop in setActions effect
   const toggleRef = useRef<(checked: boolean) => void>(undefined);
   toggleRef.current = async (checked: boolean) => {
-    const newStatus = checked ? 'ACTIVE' : 'INACTIVE';
+    const newStatus = checked ? "ACTIVE" : "INACTIVE";
     try {
       setStatusPending(true);
-      setPendingDirection(checked ? 'activating' : 'deactivating');
+      setPendingDirection(checked ? "activating" : "deactivating");
       await updateAgent.mutateAsync({
         id: agent.id,
         data: { status: newStatus },
       });
-      setStatus(newStatus as 'ACTIVE' | 'INACTIVE');
-      toast.success(checked ? 'Agent activated' : 'Agent deactivated');
+      setStatus(newStatus as "ACTIVE" | "INACTIVE");
+      toast.success(checked ? "Agent activated" : "Agent deactivated");
     } catch {
-      toast.error('Failed to update status');
+      toast.error("Failed to update status");
     } finally {
       setStatusPending(false);
       setPendingDirection(null);
@@ -133,7 +146,7 @@ function AgentEditorContent() {
         <Button
           variant="ghost"
           size="icon"
-          onClick={() => router.push('/dashboard/agents')}
+          onClick={() => router.push("/dashboard/agents")}
           aria-label="Back to agents"
           className="h-8 w-8 shrink-0"
         >
@@ -143,7 +156,7 @@ function AgentEditorContent() {
       </div>,
     );
     return () => {
-      setTitle('');
+      setTitle("");
     };
   }, [formData.name, agent.name, setTitle, router]);
 
@@ -155,21 +168,19 @@ function AgentEditorContent() {
         <div className="flex items-center gap-2">
           {statusPending ? (
             <span className="text-sm text-muted-foreground">
-              {pendingDirection === 'activating'
-                ? 'Activating...'
-                : 'Deactivating...'}
+              {pendingDirection === "activating"
+                ? "Activating..."
+                : "Deactivating..."}
             </span>
           ) : (
             <>
               <Switch
-                checked={status === 'ACTIVE'}
+                checked={status === "ACTIVE"}
                 onCheckedChange={(checked) => toggleRef.current?.(checked)}
                 aria-label="Toggle agent status"
               />
-              <Badge
-                variant={status === 'ACTIVE' ? 'default' : 'secondary'}
-              >
-                {status === 'ACTIVE' ? 'Active' : 'Inactive'}
+              <Badge variant={status === "ACTIVE" ? "default" : "secondary"}>
+                {status === "ACTIVE" ? "Active" : "Inactive"}
               </Badge>
             </>
           )}
@@ -177,7 +188,7 @@ function AgentEditorContent() {
         <Button
           variant="outline"
           size="sm"
-          onClick={() => window.open(`/agents/demo/${agent.id}`, '_blank')}
+          onClick={() => window.open(`/agents/demo/${agent.id}`, "_blank")}
           aria-label="Open demo"
         >
           <ExternalLink className="h-4 w-4" />
@@ -187,7 +198,14 @@ function AgentEditorContent() {
       </div>,
     );
     return cleanup;
-  }, [status, statusPending, pendingDirection, agent.publicId, agent.id, setActions]);
+  }, [
+    status,
+    statusPending,
+    pendingDirection,
+    agent.publicId,
+    agent.id,
+    setActions,
+  ]);
 
   // Warn about unsaved changes on tab close/refresh and client-side navigation
   useUnsavedChangesWarning(hasUnsavedChanges);
@@ -216,7 +234,7 @@ function AgentEditorContent() {
       if (formData.voiceEnabled && formData.voiceConfig) {
         const result = voiceConfigSchema.safeParse(formData.voiceConfig);
         if (!result.success) {
-          setSelectedCategory('voice');
+          setSelectedCategory("voice");
           setSaving(false);
           return;
         }
@@ -227,7 +245,7 @@ function AgentEditorContent() {
       // the Advanced accordion auto-expands when an advanced field is invalid.
       const aiResult = agentAiConfigUpdateSchema.safeParse(formData.aiConfig);
       if (!aiResult.success) {
-        setSelectedCategory('integration');
+        setSelectedCategory("integration");
         setSaving(false);
         return;
       }
@@ -251,7 +269,7 @@ function AgentEditorContent() {
       });
       if (Object.keys(errors).length > 0) {
         setFieldErrors(errors);
-        setSelectedCategory('behavior');
+        setSelectedCategory("behavior");
         setSaving(false);
         return;
       }
@@ -268,7 +286,7 @@ function AgentEditorContent() {
         }
         if (!/^[a-z][a-z0-9_]*$/.test(field.key)) {
           dataFieldErrors[`dataFields.${index}.key`] =
-            'Key must start with a lowercase letter and use only lowercase letters, digits, and underscores.';
+            "Key must start with a lowercase letter and use only lowercase letters, digits, and underscores.";
         } else if (seenKeys.has(field.key)) {
           dataFieldErrors[`dataFields.${index}.key`] =
             `Duplicate key "${field.key}". Each field needs a unique key.`;
@@ -277,7 +295,7 @@ function AgentEditorContent() {
       });
       if (Object.keys(dataFieldErrors).length > 0) {
         setFieldErrors(dataFieldErrors);
-        setSelectedCategory('dataCapture');
+        setSelectedCategory("dataCapture");
         setSaving(false);
         return;
       }
@@ -302,42 +320,87 @@ function AgentEditorContent() {
         value: unknown = current,
       ) => {
         // JSON compare so arrays and the config blobs work the same as scalars.
-        if (JSON.stringify(current) !== JSON.stringify(saved)) payload[key] = value;
+        if (JSON.stringify(current) !== JSON.stringify(saved))
+          payload[key] = value;
       };
 
-      putIfChanged('name', formData.name, savedFormData.name);
+      putIfChanged("name", formData.name, savedFormData.name);
       putIfChanged(
-        'systemPrompt',
+        "systemPrompt",
         formData.systemPrompt,
         savedFormData.systemPrompt,
         formData.systemPrompt || null,
       );
       putIfChanged(
-        'welcomeMessage',
+        "welcomeMessage",
         formData.welcomeMessage,
         savedFormData.welcomeMessage,
         formData.welcomeMessage || null,
       );
-      putIfChanged('allowedDomains', formData.allowedDomains, savedFormData.allowedDomains);
-      putIfChanged('voiceEnabled', formData.voiceEnabled, savedFormData.voiceEnabled);
-      putIfChanged('voiceConfig', formData.voiceConfig, savedFormData.voiceConfig);
+      putIfChanged(
+        "allowedDomains",
+        formData.allowedDomains,
+        savedFormData.allowedDomains,
+      );
+      putIfChanged(
+        "voiceEnabled",
+        formData.voiceEnabled,
+        savedFormData.voiceEnabled,
+      );
+      putIfChanged(
+        "voiceConfig",
+        formData.voiceConfig,
+        savedFormData.voiceConfig,
+      );
       // Whole aiConfig blob. Backend's `agentAiConfigUpdateSchema` is partial, so
       // sending the full object is safe — each field is validated independently.
-      putIfChanged('aiConfig', formData.aiConfig, savedFormData.aiConfig);
-      putIfChanged('categoryKeywords', formData.categoryKeywords, savedFormData.categoryKeywords);
-      putIfChanged('supportedLanguages', formData.supportedLanguages, savedFormData.supportedLanguages);
-      putIfChanged('sessionLifetimeHours', formData.sessionLifetimeHours, savedFormData.sessionLifetimeHours);
-      putIfChanged('fallbackPhrases', formData.fallbackPhrases, savedFormData.fallbackPhrases);
-      putIfChanged('humanTakeoverEnabled', formData.humanTakeoverEnabled, savedFormData.humanTakeoverEnabled);
-      putIfChanged('showTalkToHumanButton', formData.showTalkToHumanButton, savedFormData.showTalkToHumanButton);
+      putIfChanged("aiConfig", formData.aiConfig, savedFormData.aiConfig);
       putIfChanged(
-        'humanConnectedLabel',
+        "categoryKeywords",
+        formData.categoryKeywords,
+        savedFormData.categoryKeywords,
+      );
+      putIfChanged(
+        "supportedLanguages",
+        formData.supportedLanguages,
+        savedFormData.supportedLanguages,
+      );
+      putIfChanged(
+        "sessionLifetimeHours",
+        formData.sessionLifetimeHours,
+        savedFormData.sessionLifetimeHours,
+      );
+      putIfChanged(
+        "fallbackPhrases",
+        formData.fallbackPhrases,
+        savedFormData.fallbackPhrases,
+      );
+      putIfChanged(
+        "humanTakeoverEnabled",
+        formData.humanTakeoverEnabled,
+        savedFormData.humanTakeoverEnabled,
+      );
+      putIfChanged(
+        "showTalkToHumanButton",
+        formData.showTalkToHumanButton,
+        savedFormData.showTalkToHumanButton,
+      );
+      putIfChanged(
+        "humanConnectedLabel",
         formData.humanConnectedLabel,
         savedFormData.humanConnectedLabel,
         formData.humanConnectedLabel.trim() || null,
       );
-      putIfChanged('handoverEmailEnabled', formData.handoverEmailEnabled, savedFormData.handoverEmailEnabled);
-      putIfChanged('handoverEmailRecipients', formData.handoverEmailRecipients, savedFormData.handoverEmailRecipients);
+      putIfChanged(
+        "handoverEmailEnabled",
+        formData.handoverEmailEnabled,
+        savedFormData.handoverEmailEnabled,
+      );
+      putIfChanged(
+        "handoverEmailRecipients",
+        formData.handoverEmailRecipients,
+        savedFormData.handoverEmailRecipients,
+      );
 
       // Save agent config, webhook, and theme in parallel. Skip the agent PATCH
       // entirely when only a sub-resource (theme, knowledge, fields) changed.
@@ -368,7 +431,8 @@ function AgentEditorContent() {
       //   ''    → 'text'    PUT (create)
       //   'old' → 'new'     PUT (update)
       //   'old' → ''        DELETE (remove)
-      const kbChanged = formData.knowledgeContent !== savedFormData.knowledgeContent;
+      const kbChanged =
+        formData.knowledgeContent !== savedFormData.knowledgeContent;
       if (kbChanged) {
         const newContent = formData.knowledgeContent.trim();
         const oldContent = savedFormData.knowledgeContent.trim();
@@ -434,13 +498,14 @@ function AgentEditorContent() {
 
           const newKnowledge = formData.knowledgeContent.trim()
             ? {
-                id: old?.knowledge?.id ?? '',
+                id: old?.knowledge?.id ?? "",
                 content: formData.knowledgeContent,
                 sourceFileName: formData.knowledgeSourceFileName,
                 sourceMimeType: formData.knowledgeSourceMimeType,
                 contentTokens: old?.knowledge?.contentTokens ?? null,
                 sourceSizeBytes: old?.knowledge?.sourceSizeBytes ?? null,
-                createdAt: old?.knowledge?.createdAt ?? new Date().toISOString(),
+                createdAt:
+                  old?.knowledge?.createdAt ?? new Date().toISOString(),
                 updatedAt: new Date().toISOString(),
               }
             : null;
@@ -460,7 +525,7 @@ function AgentEditorContent() {
             // until the next hard reload hits the real GET).
             dataFields: formData.dataFields.map((f, index) => ({
               ...f,
-              id: '',
+              id: "",
               order: index,
               createdAt: new Date().toISOString(),
               updatedAt: new Date().toISOString(),
@@ -470,18 +535,30 @@ function AgentEditorContent() {
       );
 
       markSaved(formData, themeData);
-      toast.success('Changes saved successfully');
+      toast.success("Changes saved successfully");
     } catch {
-      toast.error('Failed to save changes', {
+      toast.error("Failed to save changes", {
         action: {
-          label: 'Retry',
+          label: "Retry",
           onClick: () => handleSaveRef.current?.(),
         },
       });
     } finally {
       setSaving(false);
     }
-  }, [agent, formData, savedFormData, hasThemeChanges, themeData, api, updateAgent, updateTheme, markSaved, queryClient, setFieldErrors]);
+  }, [
+    agent,
+    formData,
+    savedFormData,
+    hasThemeChanges,
+    themeData,
+    api,
+    updateAgent,
+    updateTheme,
+    markSaved,
+    queryClient,
+    setFieldErrors,
+  ]);
 
   handleSaveRef.current = handleSave;
 
@@ -492,9 +569,9 @@ function AgentEditorContent() {
       const result = await resetTheme.mutateAsync({ agentId: agent.id });
       const newTheme = result?.config ?? defaultWidgetTheme;
       markSaved(formData, newTheme);
-      toast.success('Theme reset to defaults');
+      toast.success("Theme reset to defaults");
     } catch {
-      toast.error('Failed to reset theme to defaults');
+      toast.error("Failed to reset theme to defaults");
     } finally {
       setSaving(false);
     }
@@ -502,7 +579,7 @@ function AgentEditorContent() {
 
   const handleSendPreviewMessage = (message: string) => {
     const userMessage: PreviewMessage = {
-      type: 'user',
+      type: "user",
       text: message,
       timestamp: new Date(),
     };
@@ -511,8 +588,8 @@ function AgentEditorContent() {
     // Simulate AI response
     aiReplyTimer.current = setTimeout(() => {
       const aiResponse: PreviewMessage = {
-        type: 'system',
-        text: 'Thanks for your message! This is a preview response from your chat agent.',
+        type: "system",
+        text: "Thanks for your message! This is a preview response from your chat agent.",
         timestamp: new Date(),
       };
       setPreviewMessages((prev) => [...prev, aiResponse]);
@@ -522,10 +599,10 @@ function AgentEditorContent() {
   const handleScrollBarVisibility = () => {
     const el = scrollRef.current;
     if (!el) return;
-    el.classList.add('scrolling');
+    el.classList.add("scrolling");
     if (scrollTimer.current) window.clearTimeout(scrollTimer.current);
     scrollTimer.current = window.setTimeout(() => {
-      el.classList.remove('scrolling');
+      el.classList.remove("scrolling");
     }, 700);
   };
 
@@ -550,7 +627,7 @@ function AgentEditorContent() {
     const greeting = formData.welcomeMessage?.trim();
     if (!greeting) return previewMessages;
     return [
-      { type: 'system', text: greeting, timestamp: greetingTimestamp },
+      { type: "system", text: greeting, timestamp: greetingTimestamp },
       ...previewMessages,
     ];
   }, [formData.welcomeMessage, previewMessages, greetingTimestamp]);
@@ -560,93 +637,92 @@ function AgentEditorContent() {
     // so the editor goes full-bleed within the centered content column.
     <div className="-mx-8 -my-7 flex h-[calc(100vh-4rem)] overflow-hidden bg-background">
       {/* Content area: Sidebar + Form + Preview */}
-        {/* Config Sidebar */}
-        <AgentEditorSidebar
-          selectedCategory={selectedCategory}
-          onCategoryChange={setSelectedCategory}
-        />
+      {/* Config Sidebar */}
+      <AgentEditorSidebar
+        selectedCategory={selectedCategory}
+        onCategoryChange={setSelectedCategory}
+      />
 
-        {/* Form area */}
-        <div className="flex min-h-0 min-w-0 flex-3 flex-col">
-          <div
-            // `overflow-y` is deliberately managed in globals.css (.scrollarea)
-            // so `@supports (overflow: overlay)` can upgrade to an overlay
-            // scrollbar on WebKit/Blink. Don't re-apply `overflow-y-auto` here
-            // — Tailwind's utility would win specificity and kill the overlay.
-            className="scrollarea flex-1 bg-card p-6 pb-20"
-            ref={scrollRef}
-            onScroll={handleScrollBarVisibility}
-          >
-            <AgentEditorForm selectedCategory={selectedCategory} />
-          </div>
+      {/* Form area */}
+      <div className="flex min-h-0 min-w-0 flex-3 flex-col">
+        <div
+          // `overflow-y` is deliberately managed in globals.css (.scrollarea)
+          // so `@supports (overflow: overlay)` can upgrade to an overlay
+          // scrollbar on WebKit/Blink. Don't re-apply `overflow-y-auto` here
+          // — Tailwind's utility would win specificity and kill the overlay.
+          className="scrollarea flex-1 bg-card p-6 pb-20"
+          ref={scrollRef}
+          onScroll={handleScrollBarVisibility}
+        >
+          <AgentEditorForm selectedCategory={selectedCategory} />
+        </div>
 
-          {/* Sticky bottom action bar */}
-          <div className="border-t border-border bg-card px-6 py-4 shadow-lg">
-            <div className="flex justify-end gap-3">
-              {/* Reset button with dropdown for "Reset to Defaults" */}
-              <DropdownMenu>
-                <div className="flex">
+        {/* Sticky bottom action bar */}
+        <div className="border-t border-border bg-card px-6 py-4 shadow-lg">
+          <div className="flex justify-end gap-3">
+            {/* Reset button with dropdown for "Reset to Defaults" */}
+            <DropdownMenu>
+              <div className="flex">
+                <Button
+                  variant="outline"
+                  onClick={handleReset}
+                  disabled={!hasUnsavedChanges || saving}
+                  className="rounded-r-none border-r-0"
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reset
+                </Button>
+                <DropdownMenuTrigger asChild>
                   <Button
                     variant="outline"
-                    onClick={handleReset}
-                    disabled={!hasUnsavedChanges || saving}
-                    className="rounded-r-none border-r-0"
+                    size="icon"
+                    className="rounded-l-none"
+                    disabled={saving}
+                    aria-label="More reset options"
                   >
-                    <RotateCcw className="h-4 w-4" />
-                    Reset
+                    <ChevronDown className="h-4 w-4" />
                   </Button>
-                  <DropdownMenuTrigger asChild>
-                    <Button
-                      variant="outline"
-                      size="icon"
-                      className="rounded-l-none"
-                      disabled={saving}
-                    >
-                      <ChevronDown className="h-4 w-4" />
-                    </Button>
-                  </DropdownMenuTrigger>
-                </div>
-                <DropdownMenuContent align="end">
-                  <DropdownMenuItem
-                    onClick={handleReset}
-                    disabled={!hasUnsavedChanges}
-                  >
-                    <RotateCcw className="h-4 w-4" />
-                    Reset to Last Saved
-                  </DropdownMenuItem>
-                  <DropdownMenuItem
-                    onClick={() => setResetDefaultsOpen(true)}
-                  >
-                    <RotateCw className="h-4 w-4" />
-                    Reset to Defaults
-                  </DropdownMenuItem>
-                </DropdownMenuContent>
-              </DropdownMenu>
+                </DropdownMenuTrigger>
+              </div>
+              <DropdownMenuContent align="end">
+                <DropdownMenuItem
+                  onClick={handleReset}
+                  disabled={!hasUnsavedChanges}
+                >
+                  <RotateCcw className="h-4 w-4" />
+                  Reset to Last Saved
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setResetDefaultsOpen(true)}>
+                  <RotateCw className="h-4 w-4" />
+                  Reset to Defaults
+                </DropdownMenuItem>
+              </DropdownMenuContent>
+            </DropdownMenu>
 
-              {/* Save button with loading state */}
-              <Button
-                onClick={handleSave}
-                disabled={!hasUnsavedChanges || saving}
-              >
-                {saving ? (
-                  <Loader2 className="h-4 w-4 animate-spin" />
-                ) : (
-                  <Save className="h-4 w-4" />
-                )}
-                {saving ? 'Saving...' : 'Save Changes'}
-              </Button>
-            </div>
+            {/* Save button with loading state */}
+            <Button
+              onClick={handleSave}
+              disabled={!hasUnsavedChanges || saving}
+            >
+              {saving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <Save className="h-4 w-4" />
+              )}
+              {saving ? "Saving..." : "Save Changes"}
+            </Button>
           </div>
         </div>
+      </div>
 
-        {/* Live Preview panel */}
-        <div className="flex h-full min-h-0 min-w-112.5 max-w-150 flex-2 flex-col border-l border-border bg-card">
-          <AgentPreview
-            formData={previewFormData}
-            messages={displayPreviewMessages}
-            onSendMessage={handleSendPreviewMessage}
-          />
-        </div>
+      {/* Live Preview panel */}
+      <div className="flex h-full min-h-0 min-w-112.5 max-w-150 flex-2 flex-col border-l border-border bg-card">
+        <AgentPreview
+          formData={previewFormData}
+          messages={displayPreviewMessages}
+          onSendMessage={handleSendPreviewMessage}
+        />
+      </div>
 
       {/* Reset to Defaults confirmation dialog */}
       <AlertDialog open={resetDefaultsOpen} onOpenChange={setResetDefaultsOpen}>
@@ -654,8 +730,9 @@ function AgentEditorContent() {
           <AlertDialogHeader>
             <AlertDialogTitle>Reset theme to defaults?</AlertDialogTitle>
             <AlertDialogDescription>
-              This will reset all theme settings to their default values. This action
-              cannot be undone and your current theme customizations will be lost.
+              This will reset all theme settings to their default values. This
+              action cannot be undone and your current theme customizations will
+              be lost.
             </AlertDialogDescription>
           </AlertDialogHeader>
           <AlertDialogFooter>
@@ -674,7 +751,7 @@ function AgentEditorContent() {
 interface AgentEditorLayoutProps {
   agent: Agent;
   webhookUrl?: string;
-  initialThemeData?: import('@repo/validation').WidgetTheme;
+  initialThemeData?: import("@repo/validation").WidgetTheme;
   /**
    * Stored AgentKnowledge (if any) fetched alongside the agent. `null` means
    * no record yet — the knowledge section shows an empty textarea.
@@ -702,7 +779,11 @@ export function AgentEditorLayout({
   );
 
   return (
-    <AgentEditorProvider agent={agent} initialFormData={initialFormData} initialThemeData={initialThemeData}>
+    <AgentEditorProvider
+      agent={agent}
+      initialFormData={initialFormData}
+      initialThemeData={initialThemeData}
+    >
       <AgentEditorContent />
     </AgentEditorProvider>
   );

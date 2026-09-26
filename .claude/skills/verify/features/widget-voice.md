@@ -20,7 +20,7 @@ Preconditions:
 
 - Baseline from the index. Use the `voice` agent.
 - A speech clip at `.verify/fixtures/voice.wav` (16 kHz, 16-bit, mono). On Windows, make one with PowerShell `System.Speech.Synthesis.SpeechSynthesizer` and `SetOutputToWaveFile`, for example the phrase "Hello. What are your opening hours?". After adding or changing it, run `browser close` then `browser open`, because Chrome reads the file at launch. The CLI plays it once (`%noloop`).
-- If the agent's voice was just switched on in the editor, see the stale-config gotcha below before trusting a missing mic button.
+- If the agent's voice was just switched on in the editor, the next widget load shows the mic. No cache clearing is needed.
 
 - **Open.** Run `cw-verify widget open --agent voice --page visitor`. The dialog is "Verify Voice Bot chat" and `button "Start recording"` is present.
 - **Record.** Run `browser click --page visitor --role button --name "Start recording"`, then `browser wait --page visitor --role button --name "Send voice message"`.
@@ -32,7 +32,7 @@ Preconditions:
 
 ## Gotchas
 
-- **Stale config hides the mic (open finding F-07).** Turning voice on in the editor does not change the config ETag. A browser that already loaded the widget keeps `voiceEnabled: false` in both localStorage and its HTTP cache, so no mic button renders. Clearing localStorage is not enough. Clear the browser cache (CDP `Network.clearBrowserCache`) or also save a theme field.
+- A missing mic right after turning voice on is a regression of F-07 (fixed 2026-09-27). Check that `GET .../config` returned 200, not 304, and that the payload has `agent.voiceEnabled: true`. Before the fix, the browser HTTP cache kept the old config.
 - Consent mode hides the whole input bar, mic included, until the visitor accepts. Check for `region "Privacy notice"` first.
 - Without the fixture, Chrome's fake device sends a beep and the API answers "no speech detected".
 - Real STT and TTS providers are called (Sarvam by default). Each run costs a few seconds of audio.
