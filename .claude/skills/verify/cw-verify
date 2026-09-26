@@ -1,0 +1,8 @@
+#!/usr/bin/env sh
+# Entry point for the verify CLI. Use this, not node directly, from any POSIX
+# shell. Git Bash on Windows rewrites arguments that start with "/" into Windows
+# paths (`--url /dashboard` arrives as `C:/Program Files/Git/dashboard`), which
+# silently breaks every path argument. These two variables turn that off.
+export MSYS_NO_PATHCONV=1
+export MSYS2_ARG_CONV_EXCL='*'
+exec node "$(dirname "$0")/scripts/cw-verify.mjs" "$@"

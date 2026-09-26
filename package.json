@@ -24,6 +24,7 @@
   "devDependencies": {
     "eslint": "^9.39.5",
     "lefthook": "^2.1.12",
+    "playwright-core": "^1.63.0",
     "prettier": "^3.9.6",
     "turbo": "^2.10.6",
     "typescript": "5.9.2"

@@ -23,7 +23,8 @@
     "db:seed": "prisma db seed",
     "db:studio": "prisma studio",
     "db:assert-local": "bun run prisma/assert-local-db.ts",
-    "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\""
+    "prebuild": "node -e \"require('fs').rmSync('dist',{recursive:true,force:true})\"",
+    "seed:verify": "bun run prisma/seed-verify.ts"
   },
   "dependencies": {
     "@ai-sdk/google": "^3.0.64",

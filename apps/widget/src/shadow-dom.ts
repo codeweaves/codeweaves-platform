@@ -419,7 +419,7 @@ export function initShadowDom(): ShadowDomResult {
   // Task 1: Create host element with defensive inline styles
   host = createHostElement();
 
-  // Task 2: Attach closed shadow root + mount point
+  // Task 2: Attach open shadow root + mount point
   shadowRoot = attachShadowRoot(host);
 
   // Task 3: Adopt constructable stylesheets (reset, theme, components)
