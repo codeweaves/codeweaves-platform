@@ -1038,9 +1038,15 @@ export function ChatWidgetSurface({
           {announcement}
         </div>
 
-        {/* Messages area */}
+        {/* Messages area. A log is the ARIA pattern for chat history; live
+            announcements stay off here because the status region above already
+            reads each finished reply, and a second live region would read it
+            twice. */}
         <div
           ref={scrollRef}
+          role="log"
+          aria-label="Conversation"
+          aria-live="off"
           class="cw-body flex-1 overflow-y-auto p-5"
           style={{
             backgroundColor: str(body, "backgroundColor", "#F9FAFB"),
@@ -1104,9 +1110,18 @@ export function ChatWidgetSurface({
                 : num(botMessage, "borderRadius", 14);
               const marginTop =
                 i === 0 ? 0 : pos === "middle" || pos === "last" ? 2 : 12;
+              // Names who wrote each message, so screen-reader users can move
+              // message by message and hear the author.
+              const authorLabel = isUser
+                ? "Your message"
+                : message.role === "human"
+                  ? "Team member message"
+                  : "AI agent message";
               return (
                 <Fragment key={message.id}>
                   <div
+                    role="article"
+                    aria-label={authorLabel}
                     class={`cw-message ${isUser ? "cw-message--user flex-row-reverse" : "cw-message--bot flex-row"} flex items-start gap-2`}
                     style={{ marginTop: `${marginTop}px` }}
                   >

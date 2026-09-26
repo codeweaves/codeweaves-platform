@@ -41,11 +41,19 @@ apps/api/logs/
 *.pem
 *.tmp.*
 
-# Prompt files
-.claude/
+# Prompt files. Everything under .claude/ stays local except the verify skill,
+# which is shared tooling every machine needs (ADR-0006).
+.claude/*
+!.claude/skills/
+.claude/skills/*
+!.claude/skills/verify/
+# Nested .claude/ folders (e.g. apps/web/.claude/) stay ignored entirely.
+/*/**/.claude/
 .agents/
 .vscode/
 CLAUDE.md
+# Re-created by `next dev` (Next.js 16 agent notes).
+AGENTS.md
 
 AgentEditor/
 
@@ -98,3 +106,7 @@ docs/assessment/
 # committed by a `git add -A`; this is the belt to that braces.
 .env.backup-*
 **/.env.backup-*
+
+# verify skill run state: seeded ids, the Clerk test-user password, logs and
+# proof artifacts (.claude/skills/verify). Local only.
+.verify/
