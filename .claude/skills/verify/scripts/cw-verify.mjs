@@ -12,10 +12,12 @@ import { browserAction, browserClose, browserOpen, connect, runBrowserDaemon, wi
 import { ROLES, loginAs } from './lib/dashboard.mjs';
 import { dbQuery, doctor, runHost, seed, stackDown, stackUp } from './lib/stack.mjs';
 import { closeWidget, grantConsent, openWidget, readMessages, sendMessage, waitForMessage } from './lib/widget.mjs';
+import { pageLoad, widgetLeak, widgetLoad, widgetReply } from './lib/perf.mjs';
 
 const HELP = `cw-verify <group> <command> [--flags]   (all output is JSON)
 
-stack up [--only api,web,widget,host] [--reuse]   start Docker, API :3001, web :3000, widget :5173, host page :5180
+stack up [--prod] [--only api,web,widget,host] [--reuse]   start Docker, API :3001, web :3000, widget :5173, host page :5180
+                                                  --prod builds web + widget and serves the built output (use for perf)
 stack down [--dry-run]                            stop only what this run started (pid + command line checked)
 doctor                                            is this instance worth driving?
 seed                                              idempotent tenants, agents and per-machine Clerk test users
@@ -42,6 +44,13 @@ widget wait-message --from agent|human|visitor [--contains T] [--new] [--timeout
 widget close
 
 dashboard login [--as ${ROLES.join('|')}]   real sign-in form, identity checked
+
+browser trace --path P [--url U | --seconds N]   Chrome performance trace (open in DevTools > Performance)
+perf page-load --url /dashboard [--as owner] [--runs 5] [--wait-text "Your agents"]   vitals + API latency, median/p90
+perf widget-load [--agent chat] [--runs 5]       launcher visible, open time, bundle and config fetch
+perf widget-reply [--agent chat] [--runs 7]      time to first word and full reply (max 9: rate limit)
+perf widget-leak [--agent chat] [--cycles 20]    heap, DOM nodes and listeners after GC, before vs after
+Results are saved to .verify/artifacts/perf/. Measure with stack up --prod.
 
 Every browser, widget and dashboard command takes --page <name> (default "main").
 Two-sided flows use separate tabs, for example --page visitor and --page teammate.
@@ -88,7 +97,13 @@ async function run(group, cmd, positional, flags) {
     case 'seed':
       return seed();
     case 'stack':
-      if (cmd === 'up') return stackUp({ only: flags.only ? String(flags.only).split(',') : undefined, reuse: Boolean(flags.reuse) });
+      if (cmd === 'up') {
+        return stackUp({
+          only: flags.only ? String(flags.only).split(',') : undefined,
+          reuse: Boolean(flags.reuse),
+          prod: Boolean(flags.prod),
+        });
+      }
       if (cmd === 'down') return stackDown({ dryRun: Boolean(flags['dry-run']) });
       break;
     case 'db':
@@ -103,6 +118,22 @@ async function run(group, cmd, positional, flags) {
       return browserAction(cmd, flags, positional);
     case 'widget':
       return widgetCommand(cmd, flags);
+    case 'perf': {
+      const runs = flags.runs ? Number(flags.runs) : undefined;
+      const agent = flags.agent ? String(flags.agent) : undefined;
+      if (cmd === 'page-load') {
+        return pageLoad({
+          url: flags.url ? String(flags.url) : undefined,
+          role: flags.as ? String(flags.as) : undefined,
+          runs,
+          waitText: flags['wait-text'] ? String(flags['wait-text']) : undefined,
+        });
+      }
+      if (cmd === 'widget-load') return widgetLoad({ agent, runs });
+      if (cmd === 'widget-reply') return widgetReply({ agent, runs });
+      if (cmd === 'widget-leak') return widgetLeak({ agent, cycles: flags.cycles ? Number(flags.cycles) : undefined });
+      break;
+    }
     case 'dashboard':
       if (cmd === 'login') {
         const session = await connect();
@@ -123,7 +154,7 @@ async function run(group, cmd, positional, flags) {
 async function main() {
   const [group, cmd, ...rest] = process.argv.slice(2);
   // Internal long-lived processes started by `stack up` and `browser open`.
-  if (group === '__host') return runHost();
+  if (group === '__host') return runHost({ prod: process.argv.includes('--prod') });
   if (group === '__browser') return runBrowserDaemon({ headed: process.argv.includes('--headed') });
   const { positional, flags } = parseArgs(rest);
   if (!group || group === '--help' || flags.help) return process.stdout.write(HELP);

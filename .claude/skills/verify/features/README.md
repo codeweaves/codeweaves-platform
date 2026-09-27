@@ -72,6 +72,12 @@ Walk this map top to bottom for a broad regression, then finish with `multi-surf
 | [conversations](conversations.md)           | List, search, transcript                                     | Mapped from source, not yet driven                                      |
 | [dashboard-overview](dashboard-overview.md) | KPIs, attention, agents, recent conversations, per-role view | Sign-in and overview proven 2026-09-26; teammate view proven 2026-09-27 |
 
+## Performance
+
+| File                          | Covers                                                                                                                         | Status              |
+| ----------------------------- | ------------------------------------------------------------------------------------------------------------------------------ | ------------------- |
+| [performance](performance.md) | Baselines for widget load, reply latency, widget memory, dashboard and inbox load, API latency, bundle size; how to re-measure | Baseline 2026-09-28 |
+
 ## Not yet mapped
 
 These features exist and were read from source. They still need a live drive and a file:

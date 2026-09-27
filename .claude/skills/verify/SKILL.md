@@ -28,9 +28,12 @@ Do this once per machine. The skill comes with the repo, and the rest is local.
 
 ```bash
 cw-verify stack up          # Docker Postgres+Redis, API :3001, web :3000, widget :5173, host page :5180
+cw-verify stack up --prod   # instead: builds web + widget, runs next start, host page serves the built bundle
 cw-verify seed              # once per database, and after any mutation
 cw-verify browser open      # Chrome with CDP on :9333; add --headed to watch
 ```
+
+- **Which mode.** Use dev (the default) to drive features while code changes; it hot-reloads. Use `--prod` for performance numbers; the builds take about 3 minutes. The mode is recorded in `.verify/mode.json`. Stop one mode with `stack down` before starting the other.
 
 - **Ready signal.** `stack up` returns only after each service answers HTTP 200. A cold start takes about 2 minutes, a warm start about 20 s. Services start without a shell, because on Windows a detached shell drops their logs. Logs are in `.verify/logs/*.log`.
 - **Refusals.** `stack up` refuses when the database the API would use (an exported `DATABASE_URL` wins over `apps/api/.env`) is not `localhost:5433`. It pins that URL into the API process. It also refuses a port served by a process this run did not start, unless you pass `--reuse`.
@@ -44,8 +47,9 @@ cw-verify browser open      # Chrome with CDP on :9333; add --headed to watch
 Run `cw-verify doctor` before the first drive, after anything surprising, and after editing API code (`nest --watch` restarts the API, and it is unreachable for a while). It is read-only. Drive only when `healthy` is `true`. It checks:
 
 - the database target is `localhost:5433` and the container is healthy
+- the stack mode (`dev` or `prod`)
 - API `/health` returns 200 and `/health/ready` reports db and Redis ok
-- web, widget, host page and browser each return 200
+- web, host page and browser each return 200, plus the Vite widget server in dev mode
 - each service is owned by this run: pid alive and command line matching (`owner: this-run`)
 - the seed state and the credentials exist
 
@@ -75,7 +79,11 @@ Put artifacts under `.verify/artifacts/<feature-id>/`. That folder is gitignored
 - **UI proof.** `browser screenshot --path ...` plus `browser snapshot --path ....aria.txt`. Capture the action and the resulting state.
 - **Side effects.** Use `cw-verify db query "<SELECT>"`. It allows one statement, and Postgres enforces read-only, so a writing function fails.
 - **Network and errors.** `browser events --type response|pageerror|requestfailed|console|websocket --since <ISO>`. API calls are always recorded. Other resources are recorded when they return 400 or above. `requestfailed` entries with `net::ERR_ABORTED` right after a `widget open` or `goto` come from the navigation itself.
-- **Perf readings.** `browser metrics` (heap, DOM nodes, listeners), `browser heap --path ...` (a snapshot after forcing GC), and the `firstTokenMs` from `widget send`.
+- **Performance.** Measure on `stack up --prod` and compare against [features/performance.md](features/performance.md). Each command runs several samples and reports median and p90:
+  - `perf widget-load`, `perf widget-reply`, `perf widget-leak` and `perf page-load --url <path> --wait-text "<text>"`
+  - `browser trace --url <url> --path <file>` records a Chrome trace to find the cause of a slow number
+  - `browser metrics` and `browser heap --path ...` for one-off memory readings
+  - `browser events --type timing` has the full latency of every API call
 - **Proof standard.**
   - Drive the real user path.
   - Verify side effects alongside what is visible.
@@ -105,11 +113,12 @@ cw-verify stack down             # stops only recorded pids whose command line s
   - `browser`: Chrome daemon, named tabs, actions
   - `widget`: the embeddable widget
   - `dashboard`: sign-in by role
+  - `perf`: repeated measurements with median and p90, saved to `.verify/artifacts/perf/`
 - `apps/api/prisma/seed-verify.ts`: the seed. `cw-verify seed` runs it. It refuses a non-local database and a non-`sk_test_` Clerk key.
 - Run state lives in `.verify/`:
   - `state.json`: ids
   - `credentials.json`: passwords
-  - `pids.json` and `pages.json`
+  - `pids.json`, `pages.json` and `mode.json`
   - `logs/`
   - `fixtures/`
   - `findings.md`: local run notes
