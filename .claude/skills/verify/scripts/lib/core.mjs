@@ -14,6 +14,7 @@ export const LOG_DIR = join(RUN_DIR, 'logs');
 export const ARTIFACTS = join(RUN_DIR, 'artifacts');
 export const PIDS_FILE = join(RUN_DIR, 'pids.json');
 export const PAGES_FILE = join(RUN_DIR, 'pages.json');
+export const MODE_FILE = join(RUN_DIR, 'mode.json');
 export const STATE_FILE = join(RUN_DIR, 'state.json');
 export const CREDS_FILE = join(RUN_DIR, 'credentials.json');
 export const EVENTS_FILE = join(LOG_DIR, 'browser-events.jsonl');

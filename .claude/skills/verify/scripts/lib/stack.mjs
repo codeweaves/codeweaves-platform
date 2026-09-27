@@ -2,7 +2,7 @@
 
 import { execFileSync } from 'node:child_process';
 import { createServer } from 'node:http';
-import { existsSync } from 'node:fs';
+import { existsSync, mkdirSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   ARTIFACTS,
@@ -11,6 +11,7 @@ import {
   ENTRY,
   HOST_PORT,
   LOG_DIR,
+  MODE_FILE,
   PG_CONTAINER,
   PG_PORT,
   PIDS_FILE,
@@ -31,31 +32,115 @@ import {
   waitFor,
 } from './proc.mjs';
 
-// Services `stack up` starts. Each is stopped by its recorded pid, never by name.
-export const SERVICES = {
-  api: {
-    cwd: 'apps/api',
-    cmd: ['bun', 'run', 'dev'],
-    port: 3001,
-    ready: `${URLS.apiRoot}/health`,
-    // Keep verification off Upstash: the local Docker Redis serves this run.
-    env: { REDIS_URL: 'redis://localhost:6379' },
-  },
-  web: { cwd: 'apps/web', cmd: ['bun', 'run', 'dev'], port: 3000, ready: `${URLS.web}/sign-in` },
-  widget: { cwd: 'apps/widget', cmd: ['bun', 'run', 'dev'], port: 5173, ready: `${URLS.widget}/src/main.tsx` },
-  host: { internal: true, port: HOST_PORT, ready: `${URLS.host}/health` },
+const API = {
+  cwd: 'apps/api',
+  cmd: ['bun', 'run', 'dev'],
+  port: 3001,
+  ready: `${URLS.apiRoot}/health`,
+  // Keep verification off Upstash: the local Docker Redis serves this run.
+  env: { REDIS_URL: 'redis://localhost:6379' },
 };
 
-export async function stackUp({ only = Object.keys(SERVICES), reuse = false } = {}) {
+// Services `stack up` starts. Each is stopped by its recorded pid, never by name.
+// dev: hot-reloading servers, for driving features while code changes.
+// prod: the built dashboard (`next start`) and the built widget bundle served by
+// the host page, for performance numbers. Dev-mode timings are not the product's.
+export const MODES = {
+  dev: {
+    api: API,
+    web: { cwd: 'apps/web', cmd: ['bun', 'run', 'dev'], port: 3000, ready: `${URLS.web}/sign-in` },
+    widget: { cwd: 'apps/widget', cmd: ['bun', 'run', 'dev'], port: 5173, ready: `${URLS.widget}/src/main.tsx` },
+    host: { internal: true, port: HOST_PORT, ready: `${URLS.host}/health`, args: [] },
+  },
+  prod: {
+    // The compiled API (`nest build` output), run without the file watcher.
+    api: { ...API, cmd: ['bun', 'run', 'start:prod'] },
+    web: { cwd: 'apps/web', cmd: ['bun', 'run', 'start'], port: 3000, ready: `${URLS.web}/sign-in` },
+    host: { internal: true, port: HOST_PORT, ready: `${URLS.host}/widget.js`, args: ['--prod'] },
+  },
+};
+
+// The builds prod mode needs before it starts anything.
+const PROD_BUILDS = [
+  { name: 'api', cwd: 'apps/api' },
+  { name: 'web', cwd: 'apps/web' },
+  { name: 'widget', cwd: 'apps/widget' },
+];
+
+export function modeInfo() {
+  return readJson(MODE_FILE, { mode: 'dev' });
+}
+
+export function currentMode() {
+  return modeInfo().mode;
+}
+
+function gitHead() {
+  try {
+    const head = execFileSync('git', ['rev-parse', '--short', 'HEAD'], { cwd: REPO, encoding: 'utf8' }).trim();
+    const dirty = execFileSync('git', ['status', '--porcelain', '--', 'apps', 'packages'], { cwd: REPO, encoding: 'utf8' }).trim();
+    return dirty ? `${head}+uncommitted` : head;
+  } catch {
+    return 'unknown';
+  }
+}
+
+function build(target) {
+  const logFile = join(LOG_DIR, `build-${target.name}.log`);
+  mkdirSync(LOG_DIR, { recursive: true });
+  const start = Date.now();
+  try {
+    const output = execFileSync('bun', ['run', 'build'], {
+      cwd: join(REPO, target.cwd),
+      encoding: 'utf8',
+      windowsHide: true,
+      stdio: ['ignore', 'pipe', 'pipe'],
+    });
+    writeFileSync(logFile, output);
+  } catch (err) {
+    writeFileSync(logFile, `${err.stdout ?? ''}${err.stderr ?? ''}`);
+    throw new CliError(`${target.name} build failed`, `see ${logFile}`);
+  }
+  return `${Math.round((Date.now() - start) / 1000)}s`;
+}
+
+export async function stackUp({ only, reuse = false, prod = false } = {}) {
+  const mode = prod ? 'prod' : 'dev';
+  const services = MODES[mode];
+  // Performance numbers must come from this run's own build, never from a
+  // server someone else started.
+  if (prod && reuse) throw new CliError('--reuse is not allowed with --prod', 'stop the other server, then start the prod stack');
+  // Chrome serves both modes, so only app services count as a running stack.
+  const running = Object.entries(pids()).filter(([name, entry]) => name !== 'browser' && owns(entry));
+  if (running.length && currentMode() !== mode) {
+    throw new CliError(`a ${currentMode()} stack is running`, 'run: cw-verify stack down, then start the other mode');
+  }
   const databaseUrl = localDatabaseUrl();
   requireExecutable('docker');
   requireExecutable('bun');
+  try {
+    execFileSync('docker', ['info'], { stdio: 'ignore', windowsHide: true });
+  } catch {
+    throw new CliError('Docker is not running', 'start Docker Desktop, wait until it reports running, then retry');
+  }
   execFileSync('docker', ['compose', 'up', '-d', '--wait'], { cwd: REPO, stdio: 'ignore' });
+  const builds = {};
+  let info = modeInfo();
+  if (prod && !running.length) {
+    for (const target of PROD_BUILDS) builds[target.name] = build(target);
+    info = { mode, builtFrom: gitHead(), builtAt: new Date().toISOString() };
+  } else if (prod) {
+    // Already running: say so plainly. Rebuilding needs a restart.
+    builds.note = `serving the build from ${info.builtAt} (${info.builtFrom}); run stack down, then stack up --prod to rebuild`;
+  } else {
+    info = { mode };
+  }
+  writeJson(MODE_FILE, info);
   const recorded = pids();
-  const services = {};
-  for (const name of only) {
-    const svc = SERVICES[name];
-    if (!svc) throw new CliError(`unknown service ${name}`, `one of: ${Object.keys(SERVICES).join(', ')}`);
+  const started = {};
+  for (const name of only ?? Object.keys(services)) {
+    const svc = services[name];
+    if (!svc) throw new CliError(`unknown service ${name} in ${mode} mode`, `one of: ${Object.keys(services).join(', ')}`);
     const ours = owns(recorded[name]);
     if (!ours && (await httpStatus(svc.ready)) > 0) {
       if (!reuse) {
@@ -64,12 +149,12 @@ export async function stackUp({ only = Object.keys(SERVICES), reuse = false } = 
           'stop it, or pass --reuse to drive it as-is (doctor then reports it as foreign)',
         );
       }
-      services[name] = 'foreign';
+      started[name] = 'foreign';
       continue;
     }
     if (!ours) {
       if (svc.internal) {
-        startDetached(name, process.execPath, [ENTRY, '__host'], { cwd: REPO }, 'cw-verify');
+        startDetached(name, process.execPath, [ENTRY, '__host', ...svc.args], { cwd: REPO }, 'cw-verify');
       } else {
         // Pin the database the guard checked, so the API cannot pick up another.
         const env = { ...process.env, ...svc.env, DATABASE_URL: databaseUrl, DIRECT_URL: databaseUrl };
@@ -77,9 +162,9 @@ export async function stackUp({ only = Object.keys(SERVICES), reuse = false } = 
       }
     }
     const ms = await waitFor(async () => (await httpStatus(svc.ready, 5000)) === 200, 180_000, name);
-    services[name] = ours ? 'already-running' : `started (${Math.round(ms / 1000)}s)`;
+    started[name] = ours ? 'already-running' : `started (${Math.round(ms / 1000)}s)`;
   }
-  return { database: `localhost:${PG_PORT}`, services, logs: LOG_DIR };
+  return { mode, build: prod ? { from: info.builtFrom, at: info.builtAt } : null, database: `localhost:${PG_PORT}`, builds, services: started, logs: LOG_DIR };
 }
 
 export function stackDown({ dryRun = false } = {}) {
@@ -103,13 +188,28 @@ export async function doctor() {
   try {
     const status = execFileSync('docker', ['inspect', '-f', '{{.State.Health.Status}}', PG_CONTAINER], {
       encoding: 'utf8',
+      // Keep Docker's own error text out of doctor's JSON output.
+      stdio: ['ignore', 'pipe', 'ignore'],
+      windowsHide: true,
     }).trim();
     checks.postgres = { ok: status === 'healthy', status };
   } catch {
     checks.postgres = { ok: false, error: 'container not running', hint: 'start Docker Desktop, then cw-verify stack up' };
   }
   const recorded = pids();
-  for (const [name, svc] of Object.entries(SERVICES)) {
+  const info = modeInfo();
+  const mode = info.mode;
+  checks.mode = { ok: true, mode };
+  if (mode === 'prod') {
+    checks.mode.builtFrom = info.builtFrom;
+    checks.mode.builtAt = info.builtAt;
+    const now = gitHead();
+    // A build older than the code under test measures the wrong thing.
+    if (now !== info.builtFrom || now.endsWith('+uncommitted')) {
+      checks.mode.warning = `the prod build is from ${info.builtFrom}, the tree is now ${now}; rebuild before measuring a change`;
+    }
+  }
+  for (const [name, svc] of Object.entries(MODES[mode])) {
     const status = await httpStatus(svc.ready);
     const owner = owns(recorded[name]) ? 'this-run' : status ? 'foreign' : 'none';
     checks[name] = { ok: status === 200 && owner === 'this-run', http: status, owner };
@@ -193,21 +293,38 @@ export function dbQuery(sql) {
   return JSON.parse(raw.trim() || '[]');
 }
 
-function hostPage(agent) {
+const WIDGET_BUNDLE = join(REPO, 'apps/widget/dist/codeweaves-widget.js');
+
+function hostPage(agent, prod) {
   const safe = agent.replace(/[^A-Za-z0-9_-]/g, '');
+  // prod embeds the built bundle the way a customer site does; dev loads Vite's
+  // unbundled source so code changes show without a rebuild.
+  const script = prod
+    ? `<script src="${URLS.host}/widget.js" data-agent-id="${safe}"></script>`
+    : `<script type="module" src="${URLS.widget}/src/main.tsx" data-agent-id="${safe}"></script>`;
   return `<!doctype html><html lang="en"><head><meta charset="utf-8">
 <title>Verify host page (agent ${safe})</title></head>
 <body style="font-family:system-ui;margin:40px">
-<h1>Verify host page</h1><p>Agent <code>${safe}</code>. The widget loads from the Vite dev server.</p>
-<script type="module" src="${URLS.widget}/src/main.tsx" data-agent-id="${safe}"></script>
+<h1>Verify host page</h1><p>Agent <code>${safe}</code>. Widget: ${prod ? 'built bundle' : 'Vite dev server'}.</p>
+${script}
 </body></html>`;
 }
 
-export function runHost() {
+export function runHost({ prod = false } = {}) {
   createServer((req, res) => {
     const url = new URL(req.url, URLS.host);
     if (url.pathname === '/health') {
       res.writeHead(200, { 'content-type': 'text/plain' }).end('ok');
+      return;
+    }
+    if (url.pathname === '/widget.js') {
+      if (!prod || !existsSync(WIDGET_BUNDLE)) {
+        res.writeHead(404, { 'content-type': 'text/plain' }).end('widget bundle not built');
+        return;
+      }
+      res
+        .writeHead(200, { 'content-type': 'application/javascript', 'cache-control': 'no-cache' })
+        .end(readFileSync(WIDGET_BUNDLE));
       return;
     }
     const agent = url.searchParams.get('agent');
@@ -215,6 +332,6 @@ export function runHost() {
       res.writeHead(400, { 'content-type': 'text/plain' }).end('missing ?agent=<publicId>');
       return;
     }
-    res.writeHead(200, { 'content-type': 'text/html' }).end(hostPage(agent));
+    res.writeHead(200, { 'content-type': 'text/html' }).end(hostPage(agent, prod));
   }).listen(HOST_PORT);
 }

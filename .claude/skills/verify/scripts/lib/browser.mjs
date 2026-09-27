@@ -38,7 +38,9 @@ export function redactUrl(raw) {
   for (const name of [...url.searchParams.keys()]) {
     if (SECRET_PARAM.test(name)) url.searchParams.set(name, 'REDACTED');
   }
-  url.pathname = url.pathname.replace(/\/public\/chat\/[^/]+\/poll/, '/public/chat/REDACTED/poll');
+  url.pathname = url.pathname
+    .replace(/\/public\/chat\/[^/]+\/poll/, '/public/chat/REDACTED/poll')
+    .replace(/\/sessions\/sess_[^/]+/, '/sessions/REDACTED');
   return url.toString();
 }
 
@@ -103,6 +105,21 @@ export async function runBrowserDaemon({ headed = false } = {}) {
     page.on('websocket', (ws) => {
       record('websocket', { event: 'open', url: redactUrl(ws.url()) });
       ws.on('close', () => record('websocket', { event: 'close', url: redactUrl(ws.url()) }));
+    });
+    // Full timing is known only once the body has arrived, so API latency is
+    // recorded on requestfinished. `ms` is request start to last byte.
+    page.on('requestfinished', async (req) => {
+      if (!['fetch', 'xhr'].includes(req.resourceType())) return;
+      const t = req.timing();
+      if (!(t.responseEnd > 0)) return;
+      const res = await req.response().catch(() => null);
+      record('timing', {
+        method: req.method(),
+        url: redactUrl(req.url()),
+        status: res?.status() ?? null,
+        ms: Math.round(t.responseEnd),
+        ttfbMs: t.responseStart > 0 ? Math.round(t.responseStart) : null,
+      });
     });
     page.on('response', (r) => {
       const req = r.request();
@@ -256,6 +273,52 @@ export async function settle(page, { quietMs = 600, timeout = 20000 } = {}) {
   return { url: page.url(), ms: Date.now() - start };
 }
 
+// Records a Chrome performance trace while the page loads `url` (or for
+// `seconds` on the current page) and saves it as JSON. Open the file in Chrome
+// DevTools > Performance, or feed it to a trace parser, to see what was slow.
+const TRACE_CATEGORIES = [
+  'devtools.timeline',
+  'disabled-by-default-devtools.timeline',
+  'disabled-by-default-devtools.timeline.frame',
+  'loading',
+  'blink.user_timing',
+  'v8.execute',
+].join(',');
+
+export async function trace(page, context, { url, path, seconds = 5 }) {
+  const file = artifactPath(path);
+  const cdp = await context.newCDPSession(page);
+  const events = [];
+  cdp.on('Tracing.dataCollected', ({ value }) => events.push(...value));
+  const complete = new Promise((resolve) => cdp.once('Tracing.tracingComplete', resolve));
+  const start = Date.now();
+  try {
+    await cdp.send('Tracing.start', { categories: TRACE_CATEGORIES, transferMode: 'ReportEvents' });
+    try {
+      if (url) {
+        await page.goto(url, { waitUntil: 'load', timeout: 90000 });
+        await settle(page, { quietMs: 800, timeout: 30000 });
+      } else {
+        await page.waitForTimeout(Number(seconds) * 1000);
+      }
+    } finally {
+      await cdp.send('Tracing.end').catch(() => {});
+      // A page that closes mid-trace never sends tracingComplete; do not hang.
+      const timedOut = await Promise.race([
+        complete.then(() => false),
+        new Promise((resolve) => setTimeout(() => resolve(true), 30000)),
+      ]);
+      if (timedOut) throw new CliError('trace did not complete within 30s', 'the page may have closed; retry');
+    }
+  } finally {
+    await cdp.detach().catch(() => {});
+  }
+  // Trace events carry request URLs, which hold Clerk's dev-browser token and
+  // session ids. Redact every URL before the file reaches disk.
+  writeFileSync(file, redactText(JSON.stringify({ traceEvents: events })));
+  return { url: page.url(), path: file, events: events.length, recordedMs: Date.now() - start };
+}
+
 export async function screenshot(page, path, full = false) {
   const file = artifactPath(path);
   await page.screenshot({ path: file, fullPage: full });
@@ -324,6 +387,14 @@ export async function browserAction(cmd, flags, positional) {
       return withPage(name, (page, context) => heapSnapshot(page, context, String(need(flags, 'path', 'browser heap --path .verify/artifacts/x/after.heapsnapshot'))));
     case 'settle':
       return withPage(name, (page) => settle(page, { quietMs: Number(flags.quiet ?? 600), timeout }));
+    case 'trace':
+      return withPage(name, (page, context) =>
+        trace(page, context, {
+          url: flags.url ? String(flags.url) : undefined,
+          path: String(need(flags, 'path', 'browser trace --url http://localhost:3000/dashboard --path .verify/artifacts/perf/dashboard.trace.json')),
+          seconds: flags.seconds,
+        }),
+      );
     case 'events':
       return readEvents({ since: flags.since, type: flags.type, limit: flags.limit });
     case 'pages': {
