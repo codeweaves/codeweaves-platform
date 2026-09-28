@@ -14,6 +14,7 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | [0004](0004-web-visitor-identity-and-consent-records.md)     | Web visitor identity and consent records      | Accepted | 2026-09-25 |
 | [0005](0005-pii-masked-logs-no-app-level-chat-encryption.md) | PII-masked logs, no app-level chat encryption | Accepted | 2026-09-25 |
 | [0006](0006-agent-verification-skill.md)                     | Agent verification skill                      | Accepted | 2026-09-26 |
+| [0007](0007-tenant-key-on-message-rows.md)                   | Tenant key on message rows                    | Accepted | 2026-09-28 |
 
 ## When to write one
 

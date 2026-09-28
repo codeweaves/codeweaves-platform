@@ -1077,6 +1077,8 @@ describe("ChatService", () => {
       expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
         data: {
           chatSessionId: MOCK_SESSION_DB_ID,
+          agentId: MOCK_AGENT_ID,
+          sessionSource: "DEMO",
           role: "USER",
           content: baseDto.chatInput,
         },
@@ -1363,11 +1365,16 @@ describe("ChatService", () => {
       const mockMsg = { id: "msg-1", role: "USER", content: "Hello" };
       mockPrismaService.chatMessage.create.mockResolvedValue(mockMsg);
 
-      const result = await service.saveUserMessage("session-db-id", "Hello");
+      const result = await service.saveUserMessage(
+        { id: "session-db-id", agentId: "agent-1", source: "WIDGET" as const },
+        "Hello",
+      );
 
       expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
         data: {
           chatSessionId: "session-db-id",
+          agentId: "agent-1",
+          sessionSource: "WIDGET",
           role: "USER",
           content: "Hello",
         },
@@ -1384,6 +1391,8 @@ describe("ChatService", () => {
     const noneSession = {
       id: "db-1",
       sessionId: "pub-1",
+      agentId: "agent-1",
+      source: "WIDGET" as const,
       handoverState: "NONE",
     };
 
@@ -1401,6 +1410,8 @@ describe("ChatService", () => {
         {
           sessionDbId: "db-1",
           publicSessionId: "pub-1",
+          agentId: "agent-1",
+          source: "WIDGET",
           organizationId: "org-1",
         },
         "USER_REQUESTED",
@@ -1424,7 +1435,13 @@ describe("ChatService", () => {
       mockHandoverService.detectKeyword.mockReturnValueOnce(true);
 
       const result = await service.maybeEscalateToHuman(
-        { id: "db-1", sessionId: "pub-1", handoverState: "REQUESTED" },
+        {
+          id: "db-1",
+          sessionId: "pub-1",
+          agentId: "agent-1",
+          source: "WIDGET" as const,
+          handoverState: "REQUESTED",
+        },
         agentEnabled,
         "talk to a human",
       );
@@ -1459,7 +1476,7 @@ describe("ChatService", () => {
       mockPrismaService.chatMessage.create.mockResolvedValue(mockMsg);
 
       const result = await service.saveAssistantMessage(
-        "session-db-id",
+        { id: "session-db-id", agentId: "agent-1", source: "WIDGET" as const },
         "Hi there",
         metadata,
       );
@@ -1467,6 +1484,8 @@ describe("ChatService", () => {
       expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
         data: {
           chatSessionId: "session-db-id",
+          agentId: "agent-1",
+          sessionSource: "WIDGET",
           role: "ASSISTANT",
           content: "Hi there",
           metadata,

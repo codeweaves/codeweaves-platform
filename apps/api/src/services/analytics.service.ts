@@ -1,11 +1,19 @@
-import { Injectable, ForbiddenException } from '@nestjs/common';
-import { PrismaService } from './prisma.service';
-import { Prisma } from '@prisma/client';
-import { AppLogger } from '../common/logger/app-logger';
-import type { CurrentUserData } from '../decorators/current-user.decorator';
-import type { AnalyticsQuery, AgentAnalyticsQuery, ExportLogBody } from '../models/analytics.dto';
-import { startOfDayUtc, startOfNextDayUtc, isValidIanaTimezone } from '../utils/date-range';
-import { isOrgScoped } from '../utils/tenant-filter';
+import { Injectable, ForbiddenException } from "@nestjs/common";
+import { PrismaService } from "./prisma.service";
+import { Prisma } from "@prisma/client";
+import { AppLogger } from "../common/logger/app-logger";
+import type { CurrentUserData } from "../decorators/current-user.decorator";
+import type {
+  AnalyticsQuery,
+  AgentAnalyticsQuery,
+  ExportLogBody,
+} from "../models/analytics.dto";
+import {
+  startOfDayUtc,
+  startOfNextDayUtc,
+  isValidIanaTimezone,
+} from "../utils/date-range";
+import { isOrgScoped } from "../utils/tenant-filter";
 
 /**
  * Outliers are detected DYNAMICALLY per metric using Tukey's interquartile
@@ -34,6 +42,22 @@ interface ResolvedRange {
   timezone: string;
 }
 
+/**
+ * The channel (source) filter as one SQL fragment per table. `message` expects
+ * the chat_messages alias `cm` and `metric` the chat_message_metrics alias `mm`.
+ */
+interface SourceFilter {
+  session: Prisma.Sql;
+  message: Prisma.Sql;
+  metric: Prisma.Sql;
+}
+
+const NO_SOURCE_FILTER: SourceFilter = {
+  session: Prisma.empty,
+  message: Prisma.empty,
+  metric: Prisma.empty,
+};
+
 @Injectable()
 export class AnalyticsService {
   private readonly log = new AppLogger(AnalyticsService.name);
@@ -41,22 +65,26 @@ export class AnalyticsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /**
-   * Build SQL fragment to filter chat_sessions by source.
-   * Supports both single `source` and multi-select `sources`.
-   * When nothing is specified, includes all sources (no filter).
+   * Build the channel filter. Supports both single `source` and multi-select
+   * `sources`. When nothing is specified, includes all sources (no filter).
+   *
+   * Messages and metrics carry a copy of their session's `source` as `sessionSource` (ADR-0007),
+   * so a channel filter never joins them to chat_sessions.
    */
-  private getSourceFilter(source?: string, sources?: string[]): Prisma.Sql {
-    const list = [
-      ...(source ? [source] : []),
-      ...(sources ?? []),
-    ].filter((s): s is 'WIDGET' | 'WHATSAPP' | 'DEMO' =>
-      s === 'WIDGET' || s === 'WHATSAPP' || s === 'DEMO',
+  private getSourceFilter(source?: string, sources?: string[]): SourceFilter {
+    const list = [...(source ? [source] : []), ...(sources ?? [])].filter(
+      (s): s is "WIDGET" | "WHATSAPP" | "DEMO" =>
+        s === "WIDGET" || s === "WHATSAPP" || s === "DEMO",
     );
     if (list.length === 0) {
       // No filter — include all sources (WIDGET + WHATSAPP + DEMO)
-      return Prisma.empty;
+      return NO_SOURCE_FILTER;
     }
-    return Prisma.sql`AND "source"::text = ANY(${list}::text[])`;
+    return {
+      session: Prisma.sql`AND "source"::text = ANY(${list}::text[])`,
+      message: Prisma.sql`AND cm."sessionSource"::text = ANY(${list}::text[])`,
+      metric: Prisma.sql`AND mm."sessionSource"::text = ANY(${list}::text[])`,
+    };
   }
 
   /**
@@ -64,11 +92,18 @@ export class AnalyticsService {
    * CLIENT users only see their own org. ADMIN/SUPER_ADMIN see all (or filter by orgId).
    */
   private async getAgentIds(
-    query: { agentId?: string; agentIds?: string[]; orgId?: string; orgIds?: string[] },
+    query: {
+      agentId?: string;
+      agentIds?: string[];
+      orgId?: string;
+      orgIds?: string[];
+    },
     user: CurrentUserData,
   ): Promise<string[]> {
     if (isOrgScoped(user) && !user.organizationId) {
-      throw new ForbiddenException('Client user must be associated with an organization');
+      throw new ForbiddenException(
+        "Client user must be associated with an organization",
+      );
     }
 
     // Combine single + array forms for backward compat
@@ -84,9 +119,10 @@ export class AnalyticsService {
     const agentFilter: Prisma.AgentWhereInput = {
       deletedAt: null,
       ...(isOrgScoped(user) && { organizationId: user.organizationId! }),
-      ...(!isOrgScoped(user) && orgIdList.length > 0 && {
-        organizationId: { in: orgIdList },
-      }),
+      ...(!isOrgScoped(user) &&
+        orgIdList.length > 0 && {
+          organizationId: { in: orgIdList },
+        }),
       ...(agentIdList.length > 0 && { id: { in: agentIdList } }),
     };
 
@@ -107,13 +143,20 @@ export class AnalyticsService {
    * keeps existing single-tz callers working and prevents `EST`/`GMT`
    * abbreviation footguns from leaking past the validation layer.
    */
-  private resolveRange(query: { startDate: string; endDate: string; timezone?: string }): ResolvedRange {
-    const tz = isValidIanaTimezone(query.timezone) ? query.timezone : 'UTC';
+  private resolveRange(query: {
+    startDate: string;
+    endDate: string;
+    timezone?: string;
+  }): ResolvedRange {
+    const tz = isValidIanaTimezone(query.timezone) ? query.timezone : "UTC";
     const startUtc = startOfDayUtc(query.startDate, tz);
     const endUtc = startOfNextDayUtc(query.endDate, tz);
     // Previous period: equal UTC duration, ending right before startUtc.
     // Minimum 1-day duration avoids a zero-length window when startDate === endDate.
-    const durationMs = Math.max(endUtc.getTime() - startUtc.getTime(), 86_400_000);
+    const durationMs = Math.max(
+      endUtc.getTime() - startUtc.getTime(),
+      86_400_000,
+    );
     const prevEndUtc = new Date(startUtc.getTime());
     const prevStartUtc = new Date(prevEndUtc.getTime() - durationMs);
     return { startUtc, endUtc, prevStartUtc, prevEndUtc, timezone: tz };
@@ -130,7 +173,9 @@ export class AnalyticsService {
    */
   private tzLiteral(timezone: string): Prisma.Sql {
     if (!isValidIanaTimezone(timezone)) {
-      throw new Error(`Refusing to inject non-IANA timezone literal: ${timezone}`);
+      throw new Error(
+        `Refusing to inject non-IANA timezone literal: ${timezone}`,
+      );
     }
     return Prisma.raw(`'${timezone}'`);
   }
@@ -147,15 +192,29 @@ export class AnalyticsService {
    * Get session-level metrics for a given period and agent set.
    * Uses SQL aggregation instead of loading all sessions into memory.
    */
-  private async getSessionMetrics(agentIds: string[], startUtc: Date, endUtc: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
+  private async getSessionMetrics(
+    agentIds: string[],
+    startUtc: Date,
+    endUtc: Date,
+    sourceFilter: Prisma.Sql = Prisma.empty,
+  ) {
     if (agentIds.length === 0) {
-      return { totalConversations: 0, totalUsers: 0, newUsers: 0, returningUsers: 0 };
+      return {
+        totalConversations: 0,
+        totalUsers: 0,
+        newUsers: 0,
+        returningUsers: 0,
+      };
     }
 
     // DEMO sessions are excluded from visitor-based metrics (new/returning users)
     // because they represent the agent owner testing their own widget.
     const result = await this.prisma.$queryRaw<
-      { total_conversations: bigint; total_users: bigint; returning_users: bigint }[]
+      {
+        total_conversations: bigint;
+        total_users: bigint;
+        returning_users: bigint;
+      }[]
     >`
       SELECT
         COUNT(*) as total_conversations,
@@ -190,9 +249,14 @@ export class AnalyticsService {
 
   /**
    * Get message-level metrics for a given period and agent set.
-   * Uses SQL subquery instead of loading session IDs into memory.
+   * One range scan of chat_messages (agentId, createdAt).
    */
-  private async getMessageMetrics(agentIds: string[], startUtc: Date, endUtc: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
+  private async getMessageMetrics(
+    agentIds: string[],
+    startUtc: Date,
+    endUtc: Date,
+    sourceFilter: Prisma.Sql = Prisma.empty,
+  ) {
     if (agentIds.length === 0) {
       return { totalMessagesSent: 0, totalMessagesReceived: 0 };
     }
@@ -204,13 +268,10 @@ export class AnalyticsService {
         COUNT(*) FILTER (WHERE cm.role = 'USER') as user_count,
         COUNT(*) FILTER (WHERE cm.role = 'ASSISTANT') as assistant_count
       FROM chat_messages cm
-      WHERE cm."createdAt" >= ${startUtc}
+      WHERE cm."agentId" = ANY(${agentIds}::text[])
+        AND cm."createdAt" >= ${startUtc}
         AND cm."createdAt" < ${endUtc}
-        AND cm."chatSessionId" IN (
-          SELECT id FROM chat_sessions
-          WHERE "agentId" = ANY(${agentIds}::text[])
-            ${sourceFilter}
-        )
+        ${sourceFilter}
     `;
 
     const row = result[0];
@@ -228,20 +289,30 @@ export class AnalyticsService {
     startUtc: Date,
     endUtc: Date,
     sourceFilter: Prisma.Sql = Prisma.empty,
-  ): Promise<{ avg: number; p50: number; p95: number; p99: number; avgTimeToFirstToken: number | null }> {
+  ): Promise<{
+    avg: number;
+    p50: number;
+    p95: number;
+    p99: number;
+    avgTimeToFirstToken: number | null;
+  }> {
     if (agentIds.length === 0) {
       return { avg: 0, p50: 0, p95: 0, p99: 0, avgTimeToFirstToken: null };
     }
 
     const result = await this.prisma.$queryRaw<
-      { avg_ms: number | null; p50: number | null; p95: number | null; p99: number | null; avg_ttft: number | null }[]
+      {
+        avg_ms: number | null;
+        p50: number | null;
+        p95: number | null;
+        p99: number | null;
+        avg_ttft: number | null;
+      }[]
     >`
       WITH msgs AS (
         SELECT mm."responseLatencyMs" AS latency, mm."timeToFirstTokenMs" AS ttft
         FROM chat_message_metrics mm
-        JOIN chat_messages cm ON cm.id = mm."messageId"
-        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
-        WHERE cs."agentId" = ANY(${agentIds}::text[])
+        WHERE mm."agentId" = ANY(${agentIds}::text[])
           AND mm."createdAt" >= ${startUtc}
           AND mm."createdAt" < ${endUtc}
           ${sourceFilter}
@@ -275,7 +346,8 @@ export class AnalyticsService {
       p50: Math.round(Number(row?.p50 ?? 0)),
       p95: Math.round(Number(row?.p95 ?? 0)),
       p99: Math.round(Number(row?.p99 ?? 0)),
-      avgTimeToFirstToken: row?.avg_ttft != null ? Math.round(Number(row.avg_ttft)) : null,
+      avgTimeToFirstToken:
+        row?.avg_ttft != null ? Math.round(Number(row.avg_ttft)) : null,
     };
   }
 
@@ -292,14 +364,14 @@ export class AnalyticsService {
     sourceFilter: Prisma.Sql = Prisma.empty,
   ): Promise<number> {
     if (agentIds.length === 0) return 0;
-    const result = await this.prisma.$queryRaw<{ flagged: bigint; tracked: bigint }[]>`
+    const result = await this.prisma.$queryRaw<
+      { flagged: bigint; tracked: bigint }[]
+    >`
       SELECT
         COUNT(*) FILTER (WHERE mm."couldntAnswer" = true) as flagged,
         COUNT(*) FILTER (WHERE mm."couldntAnswer" IS NOT NULL) as tracked
       FROM chat_message_metrics mm
-      JOIN chat_messages cm ON cm.id = mm."messageId"
-      JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
-      WHERE cs."agentId" = ANY(${agentIds}::text[])
+      WHERE mm."agentId" = ANY(${agentIds}::text[])
         AND mm."createdAt" >= ${startUtc}
         AND mm."createdAt" < ${endUtc}
         ${sourceFilter}
@@ -331,22 +403,38 @@ export class AnalyticsService {
 
   async getSummary(query: AnalyticsQuery, user: CurrentUserData) {
     const agentIds = await this.getAgentIds(query, user);
-    this.log.debug('getSummary', 'computing analytics summary', {
+    this.log.debug("getSummary", "computing analytics summary", {
       role: user.role,
       agentCount: agentIds.length,
     });
-    const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
+    const { startUtc, endUtc, prevStartUtc, prevEndUtc } =
+      this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
-    const [sessions, messages, responseTime, prevSessions, prevMessages, prevResponseTime, couldntAnswerRate, prevCouldntAnswerRate, fallbackConfigured] = await Promise.all([
-      this.getSessionMetrics(agentIds, startUtc, endUtc, sf),
-      this.getMessageMetrics(agentIds, startUtc, endUtc, sf),
-      this.getResponseTimeMetrics(agentIds, startUtc, endUtc, sf),
-      this.getSessionMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
-      this.getMessageMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
-      this.getResponseTimeMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
-      this.getCouldntAnswerRate(agentIds, startUtc, endUtc, sf),
-      this.getCouldntAnswerRate(agentIds, prevStartUtc, prevEndUtc, sf),
+    const [
+      sessions,
+      messages,
+      responseTime,
+      prevSessions,
+      prevMessages,
+      prevResponseTime,
+      couldntAnswerRate,
+      prevCouldntAnswerRate,
+      fallbackConfigured,
+    ] = await Promise.all([
+      this.getSessionMetrics(agentIds, startUtc, endUtc, sf.session),
+      this.getMessageMetrics(agentIds, startUtc, endUtc, sf.message),
+      this.getResponseTimeMetrics(agentIds, startUtc, endUtc, sf.metric),
+      this.getSessionMetrics(agentIds, prevStartUtc, prevEndUtc, sf.session),
+      this.getMessageMetrics(agentIds, prevStartUtc, prevEndUtc, sf.message),
+      this.getResponseTimeMetrics(
+        agentIds,
+        prevStartUtc,
+        prevEndUtc,
+        sf.metric,
+      ),
+      this.getCouldntAnswerRate(agentIds, startUtc, endUtc, sf.metric),
+      this.getCouldntAnswerRate(agentIds, prevStartUtc, prevEndUtc, sf.metric),
       this.hasFallbackPhrases(agentIds),
     ]);
 
@@ -356,44 +444,105 @@ export class AnalyticsService {
     // visitors whose first/last session were >60 days apart while ignoring the
     // selected date range entirely, so it neither matched its label nor the
     // active filter.
-    const retentionRate = sessions.totalUsers > 0
-      ? Math.round((sessions.returningUsers / sessions.totalUsers) * 10000) / 100
-      : 0;
-    const prevRetentionRate = prevSessions.totalUsers > 0
-      ? Math.round((prevSessions.returningUsers / prevSessions.totalUsers) * 10000) / 100
-      : 0;
+    const retentionRate =
+      sessions.totalUsers > 0
+        ? Math.round((sessions.returningUsers / sessions.totalUsers) * 10000) /
+          100
+        : 0;
+    const prevRetentionRate =
+      prevSessions.totalUsers > 0
+        ? Math.round(
+            (prevSessions.returningUsers / prevSessions.totalUsers) * 10000,
+          ) / 100
+        : 0;
 
-    const userGrowthRate = prevSessions.newUsers === 0
-      ? (sessions.newUsers > 0 ? 100 : 0)
-      : Math.round(((sessions.newUsers - prevSessions.newUsers) / prevSessions.newUsers) * 10000) / 100;
+    const userGrowthRate =
+      prevSessions.newUsers === 0
+        ? sessions.newUsers > 0
+          ? 100
+          : 0
+        : Math.round(
+            ((sessions.newUsers - prevSessions.newUsers) /
+              prevSessions.newUsers) *
+              10000,
+          ) / 100;
 
-    const totalExchanged = messages.totalMessagesSent + messages.totalMessagesReceived;
-    const prevTotalExchanged = prevMessages.totalMessagesSent + prevMessages.totalMessagesReceived;
+    const totalExchanged =
+      messages.totalMessagesSent + messages.totalMessagesReceived;
+    const prevTotalExchanged =
+      prevMessages.totalMessagesSent + prevMessages.totalMessagesReceived;
 
     return {
       period: { start: startUtc.toISOString(), end: endUtc.toISOString() },
       fallbackConfigured,
       kpis: {
-        totalUsers: { value: sessions.totalUsers, trend: this.calcTrend(sessions.totalUsers, prevSessions.totalUsers) },
-        newUsers: { value: sessions.newUsers, trend: this.calcTrend(sessions.newUsers, prevSessions.newUsers) },
-        returningUsers: { value: sessions.returningUsers, trend: this.calcTrend(sessions.returningUsers, prevSessions.returningUsers) },
-        totalConversations: { value: sessions.totalConversations, trend: this.calcTrend(sessions.totalConversations, prevSessions.totalConversations) },
-        totalMessagesSent: { value: messages.totalMessagesSent, trend: this.calcTrend(messages.totalMessagesSent, prevMessages.totalMessagesSent) },
-        totalMessagesReceived: { value: messages.totalMessagesReceived, trend: this.calcTrend(messages.totalMessagesReceived, prevMessages.totalMessagesReceived) },
-        totalMessagesExchanged: { value: totalExchanged, trend: this.calcTrend(totalExchanged, prevTotalExchanged) },
-        userRetentionRate: { value: retentionRate, trend: this.calcTrend(retentionRate, prevRetentionRate) },
+        totalUsers: {
+          value: sessions.totalUsers,
+          trend: this.calcTrend(sessions.totalUsers, prevSessions.totalUsers),
+        },
+        newUsers: {
+          value: sessions.newUsers,
+          trend: this.calcTrend(sessions.newUsers, prevSessions.newUsers),
+        },
+        returningUsers: {
+          value: sessions.returningUsers,
+          trend: this.calcTrend(
+            sessions.returningUsers,
+            prevSessions.returningUsers,
+          ),
+        },
+        totalConversations: {
+          value: sessions.totalConversations,
+          trend: this.calcTrend(
+            sessions.totalConversations,
+            prevSessions.totalConversations,
+          ),
+        },
+        totalMessagesSent: {
+          value: messages.totalMessagesSent,
+          trend: this.calcTrend(
+            messages.totalMessagesSent,
+            prevMessages.totalMessagesSent,
+          ),
+        },
+        totalMessagesReceived: {
+          value: messages.totalMessagesReceived,
+          trend: this.calcTrend(
+            messages.totalMessagesReceived,
+            prevMessages.totalMessagesReceived,
+          ),
+        },
+        totalMessagesExchanged: {
+          value: totalExchanged,
+          trend: this.calcTrend(totalExchanged, prevTotalExchanged),
+        },
+        userRetentionRate: {
+          value: retentionRate,
+          trend: this.calcTrend(retentionRate, prevRetentionRate),
+        },
         userGrowthRate: { value: userGrowthRate, trend: 0 },
-        avgResponseTimeMs: { value: responseTime.avg, trend: this.calcTrend(responseTime.avg, prevResponseTime.avg) },
+        avgResponseTimeMs: {
+          value: responseTime.avg,
+          trend: this.calcTrend(responseTime.avg, prevResponseTime.avg),
+        },
         p50ResponseTimeMs: { value: responseTime.p50 },
         p95ResponseTimeMs: { value: responseTime.p95 },
         p99ResponseTimeMs: { value: responseTime.p99 },
         avgTimeToFirstTokenMs: {
           value: responseTime.avgTimeToFirstToken,
-          trend: responseTime.avgTimeToFirstToken != null && prevResponseTime.avgTimeToFirstToken != null
-            ? this.calcTrend(responseTime.avgTimeToFirstToken, prevResponseTime.avgTimeToFirstToken)
-            : null,
+          trend:
+            responseTime.avgTimeToFirstToken != null &&
+            prevResponseTime.avgTimeToFirstToken != null
+              ? this.calcTrend(
+                  responseTime.avgTimeToFirstToken,
+                  prevResponseTime.avgTimeToFirstToken,
+                )
+              : null,
         },
-        couldntAnswerRate: { value: couldntAnswerRate, trend: this.calcTrend(couldntAnswerRate, prevCouldntAnswerRate) },
+        couldntAnswerRate: {
+          value: couldntAnswerRate,
+          trend: this.calcTrend(couldntAnswerRate, prevCouldntAnswerRate),
+        },
       },
     };
   }
@@ -446,7 +595,8 @@ export class AnalyticsService {
         ${sourceFilter}
     `;
     const row = rows[0];
-    const ms = (v: number | null | undefined) => (v == null ? null : Math.round(Number(v)));
+    const ms = (v: number | null | undefined) =>
+      v == null ? null : Math.round(Number(v));
     return {
       total: Number(row?.total ?? 0),
       takenOver: Number(row?.taken_over ?? 0),
@@ -472,7 +622,8 @@ export class AnalyticsService {
    */
   async getHandoverMetrics(query: AnalyticsQuery, user: CurrentUserData) {
     const agentIds = await this.getAgentIds(query, user);
-    const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
+    const { startUtc, endUtc, prevStartUtc, prevEndUtc } =
+      this.resolveRange(query);
 
     const empty = {
       period: { start: startUtc.toISOString(), end: endUtc.toISOString() },
@@ -499,13 +650,14 @@ export class AnalyticsService {
 
     const sf = this.getSourceFilter(query.source, query.sources);
     const [cur, prev, sessions, prevSessions] = await Promise.all([
-      this.getHandoverAgg(agentIds, startUtc, endUtc, sf),
-      this.getHandoverAgg(agentIds, prevStartUtc, prevEndUtc, sf),
-      this.getSessionMetrics(agentIds, startUtc, endUtc, sf),
-      this.getSessionMetrics(agentIds, prevStartUtc, prevEndUtc, sf),
+      this.getHandoverAgg(agentIds, startUtc, endUtc, sf.session),
+      this.getHandoverAgg(agentIds, prevStartUtc, prevEndUtc, sf.session),
+      this.getSessionMetrics(agentIds, startUtc, endUtc, sf.session),
+      this.getSessionMetrics(agentIds, prevStartUtc, prevEndUtc, sf.session),
     ]);
 
-    const pct = (n: number, d: number) => (d > 0 ? Math.round((n / d) * 1000) / 10 : 0);
+    const pct = (n: number, d: number) =>
+      d > 0 ? Math.round((n / d) * 1000) / 10 : 0;
     const trendNullable = (a: number | null, b: number | null) =>
       a != null && b != null ? this.calcTrend(a, b) : null;
 
@@ -513,10 +665,10 @@ export class AnalyticsService {
     const prevHandoverRate = pct(prev.total, prevSessions.totalConversations);
 
     const reasons = [
-      { reason: 'USER_REQUESTED', count: cur.reasonCounts.USER_REQUESTED },
-      { reason: 'BOT_FALLBACK', count: cur.reasonCounts.BOT_FALLBACK },
-      { reason: 'FRUSTRATION', count: cur.reasonCounts.FRUSTRATION },
-      { reason: 'MANUAL', count: cur.reasonCounts.MANUAL },
+      { reason: "USER_REQUESTED", count: cur.reasonCounts.USER_REQUESTED },
+      { reason: "BOT_FALLBACK", count: cur.reasonCounts.BOT_FALLBACK },
+      { reason: "FRUSTRATION", count: cur.reasonCounts.FRUSTRATION },
+      { reason: "MANUAL", count: cur.reasonCounts.MANUAL },
     ]
       .filter((r) => r.count > 0)
       .map((r) => ({ ...r, percentage: pct(r.count, cur.total) }));
@@ -532,7 +684,10 @@ export class AnalyticsService {
       takenOverTrend: this.calcTrend(cur.takenOver, prev.takenOver),
       takenOverRate: pct(cur.takenOver, cur.total),
       resolvedByHuman: cur.resolvedByHuman,
-      resolvedByHumanTrend: this.calcTrend(cur.resolvedByHuman, prev.resolvedByHuman),
+      resolvedByHumanTrend: this.calcTrend(
+        cur.resolvedByHuman,
+        prev.resolvedByHuman,
+      ),
       autoResolved: cur.autoResolved,
       abandoned: cur.abandoned,
       sweptAfterTakeover: cur.sweptAfterTakeover,
@@ -569,16 +724,22 @@ export class AnalyticsService {
    */
   async getLeadsCaptured(query: AnalyticsQuery, user: CurrentUserData) {
     const agentIds = await this.getAgentIds(query, user);
-    const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
+    const { startUtc, endUtc, prevStartUtc, prevEndUtc } =
+      this.resolveRange(query);
     const period = { start: startUtc.toISOString(), end: endUtc.toISOString() };
-    if (agentIds.length === 0) return { period, totalLeads: 0, totalLeadsTrend: 0 };
+    if (agentIds.length === 0)
+      return { period, totalLeads: 0, totalLeadsTrend: 0 };
 
     const sf = this.getSourceFilter(query.source, query.sources);
     const [cur, prev] = await Promise.all([
-      this.countLeads(agentIds, startUtc, endUtc, sf),
-      this.countLeads(agentIds, prevStartUtc, prevEndUtc, sf),
+      this.countLeads(agentIds, startUtc, endUtc, sf.session),
+      this.countLeads(agentIds, prevStartUtc, prevEndUtc, sf.session),
     ]);
-    return { period, totalLeads: cur, totalLeadsTrend: this.calcTrend(cur, prev) };
+    return {
+      period,
+      totalLeads: cur,
+      totalLeadsTrend: this.calcTrend(cur, prev),
+    };
   }
 
   async getConversationsChart(query: AnalyticsQuery, user: CurrentUserData) {
@@ -606,14 +767,17 @@ export class AnalyticsService {
       WHERE "agentId" = ANY(${agentIds}::text[])
         AND "createdAt" >= ${startUtc}
         AND "createdAt" < ${endUtc}
-        ${sf}
+        ${sf.session}
       GROUP BY DATE("createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${tzSql})
       ORDER BY date ASC
     `;
 
     return {
       data: result.map((r) => ({
-        date: r.date instanceof Date ? r.date.toISOString().split('T')[0] : String(r.date),
+        date:
+          r.date instanceof Date
+            ? r.date.toISOString().split("T")[0]
+            : String(r.date),
         count: Number(r.count),
       })),
     };
@@ -625,7 +789,10 @@ export class AnalyticsService {
    * is busiest?" — complements the hour heatmap. Always returns all 7 days so
    * the chart has a stable shape; missing days come back as 0.
    */
-  async getConversationsByWeekday(query: AnalyticsQuery, user: CurrentUserData) {
+  async getConversationsByWeekday(
+    query: AnalyticsQuery,
+    user: CurrentUserData,
+  ) {
     const agentIds = await this.getAgentIds(query, user);
     const { startUtc, endUtc, timezone } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
@@ -636,14 +803,16 @@ export class AnalyticsService {
     // Same double AT TIME ZONE trick as getConversationsChart: naive UTC →
     // tz-aware → naive local, so DOW is bucketed against the local-day boundary.
     const tzSql = this.tzLiteral(timezone);
-    const result = await this.prisma.$queryRaw<{ dow: number; count: bigint }[]>`
+    const result = await this.prisma.$queryRaw<
+      { dow: number; count: bigint }[]
+    >`
       SELECT EXTRACT(DOW FROM "createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${tzSql})::int as dow,
              COUNT(*) as count
       FROM chat_sessions
       WHERE "agentId" = ANY(${agentIds}::text[])
         AND "createdAt" >= ${startUtc}
         AND "createdAt" < ${endUtc}
-        ${sf}
+        ${sf.session}
       GROUP BY dow
       ORDER BY dow ASC
     `;
@@ -654,17 +823,20 @@ export class AnalyticsService {
     };
   }
 
-  async getResponseTimeDistribution(query: AnalyticsQuery, user: CurrentUserData) {
+  async getResponseTimeDistribution(
+    query: AnalyticsQuery,
+    user: CurrentUserData,
+  ) {
     const agentIds = await this.getAgentIds(query, user);
     const { startUtc, endUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     const emptyBuckets = [
-      { label: '<1s', min: 0, max: 1000, count: 0, percentage: 0 },
-      { label: '1-2s', min: 1000, max: 2000, count: 0, percentage: 0 },
-      { label: '2-5s', min: 2000, max: 5000, count: 0, percentage: 0 },
-      { label: '5-10s', min: 5000, max: 10000, count: 0, percentage: 0 },
-      { label: '>10s', min: 10000, max: null, count: 0, percentage: 0 },
+      { label: "<1s", min: 0, max: 1000, count: 0, percentage: 0 },
+      { label: "1-2s", min: 1000, max: 2000, count: 0, percentage: 0 },
+      { label: "2-5s", min: 2000, max: 5000, count: 0, percentage: 0 },
+      { label: "5-10s", min: 5000, max: 10000, count: 0, percentage: 0 },
+      { label: ">10s", min: 10000, max: null, count: 0, percentage: 0 },
     ];
 
     if (agentIds.length === 0) {
@@ -672,23 +844,23 @@ export class AnalyticsService {
     }
 
     // Single query for both buckets and percentiles
-    const result = await this.prisma.$queryRaw<{
-      bucket: string;
-      count: bigint;
-      p50: number | null;
-      p95: number | null;
-      p99: number | null;
-    }[]>`
+    const result = await this.prisma.$queryRaw<
+      {
+        bucket: string;
+        count: bigint;
+        p50: number | null;
+        p95: number | null;
+        p99: number | null;
+      }[]
+    >`
       WITH filtered AS (
         SELECT mm."responseLatencyMs" as latency
         FROM chat_message_metrics mm
-        JOIN chat_messages cm ON cm.id = mm."messageId"
-        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
-        WHERE cs."agentId" = ANY(${agentIds}::text[])
+        WHERE mm."agentId" = ANY(${agentIds}::text[])
           AND mm."responseLatencyMs" IS NOT NULL
           AND mm."createdAt" >= ${startUtc}
           AND mm."createdAt" < ${endUtc}
-          ${sf}
+          ${sf.metric}
       ),
       percentiles AS (
         SELECT
@@ -714,7 +886,9 @@ export class AnalyticsService {
     `;
 
     const bucketMap: Record<string, number> = {};
-    let p50 = 0, p95 = 0, p99 = 0;
+    let p50 = 0,
+      p95 = 0,
+      p99 = 0;
     for (const r of result) {
       bucketMap[r.bucket] = Number(r.count);
       // Percentile values are the same across all rows
@@ -726,11 +900,41 @@ export class AnalyticsService {
     const total = Object.values(bucketMap).reduce((a, b) => a + b, 0);
 
     const buckets = [
-      { label: '<1s', min: 0, max: 1000, count: bucketMap['lt1s'] ?? 0, percentage: 0 },
-      { label: '1-2s', min: 1000, max: 2000, count: bucketMap['1to2s'] ?? 0, percentage: 0 },
-      { label: '2-5s', min: 2000, max: 5000, count: bucketMap['2to5s'] ?? 0, percentage: 0 },
-      { label: '5-10s', min: 5000, max: 10000, count: bucketMap['5to10s'] ?? 0, percentage: 0 },
-      { label: '>10s' as const, min: 10000, max: null as number | null, count: bucketMap['gt10s'] ?? 0, percentage: 0 },
+      {
+        label: "<1s",
+        min: 0,
+        max: 1000,
+        count: bucketMap["lt1s"] ?? 0,
+        percentage: 0,
+      },
+      {
+        label: "1-2s",
+        min: 1000,
+        max: 2000,
+        count: bucketMap["1to2s"] ?? 0,
+        percentage: 0,
+      },
+      {
+        label: "2-5s",
+        min: 2000,
+        max: 5000,
+        count: bucketMap["2to5s"] ?? 0,
+        percentage: 0,
+      },
+      {
+        label: "5-10s",
+        min: 5000,
+        max: 10000,
+        count: bucketMap["5to10s"] ?? 0,
+        percentage: 0,
+      },
+      {
+        label: ">10s" as const,
+        min: 10000,
+        max: null as number | null,
+        count: bucketMap["gt10s"] ?? 0,
+        percentage: 0,
+      },
     ].map((b) => ({
       ...b,
       percentage: total > 0 ? Math.round((b.count / total) * 10000) / 100 : 0,
@@ -756,17 +960,18 @@ export class AnalyticsService {
     // tzSql is injected as a SQL literal (see getConversationsChart for the
     // reason). IANA validation in resolveRange() makes this injection-safe.
     const tzSql = this.tzLiteral(timezone);
-    const result = await this.prisma.$queryRaw<{ day: number; hour: number; count: bigint }[]>`
+    const result = await this.prisma.$queryRaw<
+      { day: number; hour: number; count: bigint }[]
+    >`
       SELECT
         EXTRACT(DOW FROM cm."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${tzSql}) as day,
         EXTRACT(HOUR FROM cm."createdAt" AT TIME ZONE 'UTC' AT TIME ZONE ${tzSql}) as hour,
         COUNT(*) as count
       FROM chat_messages cm
-      INNER JOIN chat_sessions cs ON cm."chatSessionId" = cs.id
-      WHERE cs."agentId" = ANY(${agentIds}::text[])
+      WHERE cm."agentId" = ANY(${agentIds}::text[])
         AND cm."createdAt" >= ${startUtc}
         AND cm."createdAt" < ${endUtc}
-        ${sf}
+        ${sf.message}
       GROUP BY day, hour
       ORDER BY day, hour
     `;
@@ -781,7 +986,12 @@ export class AnalyticsService {
   }
 
   async getAgentMetrics(query: AgentAnalyticsQuery, user: CurrentUserData) {
-    const { page = 1, limit = 20, sortBy = 'conversations', sortOrder = 'desc' } = query;
+    const {
+      page = 1,
+      limit = 20,
+      sortBy = "conversations",
+      sortOrder = "desc",
+    } = query;
     const agentIds = await this.getAgentIds(query, user);
     const { startUtc, endUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
@@ -790,39 +1000,34 @@ export class AnalyticsService {
       return { data: [], meta: { page, limit, total: 0, totalPages: 0 } };
     }
 
-    const countResult = await this.prisma.$queryRaw<{ total: bigint }[]>`
-      SELECT COUNT(DISTINCT a.id) as total
-      FROM agents a
-      INNER JOIN chat_sessions cs ON cs."agentId" = a.id
-      WHERE a.id = ANY(${agentIds}::text[])
-        AND cs."createdAt" >= ${startUtc}
-        AND cs."createdAt" < ${endUtc}
-        ${sf}
-    `;
-
-    const total = Number(countResult[0]?.total ?? 0);
-    const totalPages = Math.ceil(total / limit);
     const offset = (page - 1) * limit;
 
-    const sortColSql = sortBy === 'agentName' ? 'agent_name' : sortBy === 'avgResponseTimeMs' ? 'avg_response_time_ms' : sortBy === 'queriesRaised' ? 'queries_raised' : sortBy;
+    const sortColSql =
+      sortBy === "agentName"
+        ? "agent_name"
+        : sortBy === "avgResponseTimeMs"
+          ? "avg_response_time_ms"
+          : sortBy === "queriesRaised"
+            ? "queries_raised"
+            : sortBy;
 
     // Order by the SELECT output-column alias. Postgres resolves these to the
     // aggregate expressions below (including the IQR-trimmed average), so we
     // don't repeat them. `sortColSql` is a fixed whitelist and `dir` is a fixed
     // literal, so this stays injection-safe.
-    const dir = sortOrder === 'asc' ? Prisma.sql`ASC` : Prisma.sql`DESC`;
+    const dir = sortOrder === "asc" ? Prisma.sql`ASC` : Prisma.sql`DESC`;
     let orderByClause: ReturnType<typeof Prisma.sql>;
     switch (sortColSql) {
-      case 'agent_name':
+      case "agent_name":
         orderByClause = Prisma.sql`ORDER BY agent_name ${dir} NULLS LAST`;
         break;
-      case 'messages':
+      case "messages":
         orderByClause = Prisma.sql`ORDER BY messages ${dir} NULLS LAST`;
         break;
-      case 'avg_response_time_ms':
+      case "avg_response_time_ms":
         orderByClause = Prisma.sql`ORDER BY avg_response_time_ms ${dir} NULLS LAST`;
         break;
-      case 'queries_raised':
+      case "queries_raised":
         orderByClause = Prisma.sql`ORDER BY queries_raised ${dir} NULLS LAST`;
         break;
       default: // conversations
@@ -830,58 +1035,92 @@ export class AnalyticsService {
         break;
     }
 
-    const data = await this.prisma.$queryRaw<
-      {
-        agent_id: string;
-        agent_name: string;
-        conversations: bigint;
-        messages: bigint;
-        avg_response_time_ms: number | null;
-        queries_raised: bigint;
-      }[]
-    >`
-      WITH base AS (
+    // Each measure is aggregated on its own table's (agentId, createdAt) index
+    // and joined per agent, instead of joining every session to every message
+    // (ADR-0007). An agent is listed when it had a conversation start in the
+    // period. Messages, questions and latency count by the time each message
+    // was sent, the same time rule as the summary cards.
+    const [countResult, data] = await Promise.all([
+      this.prisma.$queryRaw<{ total: bigint }[]>`
+        SELECT COUNT(DISTINCT "agentId") as total
+        FROM chat_sessions
+        WHERE "agentId" = ANY(${agentIds}::text[])
+          AND "createdAt" >= ${startUtc}
+          AND "createdAt" < ${endUtc}
+          ${sf.session}
+      `,
+      this.prisma.$queryRaw<
+        {
+          agent_id: string;
+          agent_name: string;
+          conversations: bigint;
+          messages: bigint;
+          avg_response_time_ms: number | null;
+          queries_raised: bigint;
+        }[]
+      >`
+        WITH conv AS (
+          SELECT "agentId" AS agent_id, COUNT(*) AS conversations
+          FROM chat_sessions
+          WHERE "agentId" = ANY(${agentIds}::text[])
+            AND "createdAt" >= ${startUtc}
+            AND "createdAt" < ${endUtc}
+            ${sf.session}
+          GROUP BY "agentId"
+        ),
+        msgs AS (
+          SELECT cm."agentId" AS agent_id,
+            COUNT(*) AS messages,
+            COUNT(*) FILTER (WHERE cm.role = 'USER') AS queries_raised
+          FROM chat_messages cm
+          WHERE cm."agentId" = ANY(${agentIds}::text[])
+            AND cm."createdAt" >= ${startUtc}
+            AND cm."createdAt" < ${endUtc}
+            ${sf.message}
+          GROUP BY cm."agentId"
+        ),
+        latencies AS (
+          SELECT mm."agentId" AS agent_id, mm."responseLatencyMs" AS latency
+          FROM chat_message_metrics mm
+          WHERE mm."agentId" = ANY(${agentIds}::text[])
+            AND mm."createdAt" >= ${startUtc}
+            AND mm."createdAt" < ${endUtc}
+            AND mm."responseLatencyMs" IS NOT NULL
+            ${sf.metric}
+        ),
+        fences AS (
+          SELECT agent_id,
+            PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY latency) AS q1,
+            PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY latency) AS q3
+          FROM latencies
+          GROUP BY agent_id
+        ),
+        trimmed AS (
+          SELECT l.agent_id, AVG(l.latency) AS avg_response_time_ms
+          FROM latencies l
+          JOIN fences f ON f.agent_id = l.agent_id
+          WHERE l.latency <= f.q3 + ${IQR_MULTIPLIER} * (f.q3 - f.q1)
+          GROUP BY l.agent_id
+        )
         SELECT
-          a.id AS agent_id,
+          c.agent_id,
           a.name AS agent_name,
-          cs.id AS session_id,
-          cm.id AS msg_id,
-          cm.role AS msg_role,
-          mm."responseLatencyMs" AS latency
-        FROM agents a
-        INNER JOIN chat_sessions cs ON cs."agentId" = a.id
-        LEFT JOIN chat_messages cm ON cm."chatSessionId" = cs.id
-        LEFT JOIN chat_message_metrics mm ON mm."messageId" = cm.id
-        WHERE a.id = ANY(${agentIds}::text[])
-          AND cs."createdAt" >= ${startUtc}
-          AND cs."createdAt" < ${endUtc}
-          ${sf}
-      ),
-      fences AS (
-        SELECT agent_id,
-          PERCENTILE_CONT(0.25) WITHIN GROUP (ORDER BY latency) AS q1,
-          PERCENTILE_CONT(0.75) WITHIN GROUP (ORDER BY latency) AS q3
-        FROM base
-        WHERE latency IS NOT NULL
-        GROUP BY agent_id
-      )
-      SELECT
-        b.agent_id,
-        b.agent_name,
-        COUNT(DISTINCT b.session_id) as conversations,
-        COUNT(b.msg_id) as messages,
-        AVG(b.latency) FILTER (
-          WHERE b.latency IS NOT NULL
-            AND b.latency <= f.q3 + ${IQR_MULTIPLIER} * (f.q3 - f.q1)
-        ) as avg_response_time_ms,
-        COUNT(*) FILTER (WHERE b.msg_role = 'USER') as queries_raised
-      FROM base b
-      LEFT JOIN fences f ON f.agent_id = b.agent_id
-      GROUP BY b.agent_id, b.agent_name, f.q1, f.q3
-      ${orderByClause}
-      LIMIT ${limit}
-      OFFSET ${offset}
-    `;
+          c.conversations,
+          COALESCE(m.messages, 0) AS messages,
+          t.avg_response_time_ms,
+          COALESCE(m.queries_raised, 0) AS queries_raised
+        FROM conv c
+        JOIN agents a ON a.id = c.agent_id
+        LEFT JOIN msgs m ON m.agent_id = c.agent_id
+        LEFT JOIN trimmed t ON t.agent_id = c.agent_id
+        ${orderByClause}
+        LIMIT ${limit}
+        OFFSET ${offset}
+      `,
+    ]);
+
+    const total = Number(countResult[0]?.total ?? 0);
+    const totalPages = Math.ceil(total / limit);
 
     return {
       data: data.map((d) => ({
@@ -907,7 +1146,10 @@ export class AnalyticsService {
    * separately so the UI can be honest about coverage rather than skewing
    * the breakdown.
    */
-  async getConversationCategories(query: AnalyticsQuery, user: CurrentUserData) {
+  async getConversationCategories(
+    query: AnalyticsQuery,
+    user: CurrentUserData,
+  ) {
     const agentIds = await this.getAgentIds(query, user);
     const { startUtc, endUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
@@ -916,13 +1158,15 @@ export class AnalyticsService {
       return { categories: [], uncategorized: 0 };
     }
 
-    const result = await this.prisma.$queryRaw<{ category: string | null; count: bigint }[]>`
+    const result = await this.prisma.$queryRaw<
+      { category: string | null; count: bigint }[]
+    >`
       SELECT "category", COUNT(*) as count
       FROM chat_sessions
       WHERE "agentId" = ANY(${agentIds}::text[])
         AND "createdAt" >= ${startUtc}
         AND "createdAt" < ${endUtc}
-        ${sf}
+        ${sf.session}
       GROUP BY "category"
       ORDER BY count DESC
     `;
@@ -964,14 +1208,16 @@ export class AnalyticsService {
       return { languages: [] };
     }
 
-    const result = await this.prisma.$queryRaw<{ language: string; count: bigint }[]>`
+    const result = await this.prisma.$queryRaw<
+      { language: string; count: bigint }[]
+    >`
       SELECT "detectedLanguage" as language, COUNT(*) as count
       FROM chat_sessions
       WHERE "agentId" = ANY(${agentIds}::text[])
         AND "createdAt" >= ${startUtc}
         AND "createdAt" < ${endUtc}
         AND "detectedLanguage" IS NOT NULL
-        ${sf}
+        ${sf.session}
       GROUP BY "detectedLanguage"
       ORDER BY count DESC
     `;
@@ -981,7 +1227,8 @@ export class AnalyticsService {
       languages: result.map((r) => ({
         language: r.language,
         count: Number(r.count),
-        percentage: total > 0 ? Math.round((Number(r.count) / total) * 10000) / 100 : 0,
+        percentage:
+          total > 0 ? Math.round((Number(r.count) / total) * 10000) / 100 : 0,
       })),
     };
   }
@@ -1000,13 +1247,15 @@ export class AnalyticsService {
       return { channels: [] };
     }
 
-    const result = await this.prisma.$queryRaw<{ source: string; count: bigint }[]>`
+    const result = await this.prisma.$queryRaw<
+      { source: string; count: bigint }[]
+    >`
       SELECT "source"::text as source, COUNT(*) as count
       FROM chat_sessions
       WHERE "agentId" = ANY(${agentIds}::text[])
         AND "createdAt" >= ${startUtc}
         AND "createdAt" < ${endUtc}
-        ${sf}
+        ${sf.session}
       GROUP BY "source"
       ORDER BY count DESC
     `;
@@ -1016,7 +1265,8 @@ export class AnalyticsService {
       channels: result.map((r) => ({
         source: r.source,
         count: Number(r.count),
-        percentage: total > 0 ? Math.round((Number(r.count) / total) * 10000) / 100 : 0,
+        percentage:
+          total > 0 ? Math.round((Number(r.count) / total) * 10000) / 100 : 0,
       })),
     };
   }
@@ -1027,7 +1277,8 @@ export class AnalyticsService {
 
   async getVoiceSummary(query: AnalyticsQuery, user: CurrentUserData) {
     const agentIds = await this.getAgentIds(query, user);
-    const { startUtc, endUtc, prevStartUtc, prevEndUtc } = this.resolveRange(query);
+    const { startUtc, endUtc, prevStartUtc, prevEndUtc } =
+      this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
 
     if (agentIds.length === 0) {
@@ -1051,17 +1302,28 @@ export class AnalyticsService {
     return {
       totalVoiceMessages: current.voiceCount,
       totalTextMessages: current.textCount,
-      voiceRatio: total > 0 ? Math.round((current.voiceCount / total) * 10000) / 10000 : 0,
+      voiceRatio:
+        total > 0
+          ? Math.round((current.voiceCount / total) * 10000) / 10000
+          : 0,
       avgSttLatencyMs: Math.round(current.avgSttLatency),
       avgTtsLatencyMs: Math.round(current.avgTtsLatency),
       voiceErrorCount: current.errorCount,
       trend: {
-        voiceMessagesTrend: this.calcTrend(current.voiceCount, previous.voiceCount),
+        voiceMessagesTrend: this.calcTrend(
+          current.voiceCount,
+          previous.voiceCount,
+        ),
       },
     };
   }
 
-  private async getVoiceMetrics(agentIds: string[], startUtc: Date, endUtc: Date, sourceFilter: Prisma.Sql = Prisma.empty) {
+  private async getVoiceMetrics(
+    agentIds: string[],
+    startUtc: Date,
+    endUtc: Date,
+    sourceFilter: SourceFilter,
+  ) {
     const result = await this.prisma.$queryRaw<
       {
         voice_count: bigint;
@@ -1074,23 +1336,20 @@ export class AnalyticsService {
       WITH user_msgs AS (
         SELECT mm."inputType" AS input_type
         FROM chat_messages cm
-        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
         LEFT JOIN chat_message_metrics mm ON mm."messageId" = cm.id
         WHERE cm.role = 'USER'
+          AND cm."agentId" = ANY(${agentIds}::text[])
           AND cm."createdAt" >= ${startUtc}
           AND cm."createdAt" < ${endUtc}
-          AND cs."agentId" = ANY(${agentIds}::text[])
-          ${sourceFilter}
+          ${sourceFilter.message}
       ),
       metricrows AS (
-        SELECT mm."sttLatencyMs" AS stt, mm."ttsLatencyMs" AS tts, mm.errored AS errored, cm.role AS msg_role
+        SELECT mm."sttLatencyMs" AS stt, mm."ttsLatencyMs" AS tts, mm.errored AS errored, mm.role AS msg_role
         FROM chat_message_metrics mm
-        JOIN chat_messages cm ON cm.id = mm."messageId"
-        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
-        WHERE mm."createdAt" >= ${startUtc}
+        WHERE mm."agentId" = ANY(${agentIds}::text[])
+          AND mm."createdAt" >= ${startUtc}
           AND mm."createdAt" < ${endUtc}
-          AND cs."agentId" = ANY(${agentIds}::text[])
-          ${sourceFilter}
+          ${sourceFilter.metric}
       ),
       stt_fence AS (
         SELECT
@@ -1142,15 +1401,13 @@ export class AnalyticsService {
         mm."detectedLanguage" as language,
         COUNT(*) as count
       FROM chat_message_metrics mm
-      JOIN chat_messages cm ON cm.id = mm."messageId"
-      JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
       WHERE mm."inputType" = 'voice'
         AND mm."detectedLanguage" IS NOT NULL
-        AND cm.role = 'USER'
+        AND mm.role = 'USER'
+        AND mm."agentId" = ANY(${agentIds}::text[])
         AND mm."createdAt" >= ${startUtc}
         AND mm."createdAt" < ${endUtc}
-        AND cs."agentId" = ANY(${agentIds}::text[])
-        ${sf}
+        ${sf.metric}
       GROUP BY mm."detectedLanguage"
       ORDER BY count DESC
     `;
@@ -1160,12 +1417,16 @@ export class AnalyticsService {
       languages: result.map((r) => ({
         language: r.language,
         count: Number(r.count),
-        percentage: total > 0 ? Math.round((Number(r.count) / total) * 10000) / 100 : 0,
+        percentage:
+          total > 0 ? Math.round((Number(r.count) / total) * 10000) / 100 : 0,
       })),
     };
   }
 
-  async getVoiceLatencyByProvider(query: AnalyticsQuery, user: CurrentUserData) {
+  async getVoiceLatencyByProvider(
+    query: AnalyticsQuery,
+    user: CurrentUserData,
+  ) {
     const agentIds = await this.getAgentIds(query, user);
     const { startUtc, endUtc } = this.resolveRange(query);
     const sf = this.getSourceFilter(query.source, query.sources);
@@ -1174,10 +1435,17 @@ export class AnalyticsService {
       return { stt: [], tts: [], sttAggregate: null, ttsAggregate: null };
     }
 
-    const [sttResult, ttsResult, sttAggResult, ttsAggResult] = await Promise.all([
-      this.prisma.$queryRaw<
-        { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
-      >`
+    const [sttResult, ttsResult, sttAggResult, ttsAggResult] =
+      await Promise.all([
+        this.prisma.$queryRaw<
+          {
+            provider: string;
+            avg: number | null;
+            p50: number | null;
+            p95: number | null;
+            count: bigint;
+          }[]
+        >`
         SELECT
           mm."sttProvider" as provider,
           AVG(mm."sttLatencyMs") as avg,
@@ -1185,20 +1453,24 @@ export class AnalyticsService {
           PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY mm."sttLatencyMs") as p95,
           COUNT(*) as count
         FROM chat_message_metrics mm
-        JOIN chat_messages cm ON cm.id = mm."messageId"
-        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
         WHERE mm."sttProvider" IS NOT NULL
           AND mm."sttLatencyMs" IS NOT NULL
-          AND cm.role = 'USER'
+          AND mm.role = 'USER'
+          AND mm."agentId" = ANY(${agentIds}::text[])
           AND mm."createdAt" >= ${startUtc}
           AND mm."createdAt" < ${endUtc}
-          AND cs."agentId" = ANY(${agentIds}::text[])
-          ${sf}
+          ${sf.metric}
         GROUP BY mm."sttProvider"
       `,
-      this.prisma.$queryRaw<
-        { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
-      >`
+        this.prisma.$queryRaw<
+          {
+            provider: string;
+            avg: number | null;
+            p50: number | null;
+            p95: number | null;
+            count: bigint;
+          }[]
+        >`
         SELECT
           mm."ttsProvider" as provider,
           AVG(mm."ttsLatencyMs") as avg,
@@ -1206,59 +1478,69 @@ export class AnalyticsService {
           PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY mm."ttsLatencyMs") as p95,
           COUNT(*) as count
         FROM chat_message_metrics mm
-        JOIN chat_messages cm ON cm.id = mm."messageId"
-        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
         WHERE mm."ttsProvider" IS NOT NULL
           AND mm."ttsLatencyMs" IS NOT NULL
-          AND cm.role = 'ASSISTANT'
+          AND mm.role = 'ASSISTANT'
+          AND mm."agentId" = ANY(${agentIds}::text[])
           AND mm."createdAt" >= ${startUtc}
           AND mm."createdAt" < ${endUtc}
-          AND cs."agentId" = ANY(${agentIds}::text[])
-          ${sf}
+          ${sf.metric}
         GROUP BY mm."ttsProvider"
       `,
-      // Provider-agnostic aggregates — what the client sees (no provider names).
-      // Percentiles must be computed across the whole set in SQL; they can't be
-      // correctly averaged from the per-provider rows above.
-      this.prisma.$queryRaw<
-        { avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
-      >`
+        // Provider-agnostic aggregates — what the client sees (no provider names).
+        // Percentiles must be computed across the whole set in SQL; they can't be
+        // correctly averaged from the per-provider rows above.
+        this.prisma.$queryRaw<
+          {
+            avg: number | null;
+            p50: number | null;
+            p95: number | null;
+            count: bigint;
+          }[]
+        >`
         SELECT
           AVG(mm."sttLatencyMs") as avg,
           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mm."sttLatencyMs") as p50,
           PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY mm."sttLatencyMs") as p95,
           COUNT(*) as count
         FROM chat_message_metrics mm
-        JOIN chat_messages cm ON cm.id = mm."messageId"
-        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
         WHERE mm."sttLatencyMs" IS NOT NULL
-          AND cm.role = 'USER'
+          AND mm.role = 'USER'
+          AND mm."agentId" = ANY(${agentIds}::text[])
           AND mm."createdAt" >= ${startUtc}
           AND mm."createdAt" < ${endUtc}
-          AND cs."agentId" = ANY(${agentIds}::text[])
-          ${sf}
+          ${sf.metric}
       `,
-      this.prisma.$queryRaw<
-        { avg: number | null; p50: number | null; p95: number | null; count: bigint }[]
-      >`
+        this.prisma.$queryRaw<
+          {
+            avg: number | null;
+            p50: number | null;
+            p95: number | null;
+            count: bigint;
+          }[]
+        >`
         SELECT
           AVG(mm."ttsLatencyMs") as avg,
           PERCENTILE_CONT(0.5) WITHIN GROUP (ORDER BY mm."ttsLatencyMs") as p50,
           PERCENTILE_CONT(0.95) WITHIN GROUP (ORDER BY mm."ttsLatencyMs") as p95,
           COUNT(*) as count
         FROM chat_message_metrics mm
-        JOIN chat_messages cm ON cm.id = mm."messageId"
-        JOIN chat_sessions cs ON cs.id = cm."chatSessionId"
         WHERE mm."ttsLatencyMs" IS NOT NULL
-          AND cm.role = 'ASSISTANT'
+          AND mm.role = 'ASSISTANT'
+          AND mm."agentId" = ANY(${agentIds}::text[])
           AND mm."createdAt" >= ${startUtc}
           AND mm."createdAt" < ${endUtc}
-          AND cs."agentId" = ANY(${agentIds}::text[])
-          ${sf}
+          ${sf.metric}
       `,
-    ]);
+      ]);
 
-    const mapRow = (r: { provider: string; avg: number | null; p50: number | null; p95: number | null; count: bigint }) => ({
+    const mapRow = (r: {
+      provider: string;
+      avg: number | null;
+      p50: number | null;
+      p95: number | null;
+      count: bigint;
+    }) => ({
       provider: r.provider,
       avg: Math.round(Number(r.avg ?? 0)),
       p50: Math.round(Number(r.p50 ?? 0)),
@@ -1267,7 +1549,14 @@ export class AnalyticsService {
     });
 
     const mapAggregate = (
-      r: { avg: number | null; p50: number | null; p95: number | null; count: bigint } | undefined,
+      r:
+        | {
+            avg: number | null;
+            p50: number | null;
+            p95: number | null;
+            count: bigint;
+          }
+        | undefined,
     ) => {
       const count = Number(r?.count ?? 0);
       if (count === 0) return null;
@@ -1287,10 +1576,7 @@ export class AnalyticsService {
     };
   }
 
-  async logExport(
-    body: ExportLogBody,
-    user: CurrentUserData,
-  ) {
+  async logExport(body: ExportLogBody, user: CurrentUserData) {
     await this.prisma.auditLog.create({
       data: {
         userId: user.id,
@@ -1298,7 +1584,7 @@ export class AnalyticsService {
         contextId: user.organizationId ?? user.id,
         // Typed org scope so exports are queryable + erasable by org.
         organizationId: user.organizationId ?? null,
-        event: 'ANALYTICS_EXPORT',
+        event: "ANALYTICS_EXPORT",
         data: {
           format: body.format,
           startDate: body.startDate,
@@ -1306,7 +1592,7 @@ export class AnalyticsService {
         } as Prisma.JsonObject,
       },
     });
-    this.log.info('logExport', 'analytics export logged', {
+    this.log.info("logExport", "analytics export logged", {
       format: body.format,
       organizationId: user.organizationId ?? null,
     });

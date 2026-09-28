@@ -871,7 +871,11 @@ describe("VoiceController", () => {
       } as unknown as Response & { writtenChunks: string[]; ended: boolean };
     }
 
-    const mockSession = { id: "session-123", sessionId: "ext-session-123" };
+    const mockSession = {
+      id: "session-123",
+      sessionId: "ext-session-123",
+      agentId: "agent-1",
+    };
     const mockUserMessage = { id: "user-msg-123" };
 
     beforeEach(() => {
@@ -1051,7 +1055,7 @@ describe("VoiceController", () => {
       await controller.voiceConversation(audioFile, dto, req, res);
 
       expect(mockChatService.saveAssistantMessage).toHaveBeenCalledWith(
-        "session-123",
+        mockSession,
         "Hello!",
         expect.objectContaining({
           inputType: "voice",

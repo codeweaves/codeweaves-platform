@@ -10,21 +10,21 @@ import {
   Post,
   Query,
   Res,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Response } from 'express';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { Response } from "express";
 
-import { Public } from '../../decorators/public.decorator';
-import type { DirectChatStreamChunk } from '../../modules/ai';
+import { Public } from "../../decorators/public.decorator";
+import type { DirectChatStreamChunk } from "../../modules/ai";
 import {
   AiTraceService,
   DirectChatService,
   SummarizationService,
-} from '../../modules/ai';
-import { ChatService } from '../../services/chat.service';
-import { PrismaService } from '../../services/prisma.service';
+} from "../../modules/ai";
+import { ChatService } from "../../services/chat.service";
+import { PrismaService } from "../../services/prisma.service";
 
-import { devTestChatHtml } from './dev-test-chat.page';
+import { devTestChatHtml } from "./dev-test-chat.page";
 
 /**
  * DEV-ONLY: HTTP surface for exercising the AI orchestration layer end-to-end
@@ -45,7 +45,7 @@ import { devTestChatHtml } from './dev-test-chat.page';
  * it off in prod/CI, and it defaults to off so it can't be exposed by mistake.
  */
 @Public()
-@Controller('dev/ai')
+@Controller("dev/ai")
 export class DevAiController {
   private readonly logger = new Logger(DevAiController.name);
 
@@ -82,20 +82,20 @@ export class DevAiController {
         if (!session || session.title) return;
 
         const assistantCount = await this.prisma.chatMessage.count({
-          where: { chatSessionId: sessionDbId, role: 'ASSISTANT' },
+          where: { chatSessionId: sessionDbId, role: "ASSISTANT" },
         });
         if (assistantCount < 2) return;
 
         const messages = await this.prisma.chatMessage.findMany({
           where: { chatSessionId: sessionDbId },
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: "asc" },
           take: 4,
           select: { role: true, content: true },
         });
 
         const title = await this.summarization.generateTitle({
           messages: messages.map((m) => ({
-            role: m.role === 'USER' ? 'user' : 'assistant',
+            role: m.role === "USER" ? "user" : "assistant",
             content: m.content,
           })),
           organizationId,
@@ -107,29 +107,29 @@ export class DevAiController {
           where: { id: sessionDbId },
           data: { title },
         });
-        this.logger.debug(`Generated title for session ${sessionDbId}: "${title}"`);
+        this.logger.debug(
+          `Generated title for session ${sessionDbId}: "${title}"`,
+        );
       } catch (err) {
         this.logger.warn(
           `Title generation failed for session ${sessionDbId}: ${
-            err instanceof Error ? err.message : 'unknown'
+            err instanceof Error ? err.message : "unknown"
           }`,
         );
       }
     })();
   }
 
-  @Get('test-chat')
+  @Get("test-chat")
   serveTestPage(@Res() res: Response): void {
     this.assertDevRoutesEnabled();
-    res.setHeader('Content-Type', 'text/html; charset=utf-8');
-    res.setHeader('Cache-Control', 'no-store');
+    res.setHeader("Content-Type", "text/html; charset=utf-8");
+    res.setHeader("Cache-Control", "no-store");
     res.status(200).send(devTestChatHtml);
   }
 
-  @Get('agents')
-  async listAgents(
-    @Query('includeInactive') includeInactive?: string,
-  ): Promise<
+  @Get("agents")
+  async listAgents(@Query("includeInactive") includeInactive?: string): Promise<
     Array<{
       id: string;
       publicId: string;
@@ -144,7 +144,7 @@ export class DevAiController {
     const agents = await this.prisma.agent.findMany({
       where: {
         deletedAt: null,
-        ...(includeInactive === 'true' ? {} : { status: 'ACTIVE' }),
+        ...(includeInactive === "true" ? {} : { status: "ACTIVE" }),
       },
       select: {
         id: true,
@@ -154,7 +154,7 @@ export class DevAiController {
         aiConfig: true,
         organization: { select: { id: true, name: true } },
       },
-      orderBy: { name: 'asc' },
+      orderBy: { name: "asc" },
     });
 
     return agents.map((a) => {
@@ -165,14 +165,14 @@ export class DevAiController {
         name: a.name,
         status: a.status,
         routingMode:
-          typeof cfg.routingMode === 'string' ? cfg.routingMode : 'n8n',
-        modelId: typeof cfg.modelId === 'string' ? cfg.modelId : null,
+          typeof cfg.routingMode === "string" ? cfg.routingMode : "n8n",
+        modelId: typeof cfg.modelId === "string" ? cfg.modelId : null,
         organization: a.organization,
       };
     });
   }
 
-  @Post('test-chat/stream')
+  @Post("test-chat/stream")
   async streamChat(
     @Body() dto: TestChatRequest,
     @Res() res: Response,
@@ -191,13 +191,13 @@ export class DevAiController {
     const session = await this.chatService.resolveOrCreateSession(
       agent.id,
       dto.sessionId,
-      'DEMO',
+      "DEMO",
     );
 
     // Fire-and-forget: persisting the user message for audit should NOT block
     // the LLM call. If the write fails we log it; the chat still works, and
     // the UI already has the message on screen. Saves ~150-400ms per turn.
-    void this.chatService.saveUserMessage(session.id, dto.message).catch((err) => {
+    void this.chatService.saveUserMessage(session, dto.message).catch((err) => {
       this.logger.warn(
         `saveUserMessage failed (session=${session.id}): ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -206,20 +206,20 @@ export class DevAiController {
     // SSE headers. `X-Accel-Buffering: no` defeats any reverse proxy buffering
     // (critical for streaming over nginx / Cloudflare). Keep-alive ensures the
     // connection stays open across token gaps.
-    res.setHeader('Content-Type', 'text/event-stream');
-    res.setHeader('Cache-Control', 'no-cache');
-    res.setHeader('Connection', 'keep-alive');
-    res.setHeader('X-Accel-Buffering', 'no');
+    res.setHeader("Content-Type", "text/event-stream");
+    res.setHeader("Cache-Control", "no-cache");
+    res.setHeader("Connection", "keep-alive");
+    res.setHeader("X-Accel-Buffering", "no");
     res.flushHeaders?.();
 
     const abortController = new AbortController();
     const onClose = () => abortController.abort();
-    res.on('close', onClose);
+    res.on("close", onClose);
 
     // Let the client know the session ID (they need it for subsequent messages).
-    this.writeSse(res, 'session', { sessionId: session.sessionId });
+    this.writeSse(res, "session", { sessionId: session.sessionId });
 
-    let finalText = '';
+    let finalText = "";
     let assistantMessageId: string | null = null;
 
     try {
@@ -230,14 +230,14 @@ export class DevAiController {
         newUserMessage: dto.message,
         recentHistory: dto.recentHistory,
         abortSignal: abortController.signal,
-        feature: 'chat-stream',
+        feature: "chat-stream",
       });
 
       for await (const chunk of stream) {
         this.emitChunk(res, chunk);
-        if (chunk.type === 'text-delta') {
+        if (chunk.type === "text-delta") {
           finalText += chunk.content;
-        } else if (chunk.type === 'finish') {
+        } else if (chunk.type === "finish") {
           // Fire-and-forget the assistant message persist + session bump. The
           // user already has the complete response in their UI — delaying the
           // `done` event by a Supabase round-trip (~150-400ms) is pure waste.
@@ -251,10 +251,12 @@ export class DevAiController {
           const assistantMsg = await this.prisma.chatMessage.create({
             data: {
               chatSessionId: session.id,
-              role: 'ASSISTANT',
+              agentId: session.agentId,
+              sessionSource: session.source,
+              role: "ASSISTANT",
               content: chunk.result.text,
               metadata: {
-                streamingMode: 'direct',
+                streamingMode: "direct",
                 traceId: chunk.result.traceId,
                 model: chunk.result.model,
                 cost: chunk.result.cost,
@@ -286,7 +288,7 @@ export class DevAiController {
 
           // Emit a final `done` event that the widget/dev page can use to
           // close the stream cleanly.
-          this.writeSse(res, 'done', {
+          this.writeSse(res, "done", {
             messageId: assistantMsg.id,
             sessionId: session.sessionId,
             traceId: chunk.result.traceId,
@@ -294,12 +296,12 @@ export class DevAiController {
         }
       }
     } catch (err) {
-      this.logger.error('Dev test chat stream failed', err);
-      this.writeSse(res, 'error', {
-        message: err instanceof Error ? err.message : 'Unknown error',
+      this.logger.error("Dev test chat stream failed", err);
+      this.writeSse(res, "error", {
+        message: err instanceof Error ? err.message : "Unknown error",
       });
     } finally {
-      res.off('close', onClose);
+      res.off("close", onClose);
       res.end();
     }
 
@@ -312,7 +314,7 @@ export class DevAiController {
     }
   }
 
-  @Post('test-chat')
+  @Post("test-chat")
   @HttpCode(200)
   async sendChat(@Body() dto: TestChatRequest) {
     this.assertDevRoutesEnabled();
@@ -325,10 +327,10 @@ export class DevAiController {
     const session = await this.chatService.resolveOrCreateSession(
       agent.id,
       dto.sessionId,
-      'DEMO',
+      "DEMO",
     );
 
-    void this.chatService.saveUserMessage(session.id, dto.message).catch((err) => {
+    void this.chatService.saveUserMessage(session, dto.message).catch((err) => {
       this.logger.warn(
         `saveUserMessage failed (session=${session.id}): ${err instanceof Error ? err.message : String(err)}`,
       );
@@ -340,16 +342,18 @@ export class DevAiController {
       externalSessionId: session.sessionId,
       newUserMessage: dto.message,
       recentHistory: dto.recentHistory,
-      feature: 'chat',
+      feature: "chat",
     });
 
     const assistantMsg = await this.prisma.chatMessage.create({
       data: {
         chatSessionId: session.id,
-        role: 'ASSISTANT',
+        agentId: session.agentId,
+        sessionSource: session.source,
+        role: "ASSISTANT",
         content: result.text,
         metadata: {
-          streamingMode: 'direct-sync',
+          streamingMode: "direct-sync",
           traceId: result.traceId,
           model: result.model,
           cost: result.cost,
@@ -381,28 +385,28 @@ export class DevAiController {
     };
   }
 
-  @Get('traces/:traceId')
-  async getTrace(@Param('traceId') traceId: string) {
+  @Get("traces/:traceId")
+  async getTrace(@Param("traceId") traceId: string) {
     this.assertDevRoutesEnabled();
     const trace = await this.traceService.findByTraceId(traceId);
     if (!trace) {
-      throw new NotFoundException('Trace not found');
+      throw new NotFoundException("Trace not found");
     }
     return trace;
   }
 
-  @Get('sessions/:sessionId')
-  async getSession(@Param('sessionId') sessionId: string) {
+  @Get("sessions/:sessionId")
+  async getSession(@Param("sessionId") sessionId: string) {
     this.assertDevRoutesEnabled();
     const session = await this.prisma.chatSession.findUnique({
       where: { sessionId },
       include: {
-        messages: { orderBy: { createdAt: 'asc' } },
+        messages: { orderBy: { createdAt: "asc" } },
         agent: { select: { id: true, name: true, publicId: true } },
       },
     });
     if (!session) {
-      throw new NotFoundException('Session not found');
+      throw new NotFoundException("Session not found");
     }
     return session;
   }
@@ -423,23 +427,23 @@ export class DevAiController {
    * you can't accidentally forget to opt out.
    */
   private assertDevRoutesEnabled(): void {
-    if (this.config.get<string>('ENABLE_DEV_ROUTES') !== 'true') {
+    if (this.config.get<string>("ENABLE_DEV_ROUTES") !== "true") {
       throw new NotFoundException();
     }
   }
 
   private validateRequest(dto: TestChatRequest): void {
-    if (!dto || typeof dto !== 'object') {
-      throw new BadRequestException('Request body required');
+    if (!dto || typeof dto !== "object") {
+      throw new BadRequestException("Request body required");
     }
-    if (!dto.agentId || typeof dto.agentId !== 'string') {
-      throw new BadRequestException('agentId required');
+    if (!dto.agentId || typeof dto.agentId !== "string") {
+      throw new BadRequestException("agentId required");
     }
-    if (!dto.message || typeof dto.message !== 'string') {
-      throw new BadRequestException('message required');
+    if (!dto.message || typeof dto.message !== "string") {
+      throw new BadRequestException("message required");
     }
     if (dto.message.length > 10_000) {
-      throw new BadRequestException('message too long (max 10000 chars)');
+      throw new BadRequestException("message too long (max 10000 chars)");
     }
   }
 
@@ -450,22 +454,22 @@ export class DevAiController {
    */
   private emitChunk(res: Response, chunk: DirectChatStreamChunk): void {
     switch (chunk.type) {
-      case 'trace':
-        this.writeSse(res, 'trace', {
+      case "trace":
+        this.writeSse(res, "trace", {
           step: chunk.step,
           durationMs: chunk.durationMs,
           data: chunk.data ?? {},
         });
         break;
-      case 'text-delta':
-        this.writeSse(res, 'chunk', { content: chunk.content });
+      case "text-delta":
+        this.writeSse(res, "chunk", { content: chunk.content });
         break;
-      case 'finish':
+      case "finish":
         // `done` is emitted separately by the caller once the assistant message
         // is persisted — keeps messageId available in the done event.
         break;
-      case 'error':
-        this.writeSse(res, 'error', {
+      case "error":
+        this.writeSse(res, "error", {
           message: chunk.error,
           code: chunk.code,
         });
@@ -498,5 +502,5 @@ interface TestChatRequest {
    * the orchestrator skips its DB history lookup — saves one Supabase RTT.
    * The client must NOT include the message being sent now — that's `message`.
    */
-  recentHistory?: Array<{ role: 'user' | 'assistant'; content: string }>;
+  recentHistory?: Array<{ role: "user" | "assistant"; content: string }>;
 }

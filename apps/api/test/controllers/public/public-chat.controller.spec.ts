@@ -274,7 +274,11 @@ describe("PublicChatController", () => {
       aiConfig: {},
       organizationId: "org-1",
     };
-    const mockSession = { id: "session-db-id", sessionId: "session-uuid" };
+    const mockSession = {
+      id: "session-db-id",
+      sessionId: "session-uuid",
+      agentId: "agent-1",
+    };
 
     function createMockResponse() {
       const written: string[] = [];
@@ -441,7 +445,7 @@ describe("PublicChatController", () => {
       // pre-generates the UUID and passes it as the 4th argument so the
       // `done` event can include the messageId before the DB write resolves.
       expect(mockChatService.saveAssistantMessage).toHaveBeenCalledWith(
-        mockSession.id,
+        mockSession,
         "",
         expect.objectContaining({ totalChunks: 0 }),
         expect.any(String),
@@ -517,7 +521,7 @@ describe("PublicChatController", () => {
       // 4th arg = organizationId, passed because PII redaction is on by default
       // (aiConfig has no explicit false) → storage tokenises VAULT-tier PII.
       expect(mockChatService.saveUserMessage).toHaveBeenCalledWith(
-        mockSession.id,
+        mockSession,
         dto.chatInput,
         expect.any(String),
         "org-1",
@@ -527,7 +531,7 @@ describe("PublicChatController", () => {
       // pre-generated UUID (4th arg) so the `done` event can carry the
       // messageId without waiting for the DB write.
       expect(mockChatService.saveAssistantMessage).toHaveBeenCalledWith(
-        mockSession.id,
+        mockSession,
         "Hello world!",
         expect.objectContaining({
           totalChunks: 3,

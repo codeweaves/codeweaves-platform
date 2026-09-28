@@ -35,6 +35,10 @@ services:
       POSTGRES_DB: codeweaves
     volumes:
       - postgres_data:/var/lib/postgresql/data
+    # Docker gives containers a 64 MB /dev/shm. Postgres parallel query workers
+    # exchange data through it, so a large analytics query fails with "could not
+    # resize shared memory segment" here while it runs fine on a real host.
+    shm_size: 1gb
     healthcheck:
       # Waits for the named database, not just the server, so `bun db:setup`
       # cannot start migrating a database that is still being created.

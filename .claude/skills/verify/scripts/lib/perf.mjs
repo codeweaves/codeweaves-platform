@@ -65,7 +65,17 @@ async function vitals(page) {
     const nav = performance.getEntriesByType('navigation')[0];
     const resources = performance.getEntriesByType('resource');
     const [lcp, shifts, longTasks] = await Promise.all([
-      observe('largest-contentful-paint', (_, e) => e.startTime, null),
+      // Keep the element too: an LCP number is only meaningful next to what
+      // was painted (a skeleton and the real content can both be "largest").
+      observe(
+        'largest-contentful-paint',
+        (_, e) => ({
+          t: e.startTime,
+          size: e.size,
+          element: `${e.element?.tagName ?? ''} ${(e.element?.textContent ?? '').trim().slice(0, 40)}`.trim(),
+        }),
+        null,
+      ),
       observe('layout-shift', (list, e) => (e.hadRecentInput ? list : [...list, { t: e.startTime, v: e.value }]), []),
       observe('longtask', (a, e) => ({ count: a.count + 1, ms: a.ms + e.duration }), { count: 0, ms: 0 }),
     ]);
@@ -90,7 +100,9 @@ async function vitals(page) {
       domContentLoadedMs: nav ? nav.domContentLoadedEventEnd : null,
       loadMs: nav ? nav.loadEventEnd : null,
       fcpMs: performance.getEntriesByName('first-contentful-paint')[0]?.startTime ?? null,
-      lcpMs: lcp,
+      lcpMs: lcp ? lcp.t : null,
+      lcpElement: lcp ? lcp.element : null,
+      lcpSize: lcp ? lcp.size : null,
       cls: Math.round(cls * 1000) / 1000,
       longTasks: longTasks.count,
       longTaskMs: Math.round(longTasks.ms),
@@ -113,7 +125,7 @@ function apiTimings(sinceIso) {
 }
 
 export async function pageLoad({ url, role = 'owner', runs = 5, waitText }) {
-  if (!url) throw new CliError('missing --url', 'example: perf page-load --url /dashboard --wait-text "Your agents"');
+  if (!url) throw new CliError('missing --url', 'example: perf page-load --url /dashboard --wait-text "Verify Chat Bot"');
   const target = url.startsWith('http') ? url : `${URLS.web}${url}`;
   const session = await connect();
   try {
@@ -123,13 +135,26 @@ export async function pageLoad({ url, role = 'owner', runs = 5, waitText }) {
     const api = {};
     for (let i = 0; i < runs; i++) {
       const since = new Date().toISOString();
-      await page.goto(target, { waitUntil: 'load', timeout: 90000 });
-      if (waitText) await page.getByText(String(waitText), { exact: false }).first().waitFor({ timeout: 60000 });
+      await page.goto(target, { waitUntil: 'commit', timeout: 90000 });
+      // contentReadyMs: navigation start until the wait text is on screen. Pick
+      // a text that needs data (an agent name, "All clear"), not a static
+      // heading. LCP alone is not enough here: it can settle on the sidebar
+      // logo long before the data-driven content paints.
+      const contentReadyMs = waitText
+        ? await page
+            .waitForFunction(
+              (text) => (document.body?.innerText.includes(text) ? Math.round(performance.now()) : false),
+              String(waitText),
+              { polling: 'raf', timeout: 60000 },
+            )
+            .then((h) => h.jsonValue())
+        : null;
+      await page.waitForLoadState('load', { timeout: 60000 });
       await settle(page, { quietMs: 800, timeout: 30000 });
-      samples.push({ run: i + 1, ...(await vitals(page)) });
+      samples.push({ run: i + 1, contentReadyMs, ...(await vitals(page)) });
       for (const [k, v] of Object.entries(apiTimings(since))) (api[k] ??= []).push(...v);
     }
-    const keys = ['ttfbMs', 'fcpMs', 'lcpMs', 'domContentLoadedMs', 'loadMs', 'cls', 'longTaskMs', 'transferKB'];
+    const keys = ['contentReadyMs', 'ttfbMs', 'fcpMs', 'lcpMs', 'domContentLoadedMs', 'loadMs', 'cls', 'longTaskMs', 'transferKB'];
     const result = {
       metric: 'page-load',
       url: target,

@@ -1,12 +1,12 @@
-'use client';
+"use client";
 
-import { useQuery } from '@tanstack/react-query';
-import { useApiClient } from '@/lib/api-client';
-import { useAuth } from '@/hooks/use-auth';
+import { useQuery } from "@tanstack/react-query";
+import { useApiClient } from "@/lib/api-client";
+import { useAuth } from "@/hooks/use-auth";
 
-export type ConversationSource = 'WIDGET' | 'WHATSAPP' | 'DEMO';
-export type ConversationStatus = 'ACTIVE' | 'EXPIRED';
-export type MessageRole = 'USER' | 'ASSISTANT' | 'HUMAN_AGENT' | 'SYSTEM';
+export type ConversationSource = "WIDGET" | "WHATSAPP" | "DEMO";
+export type ConversationStatus = "ACTIVE" | "EXPIRED";
+export type MessageRole = "USER" | "ASSISTANT" | "HUMAN_AGENT" | "SYSTEM";
 
 export interface ConversationListItem {
   id: string;
@@ -53,8 +53,8 @@ export interface ConversationListParams {
   visitorId?: string;
   from?: string;
   to?: string;
-  sortBy?: 'lastMessageAt' | 'createdAt' | 'messageCount';
-  sortOrder?: 'asc' | 'desc';
+  sortBy?: "lastMessageAt" | "createdAt";
+  sortOrder?: "asc" | "desc";
 }
 
 export interface ConversationMessage {
@@ -108,24 +108,25 @@ export interface ConversationDetail {
 
 function buildQuery(params: ConversationListParams): string {
   const qp = new URLSearchParams();
-  if (params.page) qp.set('page', String(params.page));
-  if (params.limit) qp.set('limit', String(params.limit));
-  if (params.search) qp.set('search', params.search);
-  if (params.agentId) qp.set('agentId', params.agentId);
-  if (params.agentIds?.length) qp.set('agentIds', params.agentIds.join(','));
-  if (params.orgId) qp.set('orgId', params.orgId);
-  if (params.source) qp.set('source', params.source);
-  if (params.sources?.length) qp.set('sources', params.sources.join(','));
-  if (params.status) qp.set('status', params.status);
-  if (params.statuses?.length) qp.set('statuses', params.statuses.join(','));
-  if (params.categories?.length) qp.set('categories', params.categories.join(','));
-  if (params.visitorId) qp.set('visitorId', params.visitorId);
-  if (params.from) qp.set('from', params.from);
-  if (params.to) qp.set('to', params.to);
-  if (params.sortBy) qp.set('sortBy', params.sortBy);
-  if (params.sortOrder) qp.set('sortOrder', params.sortOrder);
+  if (params.page) qp.set("page", String(params.page));
+  if (params.limit) qp.set("limit", String(params.limit));
+  if (params.search) qp.set("search", params.search);
+  if (params.agentId) qp.set("agentId", params.agentId);
+  if (params.agentIds?.length) qp.set("agentIds", params.agentIds.join(","));
+  if (params.orgId) qp.set("orgId", params.orgId);
+  if (params.source) qp.set("source", params.source);
+  if (params.sources?.length) qp.set("sources", params.sources.join(","));
+  if (params.status) qp.set("status", params.status);
+  if (params.statuses?.length) qp.set("statuses", params.statuses.join(","));
+  if (params.categories?.length)
+    qp.set("categories", params.categories.join(","));
+  if (params.visitorId) qp.set("visitorId", params.visitorId);
+  if (params.from) qp.set("from", params.from);
+  if (params.to) qp.set("to", params.to);
+  if (params.sortBy) qp.set("sortBy", params.sortBy);
+  if (params.sortOrder) qp.set("sortOrder", params.sortOrder);
   const s = qp.toString();
-  return s ? `?${s}` : '';
+  return s ? `?${s}` : "";
 }
 
 export interface ConversationsQueryOptions {
@@ -150,7 +151,7 @@ export function useConversations(
   const api = useApiClient();
 
   return useQuery<PaginatedConversations>({
-    queryKey: ['conversations', params],
+    queryKey: ["conversations", params],
     queryFn: () => api.get(`/conversations${buildQuery(params)}`),
     enabled: isAuthenticated && !authLoading,
     staleTime: resolveStaleTime(options),
@@ -177,14 +178,14 @@ export function useConversation(
   const api = useApiClient();
 
   return useQuery<ConversationDetail>({
-    queryKey: ['conversations', 'detail', sessionId],
+    queryKey: ["conversations", "detail", sessionId],
     queryFn: () => api.get(`/conversations/${sessionId}`),
     enabled: isAuthenticated && !authLoading && !!sessionId,
     staleTime: resolveStaleTime(options),
     // Only an ACTIVE conversation can gain messages. An EXPIRED transcript is
     // immutable, so polling one is pure waste — stop as soon as we know.
     refetchInterval: (query) =>
-      query.state.data?.status === 'ACTIVE'
+      query.state.data?.status === "ACTIVE"
         ? (options?.refetchInterval ?? false)
         : false,
     refetchIntervalInBackground: false,

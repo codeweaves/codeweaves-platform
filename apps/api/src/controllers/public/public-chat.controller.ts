@@ -283,6 +283,8 @@ export class PublicChatController {
         {
           sessionDbId: session.id,
           publicSessionId: session.sessionId,
+          agentId: session.agentId,
+          source: session.source,
           organizationId: fullAgent.organizationId,
         },
         "USER_REQUESTED",
@@ -441,6 +443,8 @@ export class PublicChatController {
           {
             sessionDbId: session.id,
             publicSessionId: session.sessionId,
+            agentId: session.agentId,
+            source: session.source,
             organizationId: fullAgentResult.organizationId,
           },
           dto.chatInput,
@@ -475,7 +479,7 @@ export class PublicChatController {
       const userMessageId = randomUUID();
       void this.chatService
         .saveUserMessage(
-          session.id,
+          session,
           dto.chatInput,
           userMessageId,
           ChatService.isPiiRedactionEnabled(agent.aiConfig)
@@ -508,6 +512,8 @@ export class PublicChatController {
         const handoverCtx = {
           sessionDbId: session.id,
           publicSessionId: session.sessionId,
+          agentId: session.agentId,
+          source: session.source,
           organizationId: fullAgent.organizationId,
         };
         // Demo/preview chats never trigger handover.
@@ -803,7 +809,7 @@ export class PublicChatController {
         // blind.
         void this.chatService
           .saveAssistantMessage(
-            session.id,
+            session,
             fullResponse,
             metadata,
             assistantMessageId,

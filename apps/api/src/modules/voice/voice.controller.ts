@@ -654,7 +654,7 @@ export class VoiceController {
 
     // Normal AI path: persist the inbound + expose its id, then show transcription.
     const userMessage = await this.chatService.saveUserMessage(
-      session.id,
+      session,
       sttResult.transcript,
       undefined,
       ChatService.isPiiRedactionEnabled(fullAgent.aiConfig)
@@ -1124,13 +1124,9 @@ export class VoiceController {
     try {
       await Promise.all([
         fullText
-          ? this.chatService.saveAssistantMessage(
-              session.id,
-              fullText,
-              metadata,
-            )
+          ? this.chatService.saveAssistantMessage(session, fullText, metadata)
           : this.chatService.saveAssistantMessage(
-              session.id,
+              session,
               "[streaming failed]",
               { ...metadata, error: true },
             ),
@@ -1141,8 +1137,7 @@ export class VoiceController {
         // Mirror the voice USER message's STT metrics into typed columns so
         // analytics counts it as a voice turn (and tracks the STT provider).
         this.messageMetricsService.recordFromMetadata(
-          userMessage.id,
-          userMessage.createdAt,
+          userMessage,
           userMetadata,
         ),
         // Keep ChatSession.lastMessageAt in lockstep with the text flow so

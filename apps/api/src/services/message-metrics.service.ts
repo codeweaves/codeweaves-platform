@@ -1,6 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from './prisma.service';
-import { AppLogger } from '../common/logger/app-logger';
+import { Injectable } from "@nestjs/common";
+import type { ChatMessage } from "@prisma/client";
+import { PrismaService } from "./prisma.service";
+import { AppLogger } from "../common/logger/app-logger";
 
 /**
  * Strict, typed metrics for one chat message — the canonical shape that maps
@@ -10,7 +11,7 @@ import { AppLogger } from '../common/logger/app-logger';
  * the old free-form `metadata` JSON allowed.
  */
 export interface MessageMetricsInput {
-  inputType?: 'text' | 'voice' | null;
+  inputType?: "text" | "voice" | null;
   streamed?: boolean | null;
 
   // backend / LLM timing (ms)
@@ -73,6 +74,12 @@ export interface MessageMetricsInput {
  * (text / voice / WhatsApp) routes through here, so column names can't diverge
  * per pipeline the way the old JSON keys did.
  */
+/** The persisted message a metrics row belongs to. */
+export type MetricsMessage = Pick<
+  ChatMessage,
+  "id" | "agentId" | "sessionSource" | "role" | "createdAt"
+>;
+
 @Injectable()
 export class MessageMetricsService {
   private readonly log = new AppLogger(MessageMetricsService.name);
@@ -85,19 +92,31 @@ export class MessageMetricsService {
    * allowed to break a user's reply. Upsert keyed on messageId so a retry or a
    * later delivery-status update is safe.
    */
-  async record(messageId: string, createdAt: Date, input: MessageMetricsInput): Promise<void> {
+  async record(
+    message: MetricsMessage,
+    input: MessageMetricsInput,
+  ): Promise<void> {
     const data = this.strip(input);
     try {
       await this.prisma.chatMessageMetrics.upsert({
-        where: { messageId },
-        create: { messageId, createdAt, ...data },
+        where: { messageId: message.id },
+        // The keys analytics scopes by are copied from the message row, never
+        // taken from the caller, so they cannot disagree with it (ADR-0007).
+        create: {
+          messageId: message.id,
+          agentId: message.agentId,
+          sessionSource: message.sessionSource,
+          role: message.role,
+          createdAt: message.createdAt,
+          ...data,
+        },
         update: data,
       });
     } catch (err) {
       this.log.warn(
-        'record',
-        `failed to record metrics for message ${messageId}`,
-        { err: err instanceof Error ? err.message : 'unknown' },
+        "record",
+        `failed to record metrics for message ${message.id}`,
+        { err: err instanceof Error ? err.message : "unknown" },
       );
     }
   }
@@ -114,15 +133,24 @@ export class MessageMetricsService {
    * Lets callers keep passing the object they already build while analytics
    * reads only the canonical columns.
    */
-  fromMetadata(metadata: Record<string, unknown> | null | undefined): MessageMetricsInput {
+  fromMetadata(
+    metadata: Record<string, unknown> | null | undefined,
+  ): MessageMetricsInput {
     const m = metadata ?? {};
     return {
-      inputType: m.inputType === 'text' || m.inputType === 'voice' ? m.inputType : null,
+      inputType:
+        m.inputType === "text" || m.inputType === "voice" ? m.inputType : null,
       // Every channel now writes these two distinctly: responseLatencyMs =
       // backend received->reply-sent; llmLatencyMs = the model's own time.
       responseLatencyMs: this.int(m.responseLatencyMs),
-      llmLatencyMs: this.int(m.llmLatencyMs) ?? this.int(m.latencyMs) ?? this.int(m.timeToLastToken),
-      timeToFirstTokenMs: this.int(m.timeToFirstToken) ?? this.int(m.llmTtftMs) ?? this.int(m.ttftMs),
+      llmLatencyMs:
+        this.int(m.llmLatencyMs) ??
+        this.int(m.latencyMs) ??
+        this.int(m.timeToLastToken),
+      timeToFirstTokenMs:
+        this.int(m.timeToFirstToken) ??
+        this.int(m.llmTtftMs) ??
+        this.int(m.ttftMs),
       timeToLastTokenMs: this.int(m.timeToLastToken),
       streamDurationMs: this.int(m.streamDurationMs),
       totalChunks: this.int(m.totalChunks),
@@ -162,11 +190,10 @@ export class MessageMetricsService {
 
   /** Convenience: normalize + persist from a legacy metadata object. */
   async recordFromMetadata(
-    messageId: string,
-    createdAt: Date,
+    message: MetricsMessage,
     metadata: Record<string, unknown> | null | undefined,
   ): Promise<void> {
-    await this.record(messageId, createdAt, this.fromMetadata(metadata));
+    await this.record(message, this.fromMetadata(metadata));
   }
 
   // ---- helpers: tolerant coercion (mirrors the SQL backfill guards) ----
@@ -181,25 +208,25 @@ export class MessageMetricsService {
   /** Integer columns (latency ms, tokens, counts): round; null on junk. */
   private int(v: unknown): number | null {
     if (v == null) return null;
-    const n = typeof v === 'number' ? v : Number(v);
+    const n = typeof v === "number" ? v : Number(v);
     return Number.isFinite(n) ? Math.round(n) : null;
   }
 
   /** Decimal columns (cost, confidence): keep precision; null on junk. */
   private dec(v: unknown): number | null {
     if (v == null) return null;
-    const n = typeof v === 'number' ? v : Number(v);
+    const n = typeof v === "number" ? v : Number(v);
     return Number.isFinite(n) ? n : null;
   }
 
   private str(v: unknown): string | null {
-    return typeof v === 'string' && v.length > 0 ? v : null;
+    return typeof v === "string" && v.length > 0 ? v : null;
   }
 
   private bool(v: unknown): boolean | null {
-    if (typeof v === 'boolean') return v;
-    if (v === 'true') return true;
-    if (v === 'false') return false;
+    if (typeof v === "boolean") return v;
+    if (v === "true") return true;
+    if (v === "false") return false;
     return null;
   }
 }

@@ -1,18 +1,18 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger } from "@nestjs/common";
 
-import { CryptoService } from '../../common/crypto/crypto.service';
-import { ChatService } from '../../services/chat.service';
-import { PrismaService } from '../../services/prisma.service';
-import { DirectChatService } from '../ai/direct-chat.service';
-import type { DirectChatResult } from '../ai/interfaces/direct-chat.interfaces';
-import type { SupportedLanguage } from '../voice/providers/voice-provider.interface';
-import { VoiceService } from '../voice/voice.service';
+import { CryptoService } from "../../common/crypto/crypto.service";
+import { ChatService } from "../../services/chat.service";
+import { PrismaService } from "../../services/prisma.service";
+import { DirectChatService } from "../ai/direct-chat.service";
+import type { DirectChatResult } from "../ai/interfaces/direct-chat.interfaces";
+import type { SupportedLanguage } from "../voice/providers/voice-provider.interface";
+import { VoiceService } from "../voice/voice.service";
 
-import { WhatsappInboundJob } from './interfaces/whatsapp.interfaces';
-import { markdownToPlainText, markdownToWhatsapp } from './whatsapp-format';
-import { WhatsappSendService } from './whatsapp-send.service';
-import { detectFallback } from '../../utils/fallback-detection';
-import { WhatsappEventLogger } from '../../common/events/whatsapp.logger';
+import { WhatsappInboundJob } from "./interfaces/whatsapp.interfaces";
+import { markdownToPlainText, markdownToWhatsapp } from "./whatsapp-format";
+import { WhatsappSendService } from "./whatsapp-send.service";
+import { detectFallback } from "../../utils/fallback-detection";
+import { WhatsappEventLogger } from "../../common/events/whatsapp.logger";
 
 /** Sent when orchestration fails, so the user isn't left on silent read. */
 const FALLBACK_REPLY =
@@ -24,7 +24,7 @@ const CANT_TRANSCRIBE_REPLY =
 
 /** Mask a phone number for logs — keep only the last 4 digits. */
 function maskPhone(phone: string): string {
-  return phone.length <= 4 ? '****' : `***${phone.slice(-4)}`;
+  return phone.length <= 4 ? "****" : `***${phone.slice(-4)}`;
 }
 
 /**
@@ -58,7 +58,7 @@ export class WhatsappInboundService {
     const channel = await this.prisma.whatsappChannel.findUnique({
       where: { phoneNumberId },
     });
-    if (!channel || channel.status !== 'CONNECTED') {
+    if (!channel || channel.status !== "CONNECTED") {
       this.logger.warn(
         `Inbound for unknown/inactive channel (phoneNumberId=${phoneNumberId}) — dropping.`,
       );
@@ -67,7 +67,7 @@ export class WhatsappInboundService {
 
     // 2. Load the full, active agent (DirectChatService needs the whole entity).
     const agent = await this.prisma.agent.findFirst({
-      where: { id: channel.agentId, deletedAt: null, status: 'ACTIVE' },
+      where: { id: channel.agentId, deletedAt: null, status: "ACTIVE" },
     });
     if (!agent) {
       this.logger.warn(
@@ -110,7 +110,7 @@ export class WhatsappInboundService {
     //     channel-neutral.
     let userText: string;
     let sttLanguage: SupportedLanguage | undefined;
-    if (job.type === 'audio') {
+    if (job.type === "audio") {
       if (!job.mediaId) {
         this.logger.warn(`Audio job ${messageId} has no mediaId — dropping.`);
         return;
@@ -125,7 +125,7 @@ export class WhatsappInboundService {
           audioFormat: media.mimeType,
           agentId: agent.id,
         });
-        userText = stt.transcript?.trim() ?? '';
+        userText = stt.transcript?.trim() ?? "";
         sttLanguage = stt.detectedLanguage;
       } catch (err) {
         this.logger.error(
@@ -142,14 +142,16 @@ export class WhatsappInboundService {
         return;
       }
       if (!userText) {
-        this.logger.warn(`Empty transcript for ${messageId} — asking user to retry.`);
+        this.logger.warn(
+          `Empty transcript for ${messageId} — asking user to retry.`,
+        );
         await this.whatsappSend
           .sendText(phoneNumberId, accessToken, from, CANT_TRANSCRIBE_REPLY)
           .catch(() => undefined);
         return;
       }
     } else {
-      userText = job.text?.trim() ?? '';
+      userText = job.text?.trim() ?? "";
       if (!userText) {
         this.logger.warn(`Text job ${messageId} has an empty body — dropping.`);
         return;
@@ -162,7 +164,7 @@ export class WhatsappInboundService {
     //    then rotates to a fresh session.
     const session = await this.chatService.resolveOrCreateVisitorSession(
       agent.id,
-      'WHATSAPP',
+      "WHATSAPP",
       from,
     );
 
@@ -178,7 +180,11 @@ export class WhatsappInboundService {
     //     the AI. (Delivering the human's reply back out via WhatsApp is a
     //     separate outbound piece — for now this just stops the double-reply.)
     if (this.chatService.isPausedForHuman(session)) {
-      await this.chatService.recordPausedInbound(session, agent.organizationId, userText);
+      await this.chatService.recordPausedInbound(
+        session,
+        agent.organizationId,
+        userText,
+      );
       this.logger.log(
         `WhatsApp session ${session.sessionId} is in human handover — AI reply suppressed.`,
       );
@@ -187,10 +193,12 @@ export class WhatsappInboundService {
 
     // 6. Persist the inbound message before calling the LLM (survives LLM failure).
     await this.chatService.saveUserMessage(
-      session.id,
+      session,
       userText,
       undefined,
-      ChatService.isPiiRedactionEnabled(agent.aiConfig) ? agent.organizationId : undefined,
+      ChatService.isPiiRedactionEnabled(agent.aiConfig)
+        ? agent.organizationId
+        : undefined,
     );
 
     // 6b. Human handover parity with the widget/voice: a "talk to a human"
@@ -198,11 +206,15 @@ export class WhatsappInboundService {
     //     connect_to_human tool so it can escalate on frustration / consent.
     //     Either way the bot stalls politely, and we ping the dashboard after the
     //     turn so the WhatsApp exchange shows in the live thread.
-    const escalated = await this.chatService.maybeEscalateToHuman(session, agent, userText);
-    const inHandover = escalated || session.handoverState === 'REQUESTED';
+    const escalated = await this.chatService.maybeEscalateToHuman(
+      session,
+      agent,
+      userText,
+    );
+    const inHandover = escalated || session.handoverState === "REQUESTED";
     let toolEscalated = false;
     const offerHumanTools =
-      agent.humanTakeoverEnabled && session.source !== 'DEMO' && !inHandover
+      agent.humanTakeoverEnabled && session.source !== "DEMO" && !inHandover
         ? {
             connect_to_human: this.chatService.buildHumanConnectTool(
               session,
@@ -222,8 +234,8 @@ export class WhatsappInboundService {
         chatSessionId: session.id,
         externalSessionId: session.sessionId,
         newUserMessage: userText,
-        feature: 'chat',
-        channel: 'WHATSAPP',
+        feature: "chat",
+        channel: "WHATSAPP",
         extraSystemInstruction: inHandover
           ? this.chatService.handoverStallInstruction(agent)
           : offerHumanTools
@@ -249,7 +261,7 @@ export class WhatsappInboundService {
       return;
     }
 
-    const replyText = result.text?.trim() ?? '';
+    const replyText = result.text?.trim() ?? "";
     if (!replyText) {
       this.logger.warn(
         `Empty reply for session ${session.sessionId} — nothing to send.`,
@@ -263,13 +275,13 @@ export class WhatsappInboundService {
     //    We persist the original Markdown either way (channel-neutral history).
     let outboundId: string | null = null;
     let delivered = false;
-    let replyMode: 'text' | 'voice' = 'text';
+    let replyMode: "text" | "voice" = "text";
 
-    if (channel.voiceReplyEnabled && job.type === 'audio') {
+    if (channel.voiceReplyEnabled && job.type === "audio") {
       try {
         const tts = await this.voiceService.synthesize({
           text: markdownToPlainText(replyText),
-          language: sttLanguage ?? 'en',
+          language: sttLanguage ?? "en",
           agentId: agent.id,
         });
         const mediaId = await this.whatsappSend.uploadMedia(
@@ -285,7 +297,7 @@ export class WhatsappInboundService {
           mediaId,
         );
         delivered = true;
-        replyMode = 'voice';
+        replyMode = "voice";
       } catch (err) {
         this.logger.warn(
           `Voice reply failed for session ${session.sessionId} — falling back to text: ${err instanceof Error ? err.message : String(err)}`,
@@ -313,11 +325,11 @@ export class WhatsappInboundService {
     // 9. Persist the assistant message + bump the session timestamp. Metadata uses
     //    the same key names as the widget path so analytics needn't special-case
     //    the channel.
-    await this.chatService.saveAssistantMessage(session.id, replyText, {
-      channel: 'whatsapp',
+    await this.chatService.saveAssistantMessage(session, replyText, {
+      channel: "whatsapp",
       // Match the widget's voice tagging so the conversations UI shows the same
       // "Voice" badge (it reads metadata.inputType === 'voice').
-      inputType: job.type === 'audio' ? 'voice' : 'text',
+      inputType: job.type === "audio" ? "voice" : "text",
       replyMode,
       // Language detected from the voice note's STT (en/hi/…), same key the widget
       // uses. Null for text inbound — the post-session classifier sets the
@@ -350,7 +362,7 @@ export class WhatsappInboundService {
         delivered,
         model: result.model,
         totalTokens: result.usage.totalTokens,
-        inputType: job.type === 'audio' ? 'voice' : 'text',
+        inputType: job.type === "audio" ? "voice" : "text",
       },
     });
     await this.chatService.updateSessionTimestamp(session.id);
@@ -359,7 +371,10 @@ export class WhatsappInboundService {
     //     live Inbox thread while a teammate is being connected (keyword OR the
     //     model's connect_to_human tool).
     if (inHandover || toolEscalated) {
-      await this.chatService.publishHandoverBotTurn(session, agent.organizationId);
+      await this.chatService.publishHandoverBotTurn(
+        session,
+        agent.organizationId,
+      );
     }
   }
 }

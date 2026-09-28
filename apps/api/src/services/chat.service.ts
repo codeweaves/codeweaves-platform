@@ -27,6 +27,12 @@ import { randomUUID } from "crypto";
 const N8N_TIMEOUT_MS = 10_000;
 const MAX_LOG_RESPONSE_LENGTH = 500;
 
+/** The session a message is written to. Its agent and channel are copied onto the message (ADR-0007). */
+export type MessageSession = Pick<ChatSession, "id" | "agentId" | "source">;
+
+/** A session the handover helpers act on: a MessageSession plus its public id. */
+type HandoverSession = MessageSession & Pick<ChatSession, "sessionId">;
+
 @Injectable()
 export class ChatService {
   private readonly log = new AppLogger(ChatService.name);
@@ -62,7 +68,7 @@ export class ChatService {
    * HandoverService directly).
    */
   async recordPausedInbound(
-    session: { id: string; sessionId: string },
+    session: HandoverSession,
     organizationId: string,
     content: string,
   ): Promise<void> {
@@ -70,6 +76,8 @@ export class ChatService {
       {
         sessionDbId: session.id,
         publicSessionId: session.sessionId,
+        agentId: session.agentId,
+        source: session.source,
         organizationId,
       },
       content,
@@ -85,12 +93,7 @@ export class ChatService {
    * turn. Best-effort: `raiseRequested` swallows its own errors.
    */
   async maybeEscalateToHuman(
-    session: {
-      id: string;
-      sessionId: string;
-      handoverState: string;
-      source?: string;
-    },
+    session: HandoverSession & { handoverState: string },
     agent: { humanTakeoverEnabled?: boolean | null; organizationId: string },
     text: string,
   ): Promise<boolean> {
@@ -102,6 +105,8 @@ export class ChatService {
       {
         sessionDbId: session.id,
         publicSessionId: session.sessionId,
+        agentId: session.agentId,
+        source: session.source,
         organizationId: agent.organizationId,
       },
       "USER_REQUESTED",
@@ -115,12 +120,14 @@ export class ChatService {
    * on being in a handover. Best-effort.
    */
   async publishHandoverBotTurn(
-    session: { id: string; sessionId: string },
+    session: HandoverSession,
     organizationId: string,
   ): Promise<void> {
     await this.handoverService.publishBotTurn({
       sessionDbId: session.id,
       publicSessionId: session.sessionId,
+      agentId: session.agentId,
+      source: session.source,
       organizationId,
     });
   }
@@ -143,7 +150,7 @@ export class ChatService {
    * fires when the model calls it, so the caller can signal the client to poll.
    */
   buildHumanConnectTool(
-    session: { id: string; sessionId: string },
+    session: HandoverSession,
     organizationId: string,
     onEscalate: (reason: HandoverReason) => void,
   ) {
@@ -151,6 +158,8 @@ export class ChatService {
       {
         sessionDbId: session.id,
         publicSessionId: session.sessionId,
+        agentId: session.agentId,
+        source: session.source,
         organizationId,
       },
       onEscalate,
@@ -405,7 +414,7 @@ export class ChatService {
    * later operations (e.g. orphan cleanup). Mirrors `saveAssistantMessage`.
    */
   async saveUserMessage(
-    chatSessionId: string,
+    session: MessageSession,
     content: string,
     id?: string,
     organizationId?: string,
@@ -413,11 +422,13 @@ export class ChatService {
     return this.prisma.chatMessage.create({
       data: {
         ...(id ? { id } : {}),
-        chatSessionId,
+        chatSessionId: session.id,
+        agentId: session.agentId,
+        sessionSource: session.source,
         role: "USER",
         content: await this.redactUserContent(
           content,
-          chatSessionId,
+          session.id,
           organizationId,
         ),
       },
@@ -475,7 +486,7 @@ export class ChatService {
    * trip. If `id` isn't supplied, Prisma generates one as before.
    */
   async saveAssistantMessage(
-    chatSessionId: string,
+    session: MessageSession,
     content: string,
     metadata: Prisma.InputJsonValue,
     id?: string,
@@ -483,7 +494,9 @@ export class ChatService {
     const message = await this.prisma.chatMessage.create({
       data: {
         ...(id ? { id } : {}),
-        chatSessionId,
+        chatSessionId: session.id,
+        agentId: session.agentId,
+        sessionSource: session.source,
         role: "ASSISTANT",
         content,
         metadata,
@@ -492,8 +505,7 @@ export class ChatService {
     // Mirror analytics metrics into typed columns via the single normalizing
     // writer. Best-effort (never throws into the chat path) and idempotent.
     await this.messageMetricsService.recordFromMetadata(
-      message.id,
-      message.createdAt,
+      message,
       metadata as unknown as Record<string, unknown>,
     );
     return message;
@@ -702,6 +714,8 @@ export class ChatService {
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
+          agentId: session.agentId,
+          sessionSource: session.source,
           role: "USER",
           content: storedUserContent,
         },
@@ -709,6 +723,8 @@ export class ChatService {
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
+          agentId: session.agentId,
+          sessionSource: session.source,
           role: "ASSISTANT",
           content: result.text,
           metadata,
@@ -721,8 +737,7 @@ export class ChatService {
     ]);
 
     await this.messageMetricsService.recordFromMetadata(
-      assistantMessage.id,
-      assistantMessage.createdAt,
+      assistantMessage,
       metadata as unknown as Record<string, unknown>,
     );
 
@@ -782,6 +797,8 @@ export class ChatService {
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
+          agentId: session.agentId,
+          sessionSource: session.source,
           role: "USER",
           content: storedUserContent,
         },
@@ -789,6 +806,8 @@ export class ChatService {
       this.prisma.chatMessage.create({
         data: {
           chatSessionId: session.id,
+          agentId: session.agentId,
+          sessionSource: session.source,
           role: "ASSISTANT",
           content: n8nResponse.agentReply,
           metadata,
@@ -847,6 +866,8 @@ export class ChatService {
     const userMessage = await this.prisma.chatMessage.create({
       data: {
         chatSessionId: session.id,
+        agentId: session.agentId,
+        sessionSource: session.source,
         role: "USER",
         content: await this.redactUserContent(dto.chatInput, session.id),
       },
@@ -875,6 +896,8 @@ export class ChatService {
     const assistantMessage = await this.prisma.chatMessage.create({
       data: {
         chatSessionId: session.id,
+        agentId: session.agentId,
+        sessionSource: session.source,
         role: "ASSISTANT",
         content: n8nResponse.agentReply,
         metadata,

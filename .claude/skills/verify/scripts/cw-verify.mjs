@@ -46,7 +46,7 @@ widget close
 dashboard login [--as ${ROLES.join('|')}]   real sign-in form, identity checked
 
 browser trace --path P [--url U | --seconds N]   Chrome performance trace (open in DevTools > Performance)
-perf page-load --url /dashboard [--as owner] [--runs 5] [--wait-text "Your agents"]   vitals + API latency, median/p90
+perf page-load --url /dashboard [--as owner] [--runs 5] [--wait-text "Verify Chat Bot"]   content-ready time (use a text that needs data), vitals, API latency and counts
 perf widget-load [--agent chat] [--runs 5]       launcher visible, open time, bundle and config fetch
 perf widget-reply [--agent chat] [--runs 7]      time to first word and full reply (max 9: rate limit)
 perf widget-leak [--agent chat] [--cycles 20]    heap, DOM nodes and listeners after GC, before vs after

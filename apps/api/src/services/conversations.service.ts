@@ -1,10 +1,15 @@
-import { Injectable, ForbiddenException, NotFoundException } from '@nestjs/common';
-import { Prisma } from '@prisma/client';
-import { PrismaService } from './prisma.service';
-import { AppLogger } from '../common/logger/app-logger';
-import type { CurrentUserData } from '../decorators/current-user.decorator';
-import type { ConversationsListQuery } from '../models/conversations.dto';
-import { isOrgScoped } from '../utils/tenant-filter';
+import {
+  Injectable,
+  ForbiddenException,
+  NotFoundException,
+} from "@nestjs/common";
+import { Prisma } from "@prisma/client";
+import { PrismaService } from "./prisma.service";
+import { AppLogger } from "../common/logger/app-logger";
+import type { CurrentUserData } from "../decorators/current-user.decorator";
+import type { ConversationsListQuery } from "../models/conversations.dto";
+import { isOrgScoped } from "../utils/tenant-filter";
+import { countMessagesBySession } from "../utils/message-counts";
 
 /**
  * Conversations service — powers the dashboard "Conversations" page.
@@ -44,7 +49,9 @@ export class ConversationsService {
     user: CurrentUserData,
   ): { agent: Prisma.AgentWhereInput; agentId?: Prisma.StringFilter } {
     if (isOrgScoped(user) && !user.organizationId) {
-      throw new ForbiddenException('Client user must be associated with an organization');
+      throw new ForbiddenException(
+        "Client user must be associated with an organization",
+      );
     }
 
     const agentIdList = [
@@ -66,7 +73,7 @@ export class ConversationsService {
 
   async list(query: ConversationsListQuery, user: CurrentUserData) {
     const { page, limit, sortBy, sortOrder } = query;
-    this.log.debug('list', 'listing conversations', {
+    this.log.debug("list", "listing conversations", {
       role: user.role,
       page,
       limit,
@@ -78,11 +85,16 @@ export class ConversationsService {
     const where: Prisma.ChatSessionWhereInput = {
       ...scope,
       ...(query.source && { source: query.source }),
-      ...(query.sources && query.sources.length > 0 && { source: { in: query.sources } }),
+      ...(query.sources &&
+        query.sources.length > 0 && { source: { in: query.sources } }),
       ...(query.status && { status: query.status }),
-      ...(query.statuses && query.statuses.length > 0 && { status: { in: query.statuses } }),
-      ...(query.categories && query.categories.length > 0 && { category: { in: query.categories } }),
-      ...(query.visitorId && { visitorId: { contains: query.visitorId, mode: 'insensitive' } }),
+      ...(query.statuses &&
+        query.statuses.length > 0 && { status: { in: query.statuses } }),
+      ...(query.categories &&
+        query.categories.length > 0 && { category: { in: query.categories } }),
+      ...(query.visitorId && {
+        visitorId: { contains: query.visitorId, mode: "insensitive" },
+      }),
       ...((query.from || query.to) && {
         createdAt: {
           ...(query.from && { gte: new Date(query.from) }),
@@ -91,24 +103,26 @@ export class ConversationsService {
       }),
       ...(query.search && {
         OR: [
-          { title: { contains: query.search, mode: 'insensitive' } },
-          { summary: { contains: query.search, mode: 'insensitive' } },
-          { messages: { some: { content: { contains: query.search, mode: 'insensitive' } } } },
+          { title: { contains: query.search, mode: "insensitive" } },
+          { summary: { contains: query.search, mode: "insensitive" } },
+          {
+            messages: {
+              some: {
+                content: { contains: query.search, mode: "insensitive" },
+              },
+            },
+          },
         ],
       }),
     };
 
-    // messageCount sort is not a column on ChatSession — Prisma supports it
-    // via `_count` orderBy on the relation, which compiles to a correlated
-    // subquery. lastMessageAt is nullable (a session has none until its first
-    // assistant reply lands, and aborted streams never write it) — push nulls
-    // to the end so brand-new/errored sessions don't float above real activity.
+    // lastMessageAt is nullable (a session has none until its first assistant
+    // reply lands, and aborted streams never write it) — push nulls to the end
+    // so brand-new/errored sessions don't float above real activity.
     const orderBy: Prisma.ChatSessionOrderByWithRelationInput =
-      sortBy === 'messageCount'
-        ? { messages: { _count: sortOrder } }
-        : sortBy === 'lastMessageAt'
-          ? { lastMessageAt: { sort: sortOrder, nulls: 'last' } }
-          : { [sortBy]: sortOrder };
+      sortBy === "lastMessageAt"
+        ? { lastMessageAt: { sort: sortOrder, nulls: "last" } }
+        : { [sortBy]: sortOrder };
 
     const [rows, total] = await Promise.all([
       this.prisma.chatSession.findMany({
@@ -129,11 +143,14 @@ export class ConversationsService {
           createdAt: true,
           lastMessageAt: true,
           agent: { select: { id: true, name: true, organizationId: true } },
-          _count: { select: { messages: true } },
         },
       }),
       this.prisma.chatSession.count({ where }),
     ]);
+    const messageCounts = await countMessagesBySession(
+      this.prisma,
+      rows.map((r) => r.id),
+    );
 
     return {
       data: rows.map((r) => ({
@@ -147,7 +164,7 @@ export class ConversationsService {
         title: r.title,
         category: r.category,
         detectedLanguage: r.detectedLanguage,
-        messageCount: r._count.messages,
+        messageCount: messageCounts.get(r.id) ?? 0,
         createdAt: r.createdAt.toISOString(),
         lastMessageAt: r.lastMessageAt ? r.lastMessageAt.toISOString() : null,
         // Display-friendly fallback: when no assistant reply has updated
@@ -195,7 +212,7 @@ export class ConversationsService {
           },
         },
         messages: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: "asc" },
           select: {
             id: true,
             role: true,
@@ -211,9 +228,9 @@ export class ConversationsService {
     });
 
     if (!session) {
-      throw new NotFoundException('Conversation not found');
+      throw new NotFoundException("Conversation not found");
     }
-    this.log.debug('getBySessionId', 'conversation loaded', {
+    this.log.debug("getBySessionId", "conversation loaded", {
       sessionId: session.sessionId,
       messageCount: session.messages.length,
     });
@@ -223,7 +240,7 @@ export class ConversationsService {
     // via traces[i].messageId === messages[j].id.
     const traces = await this.prisma.chatTrace.findMany({
       where: { sessionId: session.sessionId },
-      orderBy: { startedAt: 'asc' },
+      orderBy: { startedAt: "asc" },
       select: {
         id: true,
         traceId: true,
@@ -250,7 +267,9 @@ export class ConversationsService {
       detectedLanguage: session.detectedLanguage,
       createdAt: session.createdAt.toISOString(),
       updatedAt: session.updatedAt.toISOString(),
-      lastMessageAt: session.lastMessageAt ? session.lastMessageAt.toISOString() : null,
+      lastMessageAt: session.lastMessageAt
+        ? session.lastMessageAt.toISOString()
+        : null,
       agent: {
         id: session.agent.id,
         name: session.agent.name,
