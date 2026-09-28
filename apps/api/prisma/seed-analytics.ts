@@ -1,21 +1,21 @@
 /// <reference types="node" />
-import 'dotenv/config';
-import { Prisma, PrismaClient, ChatSource } from '@prisma/client';
-import { PrismaPg } from '@prisma/adapter-pg';
+import "dotenv/config";
+import { Prisma, PrismaClient, ChatSource } from "@prisma/client";
+import { PrismaPg } from "@prisma/adapter-pg";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  throw new Error('DATABASE_URL environment variable is not configured');
+  throw new Error("DATABASE_URL environment variable is not configured");
 }
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
 // ── Constants ──────────────────────────────────────────────
-const SEED_PREFIX = 'seed-analytics-';
+const SEED_PREFIX = "seed-analytics-";
 const DAYS_TO_SEED = 90;
 
 // Volume profiles for agents
-type VolumeProfile = 'high' | 'medium' | 'low';
+type VolumeProfile = "high" | "medium" | "low";
 const VOLUME_PROFILES: Record<
   VolumeProfile,
   { sessionsPerDay: [number, number]; messagesPerSession: [number, number] }
@@ -26,7 +26,7 @@ const VOLUME_PROFILES: Record<
 };
 
 // Latency profiles
-type LatencyProfile = 'fast' | 'medium' | 'slow';
+type LatencyProfile = "fast" | "medium" | "slow";
 const LATENCY_PROFILES: Record<LatencyProfile, [number, number]> = {
   fast: [200, 800],
   medium: [500, 2000],
@@ -59,31 +59,31 @@ function weightedHour(): number {
 
 // ── Message content pools ──────────────────────────────────
 const USER_MESSAGES = [
-  'What are your pricing plans?',
-  'How do I get started?',
-  'Can you help me with my order?',
-  'I need to reset my password',
-  'What payment methods do you accept?',
-  'Do you offer a free trial?',
-  'How can I contact support?',
-  'I have a question about shipping',
-  'What is your return policy?',
-  'Can I upgrade my plan?',
-  'How do I cancel my subscription?',
-  'Is there an API available?',
-  'What integrations do you support?',
-  'I need help with setup',
-  'Can you explain your features?',
-  'Do you have documentation?',
-  'What are your business hours?',
-  'How long does delivery take?',
-  'Can I schedule a demo?',
-  'I found a bug in the product',
-  'How do I export my data?',
-  'Is there a mobile app?',
-  'What security measures do you have?',
-  'Can I add more users to my account?',
-  'How does billing work?',
+  "What are your pricing plans?",
+  "How do I get started?",
+  "Can you help me with my order?",
+  "I need to reset my password",
+  "What payment methods do you accept?",
+  "Do you offer a free trial?",
+  "How can I contact support?",
+  "I have a question about shipping",
+  "What is your return policy?",
+  "Can I upgrade my plan?",
+  "How do I cancel my subscription?",
+  "Is there an API available?",
+  "What integrations do you support?",
+  "I need help with setup",
+  "Can you explain your features?",
+  "Do you have documentation?",
+  "What are your business hours?",
+  "How long does delivery take?",
+  "Can I schedule a demo?",
+  "I found a bug in the product",
+  "How do I export my data?",
+  "Is there a mobile app?",
+  "What security measures do you have?",
+  "Can I add more users to my account?",
+  "How does billing work?",
 ];
 
 const ASSISTANT_MESSAGES = [
@@ -91,17 +91,17 @@ const ASSISTANT_MESSAGES = [
   "Great question! Getting started is easy. First, sign up for a free account, then follow our onboarding wizard which will guide you through the initial setup. It typically takes about 5 minutes.",
   "I can definitely help with your order. Could you please provide your order number so I can look into the details for you?",
   "To reset your password, click on 'Forgot Password' on the login page. You'll receive an email with a reset link within a few minutes. Make sure to check your spam folder if you don't see it.",
-  'We accept all major credit cards (Visa, Mastercard, AmEx), PayPal, and bank transfers for annual plans.',
-  'Yes! We offer a 14-day free trial with full access to all Professional features. No credit card required to start.',
+  "We accept all major credit cards (Visa, Mastercard, AmEx), PayPal, and bank transfers for annual plans.",
+  "Yes! We offer a 14-day free trial with full access to all Professional features. No credit card required to start.",
   "You can reach our support team through this chat, via email at support@example.com, or by phone at 1-800-555-0123 during business hours (9 AM - 6 PM EST).",
-  'Shipping typically takes 3-5 business days for standard delivery and 1-2 business days for express. International shipping may take 7-14 business days.',
-  'Our return policy allows returns within 30 days of purchase for a full refund. Items must be in original condition. We also offer free return shipping.',
+  "Shipping typically takes 3-5 business days for standard delivery and 1-2 business days for express. International shipping may take 7-14 business days.",
+  "Our return policy allows returns within 30 days of purchase for a full refund. Items must be in original condition. We also offer free return shipping.",
   "Absolutely! You can upgrade your plan at any time from your account settings. The price difference will be prorated for the remainder of your billing cycle.",
   "I understand you'd like to cancel. You can do this from Account Settings > Subscription > Cancel Plan. Your access will continue until the end of your current billing period.",
-  'Yes, we have a comprehensive REST API with full documentation. You can find API keys and docs in your dashboard under Settings > Developer.',
-  'We support integrations with Slack, Zapier, Salesforce, HubSpot, and many more. Check our integrations page for the full list.',
+  "Yes, we have a comprehensive REST API with full documentation. You can find API keys and docs in your dashboard under Settings > Developer.",
+  "We support integrations with Slack, Zapier, Salesforce, HubSpot, and many more. Check our integrations page for the full list.",
   "I'll walk you through the setup process. What specific part are you working on? Common starting points are user management, API configuration, or data import.",
-  'Our key features include real-time analytics, automated workflows, team collaboration tools, and customizable dashboards. Would you like details on any specific feature?',
+  "Our key features include real-time analytics, automated workflows, team collaboration tools, and customizable dashboards. Would you like details on any specific feature?",
 ];
 
 // ── Visitor ID generation ──────────────────────────────────
@@ -112,7 +112,7 @@ function generateVisitorIp(): string {
 // ── Core seed logic ────────────────────────────────────────
 
 async function cleanup() {
-  console.log('🧹 Cleaning up previous seed data...');
+  console.log("🧹 Cleaning up previous seed data...");
 
   const seededSessions = await prisma.chatSession.findMany({
     where: { sessionId: { startsWith: SEED_PREFIX } },
@@ -131,7 +131,7 @@ async function cleanup() {
     });
     console.log(`  Deleted ${deletedSessions.count} seeded sessions`);
   } else {
-    console.log('  No previous seed data found');
+    console.log("  No previous seed data found");
   }
 }
 
@@ -146,7 +146,7 @@ async function getOrgsAndAgents() {
 
   if (orgs.length === 0) {
     console.warn(
-      '⚠️  No organizations found. Seed against existing orgs/agents — exiting.',
+      "⚠️  No organizations found. Seed against existing orgs/agents — exiting.",
     );
     process.exit(0);
   }
@@ -154,7 +154,7 @@ async function getOrgsAndAgents() {
   const orgsWithAgents = orgs.filter((o) => o.agents.length > 0);
   if (orgsWithAgents.length === 0) {
     console.warn(
-      '⚠️  No organizations with agents found. Create agents first — exiting.',
+      "⚠️  No organizations with agents found. Create agents first — exiting.",
     );
     process.exit(0);
   }
@@ -169,8 +169,8 @@ function assignProfiles(agentIndex: number): {
   volume: VolumeProfile;
   latency: LatencyProfile;
 } {
-  const volumeOrder: VolumeProfile[] = ['high', 'medium', 'low'];
-  const latencyOrder: LatencyProfile[] = ['fast', 'medium', 'slow'];
+  const volumeOrder: VolumeProfile[] = ["high", "medium", "low"];
+  const latencyOrder: LatencyProfile[] = ["fast", "medium", "slow"];
   return {
     volume: volumeOrder[agentIndex % volumeOrder.length]!,
     latency: latencyOrder[agentIndex % latencyOrder.length]!,
@@ -206,7 +206,7 @@ async function seedForAgent(
     sessionId: string;
     source: ChatSource;
     visitorId: string;
-    status: 'ACTIVE' | 'EXPIRED';
+    status: "ACTIVE" | "EXPIRED";
     createdAt: Date;
     updatedAt: Date;
     lastMessageAt: Date;
@@ -270,7 +270,9 @@ async function seedForAgent(
         if (isUser) {
           allMessages.push({
             chatSessionId: uuid,
-            role: 'USER',
+            agentId,
+            sessionSource: ChatSource.WIDGET,
+            role: "USER",
             content: pickRandom(USER_MESSAGES),
             metadata: Prisma.JsonNull,
             createdAt: msgTime,
@@ -286,7 +288,9 @@ async function seedForAgent(
 
           allMessages.push({
             chatSessionId: uuid,
-            role: 'ASSISTANT',
+            agentId,
+            sessionSource: ChatSource.WIDGET,
+            role: "ASSISTANT",
             content: pickRandom(ASSISTANT_MESSAGES),
             metadata: {
               backendReceivedAt: backendReceivedAt.toISOString(),
@@ -308,7 +312,7 @@ async function seedForAgent(
         sessionId,
         source: ChatSource.WIDGET,
         visitorId,
-        status: 'EXPIRED',
+        status: "EXPIRED",
         createdAt: sessionStart,
         updatedAt: lastMsgTime,
         lastMessageAt: lastMsgTime,
@@ -352,8 +356,8 @@ async function seedForAgent(
 
 // ── Main ───────────────────────────────────────────────────
 async function main() {
-  console.log('🌱 Analytics Seed Script');
-  console.log('========================\n');
+  console.log("🌱 Analytics Seed Script");
+  console.log("========================\n");
 
   await cleanup();
 
@@ -371,12 +375,12 @@ async function main() {
     }
   }
 
-  console.log('\n✅ Analytics seed complete!');
+  console.log("\n✅ Analytics seed complete!");
 }
 
 main()
   .catch((e) => {
-    console.error('❌ Seed failed:', e);
+    console.error("❌ Seed failed:", e);
     process.exit(1);
   })
   .finally(() => prisma.$disconnect());

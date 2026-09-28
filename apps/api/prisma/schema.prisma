@@ -600,7 +600,11 @@ model ChatSession {
   updatedAt           DateTime        @updatedAt
   lastMessageAt       DateTime?
 
-  @@index([agentId])
+  // Messages reference (id, agentId, source) so the database proves the keys
+  // each message copies match its session (ADR-0007).
+  @@unique([id, agentId, source])
+  // Every analytics query is "these agents, this window" (ADR-0007).
+  @@index([agentId, createdAt])
   @@index([source])
   @@index([visitorId])
   @@index([category])
@@ -659,6 +663,12 @@ model VisitorConsent {
 model ChatMessage {
   id            String              @id @default(uuid())
   chatSessionId String
+  /// The session's agentId and source, copied so analytics can scope by tenant
+  /// and channel without a join (ADR-0007). Both are immutable on the session.
+  /// Nullable only until the release-2 migration, which sets NOT NULL and makes
+  /// them part of the session foreign key.
+  agentId       String?
+  sessionSource ChatSource?
   chatSession   ChatSession         @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
   role          MessageRole
   content       String              @db.Text
@@ -666,9 +676,8 @@ model ChatMessage {
   createdAt     DateTime            @default(now())
   metrics       ChatMessageMetrics?
 
-  @@index([chatSessionId])
   @@index([chatSessionId, role])
-  @@index([createdAt])
+  @@index([agentId, createdAt])
   @@map("chat_messages")
 }
 
@@ -677,10 +686,16 @@ model ChatMessage {
 /// exclusively through MessageMetricsService so column names can't diverge per
 /// pipeline. n8n is retired, so there is no routingMode/n8n-timestamp surface.
 model ChatMessageMetrics {
-  messageId String      @id
-  message   ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  /// Copy of the message's (immutable) createdAt so analytics can time-scope without a second join.
-  createdAt DateTime
+  messageId     String       @id
+  message       ChatMessage  @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  /// Copies of the message's immutable agentId, sessionSource, role and createdAt, so
+  /// analytics can scope by tenant, channel, role and time without a join
+  /// (ADR-0007). The first three are nullable only until the release-2
+  /// migration sets NOT NULL.
+  agentId       String?
+  sessionSource ChatSource?
+  role          MessageRole?
+  createdAt     DateTime
 
   // ---- channel / mode ----
   inputType String? // 'text' | 'voice'
@@ -740,7 +755,7 @@ model ChatMessageMetrics {
   errored   Boolean?
   errorCode String?
 
-  @@index([createdAt])
+  @@index([agentId, createdAt])
   @@index([sttProvider])
   @@index([ttsProvider])
   @@map("chat_message_metrics")

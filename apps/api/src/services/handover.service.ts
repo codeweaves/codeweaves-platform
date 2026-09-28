@@ -3,22 +3,30 @@ import {
   NotFoundException,
   ForbiddenException,
   ConflictException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Prisma, type HandoverReason, type HandoverResolution, type HandoverState } from '@prisma/client';
-import { tool, jsonSchema } from 'ai';
-import { PrismaService } from './prisma.service';
-import { RealtimeService } from './realtime.service';
-import { NotificationService } from './notification.service';
-import { PiiDetectionService } from '../modules/pii/pii-detection.service';
-import { PiiTokenizerService } from '../modules/pii/pii-tokenizer.service';
-import { WhatsappOutboundService } from '../modules/whatsapp/whatsapp-outbound.service';
-import { AppLogger } from '../common/logger/app-logger';
-import { InternalEventLogger } from '../common/events/internal.logger';
-import { TracerService } from '../common/tracer/tracer.service';
-import type { CurrentUserData } from '../decorators/current-user.decorator';
-import { isOrgScoped } from '../utils/tenant-filter';
-import { isSuperAdmin } from '../common/rbac';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import {
+  Prisma,
+  type ChatSource,
+  type HandoverReason,
+  type HandoverResolution,
+  type HandoverState,
+} from "@prisma/client";
+import { tool, jsonSchema } from "ai";
+import { PrismaService } from "./prisma.service";
+import { RealtimeService } from "./realtime.service";
+import { NotificationService } from "./notification.service";
+import { PiiDetectionService } from "../modules/pii/pii-detection.service";
+import { PiiTokenizerService } from "../modules/pii/pii-tokenizer.service";
+import { WhatsappOutboundService } from "../modules/whatsapp/whatsapp-outbound.service";
+import { AppLogger } from "../common/logger/app-logger";
+import { InternalEventLogger } from "../common/events/internal.logger";
+import { TracerService } from "../common/tracer/tracer.service";
+import type { CurrentUserData } from "../decorators/current-user.decorator";
+import { isOrgScoped } from "../utils/tenant-filter";
+import { countMessagesBySession } from "../utils/message-counts";
+import type { MessageSession } from "./chat.service";
+import { isSuperAdmin } from "../common/rbac";
 
 /**
  * Matches an explicit "I want a human" intent. Cheap + synchronous — runs on
@@ -43,6 +51,9 @@ interface HandoverCtx {
   sessionDbId: string;
   publicSessionId: string;
   organizationId: string;
+  /** The session's agent and channel, copied onto every message written for it (ADR-0007). */
+  agentId: string;
+  source: ChatSource;
 }
 
 @Injectable()
@@ -67,9 +78,11 @@ export class HandoverService {
    * `HANDOVER_IDLE_MINUTES` env var without a code change.
    */
   private resolveIdleMinutes(): number {
-    const raw = this.config.get<string>('HANDOVER_IDLE_MINUTES');
+    const raw = this.config.get<string>("HANDOVER_IDLE_MINUTES");
     const parsed = raw ? Number.parseInt(raw, 10) : NaN;
-    return Number.isFinite(parsed) && parsed > 0 ? parsed : HANDOVER_IDLE_MINUTES;
+    return Number.isFinite(parsed) && parsed > 0
+      ? parsed
+      : HANDOVER_IDLE_MINUTES;
   }
 
   // ---------------------------------------------------------------------------
@@ -87,12 +100,12 @@ export class HandoverService {
    * helping; it just acknowledges a human is on the way.
    */
   stallInstruction(humanConnectedLabel?: string | null): string {
-    const who = humanConnectedLabel?.trim() || 'a member of our team';
+    const who = humanConnectedLabel?.trim() || "a member of our team";
     return (
       `The user has asked to speak with a human, and ${who} is being connected right now. ` +
-      'Warmly acknowledge that a human will join shortly, and keep helping with anything ' +
-      'you can in the meantime. Never claim to be human or to be the person they asked for. ' +
-      'Keep your reply brief.'
+      "Warmly acknowledge that a human will join shortly, and keep helping with anything " +
+      "you can in the meantime. Never claim to be human or to be the person they asked for. " +
+      "Keep your reply brief."
     );
   }
 
@@ -105,24 +118,24 @@ export class HandoverService {
    */
   offerInstruction(): string {
     return (
-      'There is currently NO human connected to this chat. A teammate can take over, but the ' +
-      'ONLY thing that actually connects one is calling the `connect_to_human` tool — saying it ' +
-      'in text does nothing. So NEVER tell the visitor that a human is coming, connecting, being ' +
-      'notified, or will reach out UNLESS you call `connect_to_human` in that same reply.\n' +
-      'Call `connect_to_human` when the visitor clearly asks for a human/person/agent/someone, ' +
-      'when they agree to be connected, or when they are frustrated/upset or you cannot resolve ' +
-      'their issue after genuinely trying — do not wait to be asked. This applies EVEN IF a human ' +
-      'already helped earlier in this conversation and then left: if the visitor is upset or asks ' +
-      'again, treat it as a brand-new escalation and call the tool again. Do not assume a past ' +
+      "There is currently NO human connected to this chat. A teammate can take over, but the " +
+      "ONLY thing that actually connects one is calling the `connect_to_human` tool — saying it " +
+      "in text does nothing. So NEVER tell the visitor that a human is coming, connecting, being " +
+      "notified, or will reach out UNLESS you call `connect_to_human` in that same reply.\n" +
+      "Call `connect_to_human` when the visitor clearly asks for a human/person/agent/someone, " +
+      "when they agree to be connected, or when they are frustrated/upset or you cannot resolve " +
+      "their issue after genuinely trying — do not wait to be asked. This applies EVEN IF a human " +
+      "already helped earlier in this conversation and then left: if the visitor is upset or asks " +
+      "again, treat it as a brand-new escalation and call the tool again. Do not assume a past " +
       'handover still covers them, and do not just repeat an earlier "a teammate will join" line.\n' +
-      'Do not call it speculatively or twice in a row for the same request. After calling it, ' +
-      'briefly let them know a teammate will join shortly and keep helping meanwhile. Never claim ' +
-      'to be a human yourself.\n' +
+      "Do not call it speculatively or twice in a row for the same request. After calling it, " +
+      "briefly let them know a teammate will join shortly and keep helping meanwhile. Never claim " +
+      "to be a human yourself.\n" +
       'In the history, turns beginning with "[Human teammate]:" were written by a human agent who ' +
       'helped earlier — NOT by you — and turns beginning with "[System]:" are automated status ' +
-      'notes about the handover (e.g. a teammate took over, or the chat was resolved and handed ' +
+      "notes about the handover (e.g. a teammate took over, or the chat was resolved and handed " +
       'back to you). Use both only as context; never write a "[Human teammate]:" or "[System]:" ' +
-      'prefix in your own replies.'
+      "prefix in your own replies."
     );
   }
 
@@ -139,35 +152,35 @@ export class HandoverService {
   ) {
     return tool({
       description:
-        'Connect the visitor to a human teammate. Call this ONLY when the visitor has ' +
-        'agreed to be connected, or has explicitly asked to talk to a human. Do not call ' +
-        'it speculatively or to end the conversation.',
-      inputSchema: jsonSchema<{ reason: 'explicit_request' | 'frustration' }>({
-        type: 'object',
+        "Connect the visitor to a human teammate. Call this ONLY when the visitor has " +
+        "agreed to be connected, or has explicitly asked to talk to a human. Do not call " +
+        "it speculatively or to end the conversation.",
+      inputSchema: jsonSchema<{ reason: "explicit_request" | "frustration" }>({
+        type: "object",
         additionalProperties: false,
-        required: ['reason'],
+        required: ["reason"],
         properties: {
           reason: {
-            type: 'string',
-            enum: ['explicit_request', 'frustration'],
+            type: "string",
+            enum: ["explicit_request", "frustration"],
             description:
-              'Why a human is being brought in: the visitor explicitly asked, or they are frustrated/stuck.',
+              "Why a human is being brought in: the visitor explicitly asked, or they are frustrated/stuck.",
           },
         },
       }),
       execute: async ({ reason }) => {
         const mapped: HandoverReason =
-          reason === 'frustration' ? 'FRUSTRATION' : 'USER_REQUESTED';
+          reason === "frustration" ? "FRUSTRATION" : "USER_REQUESTED";
         this.log.info(
-          'buildConnectTool',
-          'connect_to_human fired — escalating to a human',
+          "buildConnectTool",
+          "connect_to_human fired — escalating to a human",
           { reason: mapped, sessionId: ctx.publicSessionId },
         );
         await this.raiseRequested(ctx, mapped);
         onEscalate(mapped);
         return {
-          status: 'connecting',
-          message: 'A teammate is being connected and will join shortly.',
+          status: "connecting",
+          message: "A teammate is being connected and will join shortly.",
         };
       },
     });
@@ -178,12 +191,15 @@ export class HandoverService {
    * updateMany: only the first caller flips it and writes the system line.
    * Best-effort realtime; never throws into the chat path.
    */
-  async raiseRequested(ctx: HandoverCtx, reason: HandoverReason): Promise<void> {
+  async raiseRequested(
+    ctx: HandoverCtx,
+    reason: HandoverReason,
+  ): Promise<void> {
     try {
       const res = await this.prisma.chatSession.updateMany({
-        where: { id: ctx.sessionDbId, handoverState: 'NONE' },
+        where: { id: ctx.sessionDbId, handoverState: "NONE" },
         data: {
-          handoverState: 'REQUESTED',
+          handoverState: "REQUESTED",
           handoverReason: reason,
           handoverRequestedAt: new Date(),
           // Re-escalation after a prior resolve: clear last cycle's stamps so
@@ -199,24 +215,31 @@ export class HandoverService {
       // History: open a fresh handover cycle in the append-only log. Fire-and-
       // forget (like notifyHandoverRequested below) so it never adds latency to
       // the visitor's reply; the ChatSession columns above are the live truth.
-      void this.recordHandoverRequested(ctx.sessionDbId, ctx.organizationId, reason);
+      void this.recordHandoverRequested(
+        ctx.sessionDbId,
+        ctx.organizationId,
+        reason,
+      );
 
       // Semantic event: the session actually flipped NONE → REQUESTED. Fire-and-forget.
-      this.events.logCompleted('HANDOVER_REQUESTED', {
+      this.events.logCompleted("HANDOVER_REQUESTED", {
         sessionId: ctx.publicSessionId,
         organizationId: ctx.organizationId,
         metadata: { reason },
       });
 
       const text =
-        reason === 'BOT_FALLBACK'
+        reason === "BOT_FALLBACK"
           ? "Bot couldn't answer, escalated to a human"
-          : reason === 'FRUSTRATION'
-            ? 'Frustration detected, escalated to a human'
-            : 'Visitor asked for a human';
-      await this.insertSystemMessage(ctx.sessionDbId, text);
+          : reason === "FRUSTRATION"
+            ? "Frustration detected, escalated to a human"
+            : "Visitor asked for a human";
+      await this.insertSystemMessage(
+        { id: ctx.sessionDbId, agentId: ctx.agentId, source: ctx.source },
+        text,
+      );
 
-      await this.realtime.emitHandover(ctx, 'REQUESTED');
+      await this.realtime.emitHandover(ctx, "REQUESTED");
       await this.realtime.emitMessage(ctx);
 
       // Dashboard notification (bell + toast + sound + browser popup, and email
@@ -225,7 +248,7 @@ export class HandoverService {
       // reply. notifyHandoverRequested swallows everything it can throw.
       void this.notifyHandoverRequested(ctx);
     } catch (err) {
-      this.log.warn('raiseRequested', 'flip failed (fail-open)', {
+      this.log.warn("raiseRequested", "flip failed (fail-open)", {
         sessionId: ctx.sessionDbId,
         err: err instanceof Error ? err.message : String(err),
       });
@@ -262,8 +285,8 @@ export class HandoverService {
       await this.notifications.emit({
         organizationId: ctx.organizationId,
         agentId: agent.id,
-        type: 'HANDOVER_REQUESTED',
-        severity: 'URGENT',
+        type: "HANDOVER_REQUESTED",
+        severity: "URGENT",
         // Agent name only — never the visitor's message. This string goes over
         // the socket and into a browser popup.
         title: `A visitor asked for a human on ${agent.name}`,
@@ -271,25 +294,29 @@ export class HandoverService {
         // payload are only ever read by an authenticated member of this org.
         // It must NOT go into the email — see NotificationService.deepLink,
         // which builds the email link from the notification id instead.
-        entityType: 'conversation',
+        entityType: "conversation",
         entityId: ctx.publicSessionId,
         email: {
           enabled: agent.handoverEmailEnabled,
           recipients: agent.handoverEmailRecipients,
-          templateKey: 'HANDOVER_REQUESTED',
+          templateKey: "HANDOVER_REQUESTED",
           // `conversationUrl` is deliberately absent — NotificationService fills
           // it, because only it knows the notification id the link points at.
           vars: {
-            orgName: agent.organization?.name ?? 'your organization',
+            orgName: agent.organization?.name ?? "your organization",
             agentName: agent.name,
           },
         },
       });
     } catch (err) {
-      this.log.warn('notifyHandoverRequested', 'notification failed (ignored)', {
-        sessionId: ctx.sessionDbId,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      this.log.warn(
+        "notifyHandoverRequested",
+        "notification failed (ignored)",
+        {
+          sessionId: ctx.sessionDbId,
+          err: err instanceof Error ? err.message : String(err),
+        },
+      );
     }
   }
 
@@ -299,14 +326,17 @@ export class HandoverService {
    * the DB, since persistence is fire-and-forget); we only query the PRIOR
    * persisted turns to complete the streak.
    */
-  async maybeRaiseFromFallback(ctx: HandoverCtx, currentCouldntAnswer: boolean): Promise<void> {
+  async maybeRaiseFromFallback(
+    ctx: HandoverCtx,
+    currentCouldntAnswer: boolean,
+  ): Promise<void> {
     if (!currentCouldntAnswer) return;
     try {
       const priorNeeded = FALLBACK_STREAK - 1;
       if (priorNeeded > 0) {
         const recent = await this.prisma.chatMessage.findMany({
-          where: { chatSessionId: ctx.sessionDbId, role: 'ASSISTANT' },
-          orderBy: { createdAt: 'desc' },
+          where: { chatSessionId: ctx.sessionDbId, role: "ASSISTANT" },
+          orderBy: { createdAt: "desc" },
           take: priorNeeded,
           select: { metrics: { select: { couldntAnswer: true } } },
         });
@@ -315,9 +345,9 @@ export class HandoverService {
           recent.every((m) => m.metrics?.couldntAnswer === true);
         if (!priorStreak) return;
       }
-      await this.raiseRequested(ctx, 'BOT_FALLBACK');
+      await this.raiseRequested(ctx, "BOT_FALLBACK");
     } catch (err) {
-      this.log.warn('maybeRaiseFromFallback', 'failed (fail-open)', {
+      this.log.warn("maybeRaiseFromFallback", "failed (fail-open)", {
         sessionId: ctx.sessionDbId,
         err: err instanceof Error ? err.message : String(err),
       });
@@ -338,7 +368,9 @@ export class HandoverService {
       const msg = await this.prisma.chatMessage.create({
         data: {
           chatSessionId: ctx.sessionDbId,
-          role: 'USER',
+          agentId: ctx.agentId,
+          sessionSource: ctx.source,
+          role: "USER",
           // Same PII floor as the bot path: DESTROY-tier (Aadhaar/card/...) is
           // masked and VAULT-tier (bank/DOB/PAN/IFSC) is tokenised into the
           // encrypted vault, on every channel, including while a human handles.
@@ -355,7 +387,7 @@ export class HandoverService {
       });
       await this.realtime.emitMessage(ctx);
     } catch (err) {
-      this.log.warn('onVisitorMessageWhilePaused', 'failed (fail-open)', {
+      this.log.warn("onVisitorMessageWhilePaused", "failed (fail-open)", {
         sessionId: ctx.sessionDbId,
         err: err instanceof Error ? err.message : String(err),
       });
@@ -367,16 +399,20 @@ export class HandoverService {
   // ---------------------------------------------------------------------------
 
   async listInbox(
-    query: { filter: 'needs' | 'handling' | 'all'; agentId?: string; orgId?: string },
+    query: {
+      filter: "needs" | "handling" | "all";
+      agentId?: string;
+      orgId?: string;
+    },
     user: CurrentUserData,
   ) {
     this.assertClientHasOrg(user);
     const states: HandoverState[] =
-      query.filter === 'handling'
-        ? ['ACTIVE_HUMAN']
-        : query.filter === 'all'
-          ? ['REQUESTED', 'ACTIVE_HUMAN']
-          : ['REQUESTED'];
+      query.filter === "handling"
+        ? ["ACTIVE_HUMAN"]
+        : query.filter === "all"
+          ? ["REQUESTED", "ACTIVE_HUMAN"]
+          : ["REQUESTED"];
 
     const sessions = await this.prisma.chatSession.findMany({
       where: {
@@ -385,19 +421,22 @@ export class HandoverService {
       },
       // Enum sorts in declared order (NONE, REQUESTED, ACTIVE_HUMAN) → REQUESTED
       // first; oldest-waiting first within each so nothing starves.
-      orderBy: [{ handoverState: 'asc' }, { handoverRequestedAt: 'asc' }],
+      orderBy: [{ handoverState: "asc" }, { handoverRequestedAt: "asc" }],
       take: 100,
       include: {
         agent: { select: { id: true, name: true } },
         takenOverBy: { select: { id: true, name: true } },
         messages: {
-          orderBy: { createdAt: 'desc' },
+          orderBy: { createdAt: "desc" },
           take: 1,
           select: { role: true, content: true, createdAt: true },
         },
-        _count: { select: { messages: true } },
       },
     });
+    const messageCounts = await countMessagesBySession(
+      this.prisma,
+      sessions.map((s) => s.id),
+    );
 
     return sessions.map((s) => ({
       id: s.id,
@@ -410,7 +449,7 @@ export class HandoverService {
       handoverRequestedAt: s.handoverRequestedAt,
       takenOverBy: s.takenOverBy,
       lastMessageAt: s.lastMessageAt,
-      messageCount: s._count.messages,
+      messageCount: messageCounts.get(s.id) ?? 0,
       lastMessage: s.messages[0] ?? null,
     }));
   }
@@ -436,8 +475,14 @@ export class HandoverService {
     const session = await this.loadScopedSession(publicSessionId, user);
     const messages = await this.prisma.chatMessage.findMany({
       where: { chatSessionId: session.id },
-      orderBy: { createdAt: 'asc' },
-      select: { id: true, role: true, content: true, createdAt: true, metadata: true },
+      orderBy: { createdAt: "asc" },
+      select: {
+        id: true,
+        role: true,
+        content: true,
+        createdAt: true,
+        metadata: true,
+      },
     });
     return {
       sessionId: session.sessionId,
@@ -487,12 +532,12 @@ export class HandoverService {
     user: CurrentUserData,
     action: string,
   ): void {
-    if (session.handoverState !== 'ACTIVE_HUMAN') return;
+    if (session.handoverState !== "ACTIVE_HUMAN") return;
     if (!session.takenOverById || session.takenOverById === user.id) return;
     // Seizing a conversation someone else is handling stays super-admin-only.
     if (isSuperAdmin(user)) return;
 
-    const who = session.takenOverBy?.name?.trim() || 'another teammate';
+    const who = session.takenOverBy?.name?.trim() || "another teammate";
     throw new ConflictException(
       `${who} is already handling this conversation. Ask them to resolve it before you ${action}.`,
     );
@@ -503,7 +548,7 @@ export class HandoverService {
     // Fail loudly rather than silently returning the thread: a no-op looked
     // identical to success in the UI, so the second teammate believed they had
     // the chat and started typing.
-    this.assertNotHeldByAnother(session, user, 'take over');
+    this.assertNotHeldByAnother(session, user, "take over");
     const name = await this.resolveUserName(user.id);
 
     // Is this a SUPER_ADMIN seizing a chat someone else holds? The guard above
@@ -513,7 +558,7 @@ export class HandoverService {
     // returned the unchanged thread, i.e. exactly the false-success the guard
     // was added to eliminate.
     const isSeizingFromHolder =
-      session.handoverState === 'ACTIVE_HUMAN' &&
+      session.handoverState === "ACTIVE_HUMAN" &&
       !!session.takenOverById &&
       session.takenOverById !== user.id;
 
@@ -526,20 +571,20 @@ export class HandoverService {
     const claimed = await this.prisma.chatSession.updateMany({
       where: isSeizingFromHolder
         ? { id: session.id, takenOverById: session.takenOverById }
-        : { id: session.id, handoverState: { not: 'ACTIVE_HUMAN' } },
+        : { id: session.id, handoverState: { not: "ACTIVE_HUMAN" } },
       data: {
-        handoverState: 'ACTIVE_HUMAN',
+        handoverState: "ACTIVE_HUMAN",
         takenOverById: user.id,
         handoverStartedAt: new Date(),
         handoverRequestedAt: session.handoverRequestedAt ?? new Date(),
         // A teammate grabbing a live bot chat directly = a manual escalation.
-        handoverReason: session.handoverReason ?? 'MANUAL',
+        handoverReason: session.handoverReason ?? "MANUAL",
       },
     });
     if (claimed.count === 0) return this.getThread(publicSessionId, user);
 
     // Semantic event: a teammate claimed the chat (→ ACTIVE_HUMAN). Fire-and-forget.
-    this.events.logCompleted('HANDOVER_TAKEN_OVER', {
+    this.events.logCompleted("HANDOVER_TAKEN_OVER", {
       agentId: session.agent.id,
       sessionId: session.sessionId,
       organizationId: session.agent.organizationId,
@@ -549,9 +594,12 @@ export class HandoverService {
     // live customer conversation, when.
     await this.tracer.logAuditEvent(
       session.sessionId,
-      'HANDOVER_TAKEN_OVER',
+      "HANDOVER_TAKEN_OVER",
       { response: { takenOverById: user.id, sessionId: session.sessionId } },
-      { organizationId: session.agent.organizationId, agentId: session.agent.id },
+      {
+        organizationId: session.agent.organizationId,
+        agentId: session.agent.id,
+      },
     );
 
     // History: mark the open cycle as taken over, or open one for a direct
@@ -561,25 +609,29 @@ export class HandoverService {
       session.agent.organizationId,
       session.agent.id,
       user.id,
-      session.handoverReason ?? 'MANUAL',
+      session.handoverReason ?? "MANUAL",
     );
 
     const ctx = this.ctxOf(session);
-    await this.insertSystemMessage(session.id, `${name} took over. AI paused`);
-    await this.realtime.emitHandover(ctx, 'ACTIVE_HUMAN');
+    await this.insertSystemMessage(session, `${name} took over. AI paused`);
+    await this.realtime.emitHandover(ctx, "ACTIVE_HUMAN");
     await this.realtime.emitMessage(ctx);
     return this.getThread(publicSessionId, user);
   }
 
-  async postMessage(publicSessionId: string, user: CurrentUserData, content: string) {
+  async postMessage(
+    publicSessionId: string,
+    user: CurrentUserData,
+    content: string,
+  ) {
     const session = await this.loadScopedSession(publicSessionId, user);
-    if (session.handoverState !== 'ACTIVE_HUMAN') {
-      throw new ConflictException('Take over the conversation before replying');
+    if (session.handoverState !== "ACTIVE_HUMAN") {
+      throw new ConflictException("Take over the conversation before replying");
     }
     // The state check above is not enough on its own — it only proves SOMEONE
     // took over, not that it was the caller. Without this, a teammate could
     // reply into a conversation another teammate is handling.
-    this.assertNotHeldByAnother(session, user, 'reply');
+    this.assertNotHeldByAnother(session, user, "reply");
     const name = await this.resolveUserName(user.id);
     // Same compliance floor as visitor messages: a human agent pasting a
     // card/Aadhaar number must not persist it either. WhatsApp outbound below
@@ -589,7 +641,9 @@ export class HandoverService {
     const msg = await this.prisma.chatMessage.create({
       data: {
         chatSessionId: session.id,
-        role: 'HUMAN_AGENT',
+        agentId: session.agentId,
+        sessionSource: session.source,
+        role: "HUMAN_AGENT",
         content: storedContent,
         metadata: { humanAgent: { id: user.id, name } },
       },
@@ -604,42 +658,61 @@ export class HandoverService {
     // Content is masked in storage; the audit row records who/when only (no body).
     await this.tracer.logAuditEvent(
       session.sessionId,
-      'HANDOVER_HUMAN_REPLY_SENT',
-      { response: { userId: user.id, messageId: msg.id, sessionId: session.sessionId } },
-      { organizationId: session.agent.organizationId, agentId: session.agent.id },
+      "HANDOVER_HUMAN_REPLY_SENT",
+      {
+        response: {
+          userId: user.id,
+          messageId: msg.id,
+          sessionId: session.sessionId,
+        },
+      },
+      {
+        organizationId: session.agent.organizationId,
+        agentId: session.agent.id,
+      },
     );
 
     // WhatsApp visitors aren't watching a widget — push the human's reply OUT
     // to their phone via the bot's own Graph sender. Fire-and-forget + swallowed
     // inside the service, so an outbound failure never breaks this reply. (Widget
     // + voice visitors receive via the widget poll, so they need nothing here.)
-    if (session.source === 'WHATSAPP' && session.visitorId) {
-      void this.whatsappOutbound.deliverHumanReply(session.agent.id, session.visitorId, content);
+    if (session.source === "WHATSAPP" && session.visitorId) {
+      void this.whatsappOutbound.deliverHumanReply(
+        session.agent.id,
+        session.visitorId,
+        content,
+      );
     }
 
-    return { id: msg.id, role: msg.role, content: msg.content, createdAt: msg.createdAt, author: name };
+    return {
+      id: msg.id,
+      role: msg.role,
+      content: msg.content,
+      createdAt: msg.createdAt,
+      author: name,
+    };
   }
 
   async resolve(publicSessionId: string, user: CurrentUserData) {
     const session = await this.loadScopedSession(publicSessionId, user);
     // Resolving someone else's active chat hands the visitor back to the bot
     // mid-conversation, from under the teammate who was mid-reply.
-    this.assertNotHeldByAnother(session, user, 'resolve it');
+    this.assertNotHeldByAnother(session, user, "resolve it");
     const name = await this.resolveUserName(user.id);
 
-    if (session.handoverState !== 'NONE') {
+    if (session.handoverState !== "NONE") {
       // Close the history cycle FIRST, while the session is still non-NONE, so a
       // concurrent re-escalation (which needs NONE) can't open a new cycle that
       // this close would grab by mistake and orphan the real one. Best-effort.
-      await this.recordHandoverResolved(session.id, 'HUMAN');
+      await this.recordHandoverResolved(session.id, "HUMAN");
 
       await this.prisma.chatSession.update({
         where: { id: session.id },
-        data: { handoverState: 'NONE', handoverResolvedAt: new Date() },
+        data: { handoverState: "NONE", handoverResolvedAt: new Date() },
       });
 
       // Semantic event: teammate resolved the chat (→ NONE, AI resumed). Fire-and-forget.
-      this.events.logCompleted('HANDOVER_RESOLVED', {
+      this.events.logCompleted("HANDOVER_RESOLVED", {
         agentId: session.agent.id,
         sessionId: session.sessionId,
         organizationId: session.agent.organizationId,
@@ -648,14 +721,20 @@ export class HandoverService {
       // Accountability trail: who ended the human session / resumed the AI.
       await this.tracer.logAuditEvent(
         session.sessionId,
-        'HANDOVER_RESOLVED',
+        "HANDOVER_RESOLVED",
         { response: { resolvedBy: user.id, sessionId: session.sessionId } },
-        { organizationId: session.agent.organizationId, agentId: session.agent.id },
+        {
+          organizationId: session.agent.organizationId,
+          agentId: session.agent.id,
+        },
       );
 
       const ctx = this.ctxOf(session);
-      await this.insertSystemMessage(session.id, `Resolved by ${name}. AI resumed`);
-      await this.realtime.emitHandover(ctx, 'NONE');
+      await this.insertSystemMessage(
+        session,
+        `Resolved by ${name}. AI resumed`,
+      );
+      await this.realtime.emitHandover(ctx, "NONE");
       await this.realtime.emitMessage(ctx);
     }
     return this.getThread(publicSessionId, user);
@@ -668,12 +747,14 @@ export class HandoverService {
    * back to the AI so the session resumes its normal lifecycle (and can expire
    * again — the expiry guard only blocks while handoverState != NONE).
    */
-  async sweepIdleHandovers(idleMinutes?: number): Promise<{ resolved: number }> {
+  async sweepIdleHandovers(
+    idleMinutes?: number,
+  ): Promise<{ resolved: number }> {
     const minutes = idleMinutes ?? this.resolveIdleMinutes();
     const cutoff = new Date(Date.now() - minutes * 60 * 1000);
     const stale = await this.prisma.chatSession.findMany({
       where: {
-        handoverState: { in: ['REQUESTED', 'ACTIVE_HUMAN'] },
+        handoverState: { in: ["REQUESTED", "ACTIVE_HUMAN"] },
         // Idle = quiet for `idleMinutes`. Sessions with no messages yet (e.g. a
         // cold "talk to a human" button click) have a null lastMessageAt, so
         // fall back to createdAt — otherwise they'd stay stuck in REQUESTED
@@ -686,6 +767,8 @@ export class HandoverService {
       select: {
         id: true,
         sessionId: true,
+        agentId: true,
+        source: true,
         agent: { select: { organizationId: true } },
       },
       take: 200,
@@ -696,33 +779,38 @@ export class HandoverService {
       try {
         // Close the history cycle FIRST (while still non-NONE) so a concurrent
         // re-escalation can't open a cycle this close would grab. Best-effort.
-        await this.recordHandoverResolved(s.id, 'AUTO_INACTIVE');
+        await this.recordHandoverResolved(s.id, "AUTO_INACTIVE");
         await this.prisma.chatSession.update({
           where: { id: s.id },
-          data: { handoverState: 'NONE', handoverResolvedAt: new Date() },
+          data: { handoverState: "NONE", handoverResolvedAt: new Date() },
         });
-        await this.insertSystemMessage(s.id, 'Auto-resolved (inactive). AI resumed');
-        const ctx = {
-          sessionDbId: s.id,
-          publicSessionId: s.sessionId,
-          organizationId: s.agent.organizationId,
-        };
-        await this.realtime.emitHandover(ctx, 'NONE');
+        await this.insertSystemMessage(
+          s,
+          "Auto-resolved (inactive). AI resumed",
+        );
+        const ctx = this.ctxOf(s);
+        await this.realtime.emitHandover(ctx, "NONE");
         await this.realtime.emitMessage(ctx);
         resolved++;
       } catch (err) {
-        this.log.warn('sweepIdleHandovers', 'per-session resolve failed (fail-open)', {
-          sessionId: s.id,
-          err: err instanceof Error ? err.message : String(err),
-        });
+        this.log.warn(
+          "sweepIdleHandovers",
+          "per-session resolve failed (fail-open)",
+          {
+            sessionId: s.id,
+            err: err instanceof Error ? err.message : String(err),
+          },
+        );
       }
     }
     if (resolved > 0) {
-      this.log.info('sweepIdleHandovers', 'auto-resolved idle session(s)', { resolved });
+      this.log.info("sweepIdleHandovers", "auto-resolved idle session(s)", {
+        resolved,
+      });
     }
     // INTERNAL observability: record each sweep run (cron liveness + how many
     // stale sessions it auto-resolved). Fire-and-forget.
-    this.events.logCompleted('HANDOVER_SWEEP_COMPLETED', {
+    this.events.logCompleted("HANDOVER_SWEEP_COMPLETED", {
       metadata: { scanned: stale.length, resolved },
     });
     return { resolved };
@@ -734,7 +822,9 @@ export class HandoverService {
 
   private assertClientHasOrg(user: CurrentUserData): void {
     if (isOrgScoped(user) && !user.organizationId) {
-      throw new ForbiddenException('Client user must be associated with an organization');
+      throw new ForbiddenException(
+        "Client user must be associated with an organization",
+      );
     }
   }
 
@@ -750,7 +840,10 @@ export class HandoverService {
     };
   }
 
-  private async loadScopedSession(publicSessionId: string, user: CurrentUserData) {
+  private async loadScopedSession(
+    publicSessionId: string,
+    user: CurrentUserData,
+  ) {
     this.assertClientHasOrg(user);
     const session = await this.prisma.chatSession.findFirst({
       where: {
@@ -761,46 +854,67 @@ export class HandoverService {
         },
       },
       include: {
-        agent: { select: { id: true, name: true, organizationId: true, humanConnectedLabel: true } },
+        agent: {
+          select: {
+            id: true,
+            name: true,
+            organizationId: true,
+            humanConnectedLabel: true,
+          },
+        },
         takenOverBy: { select: { id: true, name: true } },
       },
     });
-    if (!session) throw new NotFoundException('Conversation not found');
+    if (!session) throw new NotFoundException("Conversation not found");
     return session;
   }
 
   private ctxOf(session: {
     id: string;
     sessionId: string;
+    agentId: string;
+    source: ChatSource;
     agent: { organizationId: string };
   }): HandoverCtx {
     return {
       sessionDbId: session.id,
       publicSessionId: session.sessionId,
       organizationId: session.agent.organizationId,
+      agentId: session.agentId,
+      source: session.source,
     };
   }
 
-  private async insertSystemMessage(sessionDbId: string, content: string) {
+  private async insertSystemMessage(session: MessageSession, content: string) {
     return this.prisma.chatMessage.create({
-      data: { chatSessionId: sessionDbId, role: 'SYSTEM', content, metadata: { system: true } },
+      data: {
+        chatSessionId: session.id,
+        agentId: session.agentId,
+        sessionSource: session.source,
+        role: "SYSTEM",
+        content,
+        metadata: { system: true },
+      },
     });
   }
 
   private authorName(metadata: Prisma.JsonValue | null): string | null {
-    if (metadata && typeof metadata === 'object' && !Array.isArray(metadata)) {
+    if (metadata && typeof metadata === "object" && !Array.isArray(metadata)) {
       const ha = (metadata as Record<string, unknown>).humanAgent;
-      if (ha && typeof ha === 'object' && 'name' in ha) {
+      if (ha && typeof ha === "object" && "name" in ha) {
         const name = (ha as Record<string, unknown>).name;
-        if (typeof name === 'string') return name;
+        if (typeof name === "string") return name;
       }
     }
     return null;
   }
 
   private async resolveUserName(userId: string): Promise<string> {
-    const u = await this.prisma.user.findUnique({ where: { id: userId }, select: { name: true } });
-    return u?.name?.trim() || 'A teammate';
+    const u = await this.prisma.user.findUnique({
+      where: { id: userId },
+      select: { name: true },
+    });
+    return u?.name?.trim() || "A teammate";
   }
 
   // ---------------------------------------------------------------------------
@@ -827,13 +941,22 @@ export class HandoverService {
       });
       if (!s) return;
       await this.prisma.handoverEvent.create({
-        data: { chatSessionId: sessionDbId, organizationId, agentId: s.agentId, reason },
+        data: {
+          chatSessionId: sessionDbId,
+          organizationId,
+          agentId: s.agentId,
+          reason,
+        },
       });
     } catch (err) {
-      this.log.warn('recordHandoverRequested', 'history write failed (ignored)', {
-        sessionDbId,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      this.log.warn(
+        "recordHandoverRequested",
+        "history write failed (ignored)",
+        {
+          sessionDbId,
+          err: err instanceof Error ? err.message : String(err),
+        },
+      );
     }
   }
 
@@ -851,7 +974,7 @@ export class HandoverService {
     try {
       const open = await this.prisma.handoverEvent.findFirst({
         where: { chatSessionId: sessionDbId, resolvedAt: null },
-        orderBy: { requestedAt: 'desc' },
+        orderBy: { requestedAt: "desc" },
         select: { id: true, startedAt: true },
       });
       const now = new Date();
@@ -876,10 +999,14 @@ export class HandoverService {
         });
       }
     } catch (err) {
-      this.log.warn('recordHandoverTakenOver', 'history write failed (ignored)', {
-        sessionDbId,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      this.log.warn(
+        "recordHandoverTakenOver",
+        "history write failed (ignored)",
+        {
+          sessionDbId,
+          err: err instanceof Error ? err.message : String(err),
+        },
+      );
     }
   }
 
@@ -891,7 +1018,7 @@ export class HandoverService {
     try {
       const open = await this.prisma.handoverEvent.findFirst({
         where: { chatSessionId: sessionDbId, resolvedAt: null },
-        orderBy: { requestedAt: 'desc' },
+        orderBy: { requestedAt: "desc" },
         select: { id: true },
       });
       if (!open) return;
@@ -900,10 +1027,14 @@ export class HandoverService {
         data: { resolvedAt: new Date(), resolution },
       });
     } catch (err) {
-      this.log.warn('recordHandoverResolved', 'history write failed (ignored)', {
-        sessionDbId,
-        err: err instanceof Error ? err.message : String(err),
-      });
+      this.log.warn(
+        "recordHandoverResolved",
+        "history write failed (ignored)",
+        {
+          sessionDbId,
+          err: err instanceof Error ? err.message : String(err),
+        },
+      );
     }
   }
 }

@@ -4,6 +4,7 @@ import { AppLogger } from "../common/logger/app-logger";
 import { CryptoService } from "../common/crypto/crypto.service";
 import { TracerService } from "../common/tracer/tracer.service";
 import { PrismaService } from "./prisma.service";
+import { countMessagesBySession } from "../utils/message-counts";
 import { SupabaseStorageService } from "./supabase-storage.service";
 
 /** Row counts removed per table — returned to the caller as proof of erasure. */
@@ -127,7 +128,6 @@ export class PurgeService {
         source: true,
         status: true,
         createdAt: true,
-        _count: { select: { messages: true } },
       },
       orderBy: { createdAt: "desc" },
       // A visitor has a handful of sessions; the cap is a runaway guard, not
@@ -153,13 +153,14 @@ export class PurgeService {
       take: 500,
     });
 
-    const [collected, aiTraces, eventLogs, piiTokens, llmUsage] =
+    const [collected, messageCounts, aiTraces, eventLogs, piiTokens, llmUsage] =
       dbIds.length > 0
         ? await Promise.all([
             this.prisma.collectedData.findMany({
               where: { chatSessionId: { in: dbIds } },
               select: { chatSessionId: true, data: true, extractedAt: true },
             }),
+            countMessagesBySession(this.prisma, dbIds),
             this.prisma.chatTrace.count({
               where: { sessionId: { in: anySessionId } },
             }),
@@ -178,7 +179,7 @@ export class PurgeService {
               where: { sessionId: { in: anySessionId } },
             }),
           ])
-        : [[], 0, 0, 0, 0];
+        : [[], new Map<string, number>(), 0, 0, 0, 0];
 
     const publicIdByDbId = new Map(sessions.map((s) => [s.id, s.sessionId]));
 
@@ -191,9 +192,12 @@ export class PurgeService {
         source: s.source,
         status: s.status,
         startedAt: s.createdAt,
-        messageCount: s._count.messages,
+        messageCount: messageCounts.get(s.id) ?? 0,
       })),
-      totalMessages: sessions.reduce((sum, s) => sum + s._count.messages, 0),
+      totalMessages: sessions.reduce(
+        (sum, s) => sum + (messageCounts.get(s.id) ?? 0),
+        0,
+      ),
       collectedData: collected.map((c) => ({
         sessionId: publicIdByDbId.get(c.chatSessionId) ?? c.chatSessionId,
         extractedAt: c.extractedAt,

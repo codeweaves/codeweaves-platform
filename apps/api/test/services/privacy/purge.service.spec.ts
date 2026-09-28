@@ -26,6 +26,7 @@ describe("PurgeService", () => {
     userInvitation: { deleteMany: jest.fn() },
     file: { findMany: jest.fn(), deleteMany: jest.fn() },
     collectedData: { findMany: jest.fn() },
+    chatMessage: { groupBy: jest.fn() },
     notification: { deleteMany: jest.fn() },
     visitorConsent: { deleteMany: jest.fn(), findMany: jest.fn() },
   };
@@ -233,8 +234,10 @@ describe("PurgeService", () => {
           source: "WIDGET",
           status: "ACTIVE",
           createdAt: new Date("2026-07-01"),
-          _count: { messages: 6 },
         },
+      ]);
+      mockPrisma.chatMessage.groupBy.mockResolvedValue([
+        { chatSessionId: "db-1", _count: { _all: 6 } },
       ]);
       mockPrisma.collectedData.findMany.mockResolvedValue([
         {
@@ -255,6 +258,11 @@ describe("PurgeService", () => {
         expect.objectContaining({ sessionId: "pub-1", messageCount: 6 }),
       ]);
       expect(summary.totalMessages).toBe(6);
+      expect(mockPrisma.chatMessage.groupBy).toHaveBeenCalledWith({
+        by: ["chatSessionId"],
+        where: { chatSessionId: { in: ["db-1"] } },
+        _count: { _all: true },
+      });
       // The lead fields come back decrypted for the data principal…
       expect(summary.collectedData).toEqual([
         expect.objectContaining({
