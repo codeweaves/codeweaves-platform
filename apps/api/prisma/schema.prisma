@@ -665,11 +665,10 @@ model ChatMessage {
   chatSessionId String
   /// The session's agentId and source, copied so analytics can scope by tenant
   /// and channel without a join (ADR-0007). Both are immutable on the session.
-  /// Nullable only until the release-2 migration, which sets NOT NULL and makes
-  /// them part of the session foreign key.
-  agentId       String?
-  sessionSource ChatSource?
-  chatSession   ChatSession         @relation(fields: [chatSessionId], references: [id], onDelete: Cascade)
+  /// They are part of the session foreign key, so they cannot disagree with it.
+  agentId       String
+  sessionSource ChatSource
+  chatSession   ChatSession         @relation(fields: [chatSessionId, agentId, sessionSource], references: [id, agentId, source], onDelete: Cascade)
   role          MessageRole
   content       String              @db.Text
   metadata      Json?
@@ -686,15 +685,15 @@ model ChatMessage {
 /// exclusively through MessageMetricsService so column names can't diverge per
 /// pipeline. n8n is retired, so there is no routingMode/n8n-timestamp surface.
 model ChatMessageMetrics {
-  messageId     String       @id
-  message       ChatMessage  @relation(fields: [messageId], references: [id], onDelete: Cascade)
-  /// Copies of the message's immutable agentId, sessionSource, role and createdAt, so
-  /// analytics can scope by tenant, channel, role and time without a join
-  /// (ADR-0007). The first three are nullable only until the release-2
-  /// migration sets NOT NULL.
-  agentId       String?
-  sessionSource ChatSource?
-  role          MessageRole?
+  messageId     String      @id
+  message       ChatMessage @relation(fields: [messageId], references: [id], onDelete: Cascade)
+  /// Copies of the message's immutable agentId, sessionSource, role and
+  /// createdAt, so analytics can scope by tenant, channel, role and time
+  /// without a join (ADR-0007). MessageMetricsService copies them from the
+  /// message row.
+  agentId       String
+  sessionSource ChatSource
+  role          MessageRole
   createdAt     DateTime
 
   // ---- channel / mode ----
