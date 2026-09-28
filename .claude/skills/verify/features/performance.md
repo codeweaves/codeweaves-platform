@@ -94,7 +94,11 @@ Fixed on this branch:
 - **Relation counts.** Prisma's `_count: { messages }` compiles to a `GROUP BY` over the whole `chat_messages` table before the join. The conversations list, the Inbox and the visitor data summary now use `countMessagesBySession` (`apps/api/src/utils/message-counts.ts`), which counts only the rows on the page. Do not use a relation `_count` on messages.
 - The `messageCount` sort was removed from the conversations API. No client used it, and it cannot be served without counting every session in range.
 
-**Open: ADR-0007 release 2.** Ship it as soon as the release-1 migration is live on develop: backfill any message and metrics rows with a null `agentId`/`source`/`role` (written by the old code during the deploy), set `NOT NULL`, replace the `chat_messages` session foreign key with `(chatSessionId, agentId, source) -> chat_sessions (id, agentId, source)`, and make the fields required in Prisma.
+**ADR-0007 release 2 (contract): done.** Migration `20260929000000_tenant_key_on_message_rows_contract` fills the rows the old code wrote during the release-1 deploy, sets `NOT NULL`, and replaces the `chat_messages` session foreign key with `(chatSessionId, agentId, sessionSource) -> chat_sessions (id, agentId, source)`. The fields are required in Prisma, so `check-types` rejects a message writer that omits them (the seed scripts are type-checked too), and the database rejects a message whose keys disagree with its session. On 2M local messages it applied in 3.9 s.
+
+**Production rollout order.** Release 1 must be live in production before release 2 is applied there. Both migrations are in `develop`, so one merge to `main` would apply them in one deploy. Prod has no traffic today, so that is safe. Once prod serves real chats, a release that still has to deploy release 1 must not include release 2.
+
+**Rollback limit.** Code from before PR #220 does not set the new columns, so it cannot insert messages into a database that has release 2. A rollback past #220 needs a migration that drops the `NOT NULL` rules and the composite foreign key first.
 
 **Next targets at scale** (in order): `/analytics/agents` and `/analytics/summary` still aggregate 80,000 to 170,000 raw rows per window, twice (current and previous period). Under the dashboard's 10 parallel requests each query takes 200 to 540 ms. The ADR-0007 rollup option has the revisit condition for this.
 

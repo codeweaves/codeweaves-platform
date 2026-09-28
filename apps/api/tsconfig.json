@@ -24,6 +24,6 @@
       "@test/*": ["test/*"]
     }
   },
-  "include": ["src/**/*", "test/**/*"],
+  "include": ["src/**/*", "test/**/*", "prisma/**/*.ts"],
   "exclude": ["node_modules", "dist"]
 }
