@@ -42,7 +42,7 @@ Each role sees only its own sidebar ([dashboard-shell.md](./dashboard-shell.md))
 Proven 2026-09-27. The sandbox owner must never see the other org ("Verify Other Org") or platform-only data.
 
 1. **Give the other side data first.** An empty tenant proves nothing. Run `widget open --agent <otherOrg.agent.publicId> --page visitor`, then `widget send --page visitor --text "Isolation probe from another tenant."`. `chat_sessions` for that agent now has at least one row.
-2. **Take the owner's own token.** Run `dashboard login --as owner --page teammate`, then `browser eval --page teammate --js "(async()=>await window.Clerk.session.getToken({template:'klivo-api'}))()"`. Keep it in a shell variable and never print it. Never use a super admin token here.
+2. **Take the owner's own token.** Run `dashboard login --as owner --page teammate`, then `browser eval --page teammate --js "(async()=>await window.Clerk.session.getToken())()"`. Keep it in a shell variable and never print it. Never use a super admin token here.
 3. **Call the API directly** with `Authorization: Bearer <token>` on `http://localhost:3001/api/klivo/v1`:
 
    | Request                                                                                      | Expect                                            |

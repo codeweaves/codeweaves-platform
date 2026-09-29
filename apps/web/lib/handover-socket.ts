@@ -1,7 +1,7 @@
-'use client';
+"use client";
 
-import { io, type Socket } from 'socket.io-client';
-import { API_BASE_URL } from '@/config/api';
+import { io, type Socket } from "socket.io-client";
+import { API_BASE_URL } from "@/config/api";
 
 /**
  * Shared dashboard connection to the self-hosted Socket.io handover gateway
@@ -39,7 +39,7 @@ export function profileHandoverAuth(
 ): HandoverAuth | null {
   if (!profile) return null;
   if (profile.organization?.id) return { orgId: profile.organization.id };
-  if (profile.accessScope === 'PLATFORM') return { platform: true };
+  if (profile.accessScope === "PLATFORM") return { platform: true };
   return null;
 }
 
@@ -75,7 +75,7 @@ export function getHandoverConnected(): boolean {
 /**
  * Ensure a single shared socket for this scope. Idempotent per scope.
  *
- * `getToken` returns a fresh Clerk `klivo-api` token — the gateway verifies it
+ * `getToken` returns a fresh Clerk session token — the gateway verifies it
  * and derives the org/platform room from the DB user (the `scope` we pass is
  * only a client-side hint for the singleton key; the server ignores it). We
  * pass `auth` as a FUNCTION so socket.io re-fetches a live token on every
@@ -86,7 +86,7 @@ export function ensureHandoverSocket(
   scope: HandoverAuth,
   getToken: () => Promise<string | null>,
 ): Socket {
-  const key = scope.platform ? 'platform' : scope.orgId ?? '';
+  const key = scope.platform ? "platform" : (scope.orgId ?? "");
   if (socket && connectedKey === key) return socket;
   if (socket) {
     socket.removeAllListeners();
@@ -100,14 +100,14 @@ export function ensureHandoverSocket(
         .then((token) => cb({ token: token ?? undefined }))
         .catch(() => cb({}));
     },
-    transports: ['websocket', 'polling'],
+    transports: ["websocket", "polling"],
     withCredentials: false,
     reconnection: true,
     reconnectionDelayMax: 8000,
   });
   // Drive the connection-state store so the queries can pause/resume polling.
-  socket.on('connect', () => setSocketConnected(true));
-  socket.on('disconnect', () => setSocketConnected(false));
+  socket.on("connect", () => setSocketConnected(true));
+  socket.on("disconnect", () => setSocketConnected(false));
   return socket;
 }
 
@@ -117,12 +117,12 @@ export function getHandoverSocket(): Socket | null {
 
 /** Start receiving a session's ephemeral signals (visitor typing). */
 export function watchSession(sessionId: string): void {
-  socket?.emit('watch', { sessionId });
+  socket?.emit("watch", { sessionId });
 }
 
 /** Stop receiving that session's signals. */
 export function unwatchSession(sessionId: string): void {
-  socket?.emit('unwatch', { sessionId });
+  socket?.emit("unwatch", { sessionId });
 }
 
 /** Tell the visitor the teammate is typing (throttled). No-op if disconnected. */
@@ -131,7 +131,7 @@ export function emitAgentTyping(sessionId: string): void {
   const now = Date.now();
   if (now - lastAgentTypingAt < AGENT_TYPING_THROTTLE_MS) return;
   lastAgentTypingAt = now;
-  socket.emit('typing', { from: 'agent', sessionId });
+  socket.emit("typing", { from: "agent", sessionId });
 }
 
 /** Tear down (sign-out / org switch). */
