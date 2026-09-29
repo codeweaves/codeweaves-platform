@@ -12,7 +12,8 @@ Dashboard users get logged out or see 401 on every request. New invitees cannot 
 
 ## Cause
 
-- **All users 401:** `CLERK_ISSUER` does not match the `iss` claim on tokens (prod custom domain vs `*.clerk.accounts.dev`), or `CLERK_JWT_AUDIENCE` is set but the JWT template does not emit that `aud`. JWKS fetches are capped at 5 per minute, so a key rotation can take a minute to pick up.
+- **All users 401:** `CLERK_ISSUER` does not match the `iss` claim on tokens (prod custom domain vs `*.clerk.accounts.dev`). JWKS fetches are capped at 5 per minute, so a key rotation can take a minute to pick up.
+- **Invitee gets "No valid invitation found" although the invitation exists:** the Clerk instance's session token does not carry the `email` claim, so first-login provisioning looks up an empty email. Existing users are not affected. Clerk dashboard, Configure, Sessions, Customize session token: `{ "email": "{{user.primary_email_address}}" }` (ADR-0008). Each instance (development, production) needs it.
 - **One user 401 "Account has been deactivated":** their `users.deletedAt` is set.
 - **Invitee cannot sign in:** provisioning is invitation-only and fail-closed. It needs a `PENDING`, unexpired `user_invitations` row for the exact email, AND Clerk confirming the email is verified on that account. If Clerk is unreachable, provisioning refuses rather than guessing.
 - **403 "route declares no authorization":** a route shipped without `@Public`, `@SelfOnly` or `@RequirePermission`. Boot should have refused it (`RouteAuthorizationAssertion`).
@@ -26,5 +27,5 @@ Dashboard users get logged out or see 401 on every request. New invitees cannot 
 
 ## Prevent
 
-- `CLERK_ISSUER`, `CLERK_JWT_AUDIENCE`, `CLERK_SECRET_KEY` on the release checklist. Boot fails fast only on a missing `CLERK_ISSUER`.
+- `CLERK_ISSUER`, `CLERK_SECRET_KEY` and the session-token `email` claim on the release checklist. Boot fails fast only on a missing `CLERK_ISSUER`.
 - After any Clerk instance or domain change, sign in once on develop before promoting.

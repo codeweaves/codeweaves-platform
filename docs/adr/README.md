@@ -15,6 +15,7 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | [0005](0005-pii-masked-logs-no-app-level-chat-encryption.md) | PII-masked logs, no app-level chat encryption | Accepted | 2026-09-25 |
 | [0006](0006-agent-verification-skill.md)                     | Agent verification skill                      | Accepted | 2026-09-26 |
 | [0007](0007-tenant-key-on-message-rows.md)                   | Tenant key on message rows                    | Accepted | 2026-09-28 |
+| [0008](0008-clerk-session-token-for-the-api.md)              | Clerk session token for the API               | Accepted | 2026-09-29 |
 
 ## When to write one
 

@@ -1,12 +1,8 @@
-'use client';
+"use client";
 
-import { useAuth as useClerkAuth, useUser } from '@clerk/nextjs';
-import { useRouter } from 'next/navigation';
-import { useCallback } from 'react';
-
-// JWT template configured in the Clerk dashboard. Its tokens carry the `email`
-// claim and the `klivo-api` audience the NestJS API verifies.
-const CLERK_JWT_TEMPLATE = 'klivo-api';
+import { useAuth as useClerkAuth, useUser } from "@clerk/nextjs";
+import { useRouter } from "next/navigation";
+import { useCallback } from "react";
 
 /**
  * App-wide auth hook. Intentionally exposes the same surface the app relied on
@@ -26,26 +22,26 @@ export function useAuth() {
 
   const login = useCallback(
     (returnTo?: string) => {
-      const target = returnTo || '/dashboard';
+      const target = returnTo || "/dashboard";
       router.push(`/sign-in?redirect_url=${encodeURIComponent(target)}`);
     },
     [router],
   );
 
   const logout = useCallback(() => {
-    void clerkSignOut({ redirectUrl: '/' });
+    void clerkSignOut({ redirectUrl: "/" });
   }, [clerkSignOut]);
 
   const getToken = useCallback(async (): Promise<string | null> => {
     try {
-      const token = await clerkGetToken({ template: CLERK_JWT_TEMPLATE });
+      const token = await clerkGetToken();
       if (!token) {
         login();
         return null;
       }
       return token;
     } catch (error) {
-      console.error('Failed to get access token:', error);
+      console.error("Failed to get access token:", error);
       login();
       return null;
     }
@@ -55,7 +51,7 @@ export function useAuth() {
     ? {
         id: clerkUser.id,
         sub: clerkUser.id, // back-compat alias for former Auth0 `sub`
-        email: clerkUser.primaryEmailAddress?.emailAddress ?? '',
+        email: clerkUser.primaryEmailAddress?.emailAddress ?? "",
         name: clerkUser.fullName,
         imageUrl: clerkUser.imageUrl,
       }

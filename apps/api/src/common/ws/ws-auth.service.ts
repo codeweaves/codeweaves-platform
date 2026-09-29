@@ -1,9 +1,9 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { verifyToken } from '@clerk/backend';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { verifyToken } from "@clerk/backend";
 
-import { PrismaService } from '../../services/prisma.service';
-import { isOrgScoped } from '../../utils/tenant-filter';
+import { PrismaService } from "../../services/prisma.service";
+import { isOrgScoped } from "../../utils/tenant-filter";
 
 /**
  * The trusted scope a socket is entitled to, resolved from its handshake.
@@ -21,8 +21,8 @@ export interface WsScope {
 
 /** Pull a single non-empty string from a handshake auth/query value. */
 function pickStr(v: unknown): string | undefined {
-  if (typeof v === 'string' && v.trim()) return v.trim();
-  if (Array.isArray(v) && typeof v[0] === 'string' && v[0].trim())
+  if (typeof v === "string" && v.trim()) return v.trim();
+  if (Array.isArray(v) && typeof v[0] === "string" && v[0].trim())
     return v[0].trim();
   return undefined;
 }
@@ -36,7 +36,7 @@ function pickStr(v: unknown): string | undefined {
  *   • Widget (public customer sites) — presents only an unguessable `sessionId`.
  *     Same bearer model as the public `/poll` HTTP endpoint. No login. Gets a
  *     session-scoped socket and nothing else.
- *   • Dashboard (our team) — presents a Clerk JWT (`klivo-api` template token,
+ *   • Dashboard (our team) — presents a Clerk JWT (the session token,
  *     the same one the HTTP API verifies). We verify it, map `sub` → the DB
  *     user, and derive the org/platform room from the DB — so a client can
  *     NEVER self-assign into another org's room by sending an `orgId` flag.
@@ -52,7 +52,7 @@ export class WsAuthService {
     private readonly config: ConfigService,
     private readonly prisma: PrismaService,
   ) {
-    this.secretKey = this.config.get<string>('CLERK_SECRET_KEY', '');
+    this.secretKey = this.config.get<string>("CLERK_SECRET_KEY", "");
   }
 
   /**
@@ -87,14 +87,15 @@ export class WsAuthService {
   private async scopeFromToken(token: string): Promise<WsScope | null> {
     if (!this.secretKey) {
       this.logger.warn(
-        'CLERK_SECRET_KEY not set — cannot verify dashboard socket tokens.',
+        "CLERK_SECRET_KEY not set — cannot verify dashboard socket tokens.",
       );
       return null;
     }
     try {
       const claims = await verifyToken(token, { secretKey: this.secretKey });
       const clerkId = claims.sub;
-      if (!clerkId) return null;
+      // Session tokens only, the same rule as the HTTP JwtStrategy.
+      if (!clerkId || !claims.sid) return null;
 
       const user = await this.prisma.user.findFirst({
         where: { clerkId, deletedAt: null },
