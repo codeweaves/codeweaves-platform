@@ -247,7 +247,6 @@ async function main() {
     voiceEnabled: true,
     voiceConfig: {
       ttsSpeed: 1,
-      sttEnabled: true,
       ttsEnabled: true,
       defaultLanguage: "en",
       autoDetectLanguage: false,

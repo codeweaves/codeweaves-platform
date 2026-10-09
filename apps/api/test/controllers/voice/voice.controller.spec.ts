@@ -254,7 +254,6 @@ describe("VoiceController", () => {
 
     // Default: TTS enabled
     mockVoiceService.getVoiceConfig.mockResolvedValue({
-      sttEnabled: true,
       ttsEnabled: true,
       defaultLanguage: "en",
       supportedLanguages: ["en"],

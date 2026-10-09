@@ -28,7 +28,6 @@ export interface AgentConfig {
   starters: string[];
   voiceEnabled?: boolean;
   voiceConfig?: {
-    sttEnabled?: boolean;
     ttsEnabled?: boolean;
     defaultLanguage?: string;
     supportedLanguages?: string[];
