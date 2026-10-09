@@ -511,7 +511,15 @@ describe("AgentsService", () => {
           { aiConfig: { mode: "direct" } } as never,
           adminUser,
         ),
-      ).rejects.toThrow(/routing configuration/);
+      ).rejects.toThrow(/integration settings/);
+    });
+
+    it("denies allowed domains without Agent:UpdateIntegration", async () => {
+      grantedPermissions = new Set(["Agent:Update"]);
+      await expect(
+        service.update(agentId, { allowedDomains: ["example.com"] }, adminUser),
+      ).rejects.toThrow(/integration settings/);
+      expect(mockPrismaService.agent.update).not.toHaveBeenCalled();
     });
 
     it("allows each section once its permission is held", async () => {
@@ -741,6 +749,20 @@ describe("AgentsService", () => {
   describe("response filtering — stripSensitiveFields", () => {
     const agentWithDomains = { ...mockAgent, allowedDomains: ["example.com"] };
 
+    // "CLIENT" below = an org user without the Integration section.
+    beforeEach(() => {
+      grantedPermissions = new Set(["Agent:Update"]);
+    });
+
+    it("should include allowedDomains for an org user with Agent:UpdateIntegration", async () => {
+      grantedPermissions = new Set(["Agent:Update", "Agent:UpdateIntegration"]);
+      mockPrismaService.agent.findFirst.mockResolvedValue(agentWithDomains);
+
+      const result = await service.findById(agentId, clientUser);
+
+      expect(result).toHaveProperty("allowedDomains", ["example.com"]);
+    });
+
     it("should strip allowedDomains from findById response for CLIENT", async () => {
       mockPrismaService.agent.findFirst.mockResolvedValue(agentWithDomains);
 
@@ -846,6 +868,7 @@ describe("AgentsService", () => {
     });
 
     it("should allow CLIENT to toggle status for own org agent", async () => {
+      grantedPermissions = new Set(["Agent:Update"]);
       const inactiveAgent = { ...mockAgent, status: "INACTIVE" };
       mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
       mockPrismaService.agent.update.mockResolvedValue(inactiveAgent);
@@ -1156,7 +1179,6 @@ describe("AgentsService", () => {
 
   describe("update — voice configuration", () => {
     const validVoiceConfig = {
-      sttEnabled: true,
       ttsEnabled: true,
       sttProvider: "deepgram" as const,
       ttsProvider: "elevenlabs" as const,
@@ -1220,7 +1242,6 @@ describe("AgentsService", () => {
         data: {
           voiceEnabled: true,
           voiceConfig: expect.objectContaining({
-            sttEnabled: true,
             ttsEnabled: true,
             sttProvider: "deepgram",
             ttsProvider: "elevenlabs",
@@ -1267,7 +1288,6 @@ describe("AgentsService", () => {
     it("should apply defaults for missing voiceConfig fields", async () => {
       const minimalConfig = {};
       const expectedDefaults = {
-        sttEnabled: true,
         ttsEnabled: true,
         defaultLanguage: "en",
         supportedLanguages: ["en"],
@@ -1289,7 +1309,6 @@ describe("AgentsService", () => {
         where: { id: agentId },
         data: {
           voiceConfig: expect.objectContaining({
-            sttEnabled: true,
             ttsEnabled: true,
             defaultLanguage: "en",
             supportedLanguages: ["en"],
@@ -1370,7 +1389,6 @@ describe("AgentsService", () => {
   describe("getDemoInfo — voice config in widget response", () => {
     it("should return sanitized voiceConfig (no provider details) when voiceEnabled is true", async () => {
       const voiceConfig = {
-        sttEnabled: true,
         ttsEnabled: true,
         sttProvider: "deepgram",
         ttsProvider: "elevenlabs",
@@ -1394,7 +1412,6 @@ describe("AgentsService", () => {
 
       // Should include only widget-safe fields
       expect(result.voiceConfig).toEqual({
-        sttEnabled: true,
         ttsEnabled: true,
         defaultLanguage: "en",
         supportedLanguages: ["en"],
@@ -1409,7 +1426,6 @@ describe("AgentsService", () => {
 
     it("should return null voiceConfig when voiceEnabled is false", async () => {
       const voiceConfig = {
-        sttEnabled: true,
         ttsEnabled: true,
         defaultLanguage: "en",
       };
@@ -1592,7 +1608,7 @@ describe("AgentsService", () => {
         const after = await etagFor({
           ...baseAgent,
           voiceEnabled: true,
-          voiceConfig: { sttEnabled: true, ttsEnabled: true },
+          voiceConfig: { ttsEnabled: true },
         });
 
         expect(after).not.toBe(before);

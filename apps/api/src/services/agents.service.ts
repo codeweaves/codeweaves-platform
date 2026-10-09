@@ -594,7 +594,6 @@ export class AgentsService {
   /** Strip provider internals from voiceConfig before exposing to public widget endpoint */
   private sanitizeVoiceConfigForWidget(config: Record<string, unknown>) {
     return {
-      sttEnabled: config.sttEnabled ?? true,
       ttsEnabled: config.ttsEnabled ?? true,
       defaultLanguage: config.defaultLanguage ?? "en",
       supportedLanguages: config.supportedLanguages ?? ["en"],
@@ -759,10 +758,6 @@ export class AgentsService {
   }
 
   /**
-   * Strip sensitive fields from agent response for CLIENT users.
-   * CLIENT users should not see allowedDomains.
-   */
-  /**
    * Agent-editor sections that are separately grantable but share the agents row.
    *
    * `PATCH /agents/:id` is one endpoint writing one row, so `Agent:Update` alone
@@ -793,8 +788,8 @@ export class AgentsService {
     },
     {
       permission: "Agent:UpdateIntegration",
-      label: "routing configuration",
-      fields: ["aiConfig"],
+      label: "integration settings",
+      fields: ["aiConfig", "allowedDomains"],
     },
   ];
 
@@ -822,11 +817,22 @@ export class AgentsService {
     }
   }
 
+  /**
+   * Allowed domains belong to the Integration section: an org user sees them
+   * only with Agent:UpdateIntegration, the same permission that writes them.
+   * Showing the list to someone who cannot change it, or hiding it from someone
+   * who can, would let a save replace domains they never saw.
+   */
   private stripSensitiveFields(
     agent: Agent,
     user: CurrentUserData,
   ): Omit<Agent, "allowedDomains"> | Agent {
-    if (isOrgScoped(user)) {
+    if (
+      isOrgScoped(user) &&
+      !this.catalog
+        .resolvePermissions(user.roleKeys ?? [])
+        .has("Agent:UpdateIntegration")
+    ) {
       // eslint-disable-next-line @typescript-eslint/no-unused-vars
       const { allowedDomains, ...safe } = agent;
       return safe;
