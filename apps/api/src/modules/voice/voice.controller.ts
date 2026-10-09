@@ -334,7 +334,7 @@ export class VoiceController {
     // Direct-mode streaming: agent has aiConfig.routingMode = 'direct', so we
     // bypass n8n entirely and pipe DirectChatService → voice adapter → existing
     // VoiceService.streamingTTS pipeline. No webhook URL needed.
-    if (routingMode === "direct" && voiceConfig.ttsEnabled !== false) {
+    if (routingMode === "direct") {
       await this.handleStreamingVoice(
         dto,
         sttResult,
@@ -351,7 +351,7 @@ export class VoiceController {
       return;
     }
 
-    if (webhookUrl && voiceConfig.ttsEnabled !== false) {
+    if (webhookUrl) {
       await this.handleStreamingVoice(
         dto,
         sttResult,
@@ -368,22 +368,17 @@ export class VoiceController {
       return;
     }
 
-    // TTS disabled or no valid routing — return error (legacy sequential path removed)
+    // No valid routing — return error (legacy sequential path removed)
     this.log.warn(
       "voiceConversation",
-      "no valid TTS/routing configuration for agent",
-      {
-        agentId: resolvedAgentId,
-        routingMode,
-        ttsEnabled: voiceConfig.ttsEnabled,
-      },
+      "no valid routing configuration for agent",
+      { agentId: resolvedAgentId, routingMode },
     );
     res.status(HttpStatus.PRECONDITION_FAILED);
     return {
       error: true,
       errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
-      message:
-        "Voice conversation requires TTS-enabled agent with a routing configuration.",
+      message: "Voice conversation requires a routing configuration.",
     };
   }
 

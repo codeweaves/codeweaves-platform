@@ -16,6 +16,7 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | [0006](0006-agent-verification-skill.md)                     | Agent verification skill                      | Accepted | 2026-09-26 |
 | [0007](0007-tenant-key-on-message-rows.md)                   | Tenant key on message rows                    | Accepted | 2026-09-28 |
 | [0008](0008-clerk-session-token-for-the-api.md)              | Clerk session token for the API               | Accepted | 2026-09-29 |
+| [0010](0010-integration-addon-owns-allowed-domains.md)       | Integration add-on owns allowed domains       | Accepted | 2026-10-09 |
 
 ## When to write one
 

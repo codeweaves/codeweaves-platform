@@ -132,6 +132,8 @@ function buildQuery(params: ConversationListParams): string {
 export interface ConversationsQueryOptions {
   /** Poll interval in ms, or false to disable. Callers pass false when the tab is hidden. */
   refetchInterval?: number | false;
+  /** Gate the query. Defaults to enabled; pass false to skip the fetch. */
+  enabled?: boolean;
 }
 
 /**
@@ -153,7 +155,7 @@ export function useConversations(
   return useQuery<PaginatedConversations>({
     queryKey: ["conversations", params],
     queryFn: () => api.get(`/conversations${buildQuery(params)}`),
-    enabled: isAuthenticated && !authLoading,
+    enabled: isAuthenticated && !authLoading && options?.enabled !== false,
     staleTime: resolveStaleTime(options),
     refetchInterval: options?.refetchInterval ?? false,
     // Never poll a backgrounded tab — a dashboard left open overnight should

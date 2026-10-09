@@ -3,12 +3,12 @@ import {
   Inject,
   BadRequestException,
   BadGatewayException,
-} from '@nestjs/common';
-import { AppLogger } from '../../common/logger/app-logger';
-import type { N8nStreamChunk } from '../../services/n8n-stream.interface';
-import type { VoiceStreamChunk } from './interfaces/voice-stream.interface';
-import { SentenceBuffer } from './utils/sentence-buffer';
-import { DisplayTextTracker } from './utils/display-text';
+} from "@nestjs/common";
+import { AppLogger } from "../../common/logger/app-logger";
+import type { N8nStreamChunk } from "../../services/n8n-stream.interface";
+import type { VoiceStreamChunk } from "./interfaces/voice-stream.interface";
+import { SentenceBuffer } from "./utils/sentence-buffer";
+import { DisplayTextTracker } from "./utils/display-text";
 import {
   type VoiceProvider,
   type STTRequest,
@@ -22,23 +22,23 @@ import {
   VOICE_PROVIDERS,
   UnsupportedLanguageError,
   VoiceProviderError,
-} from './providers/voice-provider.interface';
-import { PrismaService } from '../../services/prisma.service';
+} from "./providers/voice-provider.interface";
+import { PrismaService } from "../../services/prisma.service";
 import {
   toSpeakableText,
   hasSpeakableContent,
-} from '../../common/text/speakable-text';
-import { type VoiceConfigDto, voiceConfigSchema } from '@repo/validation';
+} from "../../common/text/speakable-text";
+import { type VoiceConfigDto, voiceConfigSchema } from "@repo/validation";
 
 const DEFAULT_VOICE_CONFIG: VoiceConfigDto = Object.freeze(
   voiceConfigSchema.parse({}),
 ) as VoiceConfigDto;
 
 /** Providers that should only be used in routing when no real provider is available */
-const NON_ROUTABLE_PROVIDERS = new Set(['stub']);
+const NON_ROUTABLE_PROVIDERS = new Set(["stub"]);
 
 /** Providers that do not support TTS */
-const NO_TTS_PROVIDERS = new Set(['deepgram']);
+const NO_TTS_PROVIDERS = new Set(["deepgram"]);
 
 /** Cache TTL: 60 seconds — balances freshness with DB load */
 const VOICE_CONFIG_CACHE_TTL_MS = 60_000;
@@ -57,23 +57,26 @@ export { toSpeakableText, hasSpeakableContent };
 
 /** Render a personalised preview line per language. Falls back to English when the language
  *  isn't templated, and to a generic sample when the voice name isn't known. */
-function renderPreviewSample(language: SupportedLanguage, voiceName?: string): string {
+function renderPreviewSample(
+  language: SupportedLanguage,
+  voiceName?: string,
+): string {
   const name = voiceName?.trim();
 
   if (!name) {
     const generic: Partial<Record<SupportedLanguage, string>> = {
-      en: 'Hello! This is a sample of my voice.',
-      hi: 'नमस्ते! यह मेरी आवाज़ का एक नमूना है।',
-      mr: 'नमस्कार! हे माझ्या आवाजाचे एक नमुना आहे.',
-      bn: 'নমস্কার! এটি আমার কণ্ঠের একটি নমুনা।',
-      ta: 'வணக்கம்! இது என் குரலின் ஒரு மாதிரி.',
-      te: 'నమస్కారం! ఇది నా స్వరం యొక్క ఒక నమూనా.',
-      gu: 'નમસ્તે! આ મારી અવાજનો એક નમૂનો છે.',
-      kn: 'ನಮಸ್ಕಾರ! ಇದು ನನ್ನ ಧ್ವನಿಯ ಒಂದು ಮಾದರಿ.',
-      ml: 'നമസ്കാരം! ഇത് എന്റെ ശബ്ദത്തിന്റെ ഒരു മാതൃകയാണ്.',
-      pa: 'ਸਤ ਸ੍ਰੀ ਅਕਾਲ! ਇਹ ਮੇਰੀ ਆਵਾਜ਼ ਦਾ ਇੱਕ ਨਮੂਨਾ ਹੈ।',
-      or: 'ନମସ୍କାର! ଏହା ମୋ ସ୍ୱରର ଏକ ନମୁନା।',
-      hinglish: 'Hello! Yeh meri awaaz ka ek sample hai.',
+      en: "Hello! This is a sample of my voice.",
+      hi: "नमस्ते! यह मेरी आवाज़ का एक नमूना है।",
+      mr: "नमस्कार! हे माझ्या आवाजाचे एक नमुना आहे.",
+      bn: "নমস্কার! এটি আমার কণ্ঠের একটি নমুনা।",
+      ta: "வணக்கம்! இது என் குரலின் ஒரு மாதிரி.",
+      te: "నమస్కారం! ఇది నా స్వరం యొక్క ఒక నమూనా.",
+      gu: "નમસ્તે! આ મારી અવાજનો એક નમૂનો છે.",
+      kn: "ನಮಸ್ಕಾರ! ಇದು ನನ್ನ ಧ್ವನಿಯ ಒಂದು ಮಾದರಿ.",
+      ml: "നമസ്കാരം! ഇത് എന്റെ ശബ്ദത്തിന്റെ ഒരു മാതൃകയാണ്.",
+      pa: "ਸਤ ਸ੍ਰੀ ਅਕਾਲ! ਇਹ ਮੇਰੀ ਆਵਾਜ਼ ਦਾ ਇੱਕ ਨਮੂਨਾ ਹੈ।",
+      or: "ନମସ୍କାର! ଏହା ମୋ ସ୍ୱରର ଏକ ନମୁନା।",
+      hinglish: "Hello! Yeh meri awaaz ka ek sample hai.",
     };
     return generic[language] ?? generic.en!;
   }
@@ -128,17 +131,17 @@ export class VoiceService {
   private readonly ttsProviders = new Map<string, VoiceProvider>();
 
   private readonly INDIAN_LANGUAGES = new Set<string>([
-    'hi',
-    'mr',
-    'bn',
-    'ta',
-    'te',
-    'gu',
-    'kn',
-    'ml',
-    'pa',
-    'or',
-    'hinglish',
+    "hi",
+    "mr",
+    "bn",
+    "ta",
+    "te",
+    "gu",
+    "kn",
+    "ml",
+    "pa",
+    "or",
+    "hinglish",
   ]);
 
   private readonly voiceConfigCache = new Map<string, CachedVoiceConfig>();
@@ -157,16 +160,24 @@ export class VoiceService {
 
   private registerProvider(provider: VoiceProvider): void {
     if (this.registry.has(provider.name)) {
-      this.log.warn('registerProvider', 'provider already registered — overwriting', {
-        provider: provider.name,
-      });
+      this.log.warn(
+        "registerProvider",
+        "provider already registered — overwriting",
+        {
+          provider: provider.name,
+        },
+      );
     }
     this.registry.set(provider.name, provider);
 
     if (NON_ROUTABLE_PROVIDERS.has(provider.name)) {
-      this.log.info('registerProvider', 'registered voice provider (non-routable)', {
-        provider: provider.name,
-      });
+      this.log.info(
+        "registerProvider",
+        "registered voice provider (non-routable)",
+        {
+          provider: provider.name,
+        },
+      );
       return;
     }
 
@@ -178,7 +189,9 @@ export class VoiceService {
       this.ttsProviders.set(provider.name, provider);
     }
 
-    this.log.info('registerProvider', 'registered voice provider', { provider: provider.name });
+    this.log.info("registerProvider", "registered voice provider", {
+      provider: provider.name,
+    });
   }
 
   getProvider(name: string): VoiceProvider {
@@ -216,26 +229,40 @@ export class VoiceService {
     if (config.sttProvider) {
       const override = this.sttProviders.get(config.sttProvider);
       if (override) {
-        this.log.info('transcribe', 'using STT provider override', {
+        this.log.info("transcribe", "using STT provider override", {
           agentId: request.agentId,
           provider: config.sttProvider,
         });
-        return this.timed(override, 'transcribe', request, `override=${config.sttProvider}`);
+        return this.timed(
+          override,
+          "transcribe",
+          request,
+          `override=${config.sttProvider}`,
+        );
       }
-      this.log.warn('transcribe', 'STT override not found — falling through to auto routing', {
-        override: config.sttProvider,
-      });
+      this.log.warn(
+        "transcribe",
+        "STT override not found — falling through to auto routing",
+        {
+          override: config.sttProvider,
+        },
+      );
     }
 
     // 2. Caller passed an explicit language hint → route on language.
     if (request.languageHint) {
       const provider = this.resolveSTTProvider(config, request.languageHint);
-      this.log.info('transcribe', 'routing on language hint', {
+      this.log.info("transcribe", "routing on language hint", {
         agentId: request.agentId,
         languageHint: request.languageHint,
         provider: provider.name,
       });
-      return this.timed(provider, 'transcribe', request, `hint=${request.languageHint}`);
+      return this.timed(
+        provider,
+        "transcribe",
+        request,
+        `hint=${request.languageHint}`,
+      );
     }
 
     // 3. Auto-detect path. Sarvam transcribes + detects language in one call. Then:
@@ -243,60 +270,98 @@ export class VoiceService {
     //    - English / other detected → call Deepgram fresh; Sarvam is unreliable for English
     //      even when it returns a transcript. Deepgram failure falls back to ElevenLabs,
     //      and finally to Sarvam's original transcript (so we never end with nothing).
-    const sarvam = this.sttProviders.get('sarvam');
+    const sarvam = this.sttProviders.get("sarvam");
     if (!sarvam) {
       // No Sarvam at all — fall back to default-language routing.
-      this.log.warn('transcribe', 'no Sarvam provider — falling back to default-language routing', {
-        agentId: request.agentId,
-        defaultLanguage: config.defaultLanguage ?? 'en',
-      });
-      const fallback = this.resolveSTTProvider(config, config.defaultLanguage ?? 'en');
-      return this.timed(fallback, 'transcribe', request, 'no-sarvam-fallback');
+      this.log.warn(
+        "transcribe",
+        "no Sarvam provider — falling back to default-language routing",
+        {
+          agentId: request.agentId,
+          defaultLanguage: config.defaultLanguage ?? "en",
+        },
+      );
+      const fallback = this.resolveSTTProvider(
+        config,
+        config.defaultLanguage ?? "en",
+      );
+      return this.timed(fallback, "transcribe", request, "no-sarvam-fallback");
     }
 
-    this.log.info('transcribe', 'no language hint — Sarvam detect + transcribe (step 1)', {
-      agentId: request.agentId,
-    });
-    const sarvamResult = await this.timed(sarvam, 'transcribe', request, 'auto-detect-step-1');
+    this.log.info(
+      "transcribe",
+      "no language hint — Sarvam detect + transcribe (step 1)",
+      {
+        agentId: request.agentId,
+      },
+    );
+    const sarvamResult = await this.timed(
+      sarvam,
+      "transcribe",
+      request,
+      "auto-detect-step-1",
+    );
 
     if (this.INDIAN_LANGUAGES.has(sarvamResult.detectedLanguage)) {
       // Sarvam is the best choice for Indian languages — accept its result (even if empty,
       // no other provider does Indian better).
-      this.log.info('transcribe', 'Indian language detected — keeping Sarvam transcript', {
-        detectedLanguage: sarvamResult.detectedLanguage,
-      });
+      this.log.info(
+        "transcribe",
+        "Indian language detected — keeping Sarvam transcript",
+        {
+          detectedLanguage: sarvamResult.detectedLanguage,
+        },
+      );
       return sarvamResult;
     }
 
     // English / other language — Deepgram is the reliable transcriber.
     const detectedLang = sarvamResult.detectedLanguage;
-    const deepgram = this.sttProviders.get('deepgram');
+    const deepgram = this.sttProviders.get("deepgram");
     if (deepgram) {
       try {
-        this.log.info('transcribe', 'non-Indian language — re-transcribing via Deepgram (step 2)', {
-          detectedLanguage: detectedLang,
-        });
-        return await this.timed(deepgram, 'transcribe', { ...request, languageHint: detectedLang }, `english-step-2 (lang=${detectedLang})`);
+        this.log.info(
+          "transcribe",
+          "non-Indian language — re-transcribing via Deepgram (step 2)",
+          {
+            detectedLanguage: detectedLang,
+          },
+        );
+        return await this.timed(
+          deepgram,
+          "transcribe",
+          { ...request, languageHint: detectedLang },
+          `english-step-2 (lang=${detectedLang})`,
+        );
       } catch (error) {
-        this.log.warn('transcribe', 'Deepgram failed — trying fallback chain', {
+        this.log.warn("transcribe", "Deepgram failed — trying fallback chain", {
           detectedLanguage: detectedLang,
-          error: error instanceof Error ? error.message : 'unknown',
+          error: error instanceof Error ? error.message : "unknown",
         });
       }
     }
 
     // Deepgram unavailable or threw — try ElevenLabs scribe_v2 (also supports English).
-    const elevenlabs = this.sttProviders.get('elevenlabs');
+    const elevenlabs = this.sttProviders.get("elevenlabs");
     if (elevenlabs) {
       try {
-        this.log.info('transcribe', 'falling back to ElevenLabs STT', {
+        this.log.info("transcribe", "falling back to ElevenLabs STT", {
           detectedLanguage: detectedLang,
         });
-        return await this.timed(elevenlabs, 'transcribe', { ...request, languageHint: detectedLang }, `english-fallback-elevenlabs`);
+        return await this.timed(
+          elevenlabs,
+          "transcribe",
+          { ...request, languageHint: detectedLang },
+          `english-fallback-elevenlabs`,
+        );
       } catch (error) {
-        this.log.warn('transcribe', "ElevenLabs also failed — using Sarvam's auto-detect transcript", {
-          error: error instanceof Error ? error.message : 'unknown',
-        });
+        this.log.warn(
+          "transcribe",
+          "ElevenLabs also failed — using Sarvam's auto-detect transcript",
+          {
+            error: error instanceof Error ? error.message : "unknown",
+          },
+        );
       }
     }
 
@@ -306,14 +371,14 @@ export class VoiceService {
   /** Wraps a provider call with consistent latency logging. Keeps transcribe() readable. */
   private async timed(
     provider: VoiceProvider,
-    op: 'transcribe',
+    op: "transcribe",
     request: STTRequest,
     note: string,
   ): Promise<STTResponse> {
     const startTime = Date.now();
     const result = await provider[op](request);
     const latencyMs = Date.now() - startTime;
-    this.log.info('timed', 'STT provider call complete', {
+    this.log.info("timed", "STT provider call complete", {
       op,
       provider: provider.name,
       detectedLanguage: result.detectedLanguage,
@@ -327,7 +392,7 @@ export class VoiceService {
     const config = await this.getVoiceConfig(request.agentId);
     const provider = this.resolveTTSProvider(config, request.language);
     const hasOverride = !!config.ttsProvider;
-    this.log.info('synthesize', 'TTS routing resolved', {
+    this.log.info("synthesize", "TTS routing resolved", {
       agentId: request.agentId,
       language: request.language,
       provider: provider.name,
@@ -352,7 +417,7 @@ export class VoiceService {
       // reply, the public endpoint returns TTS_FAILED. The streaming pipeline
       // never reaches here — it emits a text-only chunk for such sentences so
       // they still appear in the transcript.
-      throw new BadRequestException('Text contains nothing speakable');
+      throw new BadRequestException("Text contains nothing speakable");
     }
     const enrichedRequest: TTSRequest = {
       ...request,
@@ -365,44 +430,64 @@ export class VoiceService {
     try {
       const result = await provider.synthesize(enrichedRequest);
       const latencyMs = Date.now() - startTime;
-      this.log.info('synthesize', 'TTS completed', { provider: provider.name, latencyMs });
+      this.log.info("synthesize", "TTS completed", {
+        provider: provider.name,
+        latencyMs,
+      });
       return result;
     } catch (error) {
       if (
         error instanceof UnsupportedLanguageError ||
         error instanceof VoiceProviderError
       ) {
-        this.log.warn('synthesize', 'primary TTS failed — attempting fallback', {
-          provider: provider.name,
-          error: error instanceof Error ? error.message : 'unknown',
-        });
+        this.log.warn(
+          "synthesize",
+          "primary TTS failed — attempting fallback",
+          {
+            provider: provider.name,
+            error: error instanceof Error ? error.message : "unknown",
+          },
+        );
         return this.ttsFallback(enrichedRequest, provider.name, error);
       }
-      this.log.error('synthesize', 'TTS failed with non-recoverable error', error, {
-        provider: provider.name,
-      });
+      this.log.error(
+        "synthesize",
+        "TTS failed with non-recoverable error",
+        error,
+        {
+          provider: provider.name,
+        },
+      );
       throw error;
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
-  async detectLanguage(audio: Buffer, audioFormat: string, agentId?: string): Promise<LanguageDetectionResponse> {
+  async detectLanguage(
+    audio: Buffer,
+    audioFormat: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
+    agentId?: string,
+  ): Promise<LanguageDetectionResponse> {
     // Route to Sarvam by default — best Indian language detection with 'unknown' language_code
-    const sarvam = this.registry.get('sarvam');
+    const sarvam = this.registry.get("sarvam");
     if (sarvam) {
-      this.log.info('detectLanguage', 'routing to sarvam (default)');
+      this.log.info("detectLanguage", "routing to sarvam (default)");
       return sarvam.detectLanguage(audio, audioFormat);
     }
 
     // Fallback: use first available provider
     const firstProvider = this.registry.values().next().value;
     if (!firstProvider) {
-      this.log.error('detectLanguage', 'no voice providers available');
-      throw new BadGatewayException('No voice providers available');
+      this.log.error("detectLanguage", "no voice providers available");
+      throw new BadGatewayException("No voice providers available");
     }
-    this.log.warn('detectLanguage', 'sarvam unavailable — routing to first provider (fallback)', {
-      provider: firstProvider.name,
-    });
+    this.log.warn(
+      "detectLanguage",
+      "sarvam unavailable — routing to first provider (fallback)",
+      {
+        provider: firstProvider.name,
+      },
+    );
     return firstProvider.detectLanguage(audio, audioFormat);
   }
 
@@ -428,8 +513,15 @@ export class VoiceService {
     agentId: string,
     config?: VoiceConfigDto,
   ): AsyncGenerator<VoiceStreamChunk> {
-    const resolvedConfig = config ?? await this.getVoiceConfig(agentId);
-    const provider = this.resolveTTSProvider(resolvedConfig, language as SupportedLanguage);
+    const resolvedConfig = config ?? (await this.getVoiceConfig(agentId));
+    if (resolvedConfig.ttsEnabled === false) {
+      yield* this.streamTextOnly(tokenStream);
+      return;
+    }
+    const provider = this.resolveTTSProvider(
+      resolvedConfig,
+      language as SupportedLanguage,
+    );
     const lang = language as SupportedLanguage;
     const useStreaming = resolvedConfig.ttsStreaming === true;
 
@@ -438,11 +530,11 @@ export class VoiceService {
     // gap between sentences. Disabled for EL: their `/stream-input` endpoint
     // is unstable mid-stream; the proper fix is the `/multi-stream-input`
     // protocol which is a separate refactor.
-    const providerStreamingDisabled = provider.name === 'elevenlabs';
+    const providerStreamingDisabled = provider.name === "elevenlabs";
     const sessionEligible =
       useStreaming &&
       !providerStreamingDisabled &&
-      typeof provider.openSynthesisSession === 'function';
+      typeof provider.openSynthesisSession === "function";
 
     if (sessionEligible) {
       yield* this.streamingTTSWithSession(
@@ -481,6 +573,44 @@ export class VoiceService {
    * time the user finishes hearing sentence N, sentence N+1 has already
    * been synthesised and is queued at the network layer.
    */
+  /**
+   * "Speak replies aloud" is off: the visitor still talks, but the reply comes
+   * back as text. Same sentence chunks as the audio paths with no audio, which
+   * the widget already renders as text-only sentences.
+   */
+  private async *streamTextOnly(
+    tokenStream: AsyncGenerator<N8nStreamChunk>,
+  ): AsyncGenerator<VoiceStreamChunk> {
+    const sentenceBuffer = new SentenceBuffer();
+    let fullText = "";
+    let sentenceIndex = 0;
+    const displayText = new DisplayTextTracker(() => fullText);
+    const toChunk = (sentence: string): VoiceStreamChunk => ({
+      type: "audio",
+      sentenceIndex: sentenceIndex++,
+      subChunkIndex: 0,
+      isFinalChunk: true,
+      text: displayText.next(sentence),
+      audio: "",
+      audioFormat: "",
+      audioDurationMs: null,
+      ttsLatencyMs: 0,
+    });
+
+    for await (const chunk of tokenStream) {
+      if (chunk.type === "item" && chunk.content) {
+        fullText += chunk.content;
+        for (const sentence of sentenceBuffer.addToken(chunk.content)) {
+          yield toChunk(sentence);
+        }
+      }
+    }
+    const remaining = sentenceBuffer.flush();
+    if (remaining) yield toChunk(remaining);
+
+    yield { type: "end", fullText, totalSentences: sentenceIndex };
+  }
+
   private async *streamingTTSWithSession(
     tokenStream: AsyncGenerator<N8nStreamChunk>,
     lang: SupportedLanguage,
@@ -491,13 +621,19 @@ export class VoiceService {
     // openSynthesisSession is guaranteed by the caller's check, but TS can't
     // narrow that across the method boundary — fall through to per-sentence
     // mode defensively if the provider lost the capability between checks.
-    if (typeof provider.openSynthesisSession !== 'function') {
-      yield* this.streamingTTSPerSentence(tokenStream, lang, agentId, config, provider);
+    if (typeof provider.openSynthesisSession !== "function") {
+      yield* this.streamingTTSPerSentence(
+        tokenStream,
+        lang,
+        agentId,
+        config,
+        provider,
+      );
       return;
     }
 
     const sentenceBuffer = new SentenceBuffer();
-    let fullText = '';
+    let fullText = "";
     let sentenceIndex = 0;
     let successCount = 0;
     let session: TTSSession | null = null;
@@ -524,7 +660,7 @@ export class VoiceService {
         let chunkCount = 0;
         let totalBytes = 0;
         let firstChunkLatencyMs: number | null = null;
-        let lastAudioFormat = 'audio/pcm; rate=24000';
+        let lastAudioFormat = "audio/pcm; rate=24000";
 
         // Strip emoji/symbols before TTS — Sarvam rejects text with no language
         // characters. Keep the ORIGINAL `sentence` for the display `text` field
@@ -535,16 +671,16 @@ export class VoiceService {
         const speak = toSpeakableText(sentence);
         if (!hasSpeakableContent(speak)) {
           yield {
-            type: 'audio',
+            type: "audio",
             sentenceIndex: idx,
             subChunkIndex: 0,
             isFinalChunk: true,
             text: sentence,
-            audio: '',
+            audio: "",
             audioFormat: lastAudioFormat,
             audioDurationMs: null,
             ttsLatencyMs: 0,
-            ttsProtocol: 'websocket',
+            ttsProtocol: "websocket",
           };
           // Count it as a rendered sentence so totalSentences matches the
           // per-sentence path (which also counts the emoji-only text chunk).
@@ -561,16 +697,16 @@ export class VoiceService {
             lastAudioFormat = chunk.audioFormat;
 
             yield {
-              type: 'audio',
+              type: "audio",
               sentenceIndex: idx,
               subChunkIndex: chunkCount,
               isFinalChunk: false,
-              text: chunkCount === 0 ? sentence : '',
-              audio: chunk.audio.toString('base64'),
+              text: chunkCount === 0 ? sentence : "",
+              audio: chunk.audio.toString("base64"),
               audioFormat: chunk.audioFormat,
               audioDurationMs: null,
               ttsLatencyMs: chunk.latencyMs,
-              ttsProtocol: 'websocket',
+              ttsProtocol: "websocket",
               ...(chunkCount === 0
                 ? { wsFirstChunkLatencyMs: firstChunkLatencyMs }
                 : {}),
@@ -582,23 +718,27 @@ export class VoiceService {
           // truncation (don't fall back — re-synthesising the full sentence
           // would double-play). If NO chunks yielded, fall back to batch HTTP.
           if (chunkCount > 0) {
-            this.log.warn('streamingTTSWithSession', 'session synthesise mid-stream failure — accepting truncation', {
-              sentenceIndex: idx,
-              chunkCount,
-              error: err instanceof Error ? err.message : 'unknown',
-            });
+            this.log.warn(
+              "streamingTTSWithSession",
+              "session synthesise mid-stream failure — accepting truncation",
+              {
+                sentenceIndex: idx,
+                chunkCount,
+                error: err instanceof Error ? err.message : "unknown",
+              },
+            );
             // emit the per-sentence final marker so analytics settle
             yield {
-              type: 'audio',
+              type: "audio",
               sentenceIndex: idx,
               subChunkIndex: chunkCount,
               isFinalChunk: true,
-              text: '',
-              audio: '',
+              text: "",
+              audio: "",
               audioFormat: lastAudioFormat,
               audioDurationMs: null,
               ttsLatencyMs: Date.now() - ttsStart,
-              ttsProtocol: 'websocket',
+              ttsProtocol: "websocket",
               wsChunkCount: chunkCount,
               wsTotalBytes: totalBytes,
             };
@@ -606,10 +746,14 @@ export class VoiceService {
             return;
           }
           // Zero chunks emitted — fall back to batch HTTP for this sentence.
-          this.log.warn('streamingTTSWithSession', 'session synthesise failed before any chunks — falling back to batch', {
-            sentenceIndex: idx,
-            error: err instanceof Error ? err.message : 'unknown',
-          });
+          this.log.warn(
+            "streamingTTSWithSession",
+            "session synthesise failed before any chunks — falling back to batch",
+            {
+              sentenceIndex: idx,
+              error: err instanceof Error ? err.message : "unknown",
+            },
+          );
           try {
             const batchResult = await provider.synthesize({
               text: speak,
@@ -619,27 +763,32 @@ export class VoiceService {
               speed: config.ttsSpeed,
             });
             yield {
-              type: 'audio',
+              type: "audio",
               sentenceIndex: idx,
               subChunkIndex: 0,
               isFinalChunk: true,
               text: sentence,
-              audio: batchResult.audio.toString('base64'),
+              audio: batchResult.audio.toString("base64"),
               audioFormat: batchResult.audioFormat,
               audioDurationMs: batchResult.durationMs ?? null,
               ttsLatencyMs: batchResult.latencyMs,
-              ttsProtocol: 'http',
+              ttsProtocol: "http",
             };
             successCount++;
             return;
           } catch (batchErr) {
-            this.log.error('streamingTTSWithSession', 'batch fallback also failed for sentence', batchErr, {
-              sentenceIndex: idx,
-            });
+            this.log.error(
+              "streamingTTSWithSession",
+              "batch fallback also failed for sentence",
+              batchErr,
+              {
+                sentenceIndex: idx,
+              },
+            );
             yield {
-              type: 'error',
-              errorCode: 'TTS_ALL_PROVIDERS_FAILED',
-              message: 'Voice synthesis unavailable for this sentence',
+              type: "error",
+              errorCode: "TTS_ALL_PROVIDERS_FAILED",
+              message: "Voice synthesis unavailable for this sentence",
               sentenceIndex: idx,
             };
             return;
@@ -648,16 +797,16 @@ export class VoiceService {
 
         // Sentence completed cleanly — emit the per-sentence final marker.
         yield {
-          type: 'audio',
+          type: "audio",
           sentenceIndex: idx,
           subChunkIndex: chunkCount,
           isFinalChunk: true,
-          text: '',
-          audio: '',
+          text: "",
+          audio: "",
           audioFormat: lastAudioFormat,
           audioDurationMs: null,
           ttsLatencyMs: Date.now() - ttsStart,
-          ttsProtocol: 'websocket',
+          ttsProtocol: "websocket",
           wsChunkCount: chunkCount,
           wsTotalBytes: totalBytes,
         };
@@ -674,7 +823,7 @@ export class VoiceService {
       ): AsyncGenerator<VoiceStreamChunk> {
         const display = displayText.next(sentence);
         for await (const c of renderSentence(sentence)) {
-          if (c.type !== 'audio') {
+          if (c.type !== "audio") {
             yield c;
             continue;
           }
@@ -687,7 +836,7 @@ export class VoiceService {
       }.bind(this);
 
       for await (const chunk of tokenStream) {
-        if (chunk.type === 'item' && chunk.content) {
+        if (chunk.type === "item" && chunk.content) {
           fullText += chunk.content;
           const sentences = sentenceBuffer.addToken(chunk.content);
           for (const sentence of sentences) {
@@ -710,7 +859,7 @@ export class VoiceService {
       }
     }
 
-    yield { type: 'end', fullText, totalSentences: successCount };
+    yield { type: "end", fullText, totalSentences: successCount };
   }
 
   /**
@@ -735,7 +884,7 @@ export class VoiceService {
     // came from without it. See DisplayTextTracker for why the trimmed sentence
     // isn't good enough for the transcript.
     const displayTexts: string[] = [];
-    let fullText = '';
+    let fullText = "";
     const displayText = new DisplayTextTracker(() => fullText);
 
     const wake: { fn: (() => void) | null } = { fn: null };
@@ -756,7 +905,7 @@ export class VoiceService {
     const llmConsumer = (async () => {
       try {
         for await (const chunk of tokenStream) {
-          if (chunk.type === 'item' && chunk.content) {
+          if (chunk.type === "item" && chunk.content) {
             fullText += chunk.content;
             const sentences = sentenceBuffer.addToken(chunk.content);
             for (const sentence of sentences) {
@@ -807,9 +956,11 @@ export class VoiceService {
         yielded++;
         let sentenceSucceeded = false;
         for (const c of chunks) {
-          if (c.type === 'audio' && c.isFinalChunk) sentenceSucceeded = true;
+          if (c.type === "audio" && c.isFinalChunk) sentenceSucceeded = true;
           // Swap the trimmed sentence for the separator-preserving display text.
-          yield c.type === 'audio' && c.text && display ? { ...c, text: display } : c;
+          yield c.type === "audio" && c.text && display
+            ? { ...c, text: display }
+            : c;
         }
         if (sentenceSucceeded) successCount++;
       } else if (llmConsumerDone) {
@@ -822,7 +973,7 @@ export class VoiceService {
     await llmConsumer;
     if (llmConsumerError) throw llmConsumerError;
 
-    yield { type: 'end', fullText, totalSentences: successCount };
+    yield { type: "end", fullText, totalSentences: successCount };
   }
 
   /**
@@ -867,16 +1018,16 @@ export class VoiceService {
     const speak = toSpeakableText(sentence);
     if (!hasSpeakableContent(speak)) {
       yield {
-        type: 'audio',
+        type: "audio",
         sentenceIndex,
         subChunkIndex: 0,
         isFinalChunk: true,
         text: sentence,
-        audio: '',
-        audioFormat: 'audio/mp3',
+        audio: "",
+        audioFormat: "audio/mp3",
         audioDurationMs: null,
         ttsLatencyMs: 0,
-        ttsProtocol: 'http',
+        ttsProtocol: "http",
       };
       return true;
     }
@@ -911,7 +1062,9 @@ export class VoiceService {
         sentenceIndex,
         useStreaming,
       )) {
-        yield chunk.type === 'audio' ? { ...chunk, ttsProvider: primaryProvider.name } : chunk;
+        yield chunk.type === "audio"
+          ? { ...chunk, ttsProvider: primaryProvider.name }
+          : chunk;
         primaryFirstYielded = true;
       }
       return primaryFirstYielded;
@@ -924,20 +1077,28 @@ export class VoiceService {
       // skip the fallback; the user gets a slightly cut-off sentence but
       // not a duplicate one.
       if (primaryFirstYielded) {
-        this.log.warn('synthesizeSentenceWithFallback', 'primary TTS mid-stream failure after partial audio — skipping fallback to avoid double-play', {
-          provider: primaryProvider.name,
-          sentenceIndex,
-          error: err instanceof Error ? err.message : 'unknown',
-        });
+        this.log.warn(
+          "synthesizeSentenceWithFallback",
+          "primary TTS mid-stream failure after partial audio — skipping fallback to avoid double-play",
+          {
+            provider: primaryProvider.name,
+            sentenceIndex,
+            error: err instanceof Error ? err.message : "unknown",
+          },
+        );
         return true;
       }
 
-      this.log.warn('synthesizeSentenceWithFallback', 'primary TTS failed — trying fallback providers', {
-        provider: primaryProvider.name,
-        sentenceIndex,
-        streaming: config.ttsStreaming === true,
-        error: err instanceof Error ? err.message : 'unknown',
-      });
+      this.log.warn(
+        "synthesizeSentenceWithFallback",
+        "primary TTS failed — trying fallback providers",
+        {
+          provider: primaryProvider.name,
+          sentenceIndex,
+          streaming: config.ttsStreaming === true,
+          error: err instanceof Error ? err.message : "unknown",
+        },
+      );
 
       // Try fallback providers ONLY when nothing was emitted to the client.
       // ALWAYS use batch HTTP for fallback — if the streaming path failed
@@ -950,18 +1111,22 @@ export class VoiceService {
       // useless. Drop the voiceId so each fallback provider uses its own default
       // voice — a different-sounding voice beats a silent sentence.
       const fallbackRequest: TTSRequest = { ...request, voiceId: undefined };
-      const fallbackOrder = ['elevenlabs', 'sarvam'];
+      const fallbackOrder = ["elevenlabs", "sarvam"];
       for (const providerName of fallbackOrder) {
         if (providerName === primaryProvider.name) continue;
         const fallbackProvider = this.ttsProviders.get(providerName);
         if (!fallbackProvider) continue;
 
         try {
-          this.log.warn('synthesizeSentenceWithFallback', 'streaming TTS provider fallback', {
-            from: primaryProvider.name,
-            to: providerName,
-            sentenceIndex,
-          });
+          this.log.warn(
+            "synthesizeSentenceWithFallback",
+            "streaming TTS provider fallback",
+            {
+              from: primaryProvider.name,
+              to: providerName,
+              sentenceIndex,
+            },
+          );
           let firstYielded = false;
           for await (const chunk of this.synthesizeWithProvider(
             fallbackRequest,
@@ -970,7 +1135,9 @@ export class VoiceService {
             sentenceIndex,
             false, // batch only for fallback
           )) {
-            yield chunk.type === 'audio' ? { ...chunk, ttsProvider: fallbackProvider.name } : chunk;
+            yield chunk.type === "audio"
+              ? { ...chunk, ttsProvider: fallbackProvider.name }
+              : chunk;
             firstYielded = true;
           }
           if (firstYielded) return true;
@@ -980,14 +1147,19 @@ export class VoiceService {
       }
 
       // All providers failed — yield error chunk, continue stream
-      this.log.error('synthesizeSentenceWithFallback', 'all TTS providers failed for sentence', undefined, {
-        sentenceIndex,
-        sentenceChars: sentence.length,
-      });
+      this.log.error(
+        "synthesizeSentenceWithFallback",
+        "all TTS providers failed for sentence",
+        undefined,
+        {
+          sentenceIndex,
+          sentenceChars: sentence.length,
+        },
+      );
       yield {
-        type: 'error',
-        errorCode: 'TTS_ALL_PROVIDERS_FAILED',
-        message: 'Voice synthesis unavailable for this sentence',
+        type: "error",
+        errorCode: "TTS_ALL_PROVIDERS_FAILED",
+        message: "Voice synthesis unavailable for this sentence",
         sentenceIndex,
       };
       return false;
@@ -1037,10 +1209,10 @@ export class VoiceService {
     // the flag enabled before the UI fix lands.
     //
     // Sarvam WS is stable and continues to use the streaming path normally.
-    const providerStreamingDisabled = provider.name === 'elevenlabs';
+    const providerStreamingDisabled = provider.name === "elevenlabs";
     const effectiveStreaming = useStreaming && !providerStreamingDisabled;
 
-    if (effectiveStreaming && typeof provider.synthesizeStream === 'function') {
+    if (effectiveStreaming && typeof provider.synthesizeStream === "function") {
       // Yield each chunk to the client AS IT ARRIVES — no look-ahead buffering.
       // Pattern mirrors pipecat's Sarvam TTS implementation (reactive, not
       // predictive) — see reference-server.pipecat.ai/.../sarvam/tts.html. The
@@ -1057,7 +1229,7 @@ export class VoiceService {
       // final-marker can mirror it. Hard-coding a sample rate here is a footgun
       // — providers differ (Sarvam bulbul:v3 = 24000, ElevenLabs PCM = 24000,
       // Sarvam bulbul:v2 = 22050).
-      let lastAudioFormat = 'audio/pcm; rate=24000';
+      let lastAudioFormat = "audio/pcm; rate=24000";
 
       try {
         for await (const chunk of provider.synthesizeStream(request)) {
@@ -1068,19 +1240,19 @@ export class VoiceService {
           lastAudioFormat = chunk.audioFormat;
 
           const out: VoiceStreamChunk = {
-            type: 'audio',
+            type: "audio",
             sentenceIndex,
             subChunkIndex: chunkCount,
             // We don't know if this is the last chunk yet — only the provider
             // does. We emit a separate final-marker chunk after the stream
             // ends to settle per-sentence totals.
             isFinalChunk: false,
-            text: chunkCount === 0 ? sentence : '',
-            audio: chunk.audio.toString('base64'),
+            text: chunkCount === 0 ? sentence : "",
+            audio: chunk.audio.toString("base64"),
             audioFormat: chunk.audioFormat,
             audioDurationMs: null,
             ttsLatencyMs: chunk.latencyMs,
-            ttsProtocol: 'websocket',
+            ttsProtocol: "websocket",
             ...(chunkCount === 0
               ? { wsFirstChunkLatencyMs: firstChunkLatencyMs }
               : {}),
@@ -1094,16 +1266,16 @@ export class VoiceService {
         // (totalSentences increments, wsChunkCount + wsTotalBytes attach).
         // Empty-audio chunks are a no-op on the client's playback queue.
         yield {
-          type: 'audio',
+          type: "audio",
           sentenceIndex,
           subChunkIndex: chunkCount,
           isFinalChunk: true,
-          text: '',
-          audio: '',
+          text: "",
+          audio: "",
           audioFormat: lastAudioFormat,
           audioDurationMs: null,
           ttsLatencyMs: Date.now() - ttsStart,
-          ttsProtocol: 'websocket',
+          ttsProtocol: "websocket",
           wsChunkCount: chunkCount,
           wsTotalBytes: totalBytes,
         };
@@ -1112,11 +1284,15 @@ export class VoiceService {
         // provider (only if no chunks were yielded — see the double-play
         // guard in synthesizeSentenceWithFallback). Log first so ops can
         // spot WS failures.
-        this.log.warn('synthesizeWithProvider', 'WS synthesizeStream threw — will fall back to batch', {
-          provider: provider.name,
-          chunkCount,
-          error: err instanceof Error ? err.message : 'unknown',
-        });
+        this.log.warn(
+          "synthesizeWithProvider",
+          "WS synthesizeStream threw — will fall back to batch",
+          {
+            provider: provider.name,
+            chunkCount,
+            error: err instanceof Error ? err.message : "unknown",
+          },
+        );
         throw err;
       }
       return;
@@ -1126,16 +1302,16 @@ export class VoiceService {
     const ttsResult = await provider.synthesize(request);
     const ttsLatencyMs = Date.now() - ttsStart;
     yield {
-      type: 'audio',
+      type: "audio",
       sentenceIndex,
       subChunkIndex: 0,
       isFinalChunk: true,
       text: sentence,
-      audio: ttsResult.audio.toString('base64'),
+      audio: ttsResult.audio.toString("base64"),
       audioFormat: ttsResult.audioFormat,
       audioDurationMs: ttsResult.durationMs ?? null,
       ttsLatencyMs,
-      ttsProtocol: 'http',
+      ttsProtocol: "http",
     };
   }
 
@@ -1147,25 +1323,29 @@ export class VoiceService {
     if (config.sttProvider) {
       const override = this.sttProviders.get(config.sttProvider);
       if (override) return override;
-      this.log.warn('resolveSTTProvider', 'STT override provider not found — falling back to language-based routing', {
-        override: config.sttProvider,
-      });
+      this.log.warn(
+        "resolveSTTProvider",
+        "STT override provider not found — falling back to language-based routing",
+        {
+          override: config.sttProvider,
+        },
+      );
     }
 
     // Priority 2: Language-based routing
     if (this.INDIAN_LANGUAGES.has(language)) {
-      const sarvam = this.sttProviders.get('sarvam');
+      const sarvam = this.sttProviders.get("sarvam");
       if (sarvam) return sarvam;
     }
 
     // Priority 3: Default → Deepgram
-    const deepgram = this.sttProviders.get('deepgram');
+    const deepgram = this.sttProviders.get("deepgram");
     if (deepgram) return deepgram;
 
     // Last resort: first available STT provider
     const firstProvider = this.sttProviders.values().next().value;
     if (!firstProvider) {
-      throw new BadGatewayException('No STT providers available');
+      throw new BadGatewayException("No STT providers available");
     }
     return firstProvider;
   }
@@ -1178,25 +1358,29 @@ export class VoiceService {
     if (config.ttsProvider) {
       const override = this.ttsProviders.get(config.ttsProvider);
       if (override) return override;
-      this.log.warn('resolveTTSProvider', 'TTS override provider not found — falling back to language-based routing', {
-        override: config.ttsProvider,
-      });
+      this.log.warn(
+        "resolveTTSProvider",
+        "TTS override provider not found — falling back to language-based routing",
+        {
+          override: config.ttsProvider,
+        },
+      );
     }
 
     // Priority 2: Language-based routing
     if (this.INDIAN_LANGUAGES.has(language)) {
-      const sarvam = this.ttsProviders.get('sarvam');
+      const sarvam = this.ttsProviders.get("sarvam");
       if (sarvam) return sarvam;
     }
 
     // Priority 3: Default → ElevenLabs
-    const elevenlabs = this.ttsProviders.get('elevenlabs');
+    const elevenlabs = this.ttsProviders.get("elevenlabs");
     if (elevenlabs) return elevenlabs;
 
     // Last resort: first available TTS provider
     const firstProvider = this.ttsProviders.values().next().value;
     if (!firstProvider) {
-      throw new BadGatewayException('No TTS providers available');
+      throw new BadGatewayException("No TTS providers available");
     }
     return firstProvider;
   }
@@ -1210,7 +1394,7 @@ export class VoiceService {
     // different fallback provider won't recognise it (ElevenLabs → 404, Sarvam
     // → 400). Strip it so each fallback uses its own default voice.
     const fallbackRequest: TTSRequest = { ...request, voiceId: undefined };
-    const fallbackOrder = ['sarvam', 'elevenlabs'];
+    const fallbackOrder = ["sarvam", "elevenlabs"];
 
     for (const providerName of fallbackOrder) {
       if (providerName === failedProviderName) continue;
@@ -1218,7 +1402,7 @@ export class VoiceService {
       if (!provider) continue;
 
       try {
-        this.log.warn('ttsFallback', 'attempting TTS provider fallback', {
+        this.log.warn("ttsFallback", "attempting TTS provider fallback", {
           from: failedProviderName,
           to: providerName,
           reason: originalError.message,
@@ -1235,10 +1419,15 @@ export class VoiceService {
       }
     }
 
-    this.log.error('ttsFallback', 'no TTS provider supports language', undefined, {
-      language: request.language,
-      failedProvider: failedProviderName,
-    });
+    this.log.error(
+      "ttsFallback",
+      "no TTS provider supports language",
+      undefined,
+      {
+        language: request.language,
+        failedProvider: failedProviderName,
+      },
+    );
     throw new BadGatewayException(
       `No TTS provider supports language: ${request.language}`,
     );
@@ -1264,10 +1453,14 @@ export class VoiceService {
       this.cacheConfig(agentId, config);
       return config;
     } catch (error) {
-      this.log.warn('getVoiceConfig', 'failed to load voice config — using defaults', {
-        agentId,
-        error: error instanceof Error ? error.message : 'unknown error',
-      });
+      this.log.warn(
+        "getVoiceConfig",
+        "failed to load voice config — using defaults",
+        {
+          agentId,
+          error: error instanceof Error ? error.message : "unknown error",
+        },
+      );
       // Don't cache transient errors — let next request retry
       return DEFAULT_VOICE_CONFIG;
     }
@@ -1299,16 +1492,20 @@ export class VoiceService {
 
   private async fetchAllVoices(): Promise<ProviderVoiceList[]> {
     const tasks = Array.from(this.ttsProviders.entries())
-      .filter(([, provider]) => typeof provider.listVoices === 'function')
+      .filter(([, provider]) => typeof provider.listVoices === "function")
       .map(async ([name, provider]): Promise<ProviderVoiceList> => {
         try {
           const voices = await provider.listVoices!();
           return { provider: name, voices };
         } catch (error) {
-          this.log.warn('fetchAllVoices', 'failed to list voices from provider — returning empty', {
-            provider: name,
-            error: error instanceof Error ? error.message : 'unknown error',
-          });
+          this.log.warn(
+            "fetchAllVoices",
+            "failed to list voices from provider — returning empty",
+            {
+              provider: name,
+              error: error instanceof Error ? error.message : "unknown error",
+            },
+          );
           return { provider: name, voices: [] };
         }
       });
@@ -1330,7 +1527,7 @@ export class VoiceService {
     voiceId: string,
     language?: SupportedLanguage,
   ): Promise<VoicePreviewResult> {
-    const lang: SupportedLanguage = language ?? 'en';
+    const lang: SupportedLanguage = language ?? "en";
     const cacheKey = `${provider}:${voiceId}:${lang}`;
 
     const now = Date.now();
@@ -1349,8 +1546,7 @@ export class VoiceService {
       const catalog = await this.listAllVoices();
       voiceName = catalog
         .find((p) => p.provider === provider)
-        ?.voices.find((v) => v.id === voiceId)
-        ?.name;
+        ?.voices.find((v) => v.id === voiceId)?.name;
     } catch {
       // listAllVoices already swallows individual provider errors; treat unknown failures
       // as "no name available" rather than blocking the preview.
@@ -1368,7 +1564,7 @@ export class VoiceService {
       language: lang,
       voiceId,
       speed: 1.0,
-      agentId: '__preview__',
+      agentId: "__preview__",
     };
     const ttsResult = ttsProvider.synthesizePreview
       ? await ttsProvider.synthesizePreview(ttsRequest)

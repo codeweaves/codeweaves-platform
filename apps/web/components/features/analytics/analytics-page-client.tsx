@@ -1,13 +1,13 @@
-'use client';
+"use client";
 
-import { useState, useCallback, useEffect, useRef } from 'react';
-import { useSearchParams, useRouter } from 'next/navigation';
-import { useProfile } from '@/hooks/use-profile';
-import { usePermissions } from '@/hooks/use-permissions';
-import { usePageHeader } from '@/components/layout/page-header';
-import { useTabVisible } from '@/hooks/use-tab-visible';
-import { useAgents, type Agent } from '@/hooks/use-agents';
-import { useOrganizations, type Organization } from '@/hooks/use-organizations';
+import { useState, useCallback, useEffect, useRef } from "react";
+import { useSearchParams, useRouter } from "next/navigation";
+import { useProfile } from "@/hooks/use-profile";
+import { usePermissions } from "@/hooks/use-permissions";
+import { usePageHeader } from "@/components/layout/page-header";
+import { useTabVisible } from "@/hooks/use-tab-visible";
+import { useAgents, type Agent } from "@/hooks/use-agents";
+import { useOrganizations, type Organization } from "@/hooks/use-organizations";
 import {
   useAnalyticsSummary,
   useAgentAnalytics,
@@ -16,38 +16,42 @@ import {
   useLanguageDistribution,
   useHandoverAnalytics,
   type AnalyticsParams,
-} from '@/hooks/use-analytics';
-import { SearchableMultiSelect } from '@/components/ui/searchable-multi-select';
-import { MultiSelect } from '@/components/ui/multi-select';
-import { Card, CardContent, CardHeader } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { Button } from '@/components/ui/button';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { AlertCircle, X } from 'lucide-react';
-import { DateRangePicker } from '@/components/ui/date-range-picker';
-import { DateRangePresets } from './date-range-presets';
-import { AnalyticsOverviewTab } from './analytics-overview-tab';
-import { AnalyticsConversationsTab } from './analytics-conversations-tab';
-import { AnalyticsEmptyState } from './analytics-empty-state';
-import { AnalyticsExportButton } from './analytics-export-button';
-import { VoiceAnalyticsSection } from './voice-analytics-section';
-import { HandoverAnalyticsSection } from './handover-analytics-section';
-import { resolveTimezone, TimezoneToggle, type TzMode } from './timezone-toggle';
+} from "@/hooks/use-analytics";
+import { SearchableMultiSelect } from "@/components/ui/searchable-multi-select";
+import { MultiSelect } from "@/components/ui/multi-select";
+import { Card, CardContent, CardHeader } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { Button } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { AlertCircle, X } from "lucide-react";
+import { DateRangePicker } from "@/components/ui/date-range-picker";
+import { DateRangePresets } from "./date-range-presets";
+import { AnalyticsOverviewTab } from "./analytics-overview-tab";
+import { AnalyticsConversationsTab } from "./analytics-conversations-tab";
+import { AnalyticsEmptyState } from "./analytics-empty-state";
+import { AnalyticsExportButton } from "./analytics-export-button";
+import { VoiceAnalyticsSection } from "./voice-analytics-section";
+import { HandoverAnalyticsSection } from "./handover-analytics-section";
+import {
+  resolveTimezone,
+  TimezoneToggle,
+  type TzMode,
+} from "./timezone-toggle";
 
-const TABS = ['overview', 'conversations', 'voice', 'handover'] as const;
+const TABS = ["overview", "conversations", "voice", "handover"] as const;
 type AnalyticsTab = (typeof TABS)[number];
 
 const SOURCE_LABELS: Record<string, string> = {
-  WIDGET: 'Widget',
-  WHATSAPP: 'WhatsApp',
-  DEMO: 'Demo',
+  WIDGET: "Widget",
+  WHATSAPP: "WhatsApp",
+  DEMO: "Demo",
 };
 
 // --- Date helpers (M3 fix: use local date, not UTC) ---
 function formatDateLocal(date: Date): string {
   const y = date.getFullYear();
-  const m = String(date.getMonth() + 1).padStart(2, '0');
-  const d = String(date.getDate()).padStart(2, '0');
+  const m = String(date.getMonth() + 1).padStart(2, "0");
+  const d = String(date.getDate()).padStart(2, "0");
   return `${y}-${m}-${d}`;
 }
 
@@ -58,12 +62,12 @@ function subDays(date: Date, days: number): Date {
 }
 
 // --- Timezone helpers ---
-const TZ_STORAGE_KEY = 'analytics:timezone-mode';
+const TZ_STORAGE_KEY = "analytics:timezone-mode";
 
 function loadTzMode(): TzMode {
-  if (typeof window === 'undefined') return 'local';
+  if (typeof window === "undefined") return "local";
   const stored = window.localStorage.getItem(TZ_STORAGE_KEY);
-  return stored === 'utc' ? 'utc' : 'local';
+  return stored === "utc" ? "utc" : "local";
 }
 
 // --- Main Component ---
@@ -80,8 +84,8 @@ export function AnalyticsPageClient() {
   const isAdmin = isPlatform;
 
   useEffect(() => {
-    setTitle('Analytics');
-    return () => setTitle('');
+    setTitle("Analytics");
+    return () => setTitle("");
   }, [setTitle]);
 
   // 8-9: Polling — pause when tab is inactive
@@ -90,38 +94,45 @@ export function AnalyticsPageClient() {
 
   // --- Filter State (Task 3) ---
   const [startDate, setStartDate] = useState<Date>(() => {
-    const s = searchParams.get('start');
-    if (s) return new Date(s + 'T00:00:00');
+    const s = searchParams.get("start");
+    if (s) return new Date(s + "T00:00:00");
     return subDays(new Date(), 7);
   });
 
   const [endDate, setEndDate] = useState<Date>(() => {
-    const e = searchParams.get('end');
-    if (e) return new Date(e + 'T00:00:00');
+    const e = searchParams.get("end");
+    if (e) return new Date(e + "T00:00:00");
     return new Date();
   });
 
   const [agentIds, setAgentIds] = useState<string[]>(() => {
-    const raw = searchParams.get('agentIds') ?? searchParams.get('agentId');
-    return raw ? raw.split(',').filter(Boolean) : [];
+    const raw = searchParams.get("agentIds") ?? searchParams.get("agentId");
+    return raw ? raw.split(",").filter(Boolean) : [];
   });
 
   const [orgIds, setOrgIds] = useState<string[]>(() => {
-    const raw = searchParams.get('orgIds') ?? searchParams.get('orgId');
-    return raw ? raw.split(',').filter(Boolean) : [];
+    const raw = searchParams.get("orgIds") ?? searchParams.get("orgId");
+    return raw ? raw.split(",").filter(Boolean) : [];
   });
 
-  const [sources, setSources] = useState<Array<'WIDGET' | 'WHATSAPP' | 'DEMO'>>(() => {
-    const raw = searchParams.get('sources') ?? searchParams.get('source');
-    if (!raw) return [];
-    return raw
-      .split(',')
-      .filter((s): s is 'WIDGET' | 'WHATSAPP' | 'DEMO' => s === 'WIDGET' || s === 'WHATSAPP' || s === 'DEMO');
-  });
+  const [sources, setSources] = useState<Array<"WIDGET" | "WHATSAPP" | "DEMO">>(
+    () => {
+      const raw = searchParams.get("sources") ?? searchParams.get("source");
+      if (!raw) return [];
+      return raw
+        .split(",")
+        .filter(
+          (s): s is "WIDGET" | "WHATSAPP" | "DEMO" =>
+            s === "WIDGET" || s === "WHATSAPP" || s === "DEMO",
+        );
+    },
+  );
 
   const [activeTab, setActiveTab] = useState<AnalyticsTab>(() => {
-    const t = searchParams.get('tab');
-    return (TABS as readonly string[]).includes(t ?? '') ? (t as AnalyticsTab) : 'overview';
+    const t = searchParams.get("tab");
+    return (TABS as readonly string[]).includes(t ?? "")
+      ? (t as AnalyticsTab)
+      : "overview";
   });
 
   // Local vs UTC interpretation of the date range and timestamps. Persists in
@@ -142,12 +153,12 @@ export function AnalyticsPageClient() {
   // Sync filter state to URL (Task 3.5) — M1 fix: no router in deps
   const syncUrl = useCallback(() => {
     const params = new URLSearchParams();
-    params.set('start', formatDateLocal(startDate));
-    params.set('end', formatDateLocal(endDate));
-    if (agentIds.length > 0) params.set('agentIds', agentIds.join(','));
-    if (orgIds.length > 0) params.set('orgIds', orgIds.join(','));
-    if (sources.length > 0) params.set('sources', sources.join(','));
-    if (activeTab !== 'overview') params.set('tab', activeTab);
+    params.set("start", formatDateLocal(startDate));
+    params.set("end", formatDateLocal(endDate));
+    if (agentIds.length > 0) params.set("agentIds", agentIds.join(","));
+    if (orgIds.length > 0) params.set("orgIds", orgIds.join(","));
+    if (sources.length > 0) params.set("sources", sources.join(","));
+    if (activeTab !== "overview") params.set("tab", activeTab);
     routerRef.current.replace(`?${params.toString()}`, { scroll: false });
   }, [startDate, endDate, agentIds, orgIds, sources, activeTab]);
 
@@ -157,8 +168,8 @@ export function AnalyticsPageClient() {
 
   const handleDateRangeChange = useCallback((from: string, to: string) => {
     if (from && to) {
-      setStartDate(new Date(from + 'T00:00:00'));
-      setEndDate(new Date(to + 'T00:00:00'));
+      setStartDate(new Date(from + "T00:00:00"));
+      setEndDate(new Date(to + "T00:00:00"));
     } else {
       // Cleared — reset to last 7 days
       setStartDate(subDays(new Date(), 7));
@@ -188,16 +199,29 @@ export function AnalyticsPageClient() {
   // filter change for the (common) case where the user never exports.
   const [exportRequested, setExportRequested] = useState(false);
   const exportAgentsQuery = useAgentAnalytics(
-    { ...analyticsParams, limit: 100, sortBy: 'conversations', sortOrder: 'desc' },
+    {
+      ...analyticsParams,
+      limit: 100,
+      sortBy: "conversations",
+      sortOrder: "desc",
+    },
     { enabled: exportRequested },
   );
   // Voice data for the export — also lazy-loaded on first export-menu open so a
   // text-only org never pays for these queries. Shares query keys with the
   // Voice tab, so React Query dedupes if that tab was already visited.
-  const exportVoiceSummaryQuery = useVoiceSummary(analyticsParams, { enabled: exportRequested });
-  const exportVoiceLatencyQuery = useVoiceLatency(analyticsParams, { enabled: exportRequested });
-  const exportVoiceLanguagesQuery = useLanguageDistribution(analyticsParams, { enabled: exportRequested });
-  const exportHandoverQuery = useHandoverAnalytics(analyticsParams, { enabled: exportRequested });
+  const exportVoiceSummaryQuery = useVoiceSummary(analyticsParams, {
+    enabled: exportRequested,
+  });
+  const exportVoiceLatencyQuery = useVoiceLatency(analyticsParams, {
+    enabled: exportRequested,
+  });
+  const exportVoiceLanguagesQuery = useLanguageDistribution(analyticsParams, {
+    enabled: exportRequested,
+  });
+  const exportHandoverQuery = useHandoverAnalytics(analyticsParams, {
+    enabled: exportRequested,
+  });
   const handleExportOpenChange = useCallback((open: boolean) => {
     if (open) setExportRequested(true);
   }, []);
@@ -212,7 +236,7 @@ export function AnalyticsPageClient() {
   // load. `enabled: false` is how you skip the fetch without skipping the hook.
   const { data: orgsData } = useOrganizations(
     { limit: 100 },
-    { enabled: isAdmin && can('Organization:ReadAll') },
+    { enabled: isAdmin && can("Organization:ReadAll") },
   );
   const organizations: Organization[] = isAdmin ? (orgsData?.data ?? []) : [];
 
@@ -223,11 +247,11 @@ export function AnalyticsPageClient() {
   // 8-10: Empty state detection — treat "no data" as all primary KPIs being zero
   const hasAgents = (agentsData?.meta?.total ?? 0) > 0;
   const kpis = summaryQuery.data?.kpis;
-  const hasData = kpis != null && (
-    kpis.totalConversations.value > 0 ||
-    kpis.totalUsers.value > 0 ||
-    kpis.totalMessagesSent.value > 0
-  );
+  const hasData =
+    kpis != null &&
+    (kpis.totalConversations.value > 0 ||
+      kpis.totalUsers.value > 0 ||
+      kpis.totalMessagesSent.value > 0);
   const showEmptyState = !summaryQuery.isLoading && !hasData && !hasError;
 
   // Active non-date filters, surfaced as removable chips. (The date range has
@@ -238,16 +262,20 @@ export function AnalyticsPageClient() {
     setSources([]);
   };
 
-  const filterChips: Array<{ key: string; label: string; onRemove: () => void }> = [
+  const filterChips: Array<{
+    key: string;
+    label: string;
+    onRemove: () => void;
+  }> = [
     ...agentIds.map((id) => ({
       key: `agent-${id}`,
-      label: agents.find((a) => a.id === id)?.name ?? 'Agent',
+      label: agents.find((a) => a.id === id)?.name ?? "Agent",
       onRemove: () => setAgentIds((prev) => prev.filter((x) => x !== id)),
     })),
     ...(isAdmin
       ? orgIds.map((id) => ({
           key: `org-${id}`,
-          label: organizations.find((o) => o.id === id)?.name ?? 'Organization',
+          label: organizations.find((o) => o.id === id)?.name ?? "Organization",
           onRemove: () => setOrgIds((prev) => prev.filter((x) => x !== id)),
         }))
       : []),
@@ -280,7 +308,9 @@ export function AnalyticsPageClient() {
             placeholder="Pick a date range"
             showClear={false}
             triggerClassName="w-[230px]"
-            popoverHeader={<TimezoneToggle mode={tzMode} onChange={handleTzModeChange} />}
+            popoverHeader={
+              <TimezoneToggle mode={tzMode} onChange={handleTzModeChange} />
+            }
           />
 
           {/* Agent Filter */}
@@ -292,7 +322,10 @@ export function AnalyticsPageClient() {
             values={agentIds}
             onValuesChange={setAgentIds}
             selectedLabel={(n) => `${n} agents`}
-            options={agents.map((agent) => ({ value: agent.id, label: agent.name }))}
+            options={agents.map((agent) => ({
+              value: agent.id,
+              label: agent.name,
+            }))}
           />
 
           {/* Org Filter — admin only */}
@@ -305,7 +338,10 @@ export function AnalyticsPageClient() {
               values={orgIds}
               onValuesChange={setOrgIds}
               selectedLabel={(n) => `${n} orgs`}
-              options={organizations.map((org) => ({ value: org.id, label: org.name }))}
+              options={organizations.map((org) => ({
+                value: org.id,
+                label: org.name,
+              }))}
             />
           )}
 
@@ -314,31 +350,35 @@ export function AnalyticsPageClient() {
             triggerClassName="w-[170px]"
             placeholder="All channels"
             values={sources}
-            onValuesChange={(v) => setSources(v as Array<'WIDGET' | 'WHATSAPP' | 'DEMO'>)}
+            onValuesChange={(v) =>
+              setSources(v as Array<"WIDGET" | "WHATSAPP" | "DEMO">)
+            }
             selectedLabel={(n) => `${n} channels`}
             options={[
-              { value: 'WIDGET', label: 'Widget' },
-              { value: 'WHATSAPP', label: 'WhatsApp' },
-              { value: 'DEMO', label: 'Demo' },
+              { value: "WIDGET", label: "Widget" },
+              { value: "WHATSAPP", label: "WhatsApp" },
+              { value: "DEMO", label: "Demo" },
             ]}
           />
 
           {/* 8-11: Export button (TZ toggle lives inside the date picker) */}
-          <div className="ml-auto">
-            <AnalyticsExportButton
-              summaryData={summaryQuery.data}
-              agentData={exportAgentsQuery.data?.data ?? []}
-              voiceSummary={exportVoiceSummaryQuery.data}
-              voiceLatency={exportVoiceLatencyQuery.data}
-              voiceLanguages={exportVoiceLanguagesQuery.data}
-              handover={exportHandoverQuery.data}
-              startDate={analyticsParams.startDate}
-              endDate={analyticsParams.endDate}
-              orgName={profile?.organization?.name ?? 'all'}
-              disabled={showEmptyState}
-              onOpenChange={handleExportOpenChange}
-            />
-          </div>
+          {can("Analytics:Export") && (
+            <div className="ml-auto">
+              <AnalyticsExportButton
+                summaryData={summaryQuery.data}
+                agentData={exportAgentsQuery.data?.data ?? []}
+                voiceSummary={exportVoiceSummaryQuery.data}
+                voiceLatency={exportVoiceLatencyQuery.data}
+                voiceLanguages={exportVoiceLanguagesQuery.data}
+                handover={exportHandoverQuery.data}
+                startDate={analyticsParams.startDate}
+                endDate={analyticsParams.endDate}
+                orgName={profile?.organization?.name ?? "all"}
+                disabled={showEmptyState}
+                onOpenChange={handleExportOpenChange}
+              />
+            </div>
+          )}
         </div>
 
         {/* Active filter chips */}
@@ -382,7 +422,11 @@ export function AnalyticsPageClient() {
         // Tabs split the page by the question each answers (overview / what's
         // being discussed / voice health). Only the active tab is mounted, so
         // each view fires just its own queries instead of all of them at once.
-        <Tabs value={activeTab} onValueChange={(v) => setActiveTab(v as AnalyticsTab)} className="gap-6">
+        <Tabs
+          value={activeTab}
+          onValueChange={(v) => setActiveTab(v as AnalyticsTab)}
+          className="gap-6"
+        >
           <TabsList>
             <TabsTrigger value="overview">Overview</TabsTrigger>
             <TabsTrigger value="conversations">Conversations</TabsTrigger>
@@ -391,19 +435,31 @@ export function AnalyticsPageClient() {
           </TabsList>
 
           <TabsContent value="overview">
-            <AnalyticsOverviewTab params={analyticsParams} pollingOptions={pollingOptions} />
+            <AnalyticsOverviewTab
+              params={analyticsParams}
+              pollingOptions={pollingOptions}
+            />
           </TabsContent>
 
           <TabsContent value="conversations">
-            <AnalyticsConversationsTab params={analyticsParams} pollingOptions={pollingOptions} />
+            <AnalyticsConversationsTab
+              params={analyticsParams}
+              pollingOptions={pollingOptions}
+            />
           </TabsContent>
 
           <TabsContent value="voice">
-            <VoiceAnalyticsSection params={analyticsParams} pollingOptions={pollingOptions} />
+            <VoiceAnalyticsSection
+              params={analyticsParams}
+              pollingOptions={pollingOptions}
+            />
           </TabsContent>
 
           <TabsContent value="handover">
-            <HandoverAnalyticsSection params={analyticsParams} pollingOptions={pollingOptions} />
+            <HandoverAnalyticsSection
+              params={analyticsParams}
+              pollingOptions={pollingOptions}
+            />
           </TabsContent>
         </Tabs>
       )}
@@ -477,4 +533,3 @@ export function AnalyticsPageSkeleton() {
     </div>
   );
 }
-

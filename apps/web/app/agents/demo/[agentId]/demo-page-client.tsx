@@ -20,7 +20,6 @@ interface Starter {
 }
 
 interface AgentVoiceConfig {
-  sttEnabled: boolean;
   ttsEnabled: boolean;
   defaultLanguage: string;
   supportedLanguages: string[];

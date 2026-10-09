@@ -50,7 +50,6 @@ const TTS_PROVIDERS: { value: TtsProviderEnum; label: string }[] = [
 //   - Cheaper than ElevenLabs at scale
 // Users can switch to ElevenLabs / Deepgram per agent if they prefer.
 const DEFAULT_VOICE_CONFIG: VoiceConfigDto = {
-  sttEnabled: true,
   sttProvider: "sarvam",
   ttsEnabled: true,
   ttsProvider: "sarvam",
@@ -334,7 +333,7 @@ export function VoiceSettings() {
             Enable Voice
           </Label>
           <p className="text-xs text-muted-foreground">
-            Allow users to interact with this agent using voice
+            Show a mic button so visitors can talk to this agent
           </p>
         </div>
         <Switch
@@ -347,51 +346,32 @@ export function VoiceSettings() {
       {voiceEnabled && (
         <>
           {/* STT Section */}
-          <div className="space-y-4 rounded-lg border p-4">
-            <div className="flex items-center justify-between">
-              <div>
-                <Label htmlFor="sttEnabled" className="text-sm font-medium">
-                  Voice Input (STT)
-                </Label>
-                <p className="text-xs text-muted-foreground">
-                  Enable Speech-to-Text
-                </p>
-              </div>
-              <Switch
-                id="sttEnabled"
-                checked={config.sttEnabled}
-                onCheckedChange={(checked) =>
-                  updateConfig({ sttEnabled: checked })
-                }
-              />
-            </div>
-
-            {config.sttEnabled && (
-              <div className="space-y-2">
-                <Label htmlFor="sttProvider" className="text-sm">
-                  STT Provider
-                </Label>
-                <Select
-                  value={config.sttProvider ?? "sarvam"}
-                  onValueChange={(value) =>
-                    updateConfig({
-                      sttProvider: value as VoiceConfigDto["sttProvider"],
-                    })
-                  }
-                >
-                  <SelectTrigger id="sttProvider">
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {STT_PROVIDERS.map((p) => (
-                      <SelectItem key={p.value} value={p.value}>
-                        {p.label}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-              </div>
-            )}
+          <div className="space-y-2 rounded-lg border p-4">
+            <Label htmlFor="sttProvider" className="text-sm font-medium">
+              Speech-to-text provider
+            </Label>
+            <p className="text-xs text-muted-foreground">
+              Turns the visitor&apos;s voice into text
+            </p>
+            <Select
+              value={config.sttProvider ?? "sarvam"}
+              onValueChange={(value) =>
+                updateConfig({
+                  sttProvider: value as VoiceConfigDto["sttProvider"],
+                })
+              }
+            >
+              <SelectTrigger id="sttProvider">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {STT_PROVIDERS.map((p) => (
+                  <SelectItem key={p.value} value={p.value}>
+                    {p.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
           </div>
 
           {/* TTS Section */}
@@ -399,10 +379,11 @@ export function VoiceSettings() {
             <div className="flex items-center justify-between">
               <div>
                 <Label htmlFor="ttsEnabled" className="text-sm font-medium">
-                  Voice Output (TTS)
+                  Speak replies aloud
                 </Label>
                 <p className="text-xs text-muted-foreground">
-                  Enable Text-to-Speech
+                  Answer voice messages with audio. When off, the agent answers
+                  in text.
                 </p>
               </div>
               <Switch

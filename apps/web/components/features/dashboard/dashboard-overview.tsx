@@ -436,7 +436,7 @@ function HandoverHealth({
   containedPct: number | null;
   resolvedByHuman: number;
   handoverRate: number;
-  waitingNow: number;
+  waitingNow: number | null;
   isLoading: boolean;
 }) {
   const pct = containedPct ?? 0;
@@ -516,17 +516,21 @@ function HandoverHealth({
                 {formatCount(resolvedByHuman)}
               </span>
             </div>
-            <div className="flex items-center justify-between">
-              <span className="text-muted-foreground">Waiting now</span>
-              <span
-                className={cn(
-                  "font-semibold tabular-nums",
-                  waitingNow > 0 ? "text-error-foreground" : "text-foreground",
-                )}
-              >
-                {formatCount(waitingNow)}
-              </span>
-            </div>
+            {waitingNow !== null && (
+              <div className="flex items-center justify-between">
+                <span className="text-muted-foreground">Waiting now</span>
+                <span
+                  className={cn(
+                    "font-semibold tabular-nums",
+                    waitingNow > 0
+                      ? "text-error-foreground"
+                      : "text-foreground",
+                  )}
+                >
+                  {formatCount(waitingNow)}
+                </span>
+              </div>
+            )}
           </div>
         </>
       )}
@@ -618,19 +622,24 @@ export function DashboardOverview() {
     };
   }, [rangeDays]);
 
-  // Analytics is permission-gated on the API. Without Analytics:Read the four
-  // calls only 403 on every refresh, so they are not made, and the panels built
-  // on them are hidden rather than shown as zero. While permissions load, the
-  // panels keep their skeletons so the page does not jump for users who have it.
+  // Analytics, the Inbox and Conversations are each permission-gated on the
+  // API. A call the user cannot make only 403s on every refresh, so it is not
+  // made, and the panel built on it is hidden rather than shown as zero or as
+  // an error. While permissions load, the panels keep their skeletons so the
+  // page does not jump for users who have them.
   const { can, isLoading: permissionsLoading } = usePermissions();
   const canReadAnalytics = can("Analytics:Read");
+  const canReadInbox = can("Handover:Read");
+  const canReadConversations = can("ChatSession:Read");
   const showAnalytics = permissionsLoading || canReadAnalytics;
+  const showInbox = permissionsLoading || canReadInbox;
+  const showConversations = permissionsLoading || canReadConversations;
   const analyticsOptions = { enabled: canReadAnalytics };
 
   const summaryQuery = useAnalyticsSummary(params, analyticsOptions);
   const handoverQuery = useHandoverAnalytics(params, analyticsOptions);
   const leadsQuery = useLeadsCaptured(params, analyticsOptions);
-  const waitingQuery = useInbox("needs");
+  const waitingQuery = useInbox("needs", { enabled: canReadInbox });
   const agentsQuery = useAgents({ limit: 6 });
   // Pull conversation counts for the whole agent set (not just a separate top-6
   // slice) so the counts line up with whichever agents the panel actually shows.
@@ -644,13 +653,16 @@ export function DashboardOverview() {
     },
     analyticsOptions,
   );
-  const recentQuery = useConversations({
-    limit: 6,
-    sortBy: "lastMessageAt",
-    sortOrder: "desc",
-    from: toIsoStartOfDay(params.startDate),
-    to: toIsoEndOfDay(params.endDate),
-  });
+  const recentQuery = useConversations(
+    {
+      limit: 6,
+      sortBy: "lastMessageAt",
+      sortOrder: "desc",
+      from: toIsoStartOfDay(params.startDate),
+      to: toIsoEndOfDay(params.endDate),
+    },
+    { enabled: canReadConversations },
+  );
 
   const firstName = (profile?.name?.trim() || profile?.email || "there").split(
     " ",
@@ -761,11 +773,13 @@ export function DashboardOverview() {
       {/* Command center: attention + agents (left), containment + activity (right) */}
       <div className="grid grid-cols-1 items-start gap-4 lg:grid-cols-3">
         <div className="space-y-5 lg:col-span-2">
-          <AttentionPanel
-            waiting={waitingQuery.data ?? []}
-            isLoading={waitingQuery.isLoading}
-            isError={waitingQuery.isError}
-          />
+          {showInbox && (
+            <AttentionPanel
+              waiting={waitingQuery.data ?? []}
+              isLoading={permissionsLoading || waitingQuery.isLoading}
+              isError={waitingQuery.isError}
+            />
+          )}
           <AgentsPanel
             agents={agentsQuery.data?.data ?? []}
             convByAgent={convByAgent}
@@ -782,14 +796,19 @@ export function DashboardOverview() {
               containedPct={containedPct}
               resolvedByHuman={handoverQuery.data?.resolvedByHuman ?? 0}
               handoverRate={handoverRate}
-              waitingNow={waitingQuery.data?.length ?? 0}
+              // null hides the row: without Handover:Read the count is unknown.
+              waitingNow={
+                canReadInbox ? (waitingQuery.data?.length ?? 0) : null
+              }
               isLoading={permissionsLoading || handoverQuery.isLoading}
             />
           )}
-          <RecentConversations
-            items={recentQuery.data?.data ?? []}
-            isLoading={recentQuery.isLoading}
-          />
+          {showConversations && (
+            <RecentConversations
+              items={recentQuery.data?.data ?? []}
+              isLoading={permissionsLoading || recentQuery.isLoading}
+            />
+          )}
         </div>
       </div>
     </div>

@@ -1,19 +1,15 @@
-'use client';
+"use client";
 
-import { useEffect, useSyncExternalStore } from 'react';
-import {
-  useQuery,
-  useMutation,
-  useQueryClient,
-} from '@tanstack/react-query';
-import { useApiClient } from '@/lib/api-client';
-import { useAuth } from '@/hooks/use-auth';
+import { useEffect, useSyncExternalStore } from "react";
+import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
+import { useApiClient } from "@/lib/api-client";
+import { useAuth } from "@/hooks/use-auth";
 import {
   ensureHandoverSocket,
   profileHandoverAuth,
   subscribeHandoverConnected,
   getHandoverConnected,
-} from '@/lib/handover-socket';
+} from "@/lib/handover-socket";
 
 /**
  * Live handover-socket connection state. While `true`, the Inbox/thread queries
@@ -28,16 +24,18 @@ export function useHandoverSocketConnected(): boolean {
   );
 }
 
-export type HandoverState = 'NONE' | 'REQUESTED' | 'ACTIVE_HUMAN';
-export type HandoverReason = 'USER_REQUESTED' | 'BOT_FALLBACK' | 'FRUSTRATION' | 'MANUAL';
-export type HandoverFilter = 'needs' | 'handling' | 'all';
-export type HandoverMessageRole = 'USER' | 'ASSISTANT' | 'HUMAN_AGENT' | 'SYSTEM';
+export type HandoverState = "NONE" | "REQUESTED" | "ACTIVE_HUMAN";
+export type HandoverReason =
+  "USER_REQUESTED" | "BOT_FALLBACK" | "FRUSTRATION" | "MANUAL";
+export type HandoverFilter = "needs" | "handling" | "all";
+export type HandoverMessageRole =
+  "USER" | "ASSISTANT" | "HUMAN_AGENT" | "SYSTEM";
 
 export interface InboxItem {
   id: string;
   sessionId: string;
   agent: { id: string; name: string };
-  source: 'WIDGET' | 'WHATSAPP' | 'DEMO';
+  source: "WIDGET" | "WHATSAPP" | "DEMO";
   visitorId: string | null;
   handoverState: HandoverState;
   handoverReason: HandoverReason | null;
@@ -45,7 +43,11 @@ export interface InboxItem {
   takenOverBy: { id: string; name: string | null } | null;
   lastMessageAt: string | null;
   messageCount: number;
-  lastMessage: { role: HandoverMessageRole; content: string; createdAt: string } | null;
+  lastMessage: {
+    role: HandoverMessageRole;
+    content: string;
+    createdAt: string;
+  } | null;
 }
 
 export interface ThreadMessage {
@@ -58,8 +60,13 @@ export interface ThreadMessage {
 
 export interface HandoverThread {
   sessionId: string;
-  agent: { id: string; name: string; organizationId: string; humanConnectedLabel: string | null };
-  source: 'WIDGET' | 'WHATSAPP' | 'DEMO';
+  agent: {
+    id: string;
+    name: string;
+    organizationId: string;
+    humanConnectedLabel: string | null;
+  };
+  source: "WIDGET" | "WHATSAPP" | "DEMO";
   visitorId: string | null;
   handoverState: HandoverState;
   handoverReason: HandoverReason | null;
@@ -71,14 +78,17 @@ export interface HandoverThread {
 }
 
 /** List of conversations in the Inbox for the given filter. */
-export function useInbox(filter: HandoverFilter) {
+export function useInbox(
+  filter: HandoverFilter,
+  options?: { enabled?: boolean },
+) {
   const { isAuthenticated } = useAuth();
   const socketConnected = useHandoverSocketConnected();
   const api = useApiClient();
   return useQuery<InboxItem[]>({
-    queryKey: ['handover', 'inbox', filter],
+    queryKey: ["handover", "inbox", filter],
     queryFn: () => api.get(`/handover/inbox?filter=${filter}`),
-    enabled: isAuthenticated,
+    enabled: isAuthenticated && options?.enabled !== false,
     // Realtime (the org socket in useHandoverRealtime) drives live updates and
     // fires a catch-up refetch on reconnect. So we ONLY poll when the socket is
     // down — polling alongside a healthy socket is redundant load (and floods
@@ -89,7 +99,7 @@ export function useInbox(filter: HandoverFilter) {
 
 /** Count of conversations waiting for a human — powers the sidebar flag. */
 export function useInboxCount(): number {
-  const { data } = useInbox('needs');
+  const { data } = useInbox("needs");
   return data?.length ?? 0;
 }
 
@@ -99,12 +109,15 @@ export function useInboxCount(): number {
  * `isResolved` is false until the check returns, so the page can hold off on
  * the empty state instead of flashing it during load.
  */
-export function useHandoverEnabled(): { enabled: boolean; isResolved: boolean } {
+export function useHandoverEnabled(): {
+  enabled: boolean;
+  isResolved: boolean;
+} {
   const { isAuthenticated } = useAuth();
   const api = useApiClient();
   const { data, isSuccess } = useQuery<{ enabled: boolean }>({
-    queryKey: ['handover', 'enabled'],
-    queryFn: () => api.get('/handover/enabled'),
+    queryKey: ["handover", "enabled"],
+    queryFn: () => api.get("/handover/enabled"),
     enabled: isAuthenticated,
     // Short so toggling takeover on an agent reflects here without a hard reload.
     staleTime: 15_000,
@@ -117,7 +130,7 @@ export function useThread(sessionId: string | null | undefined) {
   const socketConnected = useHandoverSocketConnected();
   const api = useApiClient();
   return useQuery<HandoverThread>({
-    queryKey: ['handover', 'thread', sessionId],
+    queryKey: ["handover", "thread", sessionId],
     queryFn: () => api.get(`/handover/${sessionId}`),
     enabled: isAuthenticated && !!sessionId,
     // Live over the session-room socket + catch-up on reconnect. Poll ONLY when
@@ -130,17 +143,18 @@ export function useTakeover() {
   const api = useApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (sessionId: string) => api.post(`/handover/${sessionId}/takeover`),
+    mutationFn: (sessionId: string) =>
+      api.post(`/handover/${sessionId}/takeover`),
     onSuccess: (data: HandoverThread, sessionId) => {
-      qc.setQueryData(['handover', 'thread', sessionId], data);
-      qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
+      qc.setQueryData(["handover", "thread", sessionId], data);
+      qc.invalidateQueries({ queryKey: ["handover", "inbox"] });
     },
     // A rejected takeover almost always means a teammate claimed it while this
     // view was stale. Refetch so the pane immediately shows who holds it, rather
     // than leaving a "Take over" button that keeps failing.
     onError: (_err, sessionId) => {
-      qc.invalidateQueries({ queryKey: ['handover', 'thread', sessionId] });
-      qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
+      qc.invalidateQueries({ queryKey: ["handover", "thread", sessionId] });
+      qc.invalidateQueries({ queryKey: ["handover", "inbox"] });
     },
   });
 }
@@ -149,16 +163,17 @@ export function useResolveHandover() {
   const api = useApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: (sessionId: string) => api.post(`/handover/${sessionId}/resolve`),
+    mutationFn: (sessionId: string) =>
+      api.post(`/handover/${sessionId}/resolve`),
     onSuccess: (data: HandoverThread, sessionId) => {
-      qc.setQueryData(['handover', 'thread', sessionId], data);
-      qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
+      qc.setQueryData(["handover", "thread", sessionId], data);
+      qc.invalidateQueries({ queryKey: ["handover", "inbox"] });
     },
     // Same reasoning as useTakeover: a rejection means this view was stale about
     // who owns the chat, so re-sync rather than leaving a failing button.
     onError: (_err, sessionId) => {
-      qc.invalidateQueries({ queryKey: ['handover', 'thread', sessionId] });
-      qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
+      qc.invalidateQueries({ queryKey: ["handover", "thread", sessionId] });
+      qc.invalidateQueries({ queryKey: ["handover", "inbox"] });
     },
   });
 }
@@ -167,25 +182,34 @@ export function useSendHumanMessage() {
   const api = useApiClient();
   const qc = useQueryClient();
   return useMutation({
-    mutationFn: ({ sessionId, content }: { sessionId: string; content: string }) =>
-      api.post(`/handover/${sessionId}/messages`, { content }),
+    mutationFn: ({
+      sessionId,
+      content,
+    }: {
+      sessionId: string;
+      content: string;
+    }) => api.post(`/handover/${sessionId}/messages`, { content }),
     // Optimistic update: show the teammate's own message the instant they hit
     // send, instead of waiting for the POST + a full thread refetch to round-trip
     // (two hops to a possibly-distant backend — felt like 7-8s / "message lost").
     onMutate: async ({ sessionId, content }) => {
       // Stop any in-flight thread fetch (poll/socket refetch) from clobbering
       // the optimistic write between now and when the POST settles.
-      await qc.cancelQueries({ queryKey: ['handover', 'thread', sessionId] });
-      const previous = qc.getQueryData<HandoverThread>(['handover', 'thread', sessionId]);
+      await qc.cancelQueries({ queryKey: ["handover", "thread", sessionId] });
+      const previous = qc.getQueryData<HandoverThread>([
+        "handover",
+        "thread",
+        sessionId,
+      ]);
       if (previous) {
         const optimistic: ThreadMessage = {
           id: `optimistic-${Date.now()}-${Math.random().toString(36).slice(2)}`,
-          role: 'HUMAN_AGENT',
+          role: "HUMAN_AGENT",
           content,
           createdAt: new Date().toISOString(),
           author: null, // renders as "You" in the thread pane
         };
-        qc.setQueryData<HandoverThread>(['handover', 'thread', sessionId], {
+        qc.setQueryData<HandoverThread>(["handover", "thread", sessionId], {
           ...previous,
           messages: [...previous.messages, optimistic],
         });
@@ -195,18 +219,18 @@ export function useSendHumanMessage() {
     onError: (_err, { sessionId }, context) => {
       // Send failed — roll the thread back so the un-delivered bubble disappears.
       if (context?.previous) {
-        qc.setQueryData(['handover', 'thread', sessionId], context.previous);
+        qc.setQueryData(["handover", "thread", sessionId], context.previous);
       }
     },
     onSuccess: () => {
       // Inbox preview/last-message changes on a successful send.
-      qc.invalidateQueries({ queryKey: ['handover', 'inbox'] });
+      qc.invalidateQueries({ queryKey: ["handover", "inbox"] });
     },
     onSettled: (_data, _err, { sessionId }) => {
       // Reconcile with the server copy — swaps the optimistic bubble for the real
       // persisted message (or confirms the rollback). Runs in the background; the
       // sender already saw their message instantly via onMutate.
-      qc.invalidateQueries({ queryKey: ['handover', 'thread', sessionId] });
+      qc.invalidateQueries({ queryKey: ["handover", "thread", sessionId] });
     },
   });
 }
@@ -231,7 +255,10 @@ export function useHandoverRealtime(
   const accessScope = profile?.accessScope;
 
   useEffect(() => {
-    const auth = profileHandoverAuth({ accessScope, organization: orgId ? { id: orgId } : null });
+    const auth = profileHandoverAuth({
+      accessScope,
+      organization: orgId ? { id: orgId } : null,
+    });
     if (!auth) return;
     // The gateway authenticates the socket with a verified Clerk token; `auth`
     // here is only the client-side scope hint for the singleton key.
@@ -245,20 +272,20 @@ export function useHandoverRealtime(
       if (timer) return;
       timer = setTimeout(() => {
         timer = null;
-        qc.invalidateQueries({ queryKey: ['handover'] });
+        qc.invalidateQueries({ queryKey: ["handover"] });
       }, 300);
     };
 
     // On (re)connect, do one catch-up refetch — this reconciles anything that
     // changed while the socket was down, which is what lets us safely stop the
     // 30s poll while connected (see useInbox/useThread refetchInterval).
-    socket.on('connect', refetchSoon);
-    socket.on('handover', refetchSoon);
-    socket.on('message', refetchSoon);
+    socket.on("connect", refetchSoon);
+    socket.on("handover", refetchSoon);
+    socket.on("message", refetchSoon);
     return () => {
-      socket.off('connect', refetchSoon);
-      socket.off('handover', refetchSoon);
-      socket.off('message', refetchSoon);
+      socket.off("connect", refetchSoon);
+      socket.off("handover", refetchSoon);
+      socket.off("message", refetchSoon);
       if (timer) clearTimeout(timer);
     };
   }, [orgId, accessScope, qc, getToken]);
