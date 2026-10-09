@@ -462,10 +462,10 @@ export class VoiceService {
     }
   }
 
-  // eslint-disable-next-line @typescript-eslint/no-unused-vars
   async detectLanguage(
     audio: Buffer,
     audioFormat: string,
+    // eslint-disable-next-line @typescript-eslint/no-unused-vars
     agentId?: string,
   ): Promise<LanguageDetectionResponse> {
     // Route to Sarvam by default — best Indian language detection with 'unknown' language_code
