@@ -64,10 +64,10 @@ k6 run -e BASE_URL=... -e DASHBOARD_ORIGIN=https://app.getklivo.com \
 
 ## If it fails
 
-| Symptom                                                      | First move                                                                                                            |
-| ------------------------------------------------------------ | --------------------------------------------------------------------------------------------------------------------- |
-| `stream_failed` climbs, Sentry shows `LLM_COMPLETION_FAILED` | Provider rate limit. Lower VUs or add `fallbackModels` to the test agent. See `docs/runbooks/llm-provider-outage.md`. |
-| `checks.db.latencyMs` rises, then 503 on `/health/ready`     | Pool saturation. See `docs/runbooks/database-connections.md`.                                                         |
-| `stream_rate_limited` > 0                                    | You did not raise `MSG_IP_*_LIMIT` on the target.                                                                     |
-| Render memory climbs and does not fall                       | Open streams not closing on client abort. Check `res.on('close')` paths; capture a heap snapshot.                     |
-| `poll_ms` p95 > 500 ms                                       | Missing index or the DB is already saturated by the chat scenario. Run `MODE=poll-only` to separate them.             |
+| Symptom                                                      | First move                                                                                                               |
+| ------------------------------------------------------------ | ------------------------------------------------------------------------------------------------------------------------ |
+| `stream_failed` climbs, Sentry shows `LLM_COMPLETION_FAILED` | Provider rate limit. Lower VUs or switch the test agent to another provider. See `docs/runbooks/llm-provider-outage.md`. |
+| `checks.db.latencyMs` rises, then 503 on `/health/ready`     | Pool saturation. See `docs/runbooks/database-connections.md`.                                                            |
+| `stream_rate_limited` > 0                                    | You did not raise `MSG_IP_*_LIMIT` on the target.                                                                        |
+| Render memory climbs and does not fall                       | Open streams not closing on client abort. Check `res.on('close')` paths; capture a heap snapshot.                        |
+| `poll_ms` p95 > 500 ms                                       | Missing index or the DB is already saturated by the chat scenario. Run `MODE=poll-only` to separate them.                |

@@ -1,8 +1,8 @@
-import { Injectable } from '@nestjs/common';
-import { encodingForModel, getEncoding, type Tiktoken } from 'js-tiktoken';
-import type { ModelMessage } from 'ai';
+import { Injectable } from "@nestjs/common";
+import { encodingForModel, getEncoding, type Tiktoken } from "js-tiktoken";
+import type { ModelMessage } from "ai";
 
-import { AppLogger } from '../../common/logger/app-logger';
+import { AppLogger } from "../../common/logger/app-logger";
 
 /**
  * TokenCounterService: count tokens in strings and conversation message arrays.
@@ -29,7 +29,7 @@ import { AppLogger } from '../../common/logger/app-logger';
 /** Tokens added by chat-format framing (role, separators) per message. */
 const CHAT_MESSAGE_OVERHEAD = 4;
 /** Default encoding — cl100k_base covers GPT-3.5/4 family. */
-const DEFAULT_ENCODING = 'cl100k_base';
+const DEFAULT_ENCODING = "cl100k_base";
 
 @Injectable()
 export class TokenCounterService {
@@ -44,7 +44,7 @@ export class TokenCounterService {
    * Count tokens in a raw string for the given model.
    *
    * @param text   The text to tokenise.
-   * @param model  Optional model ID (e.g. 'gpt-4o', 'openai/gpt-4o-mini').
+   * @param model  Optional model ID (e.g. 'gpt-4o', 'openai:gpt-4o-mini').
    *               Prefixed IDs are normalised. If the model isn't recognised,
    *               falls back to cl100k_base with a one-time warning.
    */
@@ -96,14 +96,14 @@ export class TokenCounterService {
 
   private messageContentTokens(msg: ModelMessage, encoder: Tiktoken): number {
     const content = msg.content;
-    if (typeof content === 'string') {
+    if (typeof content === "string") {
       return encoder.encode(content).length;
     }
     if (Array.isArray(content)) {
       let sum = 0;
       for (const part of content) {
-        if (!part || typeof part !== 'object') continue;
-        if ('text' in part && typeof part.text === 'string') {
+        if (!part || typeof part !== "object") continue;
+        if ("text" in part && typeof part.text === "string") {
           sum += encoder.encode(part.text).length;
         }
         // image / file / tool parts: ignored here. Provider-specific counting
@@ -118,8 +118,8 @@ export class TokenCounterService {
    * Resolve the encoder for a given model, with caching.
    *
    * `encodingForModel` only handles OpenAI model names. For other providers
-   * (anthropic, groq, google, openrouter with prefixes), we strip the prefix
-   * and try the model name; if still unknown, fall back to cl100k_base which
+   * (gemini, sarvam) we strip the prefix and try the model name; if still
+   * unknown, fall back to cl100k_base, which
    * is a reasonable approximation for most BPE-based tokenizers.
    */
   private getEncoder(model?: string): Tiktoken {
@@ -129,15 +129,15 @@ export class TokenCounterService {
 
     let encoder: Tiktoken | null = null;
     if (model) {
-      // Strip provider prefix: 'openai/gpt-4o-mini' → 'gpt-4o-mini', 'groq:llama...' stays
-      const normalised = model.includes('/')
-        ? model.split('/').slice(1).join('/')
-        : model.includes(':')
-          ? model.split(':').slice(1).join(':')
-          : model;
+      // Strip the provider prefix: 'openai:gpt-4.1-mini' → 'gpt-4.1-mini'.
+      const normalised = model.includes(":")
+        ? model.slice(model.indexOf(":") + 1)
+        : model;
       try {
         // encodingForModel throws on unknown models — guard with try/catch.
-        encoder = encodingForModel(normalised as Parameters<typeof encodingForModel>[0]);
+        encoder = encodingForModel(
+          normalised as Parameters<typeof encodingForModel>[0],
+        );
       } catch {
         // Fall through to default
       }
@@ -148,7 +148,7 @@ export class TokenCounterService {
       if (model) {
         // Log once per unknown model to avoid warning spam
         this.log.debug(
-          'getEncoder',
+          "getEncoder",
           `No exact tokenizer for model "${model}" — falling back to ${DEFAULT_ENCODING} (~10-15% over-estimate for non-OpenAI models)`,
         );
       }

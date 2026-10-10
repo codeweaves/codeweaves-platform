@@ -1,7 +1,7 @@
-import { Injectable } from '@nestjs/common';
-import { TracerService } from '../tracer/tracer.service';
-import { tracedCall, TracedCallOptions } from './traced-call';
-import type { EventLogInput } from './event-log.types';
+import { Injectable } from "@nestjs/common";
+import { TracerService } from "../tracer/tracer.service";
+import { tracedCall, TracedCallOptions } from "./traced-call";
+import type { EventLogInput } from "./event-log.types";
 
 /**
  * Convenience wrapper for THIRD-PARTY outbound calls (LLM, STT/TTS, WhatsApp Graph,
@@ -36,19 +36,16 @@ export class ProviderEventLogger {
 
 /** Canonical provider labels for the event_logs.provider column. */
 export const PROVIDERS = {
-  ANTHROPIC: 'ANTHROPIC',
-  OPENAI: 'OPENAI',
-  GROQ: 'GROQ',
-  GEMINI: 'GEMINI',
-  OPENROUTER: 'OPENROUTER',
-  CEREBRAS: 'CEREBRAS',
-  ELEVENLABS: 'ELEVENLABS',
-  SARVAM: 'SARVAM',
-  DEEPGRAM: 'DEEPGRAM',
-  META_WHATSAPP: 'META_WHATSAPP',
-  N8N: 'N8N',
-  RESEND: 'RESEND',
-  CLERK: 'CLERK',
-  SUPABASE: 'SUPABASE',
-  AGENT_WEBHOOK: 'AGENT_WEBHOOK',
+  ANTHROPIC: "ANTHROPIC",
+  OPENAI: "OPENAI",
+  GEMINI: "GEMINI",
+  ELEVENLABS: "ELEVENLABS",
+  SARVAM: "SARVAM",
+  DEEPGRAM: "DEEPGRAM",
+  META_WHATSAPP: "META_WHATSAPP",
+  N8N: "N8N",
+  RESEND: "RESEND",
+  CLERK: "CLERK",
+  SUPABASE: "SUPABASE",
+  AGENT_WEBHOOK: "AGENT_WEBHOOK",
 } as const;

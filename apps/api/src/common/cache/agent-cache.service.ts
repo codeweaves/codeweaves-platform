@@ -1,10 +1,10 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { Agent, AgentDataField, AgentKnowledge } from '@prisma/client';
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { Agent, AgentDataField, AgentKnowledge } from "@prisma/client";
 
-import { AppLogger } from '../logger/app-logger';
-import { RedisService } from '../redis/redis.service';
-import { PrismaService } from '../../services/prisma.service';
+import { AppLogger } from "../logger/app-logger";
+import { RedisService } from "../redis/redis.service";
+import { PrismaService } from "../../services/prisma.service";
 
 /**
  * Shape returned by `getAgentWithKnowledge()`. The agent's `aiConfig` JSONB is
@@ -23,7 +23,14 @@ export interface CachedAgent extends Agent {
 
 /** Default TTL (seconds). Overridable via AGENT_CACHE_TTL_SECONDS env. */
 const DEFAULT_TTL_SECONDS = 3600;
-const CACHE_PREFIX = 'agent:cache:';
+/**
+ * Versioned so a deploy can orphan every entry written by the previous code.
+ * Bump the version whenever a migration rewrites cached agent columns in SQL:
+ * the old entries are then never read and expire on their TTL, instead of
+ * serving the pre-migration shape for up to an hour. v2: migration
+ * 20261010000000_llm_provider_set rewrote `aiConfig` (ADR-0011).
+ */
+const CACHE_PREFIX = "agent:cache:v2:";
 
 /**
  * In-process L1 TTL (ms). Overridable via AGENT_CACHE_L1_TTL_MS env
@@ -83,11 +90,11 @@ export class AgentCacheService {
     private readonly redis: RedisService,
     private readonly config: ConfigService,
   ) {
-    const raw = this.config.get<string>('AGENT_CACHE_TTL_SECONDS');
+    const raw = this.config.get<string>("AGENT_CACHE_TTL_SECONDS");
     const parsed = raw ? parseInt(raw, 10) : NaN;
     this.ttlSeconds =
       Number.isFinite(parsed) && parsed > 0 ? parsed : DEFAULT_TTL_SECONDS;
-    const l1Raw = this.config.get<string>('AGENT_CACHE_L1_TTL_MS');
+    const l1Raw = this.config.get<string>("AGENT_CACHE_L1_TTL_MS");
     const l1Parsed = l1Raw ? parseInt(l1Raw, 10) : NaN;
     this.l1TtlMs =
       Number.isFinite(l1Parsed) && l1Parsed >= 0 ? l1Parsed : DEFAULT_L1_TTL_MS;
@@ -119,8 +126,8 @@ export class AgentCacheService {
       }
     } catch (err) {
       this.log.warn(
-        'getAgentWithKnowledge',
-        `Redis GET failed for ${key} — falling through to DB. ${err instanceof Error ? err.message : ''}`,
+        "getAgentWithKnowledge",
+        `Redis GET failed for ${key} — falling through to DB. ${err instanceof Error ? err.message : ""}`,
       );
     }
 
@@ -129,7 +136,7 @@ export class AgentCacheService {
       where: { id: agentId, deletedAt: null },
       include: {
         knowledge: true,
-        dataFields: { orderBy: { order: 'asc' } },
+        dataFields: { orderBy: { order: "asc" } },
       },
     });
     if (!agent) return null;
@@ -165,8 +172,8 @@ export class AgentCacheService {
       await this.redis.del(CACHE_PREFIX + agentId);
     } catch (err) {
       this.log.warn(
-        'invalidate',
-        `Redis DEL failed for agent ${agentId} — stale cache may persist up to TTL (${this.ttlSeconds}s). ${err instanceof Error ? err.message : ''}`,
+        "invalidate",
+        `Redis DEL failed for agent ${agentId} — stale cache may persist up to TTL (${this.ttlSeconds}s). ${err instanceof Error ? err.message : ""}`,
       );
     }
   }
@@ -176,8 +183,8 @@ export class AgentCacheService {
       await this.redis.set(key, JSON.stringify(value), this.ttlSeconds);
     } catch (err) {
       this.log.warn(
-        'setCache',
-        `Redis SET failed for ${key} — cache disabled for this read. ${err instanceof Error ? err.message : ''}`,
+        "setCache",
+        `Redis SET failed for ${key} — cache disabled for this read. ${err instanceof Error ? err.message : ""}`,
       );
     }
   }
@@ -189,15 +196,15 @@ export class AgentCacheService {
  * dates. Keeping the list explicit beats a regex for safety.
  */
 const DATE_FIELDS = new Set([
-  'createdAt',
-  'updatedAt',
-  'deletedAt',
-  'lastMessageAt',
+  "createdAt",
+  "updatedAt",
+  "deletedAt",
+  "lastMessageAt",
 ]);
 function reviveDates(key: string, value: unknown): unknown {
   if (
     DATE_FIELDS.has(key) &&
-    typeof value === 'string' &&
+    typeof value === "string" &&
     /^\d{4}-\d{2}-\d{2}T/.test(value)
   ) {
     return new Date(value);

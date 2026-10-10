@@ -12,35 +12,35 @@
  * Safe to re-run: existing records with matching names are left alone, not
  * duplicated.
  */
-import 'dotenv/config';
-import { PrismaPg } from '@prisma/adapter-pg';
-import { PrismaClient, type Prisma } from '@prisma/client';
-import { nanoid } from 'nanoid';
+import "dotenv/config";
+import { PrismaPg } from "@prisma/adapter-pg";
+import { PrismaClient, type Prisma } from "@prisma/client";
+import { nanoid } from "nanoid";
 
 const connectionString = process.env.DATABASE_URL;
 if (!connectionString) {
-  throw new Error('DATABASE_URL environment variable is not configured');
+  throw new Error("DATABASE_URL environment variable is not configured");
 }
 const adapter = new PrismaPg({ connectionString });
 const prisma = new PrismaClient({ adapter });
 
-const DEMO_ORG_SLUG = 'ai-dev-sandbox';
+const DEMO_ORG_SLUG = "ai-dev-sandbox";
 // Per-agent model selection, one provider per bot so the dev page exercises
-// all four integration paths (Groq / Gemini / OpenAI direct / OpenRouter).
-//   - Groq free tier: 30 req/min, 6000/day. Fastest inference anywhere.
+// the supported providers (ADR-0011).
+//   - OpenAI GPT-4.1 mini: cheap, fast, reliable tool calling.
 //   - Gemini free tier: 15 req/min, 1500/day, 1M context window.
 //   - OpenAI GPT-4.1: paid, but best instruction-following for strict prompts.
-const NORMAL_BOT_MODEL = 'groq:llama-3.3-70b-versatile';
+const NORMAL_BOT_MODEL = "openai:gpt-4.1-mini";
 // Gemini 2.5 Flash Lite: smaller/faster variant of Flash. 1M context retained.
-const RAG_BOT_MODEL = 'gemini:gemini-2.5-flash-lite';
+const RAG_BOT_MODEL = "gemini:gemini-2.5-flash-lite";
 // Gemini 2.5 Flash (free): picked over GPT-4.1-mini for the P&P demo because
 // it handles 95%+ of the strict rules correctly for $0 (no credit burn). Note:
 // TTFT is variable (1.3-4.5s on free tier) and occasional mid-Markdown cutoffs
 // happen. maxTokens raised to 4096 to accommodate Gemini's thinking-mode token
 // usage. For production-grade consistency: swap to 'openai:gpt-4.1-mini'.
-const SHREYA_MODEL = 'gemini:gemini-2.5-flash';
+const SHREYA_MODEL = "gemini:gemini-2.5-flash";
 
-const NORMAL_BOT_NAME = 'Normal Bot';
+const NORMAL_BOT_NAME = "Normal Bot";
 const NORMAL_BOT_PROMPT = `You are a friendly, helpful assistant for testing the CodeWeaves AI orchestration layer.
 
 - Keep responses concise (2-3 sentences unless the user asks for detail).
@@ -48,7 +48,7 @@ const NORMAL_BOT_PROMPT = `You are a friendly, helpful assistant for testing the
 - Be honest: if you don't know something, say so — don't make things up.
 - You do NOT have access to any external knowledge base. Everything you say comes from your training data.`;
 
-const RAG_BOT_NAME = 'RAG Bot';
+const RAG_BOT_NAME = "RAG Bot";
 const RAG_BOT_PROMPT = `You are a knowledge-grounded assistant for the CodeWeaves AI orchestration layer demo.
 
 When a knowledge base is connected (Phase 3), you MUST:
@@ -59,7 +59,7 @@ When a knowledge base is connected (Phase 3), you MUST:
 
 Until the knowledge base is connected, answer conversationally but keep responses brief.`;
 
-const SHREYA_NAME = 'Shreya (P&P Associates)';
+const SHREYA_NAME = "Shreya (P&P Associates)";
 const SHREYA_PROMPT = `PANVELKAR & POL ASSOCIATES
 AI SALES & SUPPORT ASSISTANT CONFIGURATION
 
@@ -300,25 +300,19 @@ Never violate Knowledge Base boundaries.`;
  */
 /**
  * Build an aiConfig JSONB payload for an agent. `modelId` is required per-agent
- * because different bots use different providers (Groq / Gemini / OpenAI).
- *
- * Note on fallbackModels: only OpenRouter's API supports native model fallback
- * routing (`models: []`). Direct providers (Groq, OpenAI, Gemini) don't — so
- * fallbackModels is left empty for direct-provider agents. If we later add
- * client-side cross-provider fallback in the resilience layer, agents can opt
- * in with a fallbackModels array of any provider's model IDs.
+ * because different bots use different providers (OpenAI / Gemini).
  */
 function makeAiConfig(
   modelId: string,
   extra: Record<string, unknown> = {},
 ): Prisma.InputJsonValue {
   return {
-    routingMode: 'direct',
+    routingMode: "direct",
     modelId,
     temperature: 0.7,
     maxTokens: 2048,
     maxContextMessages: 20,
-    contextStrategy: 'sliding-window',
+    contextStrategy: "sliding-window",
     ragEnabled: false,
     ragRerankEnabled: true,
     cachingEnabled: true,
@@ -340,7 +334,7 @@ async function upsertOrg() {
     return existing;
   }
   const org = await prisma.organization.create({
-    data: { name: 'AI Dev Sandbox', slug: DEMO_ORG_SLUG },
+    data: { name: "AI Dev Sandbox", slug: DEMO_ORG_SLUG },
   });
   console.log(`  + Created org "${org.name}" (${org.id})`);
   return org;
@@ -370,7 +364,7 @@ async function upsertAgent(params: {
         systemPrompt: params.systemPrompt,
         welcomeMessage: params.welcomeMessage,
         aiConfig: params.aiConfig,
-        status: 'ACTIVE',
+        status: "ACTIVE",
       },
     });
     console.log(
@@ -389,7 +383,7 @@ async function upsertAgent(params: {
           publicId,
           name: params.name,
           organizationId: params.orgId,
-          status: 'ACTIVE',
+          status: "ACTIVE",
           systemPrompt: params.systemPrompt,
           welcomeMessage: params.welcomeMessage,
           aiConfig: params.aiConfig,
@@ -402,22 +396,23 @@ async function upsertAgent(params: {
       return agent;
     } catch (err) {
       const e = err as { code?: string };
-      if (e.code === 'P2002' && attempt < 2) {
+      if (e.code === "P2002" && attempt < 2) {
         continue; // publicId collision — try a new one
       }
       throw err;
     }
   }
-  throw new Error('Failed to create agent after retries');
+  throw new Error("Failed to create agent after retries");
 }
 
 async function main() {
-  console.log('\n🌱 Seeding demo agents for AI orchestration dev test page...\n');
+  console.log(
+    "\n🌱 Seeding demo agents for AI orchestration dev test page...\n",
+  );
 
   const org = await upsertOrg();
 
-  // Normal Bot → Groq direct. Free tier, 400+ tok/sec — the fastest option
-  // anywhere. Used as the "how fast can streaming feel?" demo.
+  // Normal Bot → OpenAI gpt-4.1-mini. The basic streaming chat demo.
   const normalBot = await upsertAgent({
     orgId: org.id,
     name: NORMAL_BOT_NAME,
@@ -448,7 +443,7 @@ async function main() {
     name: SHREYA_NAME,
     systemPrompt: SHREYA_PROMPT,
     welcomeMessage:
-      'Good day. I am Shreya, AI Sales & Support Assistant for Panvelkar & Pol Associates. How may I assist you today?',
+      "Good day. I am Shreya, AI Sales & Support Assistant for Panvelkar & Pol Associates. How may I assist you today?",
     aiConfig: makeAiConfig(SHREYA_MODEL, {
       temperature: 0.4,
       // Raised from 512 because Gemini 2.5 Flash uses "thinking mode" tokens
@@ -460,23 +455,21 @@ async function main() {
     }),
   });
 
-  console.log('\n✅ Seed complete.\n');
-  console.log('Try it out:');
-  console.log('  1. Start the API:   cd apps/api && bun run dev');
-  console.log('  2. Open in browser: http://localhost:3001/dev/ai/test-chat');
+  console.log("\n✅ Seed complete.\n");
+  console.log("Try it out:");
+  console.log("  1. Start the API:   cd apps/api && bun run dev");
+  console.log("  2. Open in browser: http://localhost:3001/dev/ai/test-chat");
   console.log(
     `  3. Select agent:    "${normalBot.name}", "${ragBot.name}", or "${shreya.name}"`,
   );
-  console.log('  4. Send a message and watch the trace panel fill up.');
-  console.log(
-    '\nWatch logs live:     tail -f apps/api/logs/ai-trace.log | jq',
-  );
-  console.log('');
+  console.log("  4. Send a message and watch the trace panel fill up.");
+  console.log("\nWatch logs live:     tail -f apps/api/logs/ai-trace.log | jq");
+  console.log("");
 }
 
 main()
   .catch((err) => {
-    console.error('Seed failed:', err);
+    console.error("Seed failed:", err);
     process.exit(1);
   })
   .finally(() => {
