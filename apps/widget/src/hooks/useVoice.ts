@@ -194,6 +194,7 @@ export function useVoice({
   const hardDeadlineRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const timedOutRef = useRef(false);
   const activeMimeRef = useRef<string>("audio/webm");
+  const recordingStartedAtRef = useRef(0);
   // P3: Flag to distinguish cancel from normal stop
   const cancelledRef = useRef(false);
 
@@ -293,7 +294,7 @@ export function useVoice({
   );
 
   const handleApiCall = useCallback(
-    async (audioBlob: Blob) => {
+    async (audioBlob: Blob, durationMs: number) => {
       setVoiceStateSynced("processing");
 
       const controller = new AbortController();
@@ -343,6 +344,7 @@ export function useVoice({
       try {
         const result = await streamVoiceConversation({
           audio: audioBlob,
+          durationMs,
           agentId,
           sessionId: getSessionId() ?? undefined,
           // No languageHint sent — backend auto-detects via Sarvam (one-shot detect+transcribe)
@@ -545,7 +547,7 @@ export function useVoice({
         chunksRef.current = [];
 
         if (blob.size > 0) {
-          handleApiCall(blob);
+          handleApiCall(blob, Date.now() - recordingStartedAtRef.current);
         } else {
           setVoiceStateSynced("idle");
         }
@@ -556,6 +558,7 @@ export function useVoice({
       setRecordingDurationMs(0);
 
       const startTime = Date.now();
+      recordingStartedAtRef.current = startTime;
       durationTimerRef.current = setInterval(() => {
         setRecordingDurationMs(Date.now() - startTime);
       }, DURATION_UPDATE_MS);

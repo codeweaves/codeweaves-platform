@@ -8,6 +8,8 @@ import {
   type LanguageDetectionResponse,
 } from "../../../src/modules/voice/providers/voice-provider.interface";
 import { PrismaService } from "../../../src/services/prisma.service";
+import { UsageMeterService } from "../../../src/modules/usage/usage-meter.service";
+import { voiceConfigSchema } from "@repo/validation";
 import type { N8nStreamChunk } from "../../../src/services/n8n-stream.interface";
 import type { VoiceStreamChunk } from "../../../src/modules/voice/interfaces/voice-stream.interface";
 
@@ -115,10 +117,69 @@ describe("VoiceService - streamingTTS", () => {
           provide: PrismaService,
           useValue: mockPrisma,
         },
+        { provide: UsageMeterService, useValue: { record: jest.fn() } },
       ],
     }).compile();
 
     service = module.get<VoiceService>(VoiceService);
+  });
+
+  describe("usage scope", () => {
+    const scope = {
+      organizationId: "org-1",
+      agentId: "agent-1",
+      chatSessionId: "chat-1",
+      channel: "VOICE" as const,
+    };
+
+    it("passes the billing scope to every per-sentence TTS request", async () => {
+      await collectChunks(
+        service.streamingTTS(
+          createTokenStream(["Hello there, friend. ", "How are you today?"]),
+          "en",
+          "agent-1",
+          undefined,
+          scope,
+        ),
+      );
+
+      const calls = (elevenLabsProvider.synthesize as jest.Mock).mock.calls;
+      expect(calls).toHaveLength(2);
+      for (const [request] of calls) expect(request.usage).toEqual(scope);
+    });
+
+    it("passes the billing scope to a persistent TTS session", async () => {
+      const sarvam = allProviders[1]!;
+      const session = {
+        provider: "sarvam",
+        // eslint-disable-next-line @typescript-eslint/no-unused-vars
+        async *synthesize(_text: string) {
+          yield {
+            audio: Buffer.from("pcm"),
+            audioFormat: "audio/pcm; rate=24000",
+            latencyMs: 5,
+            isFinal: true,
+            provider: "sarvam",
+          };
+        },
+        close: jest.fn().mockResolvedValue(undefined),
+      };
+      sarvam.openSynthesisSession = jest.fn().mockResolvedValue(session);
+
+      await collectChunks(
+        service.streamingTTS(
+          createTokenStream(["Namaste."]),
+          "hi",
+          "agent-1",
+          voiceConfigSchema.parse({ ttsStreaming: true }),
+          scope,
+        ),
+      );
+
+      expect(sarvam.openSynthesisSession).toHaveBeenCalledWith(
+        expect.objectContaining({ usage: scope }),
+      );
+    });
   });
 
   it("should yield 2 audio chunks + end chunk for 2 sentences", async () => {

@@ -22,7 +22,7 @@ export interface WhatsappInboundMessage {
 
 /** The `value` object inside a `messages` change. */
 export interface WhatsappWebhookValue {
-  messaging_product: 'whatsapp';
+  messaging_product: "whatsapp";
   metadata: {
     display_phone_number: string;
     /** The number that received the message — our routing key to an agent. */
@@ -30,8 +30,33 @@ export interface WhatsappWebhookValue {
   };
   contacts?: Array<{ profile?: { name?: string }; wa_id: string }>;
   messages?: WhatsappInboundMessage[];
-  /** Delivery/read receipts — ignored in the MVP (no schema change needed). */
-  statuses?: unknown[];
+  /** Delivery/read receipts for messages we sent. Carry Meta's billing signal. */
+  statuses?: WhatsappStatus[];
+}
+
+/**
+ * A status webhook for an outbound message. Meta attaches `pricing` to the
+ * `sent` status and repeats it on `delivered` / `read`, so one message can
+ * arrive with pricing several times.
+ * https://developers.facebook.com/documentation/business-messaging/whatsapp/webhooks/reference/messages/status/
+ */
+export interface WhatsappStatus {
+  /** The outbound message id (wamid). */
+  id: string;
+  /** "sent" | "delivered" | "read" | "failed" | ... */
+  status: string;
+  /** Unix seconds (string). */
+  timestamp?: string;
+  /** Customer phone in E.164 without '+'. */
+  recipient_id?: string;
+  pricing?: {
+    /** False for free messages (free tier, customer service window, FEP). */
+    billable?: boolean;
+    pricing_model?: string;
+    /** "service" | "utility" | "marketing" | "authentication" | ... */
+    category?: string;
+    type?: string;
+  };
 }
 
 /** Top-level webhook envelope. */
@@ -55,7 +80,7 @@ export interface WhatsappInboundJob {
   /** WhatsApp message id — also used as the BullMQ jobId for idempotency. */
   messageId: string;
   /** Inbound kind. 'audio' = a voice note / audio file we transcribe before running the agent. */
-  type: 'text' | 'audio';
+  type: "text" | "audio";
   /** The user's text — present when type === 'text'. */
   text?: string;
   /** WhatsApp media id — present when type === 'audio'; downloaded + transcribed. */

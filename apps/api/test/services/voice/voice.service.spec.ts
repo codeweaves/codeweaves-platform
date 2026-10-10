@@ -18,6 +18,9 @@ import {
   UnsupportedLanguageError,
 } from "../../../src/modules/voice/providers/voice-provider.interface";
 import { PrismaService } from "../../../src/services/prisma.service";
+import { UsageMeterService } from "../../../src/modules/usage/usage-meter.service";
+
+const mockUsageMeter = { record: jest.fn() };
 
 function createMockProvider(
   name: string,
@@ -96,6 +99,7 @@ describe("VoiceService", () => {
           ],
         },
         { provide: PrismaService, useValue: mockPrisma },
+        { provide: UsageMeterService, useValue: mockUsageMeter },
       ],
     }).compile();
 
@@ -136,7 +140,7 @@ describe("VoiceService", () => {
     });
   });
 
-  describe("STT routing", () => {
+  describe("STT routing (one billed call per turn)", () => {
     const makeSTTRequest = (
       language?: SupportedLanguage,
       agentId = "agent-123",
@@ -147,176 +151,122 @@ describe("VoiceService", () => {
       agentId,
     });
 
-    it("should route Hindi to Sarvam", async () => {
-      const result = await service.transcribe(makeSTTRequest("hi"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-      expect(result.provider).toBe("sarvam");
+    const sttCalls = () => ({
+      sarvam: (sarvamProvider.transcribe as jest.Mock).mock.calls.length,
+      deepgram: (deepgramProvider.transcribe as jest.Mock).mock.calls.length,
+      elevenlabs: (elevenLabsProvider.transcribe as jest.Mock).mock.calls
+        .length,
     });
 
-    it("should route English to Deepgram", async () => {
-      const result = await service.transcribe(makeSTTRequest("en"));
-      expect(deepgramProvider.transcribe).toHaveBeenCalled();
-      expect(result.provider).toBe("deepgram");
-    });
+    it.each<SupportedLanguage | undefined>([
+      undefined,
+      "en",
+      "hi",
+      "mr",
+      "ta",
+      "hinglish",
+    ])(
+      "transcribes with Sarvam alone (hint=%s), English included",
+      async (hint) => {
+        const result = await service.transcribe(makeSTTRequest(hint));
+        expect(result.provider).toBe("sarvam");
+        expect(sttCalls()).toEqual({ sarvam: 1, deepgram: 0, elevenlabs: 0 });
+        expect(
+          (sarvamProvider.transcribe as jest.Mock).mock.calls[0][0]
+            .languageHint,
+        ).toBe(hint);
+      },
+    );
 
-    it("should route Marathi to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("mr"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should route Bengali to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("bn"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should route Tamil to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("ta"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should route Telugu to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("te"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should route Gujarati to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("gu"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should route Kannada to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("kn"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should route Malayalam to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("ml"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should route Punjabi to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("pa"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should route Odia to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("or"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should route Hinglish to Sarvam", async () => {
-      await service.transcribe(makeSTTRequest("hinglish"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
-    });
-
-    it("should detect via Sarvam then transcribe via Deepgram for English audio", async () => {
-      // Mock Sarvam returns English detected
+    it("keeps Sarvam's English transcript: no second STT call", async () => {
       (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
-        transcript: "hello (sarvam English — discarded)",
+        transcript: "hello there",
         confidence: 0.9,
         detectedLanguage: "en",
         provider: "sarvam",
-        latencyMs: 980,
-      });
-      (deepgramProvider.transcribe as jest.Mock).mockResolvedValueOnce({
-        transcript: "hello (deepgram is the trusted answer)",
-        confidence: 0.95,
-        detectedLanguage: "en",
-        provider: "deepgram",
-        latencyMs: 200,
+        latencyMs: 300,
       });
 
       const result = await service.transcribe(makeSTTRequest());
 
-      expect(sarvamProvider.transcribe).toHaveBeenCalledTimes(1);
-      expect(deepgramProvider.transcribe).toHaveBeenCalledTimes(1);
+      expect(result.transcript).toBe("hello there");
+      expect(sttCalls()).toEqual({ sarvam: 1, deepgram: 0, elevenlabs: 0 });
+    });
+
+    it("accepts an empty Sarvam transcript without retrying elsewhere", async () => {
+      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
+        transcript: "",
+        confidence: 0.9,
+        detectedLanguage: "en",
+        provider: "sarvam",
+        latencyMs: 300,
+      });
+
+      const result = await service.transcribe(makeSTTRequest());
+      expect(result.transcript).toBe("");
+      expect(sttCalls()).toEqual({ sarvam: 1, deepgram: 0, elevenlabs: 0 });
+    });
+
+    it("fails over to Deepgram only when Sarvam throws, with the agent's default language", async () => {
+      (sarvamProvider.transcribe as jest.Mock).mockRejectedValueOnce(
+        new VoiceProviderError("sarvam", "down"),
+      );
+
+      const result = await service.transcribe(makeSTTRequest());
+
+      expect(result.provider).toBe("deepgram");
+      expect(sttCalls()).toEqual({ sarvam: 1, deepgram: 1, elevenlabs: 0 });
       expect(
         (deepgramProvider.transcribe as jest.Mock).mock.calls[0][0]
           .languageHint,
       ).toBe("en");
-      expect(result.provider).toBe("deepgram");
-      expect(result.transcript).toBe("hello (deepgram is the trusted answer)");
     });
 
-    it("should keep Sarvam result when an Indian language is detected (no second call)", async () => {
-      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
-        transcript: "नमस्ते",
-        confidence: 0.9,
-        detectedLanguage: "hi",
-        provider: "sarvam",
-        latencyMs: 980,
-      });
-
-      const result = await service.transcribe(makeSTTRequest());
-
-      expect(sarvamProvider.transcribe).toHaveBeenCalledTimes(1);
-      expect(deepgramProvider.transcribe).not.toHaveBeenCalled();
-      expect(result.provider).toBe("sarvam");
-      expect(result.transcript).toBe("नमस्ते");
-    });
-
-    it("should accept Sarvam empty transcript for Indian languages (no retry helps)", async () => {
-      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
-        transcript: "",
-        confidence: 0.9,
-        detectedLanguage: "hi",
-        provider: "sarvam",
-        latencyMs: 980,
-      });
-
-      const result = await service.transcribe(makeSTTRequest());
-      expect(sarvamProvider.transcribe).toHaveBeenCalledTimes(1);
-      expect(deepgramProvider.transcribe).not.toHaveBeenCalled();
-      expect(result.transcript).toBe("");
-    });
-
-    it("should fall back to ElevenLabs when Deepgram throws on English transcription", async () => {
-      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
-        transcript: "",
-        confidence: 0.9,
-        detectedLanguage: "en",
-        provider: "sarvam",
-        latencyMs: 100,
-      });
-      (deepgramProvider.transcribe as jest.Mock).mockRejectedValueOnce(
-        new Error("Deepgram down"),
+    it("keeps the caller's language hint on failover", async () => {
+      (sarvamProvider.transcribe as jest.Mock).mockRejectedValueOnce(
+        new Error("down"),
       );
-      (elevenLabsProvider.transcribe as jest.Mock).mockResolvedValueOnce({
-        transcript: "hello (elevenlabs)",
-        confidence: 0.92,
-        detectedLanguage: "en",
-        provider: "elevenlabs",
-        latencyMs: 220,
-      });
+
+      await service.transcribe(makeSTTRequest("hi"));
+
+      expect(
+        (deepgramProvider.transcribe as jest.Mock).mock.calls[0][0]
+          .languageHint,
+      ).toBe("hi");
+    });
+
+    it("fails over to ElevenLabs when Sarvam and Deepgram both throw", async () => {
+      (sarvamProvider.transcribe as jest.Mock).mockRejectedValueOnce(
+        new Error("sarvam down"),
+      );
+      (deepgramProvider.transcribe as jest.Mock).mockRejectedValueOnce(
+        new Error("deepgram down"),
+      );
 
       const result = await service.transcribe(makeSTTRequest());
 
-      expect(deepgramProvider.transcribe).toHaveBeenCalled();
-      expect(elevenLabsProvider.transcribe).toHaveBeenCalled();
       expect(result.provider).toBe("elevenlabs");
+      expect(sttCalls()).toEqual({ sarvam: 1, deepgram: 1, elevenlabs: 1 });
     });
 
-    it("should fall back to Sarvam transcript when both Deepgram and ElevenLabs throw", async () => {
-      (sarvamProvider.transcribe as jest.Mock).mockResolvedValueOnce({
-        transcript: "hello (sarvam fallback of last resort)",
-        confidence: 0.9,
-        detectedLanguage: "en",
-        provider: "sarvam",
-        latencyMs: 100,
-      });
+    it("throws Sarvam's error when every provider fails", async () => {
+      const sarvamError = new VoiceProviderError("sarvam", "sarvam down");
+      (sarvamProvider.transcribe as jest.Mock).mockRejectedValueOnce(
+        sarvamError,
+      );
       (deepgramProvider.transcribe as jest.Mock).mockRejectedValueOnce(
-        new Error("Deepgram down"),
+        new Error("deepgram down"),
       );
       (elevenLabsProvider.transcribe as jest.Mock).mockRejectedValueOnce(
         new Error("EL down"),
       );
 
-      const result = await service.transcribe(makeSTTRequest());
-      expect(result.transcript).toBe("hello (sarvam fallback of last resort)");
-      expect(result.provider).toBe("sarvam");
+      await expect(service.transcribe(makeSTTRequest())).rejects.toBe(
+        sarvamError,
+      );
     });
 
-    it("should use agent override sttProvider when set", async () => {
+    it("uses the agent's sttProvider override as-is", async () => {
       mockPrisma.agent.findUnique.mockResolvedValue({
         voiceEnabled: true,
         voiceConfig: {
@@ -325,11 +275,11 @@ describe("VoiceService", () => {
       });
 
       const result = await service.transcribe(makeSTTRequest("hi"));
-      expect(elevenLabsProvider.transcribe).toHaveBeenCalled();
       expect(result.provider).toBe("elevenlabs");
+      expect(sttCalls()).toEqual({ sarvam: 0, deepgram: 0, elevenlabs: 1 });
     });
 
-    it("should fall back to language-based routing if override provider not found", async () => {
+    it("routes to Sarvam when the override is invalid (config falls back to defaults)", async () => {
       mockPrisma.agent.findUnique.mockResolvedValue({
         voiceEnabled: true,
         voiceConfig: {
@@ -337,9 +287,65 @@ describe("VoiceService", () => {
         },
       });
 
-      // This will fail validation and return defaults
       await service.transcribe(makeSTTRequest("hi"));
-      expect(sarvamProvider.transcribe).toHaveBeenCalled();
+      expect(sttCalls()).toEqual({ sarvam: 1, deepgram: 0, elevenlabs: 0 });
+    });
+  });
+
+  describe("recordSttUsage", () => {
+    const scope = {
+      organizationId: "org-1",
+      agentId: "agent-123",
+      chatSessionId: "chat-1",
+      channel: "VOICE" as const,
+    };
+
+    it("records one STT row with the provider's quantities and the caller's scope", () => {
+      service.recordSttUsage(
+        {
+          transcript: "hi",
+          confidence: 1,
+          detectedLanguage: "en",
+          provider: "deepgram",
+          latencyMs: 420,
+          usage: {
+            model: "nova-3",
+            audioSeconds: 4.2,
+            quantitySource: "PROVIDER_REPORTED",
+            providerRequestId: "req-1",
+          },
+        },
+        scope,
+      );
+
+      expect(mockUsageMeter.record).toHaveBeenCalledTimes(1);
+      expect(mockUsageMeter.record).toHaveBeenCalledWith({
+        organizationId: "org-1",
+        agentId: "agent-123",
+        chatSessionId: "chat-1",
+        channel: "VOICE",
+        feature: "STT",
+        provider: "deepgram",
+        model: "nova-3",
+        providerRequestId: "req-1",
+        quantities: { audioSeconds: 4.2 },
+        quantitySource: "PROVIDER_REPORTED",
+        latencyMs: 420,
+      });
+    });
+
+    it("records nothing for a provider that bills nothing (no usage)", () => {
+      service.recordSttUsage(
+        {
+          transcript: "hi",
+          confidence: 1,
+          detectedLanguage: "en",
+          provider: "stub",
+          latencyMs: 1,
+        },
+        scope,
+      );
+      expect(mockUsageMeter.record).not.toHaveBeenCalled();
     });
   });
 
@@ -531,7 +537,7 @@ describe("VoiceService", () => {
 
       // Default STT routing for English → Deepgram
       await service.transcribe(makeSTTRequest("en"));
-      expect(deepgramProvider.transcribe).toHaveBeenCalled();
+      expect(sarvamProvider.transcribe).toHaveBeenCalled();
     });
 
     it("should return defaults when voice is disabled", async () => {
@@ -542,7 +548,7 @@ describe("VoiceService", () => {
 
       // Should ignore the override since voice is disabled → defaults
       await service.transcribe(makeSTTRequest("en"));
-      expect(deepgramProvider.transcribe).toHaveBeenCalled();
+      expect(sarvamProvider.transcribe).toHaveBeenCalled();
     });
 
     it("should return defaults when voiceConfig is null", async () => {
@@ -552,7 +558,7 @@ describe("VoiceService", () => {
       });
 
       await service.transcribe(makeSTTRequest("en"));
-      expect(deepgramProvider.transcribe).toHaveBeenCalled();
+      expect(sarvamProvider.transcribe).toHaveBeenCalled();
     });
 
     it("should cache voice config per agent", async () => {
@@ -585,7 +591,7 @@ describe("VoiceService", () => {
 
       // Should not throw — returns defaults
       await service.transcribe(makeSTTRequest("en"));
-      expect(deepgramProvider.transcribe).toHaveBeenCalled();
+      expect(sarvamProvider.transcribe).toHaveBeenCalled();
     });
 
     it("should not cache on transient DB errors (allows retry)", async () => {
@@ -598,7 +604,7 @@ describe("VoiceService", () => {
 
       // First call: DB fails, returns defaults
       await service.transcribe(makeSTTRequest("en", "agent-retry"));
-      expect(deepgramProvider.transcribe).toHaveBeenCalled();
+      expect(sarvamProvider.transcribe).toHaveBeenCalled();
 
       jest.clearAllMocks();
 
@@ -613,7 +619,7 @@ describe("VoiceService", () => {
       // All routing should go to sarvam/deepgram/elevenlabs
       await service.transcribe(makeSTTRequest("en"));
       expect(stubProvider.transcribe).not.toHaveBeenCalled();
-      expect(deepgramProvider.transcribe).toHaveBeenCalled();
+      expect(sarvamProvider.transcribe).toHaveBeenCalled();
     });
   });
 
@@ -887,6 +893,19 @@ describe("VoiceService", () => {
       expect(passedRequest.text.length).toBeGreaterThan(0);
       expect(result.audio).toEqual(Buffer.from("audio-from-elevenlabs"));
       expect(result.audioFormat).toBe("audio/mp3");
+    });
+
+    it("bills the preview to the platform as VOICE_PREVIEW, not to any agent", async () => {
+      await service.previewVoice("elevenlabs", "voice-1", "en");
+
+      const passedRequest = (elevenLabsProvider.synthesize as jest.Mock).mock
+        .calls[0][0];
+      expect(passedRequest.usage).toEqual({
+        channel: "DASHBOARD",
+        feature: "VOICE_PREVIEW",
+        organizationId: null,
+        agentId: null,
+      });
     });
 
     it("should personalise the sample text with the voice name from the catalog", async () => {
