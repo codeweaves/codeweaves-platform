@@ -3,18 +3,21 @@ import {
   BadRequestException,
   NotFoundException,
   ServiceUnavailableException,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { randomUUID } from 'crypto';
-import { PrismaService } from './prisma.service';
-import { EmailService } from './email.service';
-import { EmailTemplateService } from './email-template.service';
-import { ClerkManagementService } from './clerk-management.service';
-import { InvitationStatus, Prisma, Role } from '@prisma/client';
-import { CreateInvitationDto, InvitationListQuery } from '../models/invitation.dto';
-import { InvitationLoggerService } from '../common/logger/invitation.logger';
-import { AppLogger } from '../common/logger/app-logger';
-import { PermissionCatalogService } from '../common/rbac/permission-catalog.service';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { randomUUID } from "crypto";
+import { PrismaService } from "./prisma.service";
+import { EmailService } from "./email.service";
+import { EmailTemplateService } from "./email-template.service";
+import { ClerkManagementService } from "./clerk-management.service";
+import { InvitationStatus, Prisma, Role } from "@prisma/client";
+import {
+  CreateInvitationDto,
+  InvitationListQuery,
+} from "../models/invitation.dto";
+import { InvitationLoggerService } from "../common/logger/invitation.logger";
+import { AppLogger } from "../common/logger/app-logger";
+import { PermissionCatalogService } from "../common/rbac/permission-catalog.service";
 
 const INVITATION_EXPIRY_DAYS = 7;
 const MAX_REISSUE_COUNT = 5;
@@ -35,7 +38,7 @@ export class InvitationsService {
 
   async create(dto: CreateInvitationDto, invitedById: string) {
     const email = dto.email.toLowerCase();
-    this.log.debug('create', 'creating invitation', {
+    this.log.debug("create", "creating invitation", {
       roleKeys: dto.roleKeys,
       organizationId: dto.organizationId ?? null,
     });
@@ -44,18 +47,18 @@ export class InvitationsService {
     // that provisions an account with fewer roles than intended, silently.
     const unknown = dto.roleKeys.filter((k) => !this.catalog.getRole(k));
     if (unknown.length > 0) {
-      throw new BadRequestException(`Unknown role(s): ${unknown.join(', ')}`);
+      throw new BadRequestException(`Unknown role(s): ${unknown.join(", ")}`);
     }
 
     // An org-scoped invite may only carry roles an ORG account can hold.
-    const isOrgInvite = dto.roleKeys.every((k) => k.startsWith('org.'));
+    const isOrgInvite = dto.roleKeys.every((k) => k.startsWith("org."));
     if (isOrgInvite) {
       const platformOnly = dto.roleKeys.filter(
         (k) => !this.catalog.getRole(k)?.orgAllowed,
       );
       if (platformOnly.length > 0) {
         throw new BadRequestException(
-          `Not available to organization users: ${platformOnly.join(', ')}`,
+          `Not available to organization users: ${platformOnly.join(", ")}`,
         );
       }
     }
@@ -69,7 +72,7 @@ export class InvitationsService {
       where: { email },
     });
     if (existingUser) {
-      throw new BadRequestException('User with this email already exists');
+      throw new BadRequestException("User with this email already exists");
     }
 
     // Check for pending invitation
@@ -81,7 +84,7 @@ export class InvitationsService {
     });
     if (existingInvitation) {
       throw new BadRequestException(
-        'Pending invitation already exists for this email',
+        "Pending invitation already exists for this email",
       );
     }
 
@@ -105,42 +108,49 @@ export class InvitationsService {
 
       await this.sendInvitationEmail(invitation, passwordSetupUrl);
 
-      await this.invitationLogger.logInvitationCreated(invitation.id, { response: invitation, request: dto });
-      this.log.info('create', 'invitation created', { invitationId: invitation.id });
+      await this.invitationLogger.logInvitationCreated(invitation.id, {
+        response: invitation,
+        request: dto,
+      });
+      this.log.info("create", "invitation created", {
+        invitationId: invitation.id,
+      });
       return invitation;
     } catch (error) {
       if (
         error instanceof Prisma.PrismaClientKnownRequestError &&
-        error.code === 'P2002'
+        error.code === "P2002"
       ) {
         throw new BadRequestException(
-          'Pending invitation already exists for this email',
+          "Pending invitation already exists for this email",
         );
       }
-      this.log.error('create', 'invitation creation failed', error);
-      await this.invitationLogger.logInvitationCreationException(
-        email,
-        error,
-        { request: dto },
-      );
+      this.log.error("create", "invitation creation failed", error);
+      await this.invitationLogger.logInvitationCreationException(email, error, {
+        request: dto,
+      });
       throw error;
     }
   }
 
-  async findAll(query: InvitationListQuery = { page: 1, limit: 20, sortBy: 'createdAt', sortOrder: 'desc' }) {
+  async findAll(
+    query: InvitationListQuery = {
+      page: 1,
+      limit: 20,
+      sortBy: "createdAt",
+      sortOrder: "desc",
+    },
+  ) {
     const { page, limit, search, status, statuses, sortBy, sortOrder } = query;
     const skip = (page - 1) * limit;
 
     // Combine the legacy single-status filter with the multi-select array.
     // Both client forms map to the same `IN (...)` query.
-    const statusList = [
-      ...(status ? [status] : []),
-      ...(statuses ?? []),
-    ];
+    const statusList = [...(status ? [status] : []), ...(statuses ?? [])];
 
     const where: Prisma.UserInvitationWhereInput = {
       ...(search
-        ? { email: { contains: search, mode: 'insensitive' as const } }
+        ? { email: { contains: search, mode: "insensitive" as const } }
         : {}),
       ...(statusList.length > 0 ? { status: { in: statusList } } : {}),
     };
@@ -172,7 +182,7 @@ export class InvitationsService {
     });
 
     if (!invitation) {
-      throw new NotFoundException('Invitation not found');
+      throw new NotFoundException("Invitation not found");
     }
 
     return invitation;
@@ -184,11 +194,11 @@ export class InvitationsService {
     });
 
     if (!invitation) {
-      throw new NotFoundException('Invitation not found');
+      throw new NotFoundException("Invitation not found");
     }
 
     if (invitation.status !== InvitationStatus.PENDING) {
-      throw new BadRequestException('Can only resend pending invitations');
+      throw new BadRequestException("Can only resend pending invitations");
     }
 
     try {
@@ -206,11 +216,17 @@ export class InvitationsService {
 
       await this.sendInvitationEmail(updated, passwordSetupUrl);
 
-      await this.invitationLogger.logInvitationResent(updated.id, { response: updated });
-      this.log.info('resend', 'invitation resent', { invitationId: updated.id });
+      await this.invitationLogger.logInvitationResent(updated.id, {
+        response: updated,
+      });
+      this.log.info("resend", "invitation resent", {
+        invitationId: updated.id,
+      });
       return updated;
     } catch (error) {
-      this.log.error('resend', 'invitation resend failed', error, { invitationId: id });
+      this.log.error("resend", "invitation resend failed", error, {
+        invitationId: id,
+      });
       await this.invitationLogger.logInvitationResentException(id, error, {
         invitationId: id,
       });
@@ -224,19 +240,19 @@ export class InvitationsService {
     });
 
     if (!invitation) {
-      throw new NotFoundException('Invalid reissue token');
+      throw new NotFoundException("Invalid reissue token");
     }
 
     if (invitation.status === InvitationStatus.ACCEPTED) {
-      throw new BadRequestException('Invitation already accepted');
+      throw new BadRequestException("Invitation already accepted");
     }
 
     if (invitation.expiresAt > new Date()) {
-      throw new BadRequestException('Invitation is still valid');
+      throw new BadRequestException("Invitation is still valid");
     }
 
     if (invitation.reissueCount >= MAX_REISSUE_COUNT) {
-      throw new BadRequestException('Maximum reissue attempts reached');
+      throw new BadRequestException("Maximum reissue attempts reached");
     }
 
     const updated = await this.prisma.userInvitation.update({
@@ -256,12 +272,14 @@ export class InvitationsService {
 
     await this.sendInvitationEmail(updated, passwordSetupUrl);
 
-    await this.invitationLogger.logInvitationReissued(invitation.id, { response: updated });
-    this.log.info('reissue', 'invitation reissued', {
+    await this.invitationLogger.logInvitationReissued(invitation.id, {
+      response: updated,
+    });
+    this.log.info("reissue", "invitation reissued", {
       invitationId: invitation.id,
       reissueCount: updated.reissueCount,
     });
-    return { message: 'Invitation reissued successfully' };
+    return { message: "Invitation reissued successfully" };
   }
 
   async validate(token: string) {
@@ -270,11 +288,11 @@ export class InvitationsService {
     });
 
     if (!invitation) {
-      throw new NotFoundException('Invalid invitation token');
+      throw new NotFoundException("Invalid invitation token");
     }
 
     if (invitation.status === InvitationStatus.ACCEPTED) {
-      throw new BadRequestException('Invitation has already been used');
+      throw new BadRequestException("Invitation has already been used");
     }
 
     if (
@@ -282,7 +300,7 @@ export class InvitationsService {
       invitation.expiresAt <= new Date()
     ) {
       throw new BadRequestException({
-        message: 'Invitation has expired',
+        message: "Invitation has expired",
         reissueToken: invitation.reissueToken,
       });
     }
@@ -304,27 +322,29 @@ export class InvitationsService {
     });
 
     if (!invitation) {
-      throw new NotFoundException('Invitation not found');
+      throw new NotFoundException("Invitation not found");
     }
 
     if (invitation.status === InvitationStatus.ACCEPTED) {
-      throw new BadRequestException('Cannot cancel an accepted invitation');
+      throw new BadRequestException("Cannot cancel an accepted invitation");
     }
 
     // Revoke the Clerk invitation if one was issued — must succeed before
     // removing the invitation row so the ticket link can no longer be used.
     if (invitation.clerkInvitationId) {
       try {
-        await this.clerkManagement.revokeInvitation(invitation.clerkInvitationId);
+        await this.clerkManagement.revokeInvitation(
+          invitation.clerkInvitationId,
+        );
       } catch (error) {
         this.log.error(
-          'cancel',
+          "cancel",
           `failed to revoke Clerk invitation ${invitation.clerkInvitationId}`,
           error,
           { invitationId: id },
         );
         throw new ServiceUnavailableException(
-          'Failed to revoke Clerk invitation; invitation was not cancelled. Please retry.',
+          "Failed to revoke Clerk invitation; invitation was not cancelled. Please retry.",
         );
       }
     }
@@ -333,11 +353,15 @@ export class InvitationsService {
       const deleted = await this.prisma.userInvitation.delete({
         where: { id },
       });
-      await this.invitationLogger.logInvitationCancelled(id, { response: deleted });
-      this.log.info('cancel', 'invitation cancelled', { invitationId: id });
+      await this.invitationLogger.logInvitationCancelled(id, {
+        response: deleted,
+      });
+      this.log.info("cancel", "invitation cancelled", { invitationId: id });
       return deleted;
     } catch (error) {
-      this.log.error('cancel', 'invitation cancel failed', error, { invitationId: id });
+      this.log.error("cancel", "invitation cancel failed", error, {
+        invitationId: id,
+      });
       await this.invitationLogger.logInvitationCancelledException(id, error, {
         invitationId: id,
       });
@@ -359,8 +383,8 @@ export class InvitationsService {
   }): Promise<string | null> {
     try {
       const dashboardUrl = this.configService.get<string>(
-        'DASHBOARD_URL',
-        'http://localhost:3000',
+        "DASHBOARD_URL",
+        "http://localhost:3000",
       );
 
       // Revoke a stale invitation (resend/reissue) before issuing a new one.
@@ -371,9 +395,9 @@ export class InvitationsService {
           );
         } catch (error) {
           this.log.warn(
-            'createClerkInvitationTicket',
+            "createClerkInvitationTicket",
             `failed to revoke stale Clerk invitation ${invitation.clerkInvitationId}`,
-            { err: error instanceof Error ? error.message : 'Unknown error' },
+            { err: error instanceof Error ? error.message : "Unknown error" },
           );
         }
       }
@@ -392,7 +416,7 @@ export class InvitationsService {
       return created.url;
     } catch (error) {
       this.log.error(
-        'createClerkInvitationTicket',
+        "createClerkInvitationTicket",
         `failed to create Clerk invitation for invitation ${invitation.id}`,
         error,
       );
@@ -415,21 +439,20 @@ export class InvitationsService {
     passwordSetupUrl: string | null,
   ) {
     const dashboardUrl = this.configService.get<string>(
-      'DASHBOARD_URL',
-      'http://localhost:3000',
+      "DASHBOARD_URL",
+      "http://localhost:3000",
     );
 
     // Use password setup URL if available, fallback to signup URL
     const actionUrl =
-      passwordSetupUrl ??
-      `${dashboardUrl}/signup?token=${invitation.token}`;
+      passwordSetupUrl ?? `${dashboardUrl}/signup?token=${invitation.token}`;
     const actionLabel = passwordSetupUrl
-      ? 'Set Your Password'
-      : 'Create Your Account';
+      ? "Set Your Password"
+      : "Create Your Account";
 
     // Platform-level invites have no organization; the template reads naturally
     // with the product name in that slot.
-    let orgName = 'Klivo';
+    let orgName = "Klivo";
     if (invitation.organizationId) {
       const org = await this.prisma.organization.findUnique({
         where: { id: invitation.organizationId },
@@ -440,7 +463,7 @@ export class InvitationsService {
 
     try {
       const { subject, html, text } = await this.emailTemplates.render(
-        'TEAM_INVITATION',
+        "TEAM_INVITATION",
         {
           orgName,
           actionUrl,
@@ -454,14 +477,15 @@ export class InvitationsService {
         subject,
         html,
         text,
-        tags: { type: 'TEAM_INVITATION' },
+        tags: { type: "TEAM_INVITATION" },
+        organizationId: invitation.organizationId,
       });
     } catch (error) {
       // Matches EmailService's own contract: a mail problem must not roll back
       // an invitation that is already created in the DB (and in Clerk).
       this.log.error(
-        'sendInvitationEmail',
-        'failed to render or send the invitation email',
+        "sendInvitationEmail",
+        "failed to render or send the invitation email",
         error,
       );
     }

@@ -124,6 +124,15 @@ Each PR ends green on lint, check-types, build and `test:cov`, plus `/verify` fo
 6. Resend: one row per send, with quantity = recipients. Pass the organization in.
 7. Voice previews: recorded with no organization, feature `VOICE_PREVIEW`.
 
+Changes from this plan, made while building PR 3:
+
+- OGG duration comes from a small parser of our own (last page granule / 48 kHz, minus the Opus pre-skip), not `music-metadata`. WAV is read from its header. That avoids a new dependency for about 60 lines of code.
+- When nothing can be measured (no container duration and no widget length), the row is stored with `quantitySource = ESTIMATED`, from bytes at an assumed 64 kbps.
+- STT failover: when Sarvam throws, Deepgram and then ElevenLabs get the caller's language hint, or else the agent's default language.
+- WhatsApp rows for recipients outside India use the model `<category>:intl`. The price list holds India rates only, so these rows stay unpriced and flagged instead of priced at the wrong rate.
+- Meta only marks a message `billable` after the monthly free tier, so free messages are never recorded. Utility and authentication volume tiers are not applied.
+- Item 4 (WhatsApp voice notes longer than 30 s) is not done. It still needs a test of the `saaras:v3` length limit.
+
 ### PR 4: super admin console (platform roles only)
 
 1. **Usage and cost:**
