@@ -1,4 +1,6 @@
-import * as Sentry from "@sentry/nestjs";
+// Must stay the first import: Sentry has to start before any module it
+// instruments is loaded (see instrument.ts).
+import "./instrument";
 import helmet from "helmet";
 import { NestFactory } from "@nestjs/core";
 import { ValidationPipe, Logger } from "@nestjs/common";
@@ -6,28 +8,7 @@ import { ConfigService } from "@nestjs/config";
 import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { AppModule } from "./modules/app.module";
 import { getHelmetOptions } from "./config/security-headers.config";
-import { scrubSentryEvent } from "./common/sentry/sentry.scrubber";
 import { RedisIoAdapter } from "./common/ws/redis-io.adapter";
-
-// Sentry must be initialized before NestFactory.create() to hook into Node.js error handlers
-if (process.env.SENTRY_DSN) {
-  Sentry.init({
-    dsn: process.env.SENTRY_DSN,
-    environment:
-      process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || "development",
-    release: process.env.SENTRY_RELEASE || process.env.npm_package_version,
-    maxBreadcrumbs: 25,
-    beforeSend: scrubSentryEvent,
-    // Performance tracing (p50/p95 per route in Sentry). Off unless set, so
-    // turning it on in prod is an env change: SENTRY_TRACES_SAMPLE_RATE=0.1.
-    tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0) || 0,
-    // Source maps are uploaded via sentry-cli in CI (see SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT env vars)
-    // This tells the SDK to look for them when symbolizing stack traces
-    ...(process.env.NODE_ENV === "production" && {
-      sourcemaps: { filesToDeleteAfterUpload: ["./dist/**/*.map"] },
-    }),
-  });
-}
 
 async function bootstrap() {
   // rawBody: true buffers the unparsed request body onto `req.rawBody`, which the
