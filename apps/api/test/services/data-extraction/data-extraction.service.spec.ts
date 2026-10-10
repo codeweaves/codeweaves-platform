@@ -318,7 +318,54 @@ describe("DataExtractionService", () => {
       );
       expect(internalLog.logCompleted).toHaveBeenCalledWith(
         "DATA_EXTRACTION_RUN_COMPLETED",
-        expect.objectContaining({ metadata: { due: 1, captured: 1 } }),
+        expect.objectContaining({
+          metadata: { due: 1, captured: 1, retried: 0 },
+        }),
+      );
+    });
+
+    it("logs FAILED, not COMPLETED, when every due session failed (e.g. LLM down)", async () => {
+      mockPrisma.chatSession.findMany.mockResolvedValue([
+        { id: "s1", extractionDueAt: new Date("2026-06-20T10:00:00Z") },
+        { id: "s2", extractionDueAt: new Date("2026-06-20T10:01:00Z") },
+      ]);
+      jest.spyOn(service, "extractForSession").mockResolvedValue("retry");
+      const internalLog = (
+        service as unknown as { internalLog: InternalEventLogger }
+      ).internalLog;
+
+      await service.runDuePass();
+
+      expect(internalLog.logCompleted).not.toHaveBeenCalled();
+      expect(internalLog.logFailed).toHaveBeenCalledWith(
+        "DATA_EXTRACTION_RUN_FAILED",
+        expect.any(Error),
+        { metadata: { due: 2, retried: 2 } },
+      );
+    });
+
+    it("still counts a pass as COMPLETED when only some sessions failed", async () => {
+      mockPrisma.chatSession.findMany.mockResolvedValue([
+        { id: "s1", extractionDueAt: new Date("2026-06-20T10:00:00Z") },
+        { id: "s2", extractionDueAt: new Date("2026-06-20T10:01:00Z") },
+      ]);
+      jest
+        .spyOn(service, "extractForSession")
+        .mockResolvedValueOnce("captured")
+        .mockResolvedValueOnce("retry");
+      mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
+      const internalLog = (
+        service as unknown as { internalLog: InternalEventLogger }
+      ).internalLog;
+
+      await service.runDuePass();
+
+      expect(internalLog.logFailed).not.toHaveBeenCalled();
+      expect(internalLog.logCompleted).toHaveBeenCalledWith(
+        "DATA_EXTRACTION_RUN_COMPLETED",
+        expect.objectContaining({
+          metadata: { due: 2, captured: 1, retried: 1 },
+        }),
       );
     });
 
@@ -412,6 +459,20 @@ describe("DataExtractionService", () => {
 
       expect(mockPrisma.chatSession.findMany).toHaveBeenCalled();
       expect(mockHeartbeat.ping).toHaveBeenCalledWith("DATA_EXTRACTION");
+    });
+
+    it("does not ping the heartbeat when every due session failed to extract", async () => {
+      mockPrisma.chatSession.findMany.mockResolvedValue([
+        { id: "s1", extractionDueAt: new Date("2026-06-20T10:00:00Z") },
+      ]);
+      jest.spyOn(service, "extractForSession").mockResolvedValue("retry");
+
+      service.triggerDuePass();
+      await new Promise((r) => setImmediate(r));
+      await new Promise((r) => setImmediate(r));
+
+      expect(service.extractForSession).toHaveBeenCalled();
+      expect(mockHeartbeat.ping).not.toHaveBeenCalled();
     });
 
     it("does not ping the heartbeat when the pass fails", async () => {

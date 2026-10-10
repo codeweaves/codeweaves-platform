@@ -35,7 +35,7 @@ export const CRON_JOBS: readonly CronJobDefinition[] = [
     label: "Data extraction",
     endpoint: "/internal/data-extraction/run",
     completedEvent: "DATA_EXTRACTION_RUN_COMPLETED",
-    failedEvent: null,
+    failedEvent: "DATA_EXTRACTION_RUN_FAILED",
     expectedEveryMinutes: 1,
   },
   {
