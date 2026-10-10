@@ -1,17 +1,18 @@
-import { createHmac } from 'node:crypto';
-import type { Request, Response } from 'express';
+import { createHmac } from "node:crypto";
+import type { Request, Response } from "express";
 
-import type { WhatsappConfigService } from '../../../src/modules/whatsapp/whatsapp-config.service';
-import type { WhatsappInboundService } from '../../../src/modules/whatsapp/whatsapp-inbound.service';
-import type { WhatsappEventLogger } from '../../../src/common/events/whatsapp.logger';
-import { WhatsappWebhookController } from '../../../src/modules/whatsapp/whatsapp-webhook.controller';
+import type { WhatsappConfigService } from "../../../src/modules/whatsapp/whatsapp-config.service";
+import type { WhatsappInboundService } from "../../../src/modules/whatsapp/whatsapp-inbound.service";
+import type { WhatsappEventLogger } from "../../../src/common/events/whatsapp.logger";
+import type { WhatsappUsageService } from "../../../src/modules/whatsapp/whatsapp-usage.service";
+import { WhatsappWebhookController } from "../../../src/modules/whatsapp/whatsapp-webhook.controller";
 
-const APP_SECRET = 'app-secret';
-const VERIFY_TOKEN = 'verify-token';
+const APP_SECRET = "app-secret";
+const VERIFY_TOKEN = "verify-token";
 
 /** Build a chainable res mock: res.status(n).send(x). */
 function makeRes() {
-  const send = jest.fn().mockReturnValue('RES');
+  const send = jest.fn().mockReturnValue("RES");
   // Supports both `status(x).send(...)` and `status(x).type(...).send(...)`.
   const type = jest.fn().mockReturnValue({ send });
   const status = jest.fn().mockReturnValue({ send, type });
@@ -20,36 +21,37 @@ function makeRes() {
 
 function signedReq(payload: unknown, secret = APP_SECRET): Request {
   const raw = Buffer.from(JSON.stringify(payload));
-  const sig = 'sha256=' + createHmac('sha256', secret).update(raw).digest('hex');
+  const sig =
+    "sha256=" + createHmac("sha256", secret).update(raw).digest("hex");
   return {
     rawBody: raw,
-    headers: { 'x-hub-signature-256': sig },
+    headers: { "x-hub-signature-256": sig },
   } as unknown as Request;
 }
 
 /** Flush microtasks so fire-and-forget handleInbound() calls settle. */
 const flush = () => new Promise((r) => setImmediate(r));
 
-function buildPayload(messageId = 'wamid.in') {
+function buildPayload(messageId = "wamid.in") {
   return {
-    object: 'whatsapp_business_account',
+    object: "whatsapp_business_account",
     entry: [
       {
-        id: 'waba',
+        id: "waba",
         changes: [
           {
-            field: 'messages',
+            field: "messages",
             value: {
-              messaging_product: 'whatsapp',
-              metadata: { display_phone_number: '+1', phone_number_id: 'PNID' },
-              contacts: [{ profile: { name: 'Jane' }, wa_id: '15551234567' }],
+              messaging_product: "whatsapp",
+              metadata: { display_phone_number: "+1", phone_number_id: "PNID" },
+              contacts: [{ profile: { name: "Jane" }, wa_id: "15551234567" }],
               messages: [
                 {
-                  from: '15551234567',
+                  from: "15551234567",
                   id: messageId,
-                  timestamp: '1',
-                  type: 'text',
-                  text: { body: 'hello' },
+                  timestamp: "1",
+                  type: "text",
+                  text: { body: "hello" },
                 },
               ],
             },
@@ -60,10 +62,14 @@ function buildPayload(messageId = 'wamid.in') {
   };
 }
 
-describe('WhatsappWebhookController', () => {
+describe("WhatsappWebhookController", () => {
   let config: { isConfigured: boolean; appSecret: string; verifyToken: string };
   let inbound: { handleInbound: jest.Mock };
-  let whatsappLog: { logWebhookVerified: jest.Mock; logWebhookRejected: jest.Mock };
+  let whatsappLog: {
+    logWebhookVerified: jest.Mock;
+    logWebhookRejected: jest.Mock;
+  };
+  let usage: { recordStatuses: jest.Mock };
   let controller: WhatsappWebhookController;
 
   beforeEach(() => {
@@ -73,52 +79,57 @@ describe('WhatsappWebhookController', () => {
       verifyToken: VERIFY_TOKEN,
     };
     inbound = { handleInbound: jest.fn().mockResolvedValue(undefined) };
-    whatsappLog = { logWebhookVerified: jest.fn(), logWebhookRejected: jest.fn() };
+    whatsappLog = {
+      logWebhookVerified: jest.fn(),
+      logWebhookRejected: jest.fn(),
+    };
+    usage = { recordStatuses: jest.fn().mockResolvedValue(undefined) };
     controller = new WhatsappWebhookController(
       config as unknown as WhatsappConfigService,
       inbound as unknown as WhatsappInboundService,
       whatsappLog as unknown as WhatsappEventLogger,
+      usage as unknown as WhatsappUsageService,
     );
   });
 
-  describe('verify (GET handshake)', () => {
-    it('echoes the numeric challenge when the token matches', () => {
+  describe("verify (GET handshake)", () => {
+    it("echoes the numeric challenge when the token matches", () => {
       const { res, status, send } = makeRes();
       controller.verify(
         {
-          'hub.mode': 'subscribe',
-          'hub.verify_token': VERIFY_TOKEN,
-          'hub.challenge': '1234567890', // Meta always sends a numeric token
+          "hub.mode": "subscribe",
+          "hub.verify_token": VERIFY_TOKEN,
+          "hub.challenge": "1234567890", // Meta always sends a numeric token
         },
         res,
       );
       expect(status).toHaveBeenCalledWith(200);
-      expect(send).toHaveBeenCalledWith('1234567890');
+      expect(send).toHaveBeenCalledWith("1234567890");
       expect(whatsappLog.logWebhookVerified).toHaveBeenCalledTimes(1);
     });
 
-    it('rejects (400) a non-numeric challenge even with a matching token (reflected-XSS guard)', () => {
+    it("rejects (400) a non-numeric challenge even with a matching token (reflected-XSS guard)", () => {
       const { res, status, send } = makeRes();
       controller.verify(
         {
-          'hub.mode': 'subscribe',
-          'hub.verify_token': VERIFY_TOKEN,
-          'hub.challenge': '<script>alert(1)</script>',
+          "hub.mode": "subscribe",
+          "hub.verify_token": VERIFY_TOKEN,
+          "hub.challenge": "<script>alert(1)</script>",
         },
         res,
       );
       expect(status).toHaveBeenCalledWith(400);
-      expect(send).not.toHaveBeenCalledWith('<script>alert(1)</script>');
+      expect(send).not.toHaveBeenCalledWith("<script>alert(1)</script>");
       expect(whatsappLog.logWebhookVerified).not.toHaveBeenCalled();
     });
 
-    it('returns 403 when the token does not match', () => {
+    it("returns 403 when the token does not match", () => {
       const { res, status } = makeRes();
       controller.verify(
         {
-          'hub.mode': 'subscribe',
-          'hub.verify_token': 'wrong',
-          'hub.challenge': 'CHALLENGE',
+          "hub.mode": "subscribe",
+          "hub.verify_token": "wrong",
+          "hub.challenge": "CHALLENGE",
         },
         res,
       );
@@ -127,8 +138,8 @@ describe('WhatsappWebhookController', () => {
     });
   });
 
-  describe('receive (POST events)', () => {
-    it('acks 200 then processes text messages inline on a valid signature', async () => {
+  describe("receive (POST events)", () => {
+    it("acks 200 then processes text messages inline on a valid signature", async () => {
       const { res, status } = makeRes();
       await controller.receive(signedReq(buildPayload()), res);
       await flush();
@@ -138,26 +149,26 @@ describe('WhatsappWebhookController', () => {
       expect(inbound.handleInbound).toHaveBeenCalledTimes(1);
       expect(inbound.handleInbound).toHaveBeenCalledWith(
         expect.objectContaining({
-          phoneNumberId: 'PNID',
-          from: '15551234567',
-          messageId: 'wamid.in',
-          type: 'text',
-          text: 'hello',
-          contactName: 'Jane',
+          phoneNumberId: "PNID",
+          from: "15551234567",
+          messageId: "wamid.in",
+          type: "text",
+          text: "hello",
+          contactName: "Jane",
         }),
       );
     });
 
-    it('returns 401 and processes nothing on a bad signature', async () => {
+    it("returns 401 and processes nothing on a bad signature", async () => {
       const { res, status } = makeRes();
-      await controller.receive(signedReq(buildPayload(), 'wrong-secret'), res);
+      await controller.receive(signedReq(buildPayload(), "wrong-secret"), res);
       await flush();
 
       expect(status).toHaveBeenCalledWith(401);
       expect(inbound.handleInbound).not.toHaveBeenCalled();
     });
 
-    it('returns 503 when WhatsApp is not configured', async () => {
+    it("returns 503 when WhatsApp is not configured", async () => {
       config.isConfigured = false;
       const { res, status } = makeRes();
       await controller.receive(signedReq(buildPayload()), res);
@@ -167,14 +178,14 @@ describe('WhatsappWebhookController', () => {
       expect(inbound.handleInbound).not.toHaveBeenCalled();
     });
 
-    it('processes voice notes (audio) as an audio job', async () => {
+    it("processes voice notes (audio) as an audio job", async () => {
       const audio = JSON.parse(JSON.stringify(buildPayload()));
       audio.entry[0].changes[0].value.messages[0] = {
-        from: '15551234567',
-        id: 'wamid.audio',
-        timestamp: '1',
-        type: 'audio',
-        audio: { id: 'media-id', mime_type: 'audio/ogg', voice: true },
+        from: "15551234567",
+        id: "wamid.audio",
+        timestamp: "1",
+        type: "audio",
+        audio: { id: "media-id", mime_type: "audio/ogg", voice: true },
       };
       const { res, status } = makeRes();
       await controller.receive(signedReq(audio), res);
@@ -183,22 +194,22 @@ describe('WhatsappWebhookController', () => {
       expect(inbound.handleInbound).toHaveBeenCalledTimes(1);
       expect(inbound.handleInbound).toHaveBeenCalledWith(
         expect.objectContaining({
-          type: 'audio',
-          mediaId: 'media-id',
-          messageId: 'wamid.audio',
+          type: "audio",
+          mediaId: "media-id",
+          messageId: "wamid.audio",
         }),
       );
       expect(status).toHaveBeenCalledWith(200);
     });
 
-    it('ignores unsupported types (e.g. image) but still acks 200', async () => {
+    it("ignores unsupported types (e.g. image) but still acks 200", async () => {
       const image = JSON.parse(JSON.stringify(buildPayload()));
       image.entry[0].changes[0].value.messages[0] = {
-        from: '15551234567',
-        id: 'wamid.img',
-        timestamp: '1',
-        type: 'image',
-        image: { id: 'media-id' },
+        from: "15551234567",
+        id: "wamid.img",
+        timestamp: "1",
+        type: "image",
+        image: { id: "media-id" },
       };
       const { res, status } = makeRes();
       await controller.receive(signedReq(image), res);
@@ -208,13 +219,13 @@ describe('WhatsappWebhookController', () => {
       expect(status).toHaveBeenCalledWith(200);
     });
 
-    it('acks 200 (no retry storm) on an unparseable body with a valid signature', async () => {
-      const raw = Buffer.from('not json');
+    it("acks 200 (no retry storm) on an unparseable body with a valid signature", async () => {
+      const raw = Buffer.from("not json");
       const sig =
-        'sha256=' + createHmac('sha256', APP_SECRET).update(raw).digest('hex');
+        "sha256=" + createHmac("sha256", APP_SECRET).update(raw).digest("hex");
       const req = {
         rawBody: raw,
-        headers: { 'x-hub-signature-256': sig },
+        headers: { "x-hub-signature-256": sig },
       } as unknown as Request;
 
       const { res, status } = makeRes();
@@ -225,13 +236,86 @@ describe('WhatsappWebhookController', () => {
       expect(inbound.handleInbound).not.toHaveBeenCalled();
     });
 
-    it('dedupes a duplicate delivery of the same message id', async () => {
-      await controller.receive(signedReq(buildPayload('wamid.dup')), makeRes().res);
+    it("dedupes a duplicate delivery of the same message id", async () => {
+      await controller.receive(
+        signedReq(buildPayload("wamid.dup")),
+        makeRes().res,
+      );
       await flush();
-      await controller.receive(signedReq(buildPayload('wamid.dup')), makeRes().res);
+      await controller.receive(
+        signedReq(buildPayload("wamid.dup")),
+        makeRes().res,
+      );
       await flush();
 
       // Same wamid twice → handled once (in-memory dedup).
+      expect(inbound.handleInbound).toHaveBeenCalledTimes(1);
+    });
+
+    it("acks 200 and hands status webhooks to the usage recorder, per number", async () => {
+      const statuses = [
+        {
+          id: "wamid.out",
+          status: "sent",
+          timestamp: "1760000000",
+          recipient_id: "919876543210",
+          pricing: {
+            billable: true,
+            pricing_model: "PMP",
+            category: "service",
+          },
+        },
+      ];
+      const payload = {
+        object: "whatsapp_business_account",
+        entry: [
+          {
+            id: "waba",
+            changes: [
+              {
+                field: "messages",
+                value: {
+                  messaging_product: "whatsapp",
+                  metadata: {
+                    display_phone_number: "+1",
+                    phone_number_id: "PNID",
+                  },
+                  statuses,
+                },
+              },
+            ],
+          },
+        ],
+      };
+
+      const { res, status } = makeRes();
+      await controller.receive(signedReq(payload), res);
+      await flush();
+
+      expect(status).toHaveBeenCalledWith(200);
+      expect(usage.recordStatuses).toHaveBeenCalledWith("PNID", statuses);
+      expect(inbound.handleInbound).not.toHaveBeenCalled();
+    });
+
+    it("still processes messages when the usage recorder fails", async () => {
+      usage.recordStatuses.mockRejectedValue(new Error("db down"));
+      const payload = buildPayload("wamid.both");
+      (
+        payload.entry[0]!.changes[0]!.value as Record<string, unknown>
+      ).statuses = [
+        {
+          id: "wamid.x",
+          status: "sent",
+          pricing: { billable: true, category: "service" },
+        },
+      ];
+
+      const { res, status } = makeRes();
+      await controller.receive(signedReq(payload), res);
+      await flush();
+
+      expect(status).toHaveBeenCalledWith(200);
+      expect(usage.recordStatuses).toHaveBeenCalledTimes(1);
       expect(inbound.handleInbound).toHaveBeenCalledTimes(1);
     });
   });
