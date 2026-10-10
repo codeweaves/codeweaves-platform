@@ -1,12 +1,13 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
-import { AppLogger } from '../common/logger/app-logger';
+import { AppLogger } from "../common/logger/app-logger";
+import { InternalEventLogger } from "../common/events/internal.logger";
 import {
   EventLogRetentionService,
   type EventLogCleanupResult,
-} from './event-log-retention.service';
-import { PrismaService } from './prisma.service';
+} from "./event-log-retention.service";
+import { PrismaService } from "./prisma.service";
 
 /** One table's retention outcome. `skipped` = window 0/unset for that table. */
 export interface TableRetentionResult {
@@ -50,32 +51,47 @@ export class DataRetentionService {
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
     private readonly eventLogRetention: EventLogRetentionService,
+    private readonly internalLog: InternalEventLogger,
   ) {}
 
   /** Window in days; `fallback` applies when the var is unset/non-numeric. */
   private resolveDays(envVar: string, fallback: number): number {
     const raw = this.config.get<string>(envVar);
-    if (raw == null || String(raw).trim() === '') return fallback;
+    if (raw == null || String(raw).trim() === "") return fallback;
     const parsed = Number.parseInt(String(raw), 10);
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }
 
   async run(): Promise<RetentionSweepResult> {
-    const [chatTraces, auditLogs, eventLogs] = [
-      await this.sweepChatTraces(),
-      await this.sweepAuditLogs(),
-      await this.eventLogRetention.cleanup(),
-    ];
-    this.log.info('run', 'retention sweep complete', {
-      chatTraces: chatTraces.deleted,
-      auditLogs: auditLogs.deleted,
-      eventLogs: eventLogs.deleted,
-    });
-    return { chatTraces, auditLogs, eventLogs };
+    const start = Date.now();
+    try {
+      const [chatTraces, auditLogs, eventLogs] = [
+        await this.sweepChatTraces(),
+        await this.sweepAuditLogs(),
+        await this.eventLogRetention.cleanup(),
+      ];
+      const deleted = {
+        chatTraces: chatTraces.deleted,
+        auditLogs: auditLogs.deleted,
+        eventLogs: eventLogs.deleted,
+      };
+      this.log.info("run", "retention sweep complete", deleted);
+      // Cron liveness for the ops console's system status. Fire-and-forget.
+      this.internalLog.logCompleted("RETENTION_RUN_COMPLETED", {
+        latencyMs: Date.now() - start,
+        metadata: { deleted },
+      });
+      return { chatTraces, auditLogs, eventLogs };
+    } catch (err) {
+      this.internalLog.logFailed("RETENTION_RUN_FAILED", err, {
+        metadata: { latencyMs: Date.now() - start },
+      });
+      throw err;
+    }
   }
 
   private async sweepChatTraces(): Promise<TableRetentionResult> {
-    const retentionDays = this.resolveDays('CHAT_TRACE_RETENTION_DAYS', 90);
+    const retentionDays = this.resolveDays("CHAT_TRACE_RETENTION_DAYS", 90);
     if (retentionDays <= 0) {
       return { deleted: 0, skipped: true, retentionDays: 0 };
     }
@@ -91,17 +107,22 @@ export class DataRetentionService {
       if (n < DataRetentionService.BATCH) break;
     }
     if (deleted > 0) {
-      this.log.info('sweepChatTraces', 'deleted expired chat_traces rows', {
+      this.log.info("sweepChatTraces", "deleted expired chat_traces rows", {
         retentionDays,
         cutoff: cutoff.toISOString(),
         deleted,
       });
     }
-    return { deleted, skipped: false, retentionDays, cutoff: cutoff.toISOString() };
+    return {
+      deleted,
+      skipped: false,
+      retentionDays,
+      cutoff: cutoff.toISOString(),
+    };
   }
 
   private async sweepAuditLogs(): Promise<TableRetentionResult> {
-    const retentionDays = this.resolveDays('AUDIT_LOG_RETENTION_DAYS', 0);
+    const retentionDays = this.resolveDays("AUDIT_LOG_RETENTION_DAYS", 0);
     if (retentionDays <= 0) {
       return { deleted: 0, skipped: true, retentionDays: 0 };
     }
@@ -117,13 +138,18 @@ export class DataRetentionService {
       if (n < DataRetentionService.BATCH) break;
     }
     if (deleted > 0) {
-      this.log.info('sweepAuditLogs', 'deleted expired audit_logs rows', {
+      this.log.info("sweepAuditLogs", "deleted expired audit_logs rows", {
         retentionDays,
         cutoff: cutoff.toISOString(),
         deleted,
       });
     }
-    return { deleted, skipped: false, retentionDays, cutoff: cutoff.toISOString() };
+    return {
+      deleted,
+      skipped: false,
+      retentionDays,
+      cutoff: cutoff.toISOString(),
+    };
   }
 
   private cutoff(days: number): Date {

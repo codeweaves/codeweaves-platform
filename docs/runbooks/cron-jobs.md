@@ -2,24 +2,41 @@
 
 The API runs **no in-process scheduler**. An external cron (Supabase `pg_cron`, GitHub Actions, cron-job.org, Render Cron) must POST these endpoints with header `x-internal-secret: <INTERNAL_API_SECRET>`.
 
-| Endpoint                                     | Does                                                                                    | If it stops                                                                        |
-| -------------------------------------------- | --------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| `/api/klivo/v1/internal/classifier/run`      | Titles, categories, language for finished conversations                                 | Untitled sessions; analytics categories empty                                      |
-| `/api/klivo/v1/internal/data-extraction/run` | Extracts lead fields from due conversations (`DATA_EXTRACT_POLL_ENABLED=false` in prod) | Leads stop appearing in Collected Data                                             |
-| `/api/klivo/v1/internal/handover/sweep`      | Auto-resolves idle handovers (`HANDOVER_IDLE_MINUTES`)                                  | Inbox fills with stale ACTIVE_HUMAN sessions; AI stays paused on them              |
-| `/api/klivo/v1/internal/retention/run`       | Deletes aged `chat_traces` (90 d), `audit_logs` and `event_logs` (if armed)             | Database grows (log-growth-and-retention.md)                                       |
-| `/api/klivo/v1/internal/event-logs/cleanup`  | event_logs only; older entry point, `retention/run` covers it                           | same                                                                               |
-| `/api/klivo/v1/internal/fx/run` (daily)      | Stores today's USD→INR reference rate in `fx_rates` for cost reports (ADR-0012)         | Reports convert USD costs with the last stored day's rate; INR totals drift slowly |
+| Endpoint                                           | Does                                                                                                                             | If it stops                                                                        |
+| -------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------------- |
+| `/api/klivo/v1/internal/classifier/run`            | Titles, categories, language for finished conversations                                                                          | Untitled sessions; analytics categories empty                                      |
+| `/api/klivo/v1/internal/data-extraction/run`       | Extracts lead fields from due conversations (`DATA_EXTRACT_POLL_ENABLED=false` in prod)                                          | Leads stop appearing in Collected Data                                             |
+| `/api/klivo/v1/internal/handover/sweep`            | Auto-resolves idle handovers (`HANDOVER_IDLE_MINUTES`)                                                                           | Inbox fills with stale ACTIVE_HUMAN sessions; AI stays paused on them              |
+| `/api/klivo/v1/internal/retention/run`             | Deletes aged `chat_traces` (90 d), `audit_logs` and `event_logs` (if armed)                                                      | Database grows (log-growth-and-retention.md)                                       |
+| `/api/klivo/v1/internal/event-logs/cleanup`        | event_logs only; older entry point, `retention/run` covers it                                                                    | same                                                                               |
+| `/api/klivo/v1/internal/fx/run` (daily)            | Stores today's USD→INR reference rate in `fx_rates` for cost reports (ADR-0012)                                                  | Reports convert USD costs with the last stored day's rate; INR totals drift slowly |
+| `/api/klivo/v1/internal/alerts/run` (every 15 min) | Ops alerts to Slack: provider error rate, daily cost per org, unpriced usage, stale cron jobs (ADR-0013, [alerts.md](alerts.md)) | No alerts from our side; Better Stack still catches downtime and missed heartbeats |
+
+## Heartbeats
+
+Each job pings its Better Stack heartbeat after it **succeeds** (ADR-0013). Better Stack alerts in `#klivo-alerts` when a ping is late. Unset = no ping for that job.
+
+| Job             | Env var                         | Pinged when                                                                                |
+| --------------- | ------------------------------- | ------------------------------------------------------------------------------------------ |
+| Classifier      | `HEARTBEAT_URL_CLASSIFIER`      | the background pass finishes (the HTTP call only starts it)                                |
+| Data extraction | `HEARTBEAT_URL_DATA_EXTRACTION` | the background due pass finishes, including a pass with nothing due                        |
+| Handover sweep  | `HEARTBEAT_URL_HANDOVER_SWEEP`  | the sweep returns                                                                          |
+| Retention       | `HEARTBEAT_URL_RETENTION`       | `/internal/retention/run` returns. The older `/internal/event-logs/cleanup` does not ping. |
+| FX rate         | `HEARTBEAT_URL_FX`              | the rate is stored                                                                         |
+| Alerts          | `HEARTBEAT_URL_ALERTS`          | every alert check ran (a failed check withholds the ping)                                  |
+
+A failed ping is logged as `BETTER_STACK_HEARTBEAT_FAILED` in `event_logs` and never changes the job's result.
 
 ## Symptom
 
-One of the effects above. No recent run rows:
+One of the effects above. The ops console page `/dashboard/admin/status` shows the last run of each job and flags it overdue after twice its schedule. Every job writes one `event_logs` row per run, idle runs included (`DATA_EXTRACTION_RUN_COMPLETED`, `HANDOVER_SWEEP_COMPLETED`, `CLASSIFIER_RUN_*`, `FX_RATE_RUN_*`, `RETENTION_RUN_*`, `EVENT_LOG_CLEANUP_*`). The same check in SQL:
 
 ```sql
 SELECT "eventName", max("createdAt") AS last_run
 FROM event_logs
 WHERE channel = 'INTERNAL'
-  AND ("eventName" LIKE '%_RUN_%' OR "eventName" LIKE '%SWEEP%')
+  AND ("eventName" LIKE '%_RUN_%' OR "eventName" LIKE '%SWEEP%' OR "eventName" LIKE '%CLEANUP%')
+  AND "createdAt" >= now() - interval '30 days'
 GROUP BY 1;
 ```
 
@@ -37,4 +54,4 @@ GROUP BY 1;
 ## Prevent
 
 - One scheduler, documented next to the env vars. Never two schedulers on the same endpoint.
-- Alert when `last_run` is older than twice the schedule. The SQL above is the check.
+- Set a Better Stack heartbeat per job (table above). The alert job also flags a job with no completion event in its window ([alerts.md](alerts.md)).

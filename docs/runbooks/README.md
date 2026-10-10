@@ -14,18 +14,19 @@ Start with [observability-map.md](observability-map.md) if you do not know where
 
 ## Symptom index
 
-| Symptom | Runbook |
-|---|---|
-| Bot replies fail or time out, `LLM_COMPLETION_FAILED` in event_logs | [llm-provider-outage.md](llm-provider-outage.md) |
-| Everything slow, `/health/ready` db latency high or 503 | [database-connections.md](database-connections.md) |
-| `/health/ready` says `degraded`, rate limits not applying | [redis-down.md](redis-down.md) |
-| Dashboard users get 401, new invitees cannot sign in | [auth-failures.md](auth-failures.md) |
-| Voice: speech recognition failed, no audio, `VOICE_STT_FAILED` / `VOICE_TTS_SENTENCE_FAILED` | [voice-failures.md](voice-failures.md) |
-| Conversations never get a title, retention not running, leads not extracted, handovers never auto-resolve | [cron-jobs.md](cron-jobs.md) |
-| WhatsApp messages not arriving or not answered | [whatsapp-webhook.md](whatsapp-webhook.md) |
-| Suspected abuse, LLM bill spike, one agent flooding | [rate-limits-and-abuse.md](rate-limits-and-abuse.md) |
-| Database size growing fast, event_logs or chat_traces huge | [log-growth-and-retention.md](log-growth-and-retention.md) |
-| API will not boot after a deploy, or usage numbers dropped after one | [deploys-and-shutdown.md](deploys-and-shutdown.md) |
+| Symptom                                                                                                   | Runbook                                                    |
+| --------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------- |
+| Bot replies fail or time out, `LLM_COMPLETION_FAILED` in event_logs                                       | [llm-provider-outage.md](llm-provider-outage.md)           |
+| Everything slow, `/health/ready` db latency high or 503                                                   | [database-connections.md](database-connections.md)         |
+| `/health/ready` says `degraded`, rate limits not applying                                                 | [redis-down.md](redis-down.md)                             |
+| Dashboard users get 401, new invitees cannot sign in                                                      | [auth-failures.md](auth-failures.md)                       |
+| Voice: speech recognition failed, no audio, `VOICE_STT_FAILED` / `VOICE_TTS_SENTENCE_FAILED`              | [voice-failures.md](voice-failures.md)                     |
+| Conversations never get a title, retention not running, leads not extracted, handovers never auto-resolve | [cron-jobs.md](cron-jobs.md)                               |
+| WhatsApp messages not arriving or not answered                                                            | [whatsapp-webhook.md](whatsapp-webhook.md)                 |
+| Suspected abuse, LLM bill spike, one agent flooding                                                       | [rate-limits-and-abuse.md](rate-limits-and-abuse.md)       |
+| Database size growing fast, event_logs or chat_traces huge                                                | [log-growth-and-retention.md](log-growth-and-retention.md) |
+| API will not boot after a deploy, or usage numbers dropped after one                                      | [deploys-and-shutdown.md](deploys-and-shutdown.md)         |
+| An alert arrived in `#klivo-alerts` (error rate, cost, unpriced usage, stale cron, Better Stack)          | [alerts.md](alerts.md)                                     |
 
 ## Conventions
 

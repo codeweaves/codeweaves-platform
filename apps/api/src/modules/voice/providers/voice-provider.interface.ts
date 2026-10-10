@@ -1,22 +1,27 @@
-import { HttpException, HttpStatus } from '@nestjs/common';
+import { HttpException, HttpStatus } from "@nestjs/common";
+import type {
+  EventChannel,
+  QuantitySource,
+  UsageFeature,
+} from "@prisma/client";
 
 // ============================================
 // Normalized Language Codes (ISO 639-1 based)
 // ============================================
 
 export type SupportedLanguage =
-  | 'en'
-  | 'hi'
-  | 'mr'
-  | 'bn'
-  | 'ta'
-  | 'te'
-  | 'gu'
-  | 'kn'
-  | 'ml'
-  | 'pa'
-  | 'or'
-  | 'hinglish';
+  | "en"
+  | "hi"
+  | "mr"
+  | "bn"
+  | "ta"
+  | "te"
+  | "gu"
+  | "kn"
+  | "ml"
+  | "pa"
+  | "or"
+  | "hinglish";
 
 // ============================================
 // STT (Speech-to-Text) Types
@@ -30,6 +35,20 @@ export interface STTRequest {
   /** Optional chat session id — threaded through for observability (event_logs)
    *  when the caller has it. Providers never require it; undefined is fine. */
   sessionId?: string;
+  /** Recording length the client reported, for providers that do not report
+   *  the billed duration (Sarvam). Untrusted; clamped before use. */
+  durationMs?: number;
+}
+
+/** What one STT call billed (ADR-0012). The caller records it once the
+ *  conversation is known: see VoiceService.recordSttUsage. */
+export interface STTUsage {
+  /** Model name as priced in `provider_prices`. */
+  model: string;
+  /** Billed audio seconds (Deepgram: duration x channels). */
+  audioSeconds: number;
+  quantitySource: QuantitySource;
+  providerRequestId?: string | null;
 }
 
 export interface STTResponse {
@@ -42,11 +61,28 @@ export interface STTResponse {
   detectedLanguage: SupportedLanguage;
   provider: string;
   latencyMs: number;
+  /** Absent only for providers that bill nothing (the stub). */
+  usage?: STTUsage;
 }
 
 // ============================================
 // TTS (Text-to-Speech) Types
 // ============================================
+
+/**
+ * Who a TTS call is billed to. TTS providers record their own usage rows,
+ * because only they see the text that was actually sent (per sentence,
+ * WebSocket frames).
+ */
+export interface VoiceUsageScope {
+  organizationId?: string | null;
+  agentId?: string | null;
+  /** Internal ChatSession id. */
+  chatSessionId?: string | null;
+  channel: EventChannel;
+  /** Defaults to TTS. Editor previews use VOICE_PREVIEW. */
+  feature?: UsageFeature;
+}
 
 export interface TTSRequest {
   text: string;
@@ -57,6 +93,7 @@ export interface TTSRequest {
   /** Optional chat session id — threaded through for observability (event_logs)
    *  when the caller has it. Providers never require it; undefined is fine. */
   sessionId?: string;
+  usage?: VoiceUsageScope;
 }
 
 export interface TTSResponse {
@@ -111,6 +148,7 @@ export interface TTSSessionConfig {
   speed?: number;
   /** Optional chat session id — threaded through for observability (event_logs). */
   sessionId?: string;
+  usage?: VoiceUsageScope;
 }
 
 /**
@@ -164,7 +202,7 @@ export interface VoiceListItem {
   name: string;
   /** ISO language codes the voice handles well. Empty/omitted = no provider hint. */
   languages?: SupportedLanguage[];
-  gender?: 'male' | 'female' | 'neutral';
+  gender?: "male" | "female" | "neutral";
   /** Optional short label (e.g. "Conversational", "Indian"). */
   category?: string;
   /** Optional public preview URL. When present, the client plays it directly. */
@@ -181,7 +219,10 @@ export interface VoiceProvider {
 
   transcribe(request: STTRequest): Promise<STTResponse>;
   synthesize(request: TTSRequest): Promise<TTSResponse>;
-  detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse>;
+  detectLanguage(
+    audio: Buffer,
+    audioFormat: string,
+  ): Promise<LanguageDetectionResponse>;
   /** Optional. Providers that don't expose a catalog (or aren't usable as TTS) can omit this. */
   listVoices?(): Promise<VoiceListItem[]>;
   /** Optional. Synthesize a short preview clip in a format that has no MP3 priming
@@ -229,7 +270,7 @@ export interface VoiceProvider {
 // Voice Provider Injection Token
 // ============================================
 
-export const VOICE_PROVIDERS = 'VOICE_PROVIDERS';
+export const VOICE_PROVIDERS = "VOICE_PROVIDERS";
 
 // ============================================
 // VoiceProviderError

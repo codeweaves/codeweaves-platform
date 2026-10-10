@@ -7,6 +7,9 @@ import {
   ProviderEventLogger,
   PROVIDERS,
 } from "../../../common/events/provider.logger";
+import { UsageMeterService } from "../../usage/usage-meter.service";
+import { measureAudioSeconds } from "../utils/audio-duration";
+import { recordTtsUsage, ttsCharacters } from "./tts-usage";
 import type {
   VoiceProvider,
   STTRequest,
@@ -75,6 +78,7 @@ const SARVAM_DEFAULT_SPEAKER = "priya";
  */
 const SARVAM_STT_MODEL = "saaras:v3";
 const SARVAM_STT_MODE = "transcribe";
+const SARVAM_TTS_MODEL = "bulbul:v3";
 
 interface SarvamSTTResponse {
   request_id: string | null;
@@ -170,6 +174,7 @@ export class SarvamProvider implements VoiceProvider {
   constructor(
     private readonly configService: ConfigService,
     private readonly providerLog: ProviderEventLogger,
+    private readonly usageMeter: UsageMeterService,
   ) {
     this.apiKey = this.configService.get<string>("SARVAM_API_KEY") || "";
     const configured = this.configService.get<string>("SARVAM_MAX_CONCURRENT");
@@ -301,12 +306,24 @@ export class SarvamProvider implements VoiceProvider {
 
         const data = (await response.json()) as SarvamSTTResponse;
 
+        // Sarvam returns no duration, so we measure what we sent.
+        const measured = measureAudioSeconds(
+          request.audio,
+          request.audioFormat,
+          request.durationMs,
+        );
         const result: STTResponse = {
           transcript: data.transcript,
           confidence: data.language_probability ?? 0,
           detectedLanguage: this.fromSarvamLanguage(data.language_code),
           provider: this.name,
           latencyMs: Date.now() - startTime,
+          usage: {
+            model: SARVAM_STT_MODEL,
+            audioSeconds: measured.seconds,
+            quantitySource: measured.source,
+            providerRequestId: data.request_id,
+          },
         };
         this.log.info("transcribe", "STT completed", {
           detectedLanguage: result.detectedLanguage,
@@ -380,7 +397,7 @@ export class SarvamProvider implements VoiceProvider {
             body: JSON.stringify({
               text: request.text,
               target_language_code: targetLanguageCode,
-              model: "bulbul:v3",
+              model: SARVAM_TTS_MODEL,
               speaker: request.voiceId || SARVAM_DEFAULT_SPEAKER,
               pace: request.speed || 1.0,
               // 24000 Hz is bulbul:v3's native rate. See WS provider comment for why
@@ -410,6 +427,16 @@ export class SarvamProvider implements VoiceProvider {
             );
           }
           const audioBuffer = Buffer.from(base64Audio, "base64");
+          recordTtsUsage(this.usageMeter, {
+            scope: request.usage,
+            agentId: request.agentId,
+            provider: this.name,
+            model: SARVAM_TTS_MODEL,
+            characters: ttsCharacters(request.text),
+            quantitySource: "MEASURED",
+            providerRequestId: data.request_id,
+            latencyMs: Date.now() - startTime,
+          });
 
           this.log.info("synthesizeWithCodec", "TTS completed", {
             audioBytes: audioBuffer.length,
@@ -469,7 +496,7 @@ export class SarvamProvider implements VoiceProvider {
     });
 
     const url = new URL("wss://api.sarvam.ai/text-to-speech/ws");
-    url.searchParams.set("model", "bulbul:v3");
+    url.searchParams.set("model", SARVAM_TTS_MODEL);
     // CRITICAL: send_completion_event MUST go on the URL — Sarvam ignores it
     // inside the config body. Verified against LiveKit's working Sarvam TTS
     // plugin (livekit-agents/livekit-plugins-sarvam/.../tts.py line 596):
@@ -507,7 +534,7 @@ export class SarvamProvider implements VoiceProvider {
           data: {
             target_language_code: targetLanguageCode,
             speaker: request.voiceId || SARVAM_DEFAULT_SPEAKER,
-            model: "bulbul:v3",
+            model: SARVAM_TTS_MODEL,
             // 24000 Hz is bulbul:v3's NATIVE sample rate (per pipecat's
             // TTS_MODEL_CONFIGS and LiveKit's plugin). We previously hardcoded
             // 22050 (bulbul:v2's native rate) which caused voice to sound
@@ -529,6 +556,14 @@ export class SarvamProvider implements VoiceProvider {
       );
       ws.send(JSON.stringify({ type: "text", data: { text: request.text } }));
       ws.send(JSON.stringify({ type: "flush" }));
+      recordTtsUsage(this.usageMeter, {
+        scope: request.usage,
+        agentId: request.agentId,
+        provider: this.name,
+        model: SARVAM_TTS_MODEL,
+        characters: ttsCharacters(request.text),
+        quantitySource: "MEASURED",
+      });
     });
 
     ws.addEventListener("message", (event) => {
@@ -771,7 +806,7 @@ export class SarvamProvider implements VoiceProvider {
     const startTime = Date.now();
     const targetLanguageCode = this.toSarvamLanguage(config.language);
     const url = new URL("wss://api.sarvam.ai/text-to-speech/ws");
-    url.searchParams.set("model", "bulbul:v3");
+    url.searchParams.set("model", SARVAM_TTS_MODEL);
     url.searchParams.set("send_completion_event", "true");
     this.log.debug(
       "openSynthesisSession",
@@ -834,7 +869,7 @@ export class SarvamProvider implements VoiceProvider {
             data: {
               target_language_code: targetLanguageCode,
               speaker: config.voiceId || SARVAM_DEFAULT_SPEAKER,
-              model: "bulbul:v3",
+              model: SARVAM_TTS_MODEL,
               // 24kHz is bulbul:v3's NATIVE rate. Mismatching (we used to
               // request 22050) makes Sarvam emit at the model's native rate
               // but we tag audioFormat as 22050 → client plays slower →
@@ -958,6 +993,7 @@ export class SarvamProvider implements VoiceProvider {
     // Capture the provider-scoped logger so the session object's close() (whose
     // `this` is the session literal, not the provider) can emit the summary.
     const providerLog = this.providerLog;
+    const usageMeter = this.usageMeter;
     const emitSummary = (): void => {
       if (summaryEmitted) return;
       summaryEmitted = true;
@@ -1006,6 +1042,15 @@ export class SarvamProvider implements VoiceProvider {
         // immediately (vs waiting for `min_buffer_size` worth of text).
         ws.send(JSON.stringify({ type: "text", data: { text } }));
         ws.send(JSON.stringify({ type: "flush" }));
+        // One row per sentence sent on the session: each text frame is billed.
+        recordTtsUsage(usageMeter, {
+          scope: config.usage,
+          agentId: config.agentId,
+          provider,
+          model: SARVAM_TTS_MODEL,
+          characters: ttsCharacters(text),
+          quantitySource: "MEASURED",
+        });
 
         while (true) {
           while (currentQueue.length > 0) {

@@ -1,8 +1,9 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 
-import { AppLogger } from '../common/logger/app-logger';
-import { PrismaService } from './prisma.service';
+import { AppLogger } from "../common/logger/app-logger";
+import { InternalEventLogger } from "../common/events/internal.logger";
+import { PrismaService } from "./prisma.service";
 
 /** Result of a retention pass. `skipped` = retention disabled (keep forever). */
 export interface EventLogCleanupResult {
@@ -28,6 +29,7 @@ export class EventLogRetentionService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly config: ConfigService,
+    private readonly internalLog: InternalEventLogger,
   ) {}
 
   /**
@@ -35,7 +37,7 @@ export class EventLogRetentionService {
    * "keep forever" → cleanup is disabled.
    */
   private resolveRetentionDays(): number {
-    const raw = this.config.get<string>('EVENT_LOG_RETENTION_DAYS');
+    const raw = this.config.get<string>("EVENT_LOG_RETENTION_DAYS");
     const parsed = raw != null ? Number.parseInt(String(raw), 10) : NaN;
     return Number.isFinite(parsed) && parsed > 0 ? parsed : 0;
   }
@@ -45,9 +47,28 @@ export class EventLogRetentionService {
    * No-op (returns `{ deleted: 0, skipped: true }`) when retention is 0/disabled.
    */
   async cleanup(): Promise<EventLogCleanupResult> {
+    // Every pass, no-op or not, is recorded so the ops console can show when
+    // the cron last ran. Fire-and-forget: logging never fails the sweep.
+    const start = Date.now();
+    try {
+      const result = await this.sweep();
+      this.internalLog.logCompleted("EVENT_LOG_CLEANUP_COMPLETED", {
+        latencyMs: Date.now() - start,
+        metadata: { ...result },
+      });
+      return result;
+    } catch (err) {
+      this.internalLog.logFailed("EVENT_LOG_CLEANUP_FAILED", err, {
+        metadata: { latencyMs: Date.now() - start },
+      });
+      throw err;
+    }
+  }
+
+  private async sweep(): Promise<EventLogCleanupResult> {
     const retentionDays = this.resolveRetentionDays();
     if (retentionDays <= 0) {
-      this.log.info('cleanup', 'retention disabled (keep forever) — skipping', {
+      this.log.info("cleanup", "retention disabled (keep forever) — skipping", {
         retentionDays,
       });
       return { deleted: 0, skipped: true, retentionDays: 0 };
@@ -68,7 +89,7 @@ export class EventLogRetentionService {
       deleted += n;
       if (n < BATCH) break;
     }
-    this.log.info('cleanup', 'deleted expired event_logs rows', {
+    this.log.info("cleanup", "deleted expired event_logs rows", {
       retentionDays,
       cutoff: cutoff.toISOString(),
       deleted,

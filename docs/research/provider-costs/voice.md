@@ -225,7 +225,7 @@ Record one row per provider call, keyed by the provider `request_id`. Fields:
 | ------------------------------ | ---------------------------------------------------------------------------------------------- |
 | Deepgram                       | `metadata.duration` × `channels`                                                               |
 | ElevenLabs STT                 | `audio_duration_secs`                                                                          |
-| ElevenLabs TTS (HTTP)          | `character-cost` header, else `[...text].length`                                               |
+| ElevenLabs TTS (HTTP)          | `[...text].length` (the `character-cost` header is credits, see open question 7)               |
 | ElevenLabs TTS (WebSocket)     | `[...text].length` summed over text frames                                                     |
 | Sarvam STT                     | ceil of the server-side decoded duration. Flag `language_code=unknown` for the +10% surcharge. |
 | Sarvam TTS (REST or WebSocket) | `[...text].length` per text message                                                            |
@@ -247,7 +247,7 @@ Record one row per provider call, keyed by the provider `request_id`. Fields:
 4. Whether Sarvam bills on its own decoded duration or the container duration. Whether silence is billed (assumed yes).
 5. Deepgram fractional-second handling. Whether failed or timed-out requests are billed. Whether stereo without `multichannel` is billed per channel. The semantics of `details.usd`. The `tag` request param for per-org usage.
 6. ElevenLabs: whether our account is on the new USD API pricing or legacy credits, and the Turbo credits/char multiplier per plan on legacy. Overage rate beyond plan inclusion.
-7. ElevenLabs header name (`character-cost` vs `x-character-count`) and whether it reports characters or credits.
+7. ~~ElevenLabs header name (`character-cost` vs `x-character-count`) and whether it reports characters or credits.~~ Answered 2026-10-10 by a live call: `character-cost` reports **credits**. An 80-character `eleven_turbo_v2_5` reply returned 40 (0.5 credits per character). We bill the characters sent instead, because the price list is USD per character.
 8. Whether the ElevenLabs WebSocket initial `" "` is billed. Whether the WebSocket bills input characters or normalized characters.
 9. ElevenLabs STT rounding (per second vs per minute).
 10. Whether ElevenLabs `/v1/history` includes STT, and whether it includes zero-retention requests. The request body schema of the new workspace analytics endpoint.

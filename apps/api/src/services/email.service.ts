@@ -1,13 +1,14 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Resend } from 'resend';
-import { EmailLoggerService } from '../common/logger/email.logger';
-import { ProviderEventLogger } from '../common/events/provider.logger';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Resend } from "resend";
+import { EmailLoggerService } from "../common/logger/email.logger";
+import { ProviderEventLogger } from "../common/events/provider.logger";
+import { UsageMeterService } from "../modules/usage/usage-meter.service";
 
 /** Resend rejects tag values outside `[A-Za-z0-9_-]`, and a rejected tag fails
  *  the whole send — so coerce rather than trust the caller. */
 function sanitizeTagValue(value: string): string {
-  return value.replace(/[^A-Za-z0-9_-]/g, '_').slice(0, 60) || 'unknown';
+  return value.replace(/[^A-Za-z0-9_-]/g, "_").slice(0, 60) || "unknown";
 }
 
 @Injectable()
@@ -19,8 +20,9 @@ export class EmailService {
     private configService: ConfigService,
     private readonly emailLogger: EmailLoggerService,
     private readonly providerLog: ProviderEventLogger,
+    private readonly usageMeter: UsageMeterService,
   ) {
-    this.resend = new Resend(this.configService.get<string>('RESEND_API_KEY'));
+    this.resend = new Resend(this.configService.get<string>("RESEND_API_KEY"));
   }
 
   /**
@@ -43,6 +45,8 @@ export class EmailService {
     replyTo?: string;
     /** Resend tags for per-template analytics. Values must be ASCII alnum/_/-. */
     tags?: Record<string, string>;
+    /** Organization the email is sent for, when there is one (usage ledger). */
+    organizationId?: string | null;
   }) {
     const start = performance.now();
     const recipients = Array.isArray(options.to) ? options.to : [options.to];
@@ -50,13 +54,13 @@ export class EmailService {
     // we never write a full recipient list into event_logs.
     const toLabel =
       recipients.length === 1
-        ? (recipients[0] ?? 'unknown')
+        ? (recipients[0] ?? "unknown")
         : `${recipients.length} recipients`;
     try {
       const { data, error } = await this.resend.emails.send({
         from: this.configService.get<string>(
-          'EMAIL_FROM',
-          'Klivo <noreply@mail.getklivo.com>',
+          "EMAIL_FROM",
+          "Klivo <noreply@mail.getklivo.com>",
         ),
         to: recipients,
         subject: options.subject,
@@ -75,27 +79,46 @@ export class EmailService {
 
       if (error) {
         this.logger.error(`Failed to send email: ${JSON.stringify(error)}`);
-        await this.emailLogger.logEmailFailed(toLabel, { error, request: { to: toLabel, subject: options.subject } });
+        await this.emailLogger.logEmailFailed(toLabel, {
+          error,
+          request: { to: toLabel, subject: options.subject },
+        });
         this.providerLog.log({
-          channel: 'DASHBOARD',
-          eventName: 'RESEND_EMAIL_FAILED',
-          direction: 'OUTBOUND',
-          provider: 'RESEND',
+          channel: "DASHBOARD",
+          eventName: "RESEND_EMAIL_FAILED",
+          direction: "OUTBOUND",
+          provider: "RESEND",
           requestPayload: { to: toLabel, subject: options.subject },
           latencyMs: Math.round(performance.now() - start),
           success: false,
-          errorMessage: typeof error === 'object' ? JSON.stringify(error) : String(error),
+          errorMessage:
+            typeof error === "object" ? JSON.stringify(error) : String(error),
         });
         return null;
       }
 
       this.logger.log(`Email sent: ${data?.id}`);
-      await this.emailLogger.logEmailSent(toLabel, { response: data, request: { to: toLabel, subject: options.subject } });
+      // Resend counts every recipient of a send as one email.
+      this.usageMeter.record({
+        organizationId: options.organizationId ?? null,
+        channel: "INTERNAL",
+        feature: "EMAIL",
+        provider: "resend",
+        model: "email",
+        providerRequestId: data?.id ?? null,
+        quantities: { units: recipients.length },
+        quantitySource: "MEASURED",
+        latencyMs: Math.round(performance.now() - start),
+      });
+      await this.emailLogger.logEmailSent(toLabel, {
+        response: data,
+        request: { to: toLabel, subject: options.subject },
+      });
       this.providerLog.log({
-        channel: 'DASHBOARD',
-        eventName: 'RESEND_EMAIL_COMPLETED',
-        direction: 'OUTBOUND',
-        provider: 'RESEND',
+        channel: "DASHBOARD",
+        eventName: "RESEND_EMAIL_COMPLETED",
+        direction: "OUTBOUND",
+        provider: "RESEND",
         requestPayload: { to: toLabel, subject: options.subject },
         responsePayload: { id: data?.id },
         latencyMs: Math.round(performance.now() - start),
@@ -103,14 +126,16 @@ export class EmailService {
       return data;
     } catch (error) {
       this.logger.error(
-        `Failed to send email: ${error instanceof Error ? error.message : 'Unknown error'}`,
+        `Failed to send email: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
-      await this.emailLogger.logEmailException(toLabel, error, { request: { to: toLabel, subject: options.subject } });
+      await this.emailLogger.logEmailException(toLabel, error, {
+        request: { to: toLabel, subject: options.subject },
+      });
       this.providerLog.log({
-        channel: 'DASHBOARD',
-        eventName: 'RESEND_EMAIL_FAILED',
-        direction: 'OUTBOUND',
-        provider: 'RESEND',
+        channel: "DASHBOARD",
+        eventName: "RESEND_EMAIL_FAILED",
+        direction: "OUTBOUND",
+        provider: "RESEND",
         requestPayload: { to: toLabel, subject: options.subject },
         latencyMs: Math.round(performance.now() - start),
         success: false,
