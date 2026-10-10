@@ -17,6 +17,8 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | [0007](0007-tenant-key-on-message-rows.md)                   | Tenant key on message rows                    | Accepted | 2026-09-28 |
 | [0008](0008-clerk-session-token-for-the-api.md)              | Clerk session token for the API               | Accepted | 2026-09-29 |
 | [0010](0010-integration-addon-owns-allowed-domains.md)       | Integration add-on owns allowed domains       | Accepted | 2026-10-09 |
+| [0011](0011-llm-provider-set.md)                             | LLM providers are OpenAI, Gemini and Sarvam   | Accepted | 2026-10-10 |
+| [0012](0012-usage-ledger-and-price-list.md)                  | Usage ledger and price list                   | Accepted | 2026-10-10 |
 
 ## When to write one
 
