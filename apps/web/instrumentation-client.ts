@@ -1,4 +1,4 @@
-import * as Sentry from '@sentry/nextjs';
+import * as Sentry from "@sentry/nextjs";
 
 if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
   Sentry.init({
@@ -15,8 +15,8 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
       if (event.breadcrumbs) {
         for (const breadcrumb of event.breadcrumbs) {
           if (breadcrumb.data?.headers) {
-            delete breadcrumb.data.headers['Authorization'];
-            delete breadcrumb.data.headers['authorization'];
+            delete breadcrumb.data.headers["Authorization"];
+            delete breadcrumb.data.headers["authorization"];
           }
         }
       }
@@ -25,13 +25,13 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
       if (event.request) {
         delete event.request.cookies;
         if (event.request.headers) {
-          delete event.request.headers['Cookie'];
-          delete event.request.headers['cookie'];
+          delete event.request.headers["Cookie"];
+          delete event.request.headers["cookie"];
         }
       }
 
       // Strip sensitive fields from extras and contexts
-      const sensitiveKeys = ['password', 'token', 'secret'];
+      const sensitiveKeys = ["password", "token", "secret"];
       if (event.extra) {
         for (const key of Object.keys(event.extra)) {
           if (sensitiveKeys.some((s) => key.toLowerCase().includes(s))) {
@@ -42,7 +42,7 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
       if (event.contexts) {
         for (const contextKey of Object.keys(event.contexts)) {
           const ctx = event.contexts[contextKey];
-          if (ctx && typeof ctx === 'object') {
+          if (ctx && typeof ctx === "object") {
             for (const key of Object.keys(ctx)) {
               if (sensitiveKeys.some((s) => key.toLowerCase().includes(s))) {
                 delete (ctx as Record<string, unknown>)[key];
@@ -65,3 +65,6 @@ if (process.env.NEXT_PUBLIC_SENTRY_DSN) {
     ],
   });
 }
+
+// App Router navigations as Sentry transactions (Next 15+ client hook).
+export const onRouterTransitionStart = Sentry.captureRouterTransitionStart;
