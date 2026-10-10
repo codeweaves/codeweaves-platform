@@ -1,4 +1,4 @@
-import { ColumnDef, SortingState, Table } from '@tanstack/react-table';
+import { ColumnDef, SortingState, Table } from "@tanstack/react-table";
 
 // ============================================================================
 // Filter Types
@@ -17,7 +17,7 @@ export interface DataTableFilterConfig {
   label: string;
   placeholder?: string;
   /** Filter type — 'select' (default), 'dateRange', or 'combobox' (single-select with search) */
-  type?: 'select' | 'dateRange' | 'combobox';
+  type?: "select" | "dateRange" | "combobox";
   /** Options for select/multiSelect filters */
   options?: DataTableFilterOption[];
   /** Enable multi-select for select filters */
@@ -46,7 +46,7 @@ export interface DataTableSearchConfig {
 // ============================================================================
 
 /** Export format options */
-export type DataTableExportFormat = 'csv' | 'xlsx' | 'json';
+export type DataTableExportFormat = "csv" | "xlsx" | "json";
 
 /** Configuration for the export button */
 export interface DataTableExportConfig {
@@ -84,13 +84,21 @@ export interface DataTableExpandableConfig<TData, TSubRow> {
    * Return an array of DataTableSubRowCell objects where each cell
    * can span one or more parent columns.
    */
-  renderSubRowCells?: (subRow: TSubRow, parentRow: TData, index: number) => DataTableSubRowCell[];
+  renderSubRowCells?: (
+    subRow: TSubRow,
+    parentRow: TData,
+    index: number,
+  ) => DataTableSubRowCell[];
 
   /**
    * @deprecated Use renderSubRowCells for column-aligned sub-rows.
    * This renders a single cell spanning all columns (legacy behavior).
    */
-  renderSubRow?: (subRow: TSubRow, parentRow: TData, index: number) => React.ReactNode;
+  renderSubRow?: (
+    subRow: TSubRow,
+    parentRow: TData,
+    index: number,
+  ) => React.ReactNode;
 
   /** Number of columns the sub-row should span (only used with renderSubRow, defaults to all columns + expand column) */
   subRowColSpan?: number;
@@ -189,8 +197,11 @@ export interface DataTablePaginationProps<TData> {
 }
 
 /** Props for the DataTableColumnHeader component */
-export interface DataTableColumnHeaderProps<TData, TValue> extends React.HTMLAttributes<HTMLDivElement> {
-  column: import('@tanstack/react-table').Column<TData, TValue>;
+export interface DataTableColumnHeaderProps<
+  TData,
+  TValue,
+> extends React.HTMLAttributes<HTMLDivElement> {
+  column: import("@tanstack/react-table").Column<TData, TValue>;
   title: string;
 }
 
@@ -294,6 +305,12 @@ export interface DataTableProps<TData, TValue, TSubRow = unknown> {
   /** Function to get unique row ID (defaults to row.id, row.uniqueId, or index) */
   getRowId?: (row: TData, index: number) => string;
 
+  /**
+   * Makes each parent row clickable (mouse, Enter or Space). Clicks that start
+   * on a button, link or input inside the row are left to that control.
+   */
+  onRowClick?: (row: TData) => void;
+
   // ============================================================================
   // Customization Options
   // ============================================================================
@@ -354,7 +371,7 @@ export interface DataTableQueryParams {
   page: number;
   pageSize: number;
   sortBy?: string;
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: "asc" | "desc";
   search?: string;
   filters?: Record<string, string | string[]>;
 }
@@ -369,7 +386,10 @@ export interface DataTableFetchParams {
 }
 
 /** Column definition with extended meta */
-export type DataTableColumnDef<TData, TValue = unknown> = ColumnDef<TData, TValue> & {
+export type DataTableColumnDef<TData, TValue = unknown> = ColumnDef<
+  TData,
+  TValue
+> & {
   enableSorting?: boolean;
   meta?: {
     headerClassName?: string;
