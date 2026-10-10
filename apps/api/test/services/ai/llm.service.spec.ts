@@ -4,6 +4,7 @@ import { APICallError } from "ai";
 import { LlmService } from "../../../src/modules/ai/llm.service";
 import { AiSdkService } from "../../../src/modules/ai/ai-sdk.service";
 import { ProviderEventLogger } from "../../../src/common/events/provider.logger";
+import { UsageMeterService } from "../../../src/modules/usage/usage-meter.service";
 
 // Mock the AI SDK's generateText + streamText at module level.
 jest.mock("ai", () => {
@@ -22,6 +23,17 @@ const mockedGenerateText = generateText as jest.MockedFunction<
 >;
 const mockedStreamText = streamText as jest.MockedFunction<typeof streamText>;
 
+/**
+ * The real SDK always returns `steps` (one per model call). Mocks that only set
+ * `usage` get a single matching step, as a one-call completion would.
+ */
+// eslint-disable-next-line @typescript-eslint/no-explicit-any
+const mockGenerate = (r: any) =>
+  mockedGenerateText.mockResolvedValue({
+    steps: [{ usage: r.usage, providerMetadata: r.providerMetadata }],
+    ...r,
+  });
+
 describe("LlmService", () => {
   let service: LlmService;
   const mockAiSdk = {
@@ -31,6 +43,7 @@ describe("LlmService", () => {
   const env = new Map<string, string | undefined>();
   const mockConfig = { get: jest.fn() };
   const mockProviderLog = { log: jest.fn(), traced: jest.fn() };
+  const mockMeter = { record: jest.fn() };
 
   beforeEach(async () => {
     env.clear();
@@ -44,6 +57,7 @@ describe("LlmService", () => {
         { provide: AiSdkService, useValue: mockAiSdk },
         { provide: ConfigService, useValue: mockConfig },
         { provide: ProviderEventLogger, useValue: mockProviderLog },
+        { provide: UsageMeterService, useValue: mockMeter },
       ],
     }).compile();
     service = moduleRef.get(LlmService);
@@ -60,9 +74,31 @@ describe("LlmService", () => {
     feature: "chat" as const,
   };
 
+  function makeStreamResult(chunks: string[], err?: unknown) {
+    const usage = {
+      inputTokens: 20,
+      outputTokens: chunks.length,
+      totalTokens: 20 + chunks.length,
+    };
+    return {
+      get textStream() {
+        return (async function* () {
+          for (const c of chunks) yield c;
+          if (err) throw err;
+        })();
+      },
+      usage: Promise.resolve(usage),
+      steps: Promise.resolve([{ usage, providerMetadata: undefined }]),
+      finishReason: Promise.resolve("stop"),
+      providerMetadata: Promise.resolve(undefined),
+      text: Promise.resolve(chunks.join("")),
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    } as any;
+  }
+
   describe("generateCompletion()", () => {
     it("returns a fully-normalised result on success", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "Hello there",
         usage: {
           inputTokens: 50,
@@ -89,7 +125,7 @@ describe("LlmService", () => {
     });
 
     it("returns null cost: providers report usage, the usage meter prices it", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "Answer",
         usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
         finishReason: "stop",
@@ -101,7 +137,7 @@ describe("LlmService", () => {
     });
 
     it("reports the requested model id as the model that served the call", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "Answer",
         usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
         finishReason: "stop",
@@ -113,7 +149,7 @@ describe("LlmService", () => {
     });
 
     it("extracts cached tokens from inputTokenDetails (Anthropic shape)", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "Answer",
         usage: {
           inputTokens: 100,
@@ -130,7 +166,7 @@ describe("LlmService", () => {
     });
 
     it("extracts cached tokens from openai.cachedPromptTokens", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "Answer",
         usage: { inputTokens: 100, outputTokens: 5, totalTokens: 105 },
         finishReason: "stop",
@@ -142,7 +178,7 @@ describe("LlmService", () => {
     });
 
     it("extracts cached tokens from snake-case prompt_tokens_details", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "Answer",
         usage: { inputTokens: 100, outputTokens: 5, totalTokens: 105 },
         finishReason: "stop",
@@ -156,7 +192,7 @@ describe("LlmService", () => {
     });
 
     it("extracts cached tokens from google.cachedContentTokenCount", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "Answer",
         usage: { inputTokens: 100, outputTokens: 5, totalTokens: 105 },
         finishReason: "stop",
@@ -171,7 +207,7 @@ describe("LlmService", () => {
     });
 
     it("sets totalTokens fallback when missing", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "x",
         usage: { inputTokens: 30, outputTokens: 5 },
         finishReason: "stop",
@@ -183,7 +219,7 @@ describe("LlmService", () => {
     });
 
     it("passes provider-specific options for gemini (thinkingBudget=0)", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "x",
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
         finishReason: "stop",
@@ -203,7 +239,7 @@ describe("LlmService", () => {
     });
 
     it("passes promptCacheKey for openai", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "x",
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
         finishReason: "stop",
@@ -223,7 +259,7 @@ describe("LlmService", () => {
     });
 
     it("asks AiSdkService for the model by id only (no fallback settings, ADR-0011)", async () => {
-      mockedGenerateText.mockResolvedValue({
+      mockGenerate({
         text: "x",
         usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
         finishReason: "stop",
@@ -264,26 +300,6 @@ describe("LlmService", () => {
   });
 
   describe("streamCompletion()", () => {
-    function makeStreamResult(chunks: string[], err?: unknown) {
-      return {
-        get textStream() {
-          return (async function* () {
-            for (const c of chunks) yield c;
-            if (err) throw err;
-          })();
-        },
-        usage: Promise.resolve({
-          inputTokens: 20,
-          outputTokens: chunks.length,
-          totalTokens: 20 + chunks.length,
-        }),
-        finishReason: Promise.resolve("stop"),
-        providerMetadata: Promise.resolve(undefined),
-        text: Promise.resolve(chunks.join("")),
-        // eslint-disable-next-line @typescript-eslint/no-explicit-any
-      } as any;
-    }
-
     it("yields text-delta + finish chunks", async () => {
       mockedStreamText.mockReturnValue(makeStreamResult(["Hello ", "world"]));
       const handle = await service.streamCompletion(baseRequest);
@@ -364,6 +380,147 @@ describe("LlmService", () => {
       }
       // No exception → timeout config was parsed.
       await handle.completion;
+    });
+  });
+
+  describe("usage metering (ADR-0012)", () => {
+    const scoped = { ...baseRequest, chatSessionId: "cs-internal-1" };
+
+    it("records one row per step of a tool-calling turn, with each step's tokens", async () => {
+      mockGenerate({
+        text: "done",
+        usage: { inputTokens: 90, outputTokens: 10, totalTokens: 100 },
+        steps: [
+          {
+            usage: {
+              inputTokens: 500,
+              outputTokens: 30,
+              totalTokens: 530,
+              inputTokenDetails: { cacheReadTokens: 256 },
+            },
+          },
+          { usage: { inputTokens: 90, outputTokens: 10, totalTokens: 100 } },
+        ],
+        finishReason: "stop",
+        providerMetadata: undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+
+      await service.generateCompletion(scoped);
+
+      expect(mockMeter.record).toHaveBeenCalledTimes(2);
+      expect(mockMeter.record).toHaveBeenNthCalledWith(
+        1,
+        expect.objectContaining({
+          organizationId: "org-1",
+          agentId: "agent-1",
+          chatSessionId: "cs-internal-1",
+          provider: "openai",
+          model: "gpt-4o-mini",
+          feature: "CHAT",
+          quantitySource: "PROVIDER_REPORTED",
+          quantities: expect.objectContaining({
+            inputTokens: 500,
+            cachedInputTokens: 256,
+            outputTokens: 30,
+          }),
+        }),
+      );
+      expect(mockMeter.record).toHaveBeenNthCalledWith(
+        2,
+        expect.objectContaining({
+          quantities: expect.objectContaining({
+            inputTokens: 90,
+            outputTokens: 10,
+          }),
+        }),
+      );
+    });
+
+    it("maps the summary feature and its INTERNAL channel", async () => {
+      mockGenerate({
+        text: "s",
+        usage: { inputTokens: 1, outputTokens: 1, totalTokens: 2 },
+        finishReason: "stop",
+        providerMetadata: undefined,
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      } as any);
+      await service.generateCompletion({ ...scoped, feature: "summarization" });
+      expect(mockMeter.record).toHaveBeenCalledWith(
+        expect.objectContaining({ feature: "SUMMARY", channel: "INTERNAL" }),
+      );
+    });
+
+    it("records a finished stream once its steps resolve", async () => {
+      mockedStreamText.mockReturnValue(makeStreamResult(["Hello ", "world"]));
+      const handle = await service.streamCompletion(scoped);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _c of handle.stream) {
+        // drain
+      }
+      await handle.completion;
+      expect(mockMeter.record).toHaveBeenCalledTimes(1);
+      expect(mockMeter.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          chatSessionId: "cs-internal-1",
+          quantities: expect.objectContaining({
+            inputTokens: 20,
+            outputTokens: 2,
+          }),
+          quantitySource: "PROVIDER_REPORTED",
+        }),
+      );
+    });
+
+    it("records an ESTIMATED row when a stream is cut off after tokens arrived", async () => {
+      mockedStreamText.mockReturnValue(
+        makeStreamResult(["12345678"], new Error("client gone")),
+      );
+      const handle = await service.streamCompletion(scoped);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _c of handle.stream) {
+        // drain
+      }
+      await expect(handle.completion).rejects.toThrow();
+      expect(mockMeter.record).toHaveBeenCalledTimes(1);
+      expect(mockMeter.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          quantitySource: "ESTIMATED",
+          // 8 streamed characters / 4 = 2 tokens.
+          quantities: expect.objectContaining({ outputTokens: 2 }),
+        }),
+      );
+    });
+
+    it("records an ESTIMATED row when the consumer stops reading (visitor left)", async () => {
+      mockedStreamText.mockReturnValue(makeStreamResult(["abcd", "efgh"]));
+      const handle = await service.streamCompletion(scoped);
+      // The controller `break`s out of its loop on client disconnect: no error
+      // reaches the generator, only its `finally` runs.
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _c of handle.stream) {
+        break;
+      }
+      expect(mockMeter.record).toHaveBeenCalledTimes(1);
+      expect(mockMeter.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          quantitySource: "ESTIMATED",
+          quantities: expect.objectContaining({ outputTokens: 1 }),
+        }),
+      );
+    });
+
+    it("records nothing when a stream fails before any token", async () => {
+      mockedStreamText.mockReturnValue(
+        makeStreamResult([], new Error("refused")),
+      );
+      const handle = await service.streamCompletion(scoped);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _c of handle.stream) {
+        // drain
+      }
+      await expect(handle.completion).rejects.toThrow();
+      expect(mockMeter.record).not.toHaveBeenCalled();
     });
   });
 });

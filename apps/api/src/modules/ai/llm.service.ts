@@ -16,9 +16,10 @@ import {
 /** Default max agent-loop steps when a request supplies tools (call + reply). */
 const DEFAULT_MAX_TOOL_STEPS = 3;
 
-import { EventChannel } from "@prisma/client";
+import type { EventChannel, UsageFeature } from "@prisma/client";
 import { AiSdkService, parseModelId } from "./ai-sdk.service";
 import { ProviderEventLogger } from "../../common/events/provider.logger";
+import { UsageMeterService } from "../usage/usage-meter.service";
 
 /**
  * AI SDK uses this shape for provider-specific call-time options (Gemini's
@@ -62,7 +63,7 @@ const DEFAULT_STREAM_TIMEOUT_MS = 60_000;
  *   - RAG retrieval                    → HybridSearchService (Phase 3)
  *   - Trace emission                   → AiTraceService (callers decorate)
  *   - Circuit breaker / retry policy   → ResilienceService (14-9, wraps us)
- *   - DB persistence of usage records  → UsageTrackingService (14-10)
+ *   - Usage + cost metering            → UsageMeterService (ADR-0012), called here per step
  *
  * Keeping this service thin makes it unit-testable by mocking AiSdkService
  * (which returns the LanguageModel), and keeps the AI SDK dependency
@@ -76,6 +77,7 @@ export class LlmService {
     private readonly aiSdk: AiSdkService,
     private readonly config: ConfigService,
     private readonly providerLog: ProviderEventLogger,
+    private readonly usageMeter: UsageMeterService,
   ) {}
 
   /**
@@ -87,11 +89,7 @@ export class LlmService {
   private eventChannel(request: LlmCompletionRequest): EventChannel {
     if (request.channel) return request.channel;
     if (request.feature === "voice") return "VOICE";
-    if (
-      request.feature === "chat" ||
-      request.feature === "chat-stream" ||
-      request.feature === "warmup"
-    )
+    if (request.feature === "chat" || request.feature === "chat-stream")
       return "WIDGET";
     return "INTERNAL";
   }
@@ -153,6 +151,13 @@ export class LlmService {
         result.usage,
       );
       const usage = normaliseUsage(result.usage, result.providerMetadata);
+      meterSteps(
+        this.usageMeter,
+        request,
+        this.eventChannel(request),
+        result.steps,
+        latencyMs,
+      );
 
       this.providerLog.log({
         channel: this.eventChannel(request),
@@ -290,6 +295,14 @@ export class LlmService {
     const streamProvider = parseModelId(request.modelId).provider.toUpperCase();
     const streamAgentId = request.agentId;
     const streamSessionId = request.sessionId;
+    const usageMeter = this.usageMeter;
+    // Characters streamed so far: the basis for an estimate if the stream is
+    // cut off before the provider reports usage.
+    let streamedChars = 0;
+    // Set once the provider-reported steps are metered. Anything still
+    // unmetered when the generator ends (error, or the consumer `break`ing out
+    // on a client disconnect) is recorded as an estimate in `finally`.
+    let metered = false;
 
     async function* streamChunks(): AsyncIterable<LlmStreamChunk> {
       try {
@@ -298,6 +311,7 @@ export class LlmService {
             firstTokenAt = performance.now();
           }
           if (delta.length > 0) {
+            streamedChars += delta.length;
             yield { type: "text-delta", content: delta };
           }
         }
@@ -321,6 +335,23 @@ export class LlmService {
           usage,
         );
         const normalisedUsage = normaliseUsage(usage, providerMetadata);
+        const steps = await streamResult.steps;
+        meterSteps(usageMeter, request, streamEventChannel, steps, totalMs);
+        metered = true;
+        // An abort after a completed tool step ends the stream cleanly with
+        // only the finished steps; the cut-off last step was still billed.
+        const meteredChars = steps.reduce(
+          (n, s) => n + (s.text?.length ?? 0),
+          0,
+        );
+        if (combinedSignal.aborted && streamedChars > meteredChars) {
+          meterEstimate(
+            usageMeter,
+            request,
+            streamEventChannel,
+            streamedChars - meteredChars,
+          );
+        }
 
         providerLog.log({
           channel: streamEventChannel,
@@ -388,6 +419,11 @@ export class LlmService {
         rejectCompletion(wrapped);
       } finally {
         clearTimeout(timeoutHandle);
+        // Cut off after tokens arrived (error, timeout, or the visitor left and
+        // the consumer stopped reading): billed, but no usage came. Estimate it.
+        if (!metered && firstTokenAt !== null) {
+          meterEstimate(usageMeter, request, streamEventChannel, streamedChars);
+        }
       }
     }
 
@@ -541,6 +577,102 @@ function normaliseUsage(
       usage.reasoningTokens ??
       undefined,
   };
+}
+
+const USAGE_FEATURE: Record<LlmCompletionRequest["feature"], UsageFeature> = {
+  chat: "CHAT",
+  "chat-stream": "CHAT",
+  voice: "CHAT",
+  summarization: "SUMMARY",
+  "title-generation": "TITLE",
+  "rag-query": "RAG",
+  "rag-contextual": "RAG",
+  "rag-evaluation": "RAG",
+  embedding: "EMBEDDING",
+};
+
+interface MeteredStep {
+  usage: LanguageModelUsage;
+  providerMetadata?: ProviderMetadata;
+  text?: string;
+}
+
+/**
+ * Record one usage row per model call (ADR-0012). A turn that calls a tool is
+ * 2-3 separately billed calls, so each step is metered, never the
+ * last-step-only `result.usage`.
+ */
+function meterSteps(
+  meter: UsageMeterService,
+  request: LlmCompletionRequest,
+  channel: EventChannel,
+  steps: readonly MeteredStep[],
+  latencyMs: number,
+): void {
+  const { provider, modelName } = parseModelId(request.modelId);
+  steps.forEach((step, i) => {
+    const usage = normaliseUsage(step.usage, step.providerMetadata);
+    meter.record({
+      organizationId: request.organizationId,
+      agentId: request.agentId,
+      chatSessionId: request.chatSessionId ?? null,
+      traceId: request.traceId ?? null,
+      channel,
+      feature: USAGE_FEATURE[request.feature],
+      provider,
+      model: modelName,
+      quantities: {
+        inputTokens: usage.inputTokens,
+        cachedInputTokens: usage.cachedInputTokens ?? 0,
+        outputTokens: usage.outputTokens,
+        reasoningTokens: usage.reasoningTokens ?? null,
+      },
+      quantitySource: "PROVIDER_REPORTED",
+      // Latency belongs to the whole call; put it on the final step only.
+      latencyMs: i === steps.length - 1 ? latencyMs : null,
+    });
+  });
+}
+
+/** Rough token count for a stream cut off before its usage arrived. */
+const estimateTokens = (chars: number): number => Math.ceil(chars / 4);
+
+function promptChars(request: LlmCompletionRequest): number {
+  let chars = request.systemPrompt?.length ?? 0;
+  for (const m of request.messages ?? []) {
+    if (typeof m.content === "string") {
+      chars += m.content.length;
+    } else {
+      for (const part of m.content) {
+        if (part.type === "text") chars += part.text.length;
+      }
+    }
+  }
+  return chars;
+}
+
+function meterEstimate(
+  meter: UsageMeterService,
+  request: LlmCompletionRequest,
+  channel: EventChannel,
+  streamedChars: number,
+): void {
+  const { provider, modelName } = parseModelId(request.modelId);
+  meter.record({
+    organizationId: request.organizationId,
+    agentId: request.agentId,
+    chatSessionId: request.chatSessionId ?? null,
+    traceId: request.traceId ?? null,
+    channel,
+    feature: USAGE_FEATURE[request.feature],
+    provider,
+    model: modelName,
+    quantities: {
+      inputTokens: estimateTokens(promptChars(request)),
+      outputTokens: estimateTokens(streamedChars),
+    },
+    quantitySource: "ESTIMATED",
+  });
 }
 
 /**

@@ -1,19 +1,20 @@
-import * as Sentry from '@sentry/nestjs';
-import helmet from 'helmet';
-import { NestFactory } from '@nestjs/core';
-import { ValidationPipe, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { DocumentBuilder, SwaggerModule } from '@nestjs/swagger';
-import { AppModule } from './modules/app.module';
-import { getHelmetOptions } from './config/security-headers.config';
-import { scrubSentryEvent } from './common/sentry/sentry.scrubber';
-import { RedisIoAdapter } from './common/ws/redis-io.adapter';
+import * as Sentry from "@sentry/nestjs";
+import helmet from "helmet";
+import { NestFactory } from "@nestjs/core";
+import { ValidationPipe, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
+import { AppModule } from "./modules/app.module";
+import { getHelmetOptions } from "./config/security-headers.config";
+import { scrubSentryEvent } from "./common/sentry/sentry.scrubber";
+import { RedisIoAdapter } from "./common/ws/redis-io.adapter";
 
 // Sentry must be initialized before NestFactory.create() to hook into Node.js error handlers
 if (process.env.SENTRY_DSN) {
   Sentry.init({
     dsn: process.env.SENTRY_DSN,
-    environment: process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || 'development',
+    environment:
+      process.env.SENTRY_ENVIRONMENT || process.env.NODE_ENV || "development",
     release: process.env.SENTRY_RELEASE || process.env.npm_package_version,
     maxBreadcrumbs: 25,
     beforeSend: scrubSentryEvent,
@@ -22,8 +23,8 @@ if (process.env.SENTRY_DSN) {
     tracesSampleRate: Number(process.env.SENTRY_TRACES_SAMPLE_RATE ?? 0) || 0,
     // Source maps are uploaded via sentry-cli in CI (see SENTRY_AUTH_TOKEN, SENTRY_ORG, SENTRY_PROJECT env vars)
     // This tells the SDK to look for them when symbolizing stack traces
-    ...(process.env.NODE_ENV === 'production' && {
-      sourcemaps: { filesToDeleteAfterUpload: ['./dist/**/*.map'] },
+    ...(process.env.NODE_ENV === "production" && {
+      sourcemaps: { filesToDeleteAfterUpload: ["./dist/**/*.map"] },
     }),
   });
 }
@@ -35,15 +36,14 @@ async function bootstrap() {
   const app = await NestFactory.create(AppModule, { rawBody: true });
 
   // Without this, Nest never listens for SIGTERM/SIGINT, so no OnModuleDestroy
-  // hook ever runs: the buffered llm_usage batch (UsageTrackingService) was lost
-  // on every deploy, and Prisma/Redis were never closed cleanly. Render sends
+  // hook ever runs, and Prisma/Redis were never closed cleanly. Render sends
   // SIGTERM and waits before SIGKILL, which is exactly the window these hooks
   // need.
   app.enableShutdownHooks();
 
   // Trust the reverse proxy in front of us (Vercel/Cloudflare/nginx) so
   // req.ip resolves to the real client IP via X-Forwarded-For.
-  app.getHttpAdapter().getInstance().set('trust proxy', 1);
+  app.getHttpAdapter().getInstance().set("trust proxy", 1);
 
   // Security headers — must be first middleware applied (before CORS, prefix, pipes)
   app.use(helmet(getHelmetOptions(process.env.NODE_ENV)));
@@ -52,15 +52,15 @@ async function bootstrap() {
   // works at a short URL in the browser (http://localhost:3001/dev/ai/test-chat).
   // The endpoints themselves are fail-closed: they 404 unless ENABLE_DEV_ROUTES
   // =true (see DevAiController.assertDevRoutesEnabled).
-  app.setGlobalPrefix('api/klivo/v1', {
+  app.setGlobalPrefix("api/klivo/v1", {
     exclude: [
-      'health',
-      'health/ready',
-      'dev/ai/test-chat',
-      'dev/ai/test-chat/stream',
-      'dev/ai/agents',
-      'dev/ai/traces/:traceId',
-      'dev/ai/sessions/:sessionId',
+      "health",
+      "health/ready",
+      "dev/ai/test-chat",
+      "dev/ai/test-chat/stream",
+      "dev/ai/agents",
+      "dev/ai/traces/:traceId",
+      "dev/ai/sessions/:sessionId",
     ],
   });
 
@@ -73,15 +73,15 @@ async function bootstrap() {
   );
 
   // Swagger/OpenAPI documentation (disabled in production)
-  if (process.env.NODE_ENV !== 'production') {
+  if (process.env.NODE_ENV !== "production") {
     const config = new DocumentBuilder()
-      .setTitle('Klivo API')
-      .setDescription('Klivo platform REST API documentation')
-      .setVersion('1.0')
+      .setTitle("Klivo API")
+      .setDescription("Klivo platform REST API documentation")
+      .setVersion("1.0")
       .addBearerAuth()
       .build();
     const document = SwaggerModule.createDocument(app, config);
-    SwaggerModule.setup('api/docs', app, document);
+    SwaggerModule.setup("api/docs", app, document);
   }
 
   // CORS is handled entirely by middleware:
@@ -95,8 +95,8 @@ async function bootstrap() {
   // multiple instances. Scaling out is then an env change, not a code change.
   const cfg = app.get(ConfigService);
   const wsRedisUrl =
-    cfg.get<string>('SOCKET_IO_REDIS') === 'true'
-      ? cfg.get<string>('REDIS_URL')
+    cfg.get<string>("SOCKET_IO_REDIS") === "true"
+      ? cfg.get<string>("REDIS_URL")
       : undefined;
   const wsAdapter = new RedisIoAdapter(app, wsRedisUrl);
   await wsAdapter.connectToRedis();
@@ -104,7 +104,7 @@ async function bootstrap() {
 
   const port = process.env.PORT || 3001;
   await app.listen(port);
-  const logger = new Logger('Bootstrap');
+  const logger = new Logger("Bootstrap");
   logger.log(`API running on http://localhost:${port}/api/klivo/v1`);
   logger.log(`Swagger docs at http://localhost:${port}/api/docs`);
 }

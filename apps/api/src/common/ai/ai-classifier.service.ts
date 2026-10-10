@@ -1,6 +1,11 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { ProviderEventLogger } from '../events/provider.logger';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { UsageFeature } from "@prisma/client";
+import { ProviderEventLogger } from "../events/provider.logger";
+import {
+  UsageMeterService,
+  type UsageScope,
+} from "../../modules/usage/usage-meter.service";
 
 /**
  * A field the extractor should pull from a conversation. Decoupled from the
@@ -11,7 +16,7 @@ import { ProviderEventLogger } from '../events/provider.logger';
 export interface ExtractableField {
   key: string;
   label: string;
-  jsonType: 'string' | 'number' | 'boolean';
+  jsonType: "string" | "number" | "boolean";
   description?: string | null;
 }
 
@@ -34,31 +39,32 @@ export class AiClassifierService {
   private readonly logger = new Logger(AiClassifierService.name);
   private readonly apiKey: string | undefined;
   private readonly model: string;
-  private readonly endpoint = 'https://api.openai.com/v1/chat/completions';
+  private readonly endpoint = "https://api.openai.com/v1/chat/completions";
 
   // Sentinel returned by the model when no category fits / the conversation
   // is too thin to classify confidently. Kept distinct from real category
   // names so the enum check in `categorize` can rule it out cleanly.
-  private static readonly NO_MATCH = 'NONE';
+  private static readonly NO_MATCH = "NONE";
   // Sentinel returned by `detectLanguage` for "couldn't tell" — distinct
   // from `other` (which means "I can tell, but it's outside the allowed
   // list"). Both translate to null in the persistence layer.
-  private static readonly LANG_UNKNOWN = 'und';
-  private static readonly LANG_OTHER = 'other';
+  private static readonly LANG_UNKNOWN = "und";
+  private static readonly LANG_OTHER = "other";
 
   constructor(
     config: ConfigService,
     private readonly providerLog: ProviderEventLogger,
+    private readonly usageMeter: UsageMeterService,
   ) {
-    this.apiKey = config.get<string>('OPENAI_API_KEY');
+    this.apiKey = config.get<string>("OPENAI_API_KEY");
     // gpt-4o-mini is the cheapest GPT-4-class model at the time of writing
     // (~$0.15/1M input tokens) and supports structured outputs in strict
     // mode. A typical 6-message conversation runs ~1K tokens — categorisation
     // overhead is effectively free at our scale.
-    this.model = config.get<string>('AI_CLASSIFIER_MODEL') ?? 'gpt-4o-mini';
+    this.model = config.get<string>("AI_CLASSIFIER_MODEL") ?? "gpt-4o-mini";
     if (!this.apiKey) {
       this.logger.warn(
-        'OPENAI_API_KEY not set — AiClassifierService will no-op. Background categorisation will skip.',
+        "OPENAI_API_KEY not set — AiClassifierService will no-op. Background categorisation will skip.",
       );
     }
   }
@@ -82,65 +88,69 @@ export class AiClassifierService {
   async categorize(
     transcript: string,
     categories: string[],
+    scope?: UsageScope,
   ): Promise<string | null> {
     if (!this.apiKey || categories.length === 0 || !transcript.trim()) {
       return null;
     }
 
     const system = [
-      'You are classifying a chat conversation between an end-user and an AI assistant.',
-      'Pick exactly ONE category from the list that best describes what the user was asking about.',
-      '',
+      "You are classifying a chat conversation between an end-user and an AI assistant.",
+      "Pick exactly ONE category from the list that best describes what the user was asking about.",
+      "",
       'Pick "NONE" if any of these are true:',
-      '- No category in the list reasonably matches the conversation topic.',
-      '- The conversation is too short or too vague to determine intent (e.g. just greetings, single-word replies, off-topic chitchat).',
-      '- The user\'s intent is genuinely unclear or ambiguous across multiple categories.',
-      '',
-      'For confidence:',
+      "- No category in the list reasonably matches the conversation topic.",
+      "- The conversation is too short or too vague to determine intent (e.g. just greetings, single-word replies, off-topic chitchat).",
+      "- The user's intent is genuinely unclear or ambiguous across multiple categories.",
+      "",
+      "For confidence:",
       '- "high": the topic is obvious from the messages.',
       '- "medium": the topic is probable but there is some ambiguity.',
       '- "low": you would be guessing — in this case you SHOULD pick "NONE".',
-      '',
-      'Reply with JSON matching the provided schema. Categories must be picked verbatim from the supplied list.',
-    ].join('\n');
+      "",
+      "Reply with JSON matching the provided schema. Categories must be picked verbatim from the supplied list.",
+    ].join("\n");
 
     const user = [
-      'Allowed categories:',
-      categories.map((c) => `- ${c}`).join('\n'),
-      '',
-      'Transcript:',
+      "Allowed categories:",
+      categories.map((c) => `- ${c}`).join("\n"),
+      "",
+      "Transcript:",
       truncate(transcript, 6000),
-    ].join('\n');
+    ].join("\n");
 
     // Build the enum from the caller's category list + the NONE sentinel.
     // Strict-mode JSON schema enforces this at decode time — the model
     // literally cannot return a string outside this set.
     const schema = {
-      type: 'object',
+      type: "object",
       properties: {
         category: {
-          type: 'string',
+          type: "string",
           enum: [...categories, AiClassifierService.NO_MATCH],
         },
         confidence: {
-          type: 'string',
-          enum: ['high', 'medium', 'low'],
+          type: "string",
+          enum: ["high", "medium", "low"],
         },
       },
-      required: ['category', 'confidence'],
+      required: ["category", "confidence"],
       additionalProperties: false,
     } as const;
 
     const parsed = await this.chatJson<{
       category: string;
-      confidence: 'high' | 'medium' | 'low';
-    }>(system, user, schema, 'classification');
+      confidence: "high" | "medium" | "low";
+    }>(system, user, schema, "classification", {
+      feature: "CLASSIFIER",
+      scope,
+    });
     if (!parsed) return null;
 
     if (parsed.category === AiClassifierService.NO_MATCH) {
       return null;
     }
-    if (parsed.confidence === 'low') {
+    if (parsed.confidence === "low") {
       // The model itself flagged it as a guess — store null and let analytics
       // skip it rather than poisoning the bucket counts.
       this.logger.debug(
@@ -179,12 +189,13 @@ export class AiClassifierService {
   async detectLanguage(
     text: string,
     allowedLanguages: string[],
+    scope?: UsageScope,
   ): Promise<string | null> {
     if (!this.apiKey || !text.trim() || allowedLanguages.length === 0) {
       return null;
     }
 
-    const includesHinglish = allowedLanguages.includes('hinglish');
+    const includesHinglish = allowedLanguages.includes("hinglish");
     const enumValues = [
       ...allowedLanguages,
       AiClassifierService.LANG_OTHER,
@@ -196,48 +207,49 @@ export class AiClassifierService {
     // pick `hinglish` vs `hi` vs `en`, since those three otherwise overlap
     // heavily on code-mixed content.
     const systemLines = [
-      'Detect the primary language of the given conversation.',
+      "Detect the primary language of the given conversation.",
       `Reply with one of the language codes from the schema, "${AiClassifierService.LANG_OTHER}" if the language is real but not in the allowed list, or "${AiClassifierService.LANG_UNKNOWN}" if undetermined.`,
-      '',
-      `Allowed: ${allowedLanguages.join(', ')}.`,
-      '',
+      "",
+      `Allowed: ${allowedLanguages.join(", ")}.`,
+      "",
       `Use "${AiClassifierService.LANG_UNKNOWN}" if:`,
-      '- The text is too short to tell (e.g. just one or two words).',
-      '- The conversation is so mixed there is no dominant primary language.',
-      '',
+      "- The text is too short to tell (e.g. just one or two words).",
+      "- The conversation is so mixed there is no dominant primary language.",
+      "",
       `Use "${AiClassifierService.LANG_OTHER}" if you can identify the language but it is not in the allowed list (e.g. allowed is [en, hi] but the conversation is in Spanish).`,
     ];
     if (includesHinglish) {
       systemLines.push(
-        '',
-        'Hinglish guidance:',
+        "",
+        "Hinglish guidance:",
         '- Use "hinglish" when the conversation has substantial Hindi vocabulary written in Latin script mixed with English (e.g. "Mera order kahan hai, can you check please?").',
         '- Use "hi" only for predominantly Devanagari-script Hindi.',
         '- Use "en" for predominantly English text with at most a few foreign-loan words.',
       );
     }
     systemLines.push(
-      '',
+      "",
       'For predominantly-one-language conversations with a few foreign words sprinkled in, pick the dominant language — do NOT use "und".',
     );
 
     const schema = {
-      type: 'object',
+      type: "object",
       properties: {
         language: {
-          type: 'string',
+          type: "string",
           enum: enumValues,
         },
       },
-      required: ['language'],
+      required: ["language"],
       additionalProperties: false,
     } as const;
 
     const parsed = await this.chatJson<{ language: string }>(
-      systemLines.join('\n'),
+      systemLines.join("\n"),
       truncate(text, 2000),
       schema,
-      'language_detection',
+      "language_detection",
+      { feature: "CLASSIFIER", scope },
     );
     if (!parsed) return null;
     if (parsed.language === AiClassifierService.LANG_UNKNOWN) return null;
@@ -269,6 +281,7 @@ export class AiClassifierService {
   async extractFields(
     transcript: string,
     fields: ExtractableField[],
+    scope?: UsageScope,
   ): Promise<Record<string, string | number | boolean> | null> {
     if (!this.apiKey || fields.length === 0 || !transcript.trim()) {
       return null;
@@ -279,46 +292,47 @@ export class AiClassifierService {
       properties[f.key] = {
         // Nullable: lets the model say "not provided" under strict mode, which
         // requires every property to be present in `required`.
-        type: [f.jsonType, 'null'],
+        type: [f.jsonType, "null"],
         description: f.description ? `${f.label}. ${f.description}` : f.label,
       };
     }
     const schema = {
-      type: 'object',
+      type: "object",
       properties,
       required: fields.map((f) => f.key),
       additionalProperties: false,
     } as const;
 
     const system = [
-      'You extract structured details that an END-USER gave about THEMSELVES in a chat.',
-      'The transcript is labelled by speaker: [USER] is the person whose data we want; [ASSISTANT] is the business\'s side — its bot OR a human teammate who took the chat over. Use [ASSISTANT] turns only as CONTEXT to understand the conversation — NEVER extract a value from them.',
+      "You extract structured details that an END-USER gave about THEMSELVES in a chat.",
+      "The transcript is labelled by speaker: [USER] is the person whose data we want; [ASSISTANT] is the business's side — its bot OR a human teammate who took the chat over. Use [ASSISTANT] turns only as CONTEXT to understand the conversation — NEVER extract a value from them.",
       'HARD RULE: a value that appears only in an [ASSISTANT] turn is the BUSINESS\'s, never the user\'s. Contact details the bot or teammate shares — e.g. "contact us at support@acme.com", "reach our team at +1 555-0100", "this is Sam, my email is sam@acme.com" — must NOT be extracted; return null for that field.',
       'Read the MEANING of each sentence. Only extract a value when the user is giving it as their OWN — usually phrased like "my email is…", "I\'m…", "my number is…", "my customer id is…".',
       'Do NOT extract a value the user is referring to as the business\'s or someone else\'s — e.g. "your email is…?", "is this your number?", "I saw it on your website". Those are not the user\'s data.',
       'If the user did not provide a field about themselves, return null for it — the JSON value null, never the text "null". NEVER guess, infer, or fabricate.',
       'Example: the [ASSISTANT] says "reach us at support@acme.com or +1 555-0100" and the [USER] never states their own email or phone → email = null and phone = null.',
-      'Reply with JSON matching the provided schema exactly.',
-    ].join('\n');
+      "Reply with JSON matching the provided schema exactly.",
+    ].join("\n");
 
     const user = [
-      'Fields to extract:',
+      "Fields to extract:",
       fields
         .map(
           (f) =>
             `- ${f.key}: ${f.description ? `${f.label} (${f.description})` : f.label}`,
         )
-        .join('\n'),
-      '',
-      'Transcript:',
+        .join("\n"),
+      "",
+      "Transcript:",
       truncate(transcript, 8000),
-    ].join('\n');
+    ].join("\n");
 
     const parsed = await this.chatJson<Record<string, unknown>>(
       system,
       user,
       schema,
-      'field_extraction',
+      "field_extraction",
+      { feature: "DATA_EXTRACTION", scope },
       512,
     );
     if (!parsed) return null;
@@ -330,14 +344,14 @@ export class AiClassifierService {
       const value = parsed[f.key];
       if (value === null || value === undefined) continue;
       if (
-        f.jsonType === 'string' &&
-        typeof value === 'string' &&
+        f.jsonType === "string" &&
+        typeof value === "string" &&
         !isNoValue(value)
       ) {
         result[f.key] = value.trim();
-      } else if (f.jsonType === 'number' && typeof value === 'number') {
+      } else if (f.jsonType === "number" && typeof value === "number") {
         result[f.key] = value;
-      } else if (f.jsonType === 'boolean' && typeof value === 'boolean') {
+      } else if (f.jsonType === "boolean" && typeof value === "boolean") {
         result[f.key] = value;
       }
     }
@@ -360,15 +374,16 @@ export class AiClassifierService {
     user: string,
     schema: Record<string, unknown>,
     schemaName: string,
+    meterAs: { feature: UsageFeature; scope?: UsageScope },
     maxTokens = 64,
   ): Promise<T | null> {
     const eventBase = `OPENAI_${schemaName.toUpperCase()}`;
     const start = performance.now();
     try {
       const res = await fetch(this.endpoint, {
-        method: 'POST',
+        method: "POST",
         headers: {
-          'Content-Type': 'application/json',
+          "Content-Type": "application/json",
           Authorization: `Bearer ${this.apiKey!}`,
         },
         body: JSON.stringify({
@@ -381,11 +396,11 @@ export class AiClassifierService {
           // several fields pass a larger cap.
           max_tokens: maxTokens,
           messages: [
-            { role: 'system', content: system },
-            { role: 'user', content: user },
+            { role: "system", content: system },
+            { role: "user", content: user },
           ],
           response_format: {
-            type: 'json_schema',
+            type: "json_schema",
             json_schema: {
               name: schemaName,
               strict: true,
@@ -400,15 +415,15 @@ export class AiClassifierService {
       });
 
       if (!res.ok) {
-        const body = await res.text().catch(() => '');
+        const body = await res.text().catch(() => "");
         this.logger.warn(
           `Classifier HTTP ${res.status}: ${body.slice(0, 200)}`,
         );
         this.providerLog.log({
-          channel: 'INTERNAL',
+          channel: "INTERNAL",
           eventName: `${eventBase}_FAILED`,
-          direction: 'OUTBOUND',
-          provider: 'OPENAI',
+          direction: "OUTBOUND",
+          provider: "OPENAI",
           requestUrl: this.endpoint,
           requestPayload: { model: this.model, schema: schemaName },
           responseStatus: res.status,
@@ -423,7 +438,30 @@ export class AiClassifierService {
         choices?: Array<{
           message?: { content?: string; refusal?: string };
         }>;
+        usage?: {
+          prompt_tokens?: number;
+          completion_tokens?: number;
+          prompt_tokens_details?: { cached_tokens?: number };
+        };
       };
+      // Billed whether or not the content parses or is a refusal (ADR-0012).
+      if (json.usage) {
+        this.usageMeter.record({
+          ...meterAs.scope,
+          channel: "INTERNAL",
+          feature: meterAs.feature,
+          provider: "openai",
+          model: this.model,
+          quantities: {
+            inputTokens: json.usage.prompt_tokens ?? 0,
+            cachedInputTokens:
+              json.usage.prompt_tokens_details?.cached_tokens ?? 0,
+            outputTokens: json.usage.completion_tokens ?? 0,
+          },
+          quantitySource: "PROVIDER_REPORTED",
+          latencyMs: Math.round(performance.now() - start),
+        });
+      }
       const message = json.choices?.[0]?.message;
       if (message?.refusal) {
         // OpenAI's safety system returned a refusal instead of content.
@@ -432,15 +470,15 @@ export class AiClassifierService {
         return null;
       }
       if (!message?.content) {
-        this.logger.warn('Classifier returned no content.');
+        this.logger.warn("Classifier returned no content.");
         return null;
       }
 
       this.providerLog.log({
-        channel: 'INTERNAL',
+        channel: "INTERNAL",
         eventName: `${eventBase}_COMPLETED`,
-        direction: 'OUTBOUND',
-        provider: 'OPENAI',
+        direction: "OUTBOUND",
+        provider: "OPENAI",
         requestUrl: this.endpoint,
         requestPayload: { model: this.model, schema: schemaName },
         responseStatus: res.status,
@@ -453,19 +491,19 @@ export class AiClassifierService {
         // Should be impossible under strict structured outputs, but a
         // provider regression could re-introduce it. Log + fall back to null.
         this.logger.warn(
-          `Classifier returned non-JSON content: ${err instanceof Error ? err.message : 'unknown'} — body: ${message.content.slice(0, 200)}`,
+          `Classifier returned non-JSON content: ${err instanceof Error ? err.message : "unknown"} — body: ${message.content.slice(0, 200)}`,
         );
         return null;
       }
     } catch (err) {
       this.logger.warn(
-        `Classifier call failed: ${err instanceof Error ? err.message : 'unknown'}`,
+        `Classifier call failed: ${err instanceof Error ? err.message : "unknown"}`,
       );
       this.providerLog.log({
-        channel: 'INTERNAL',
+        channel: "INTERNAL",
         eventName: `${eventBase}_FAILED`,
-        direction: 'OUTBOUND',
-        provider: 'OPENAI',
+        direction: "OUTBOUND",
+        provider: "OPENAI",
         requestUrl: this.endpoint,
         requestPayload: { model: this.model, schema: schemaName },
         latencyMs: Math.round(performance.now() - start),
@@ -492,21 +530,21 @@ function truncate(s: string, max: number): string {
  * never persist a field whose value is the word "null".
  */
 const NO_VALUE_SENTINELS = new Set([
-  'null',
-  'none',
-  'n/a',
-  'na',
-  'nil',
-  'undefined',
-  'unknown',
-  'not provided',
-  'not given',
-  '-',
-  '—',
+  "null",
+  "none",
+  "n/a",
+  "na",
+  "nil",
+  "undefined",
+  "unknown",
+  "not provided",
+  "not given",
+  "-",
+  "—",
 ]);
 
 /** True when a string value should be treated as "no value" (skip it). */
 function isNoValue(value: string): boolean {
   const v = value.trim().toLowerCase();
-  return v === '' || NO_VALUE_SENTINELS.has(v);
+  return v === "" || NO_VALUE_SENTINELS.has(v);
 }

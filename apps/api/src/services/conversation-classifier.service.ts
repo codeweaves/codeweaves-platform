@@ -1,7 +1,7 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { PrismaService } from './prisma.service';
-import { AiClassifierService } from '../common/ai/ai-classifier.service';
-import { InternalEventLogger } from '../common/events/internal.logger';
+import { Injectable, Logger } from "@nestjs/common";
+import { PrismaService } from "./prisma.service";
+import { AiClassifierService } from "../common/ai/ai-classifier.service";
+import { InternalEventLogger } from "../common/events/internal.logger";
 
 /**
  * Conversation categorisation logic, invoked by a BullMQ repeatable job
@@ -58,22 +58,22 @@ export class ConversationClassifierService {
     if (this.running) return false;
     this.running = true;
     const start = Date.now();
-    this.internalLog.logStarted('CLASSIFIER_RUN_STARTED');
+    this.internalLog.logStarted("CLASSIFIER_RUN_STARTED");
     void this.runBatch()
       .then((processed) => {
         this.logger.log(
           `Classifier run complete: processed ${processed} session(s).`,
         );
-        this.internalLog.logCompleted('CLASSIFIER_RUN_COMPLETED', {
+        this.internalLog.logCompleted("CLASSIFIER_RUN_COMPLETED", {
           latencyMs: Date.now() - start,
           metadata: { processed },
         });
       })
       .catch((err) => {
         this.logger.warn(
-          `Classifier run failed: ${err instanceof Error ? err.message : 'unknown'}`,
+          `Classifier run failed: ${err instanceof Error ? err.message : "unknown"}`,
         );
-        this.internalLog.logFailed('CLASSIFIER_RUN_FAILED', err, {
+        this.internalLog.logFailed("CLASSIFIER_RUN_FAILED", err, {
           metadata: { latencyMs: Date.now() - start },
         });
       })
@@ -114,22 +114,24 @@ export class ConversationClassifierService {
         // Never expire/classify a session that's mid-handover — a human may
         // still be working it. It becomes a candidate again once resolved
         // (handoverState back to NONE).
-        handoverState: 'NONE',
+        handoverState: "NONE",
       },
-      orderBy: { lastMessageAt: 'asc' }, // oldest-quiet first — favours fairness
+      orderBy: { lastMessageAt: "asc" }, // oldest-quiet first — favours fairness
       take: ConversationClassifierService.MAX_PER_RUN,
       select: {
         id: true,
+        agentId: true,
         createdAt: true,
         agent: {
           select: {
+            organizationId: true,
             categoryKeywords: true,
             supportedLanguages: true,
             sessionLifetimeHours: true,
           },
         },
         messages: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: "asc" },
           select: { role: true, content: true, createdAt: true },
         },
       },
@@ -141,13 +143,14 @@ export class ConversationClassifierService {
       // caught but that haven't actually passed their agent's configured
       // lifetime yet (e.g. an agent with a 24h lifetime whose session went
       // quiet 2h ago — still nominally "live", not ready to classify).
-      const lifetimeMs =
-        session.agent.sessionLifetimeHours * 60 * 60 * 1000;
+      const lifetimeMs = session.agent.sessionLifetimeHours * 60 * 60 * 1000;
       const isPastLifetime =
         Date.now() - session.createdAt.getTime() > lifetimeMs;
       if (!isPastLifetime) continue;
 
-      if (session.messages.length < ConversationClassifierService.MIN_MESSAGES) {
+      if (
+        session.messages.length < ConversationClassifierService.MIN_MESSAGES
+      ) {
         // Mark as "classified" with no category so we don't re-evaluate this
         // session every tick — it's effectively too short to label.
         await this.markClassified(session.id, null, null);
@@ -159,13 +162,18 @@ export class ConversationClassifierService {
       // and vice versa. An agent with neither pays nothing — both calls
       // are skipped, but the EXPIRED status flip still runs below.
       const keywords = session.agent.categoryKeywords;
+      const scope = {
+        organizationId: session.agent.organizationId,
+        agentId: session.agentId,
+        chatSessionId: session.id,
+      };
       const languages = session.agent.supportedLanguages;
       const [category, detectedLanguage] = await Promise.all([
         keywords.length > 0
-          ? this.ai.categorize(transcript, keywords)
+          ? this.ai.categorize(transcript, keywords, scope)
           : Promise.resolve(null),
         languages.length > 0
-          ? this.ai.detectLanguage(transcript, languages)
+          ? this.ai.detectLanguage(transcript, languages, scope)
           : Promise.resolve(null),
       ]);
       await this.markClassified(session.id, category, detectedLanguage);
@@ -190,7 +198,7 @@ export class ConversationClassifierService {
         category,
         detectedLanguage,
         categorizedAt: new Date(),
-        status: 'EXPIRED',
+        status: "EXPIRED",
       },
     });
   }
@@ -202,8 +210,8 @@ export class ConversationClassifierService {
       -ConversationClassifierService.TRANSCRIPT_LAST_N_MESSAGES,
     );
     const joined = tail
-      .map((m) => `${m.role === 'USER' ? 'User' : 'Assistant'}: ${m.content}`)
-      .join('\n');
+      .map((m) => `${m.role === "USER" ? "User" : "Assistant"}: ${m.content}`)
+      .join("\n");
     if (joined.length <= ConversationClassifierService.TRANSCRIPT_CHAR_CAP) {
       return joined;
     }

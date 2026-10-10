@@ -1,16 +1,15 @@
-import { Module } from '@nestjs/common';
+import { Module } from "@nestjs/common";
 
-import { PrismaModule } from '../prisma.module';
-import { DataExtractionModule } from '../data-extraction.module';
+import { PrismaModule } from "../prisma.module";
+import { DataExtractionModule } from "../data-extraction.module";
 
-import { AiSdkModule } from './ai-sdk.module';
-import { ContextAssemblyService } from './context-assembly.service';
-import { DirectChatService } from './direct-chat.service';
-import { PromptTemplateService } from './prompt-template.service';
-import { HybridContextStrategy } from './strategies/hybrid-context.strategy';
-import { SummarizationService } from './summarization.service';
-import { SummaryRefreshService } from './summary-refresh.service';
-import { UsageTrackingService } from './usage-tracking.service';
+import { AiSdkModule } from "./ai-sdk.module";
+import { ContextAssemblyService } from "./context-assembly.service";
+import { DirectChatService } from "./direct-chat.service";
+import { PromptTemplateService } from "./prompt-template.service";
+import { HybridContextStrategy } from "./strategies/hybrid-context.strategy";
+import { SummarizationService } from "./summarization.service";
+import { SummaryRefreshService } from "./summary-refresh.service";
 
 /**
  * Main AI module: the single import every downstream consumer needs. Combines
@@ -29,7 +28,6 @@ import { UsageTrackingService } from './usage-tracking.service';
     PromptTemplateService,
     SummarizationService,
     SummaryRefreshService,
-    UsageTrackingService,
   ],
   exports: [
     AiSdkModule,
@@ -39,7 +37,6 @@ import { UsageTrackingService } from './usage-tracking.service';
     PromptTemplateService,
     SummarizationService,
     SummaryRefreshService,
-    UsageTrackingService,
   ],
 })
 export class AiModule {}

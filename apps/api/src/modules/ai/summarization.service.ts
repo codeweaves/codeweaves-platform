@@ -32,6 +32,7 @@ export interface SummarizeParams {
   /** Used to tag the usage record for cost attribution. */
   organizationId: string;
   agentId: string;
+  /** Internal ChatSession id (the usage ledger links to it). */
   sessionId?: string;
   traceId?: string;
 
@@ -137,6 +138,7 @@ export class SummarizationService {
       organizationId: params.organizationId,
       agentId: params.agentId,
       sessionId: params.sessionId,
+      chatSessionId: params.sessionId,
       traceId: params.traceId,
       feature: "summarization" satisfies LlmFeature,
     });
@@ -202,6 +204,7 @@ export class SummarizationService {
         organizationId: params.organizationId,
         agentId: params.agentId,
         sessionId: params.sessionId,
+        chatSessionId: params.sessionId,
         traceId: params.traceId,
         feature: "title-generation" satisfies LlmFeature,
       });

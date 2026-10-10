@@ -28,7 +28,6 @@ import { HybridContextStrategy } from "./strategies/hybrid-context.strategy";
 import { SummaryRefreshService } from "./summary-refresh.service";
 import type { TraceContext } from "./trace/ai-trace.interfaces";
 import { AiTraceService } from "./trace/ai-trace.service";
-import { UsageTrackingService } from "./usage-tracking.service";
 
 /** Divider prepended before injected knowledge content in the system prompt. */
 const KNOWLEDGE_DIVIDER = "\n\n---\n\n[REFERENCE KNOWLEDGE]\n";
@@ -47,7 +46,7 @@ const SUMMARY_DIVIDER = "\n\n---\n\n[SUMMARY OF EARLIER CONVERSATION]\n";
 /**
  * Features that represent a real end-user conversation turn — the only ones
  * eligible to trigger background data capture. Internal `send()` calls
- * (summarisation, title-generation, rag-*, embedding, warmup) must NEVER
+ * (summarisation, title-generation, rag-*, embedding) must NEVER
  * enqueue extraction. `send()` is used by WhatsApp inbound (`feature: 'chat'`),
  * so we cover it here too — not just the streaming widget path.
  */
@@ -94,9 +93,7 @@ const CAPTURE_ELIGIBLE_FEATURES = new Set<string>([
  *   - Updating ChatSession.lastMessageAt                     → ChatService
  *   - Routing between n8n and direct                         → ChatService
  *   - Rate limiting, permissions                             → Controllers + guards
- *   - Recording LlmUsage rows                                → UsageTrackingService (14-10)
- *     (we emit the data via trace + return result; UsageTrackingService
- *      observes)
+ *   - Recording usage + cost                                 → LlmService meters every call (ADR-0012)
  */
 @Injectable()
 export class DirectChatService {
@@ -109,7 +106,6 @@ export class DirectChatService {
     private readonly hybridStrategy: HybridContextStrategy,
     private readonly promptTemplate: PromptTemplateService,
     private readonly traceService: AiTraceService,
-    private readonly usageTracker: UsageTrackingService,
     private readonly prisma: PrismaService,
     private readonly agentCache: AgentCacheService,
     private readonly dataExtractionService: DataExtractionService,
@@ -401,6 +397,7 @@ export class DirectChatService {
             organizationId: req.agent.organizationId,
             agentId: req.agent.id,
             sessionId: req.externalSessionId,
+            chatSessionId: req.chatSessionId,
             traceId: trace.traceId,
             feature: req.feature ?? "chat",
             channel: req.channel,
@@ -439,21 +436,6 @@ export class DirectChatService {
         estimatedInputTokens: context.estimatedTokens,
         historyTruncated: context.truncated,
       };
-
-      this.usageTracker.record({
-        organizationId: req.agent.organizationId,
-        agentId: req.agent.id,
-        sessionId: req.externalSessionId,
-        traceId: trace.traceId,
-        model: result.model,
-        requestedModel: modelId,
-        usage: result.usage,
-        cost: result.cost,
-        feature: req.feature ?? "chat",
-        latencyMs: result.latencyMs,
-        retryCount: result.retryCount,
-        finishReason: result.finishReason,
-      });
 
       // Always the tokenised forms when redaction is on (no separate log switch).
       const redactTraceLog = piiCtx !== null;
@@ -657,6 +639,7 @@ export class DirectChatService {
         organizationId: req.agent.organizationId,
         agentId: req.agent.id,
         sessionId: req.externalSessionId,
+        chatSessionId: req.chatSessionId,
         traceId: trace.traceId,
         feature: req.feature ?? "chat-stream",
         // Tools (e.g. human-handover's connect_to_human). The AI SDK runs the
@@ -749,20 +732,6 @@ export class DirectChatService {
         estimatedInputTokens: context.estimatedTokens,
         historyTruncated: context.truncated,
       };
-
-      this.usageTracker.record({
-        organizationId: req.agent.organizationId,
-        agentId: req.agent.id,
-        sessionId: req.externalSessionId,
-        traceId: trace.traceId,
-        model: finalModel,
-        requestedModel: modelId,
-        usage: finalUsage,
-        cost: finalCost,
-        feature: req.feature ?? "chat-stream",
-        latencyMs: finalTotalMs,
-        finishReason: finalFinishReason,
-      });
 
       yield { type: "finish", result };
 
