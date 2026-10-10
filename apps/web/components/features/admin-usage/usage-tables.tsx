@@ -86,14 +86,39 @@ export function UsageSection({
   );
 }
 
+/**
+ * Our cost, plus what the client paid the provider directly (WhatsApp) on a
+ * second line. A row that is only client-paid shows the client amount alone,
+ * so it does not read as free.
+ */
 function CostCells({ row }: { row: CostBreakdown }) {
+  const clientOnly = row.clientRows > 0 && row.clientRows === row.rows;
+  const hasClient = row.clientRows > 0;
   return (
     <>
       <TableCell className="text-right font-medium tabular-nums">
-        {formatInr(row.costInr)}
+        {clientOnly ? (
+          <ClientAmount>{formatInr(row.clientCostInr)}</ClientAmount>
+        ) : (
+          <>
+            {formatInr(row.costInr)}
+            {hasClient && (
+              <ClientAmount>{formatInr(row.clientCostInr)}</ClientAmount>
+            )}
+          </>
+        )}
       </TableCell>
       <TableCell className="text-right text-muted-foreground tabular-nums">
-        {formatNative(row.native)}
+        {clientOnly ? (
+          <ClientAmount>{formatNative(row.clientNative)}</ClientAmount>
+        ) : (
+          <>
+            {formatNative(row.native)}
+            {hasClient && (
+              <ClientAmount>{formatNative(row.clientNative)}</ClientAmount>
+            )}
+          </>
+        )}
       </TableCell>
       <TableCell className="text-right tabular-nums">
         {formatCount(row.rows)}
@@ -107,6 +132,14 @@ function CostCells({ row }: { row: CostBreakdown }) {
         )}
       </TableCell>
     </>
+  );
+}
+
+function ClientAmount({ children }: { children: ReactNode }) {
+  return (
+    <span className="block text-xs font-normal text-muted-foreground">
+      {children} client
+    </span>
   );
 }
 

@@ -40,7 +40,7 @@ import {
   formatMoney,
 } from "./usage-format";
 
-/** How each unit price was applied, e.g. "1,000 Input token at $0.40 per 1M". */
+/** How each unit price was applied, e.g. "1,000 input tokens at $0.40 per 10,00,000". */
 function PricingDetail({ line }: { line: ConversationUsageLine }) {
   if (!line.pricing?.length) return null;
   return (
@@ -49,6 +49,7 @@ function PricingDetail({ line }: { line: ConversationUsageLine }) {
         <li key={p.unit}>
           {p.quantity.toLocaleString("en-IN")}{" "}
           {UNIT_LABELS[p.unit]?.toLowerCase() ?? p.unit}
+          {p.quantity === 1 ? "" : "s"}
           {p.price !== null && p.per !== null
             ? ` at ${formatMoney(p.price, line.currency)} per ${p.per.toLocaleString("en-IN")}`
             : " (no price)"}

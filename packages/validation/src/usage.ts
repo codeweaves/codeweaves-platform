@@ -172,8 +172,16 @@ export const createProviderPriceSchema = z.object({
     ),
   unit: z.enum(PRICE_UNITS),
   /** Amount charged for `per` units, in `currency`. */
-  price: z.number().finite().min(0).max(1_000_000_000),
-  per: z.number().int().min(1).max(1_000_000_000),
+  price: z
+    .number({ invalid_type_error: "Enter the price as a number" })
+    .finite()
+    .min(0)
+    .max(1_000_000_000),
+  per: z
+    .number({ invalid_type_error: "Enter how many units the price covers" })
+    .int()
+    .min(1)
+    .max(1_000_000_000),
   currency: z.enum(PRICE_CURRENCIES),
   effectiveFrom: isoDateOrDateTime,
   sourceUrl: z
