@@ -6,6 +6,7 @@ import { AiClassifierService } from "../../../src/common/ai/ai-classifier.servic
 import { InternalEventLogger } from "../../../src/common/events/internal.logger";
 import { CryptoService } from "../../../src/common/crypto/crypto.service";
 import { PiiTokenizerService } from "../../../src/modules/pii/pii-tokenizer.service";
+import { HeartbeatService } from "../../../src/modules/monitoring/heartbeat.service";
 
 describe("DataExtractionService", () => {
   let service: DataExtractionService;
@@ -31,6 +32,7 @@ describe("DataExtractionService", () => {
   // Vault rehydration: passthrough (detokenise is a no-op when messages have no
   // tokens). The vault itself is unit-tested in pii-tokenizer.service.spec.ts.
   const mockPiiTokenizer = { forSession: jest.fn() };
+  const mockHeartbeat = { ping: jest.fn() };
 
   const sessionId = "sess-1";
 
@@ -62,6 +64,7 @@ describe("DataExtractionService", () => {
         },
         { provide: CryptoService, useValue: mockCrypto },
         { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
+        { provide: HeartbeatService, useValue: mockHeartbeat },
       ],
     }).compile();
     service = moduleRef.get(DataExtractionService);
@@ -382,6 +385,42 @@ describe("DataExtractionService", () => {
       await new Promise((r) => setImmediate(r)); // let the pass settle + clear the guard
 
       expect(service.triggerDuePass()).toBe(true); // free again
+    });
+
+    it("pings the heartbeat only once the background pass has finished", async () => {
+      let release!: () => void;
+      mockPrisma.chatSession.findMany.mockReturnValue(
+        new Promise((resolve) => {
+          release = () => resolve([]);
+        }),
+      );
+
+      service.triggerDuePass();
+      await new Promise((r) => setImmediate(r));
+      expect(mockHeartbeat.ping).not.toHaveBeenCalled(); // started, not done
+
+      release();
+      await new Promise((r) => setImmediate(r));
+      expect(mockHeartbeat.ping).toHaveBeenCalledWith("DATA_EXTRACTION");
+    });
+
+    it("pings the heartbeat on an idle pass with nothing due", async () => {
+      mockPrisma.chatSession.findMany.mockResolvedValue([]);
+
+      service.triggerDuePass();
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockPrisma.chatSession.findMany).toHaveBeenCalled();
+      expect(mockHeartbeat.ping).toHaveBeenCalledWith("DATA_EXTRACTION");
+    });
+
+    it("does not ping the heartbeat when the pass fails", async () => {
+      mockPrisma.chatSession.findMany.mockRejectedValue(new Error("db down"));
+
+      service.triggerDuePass();
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockHeartbeat.ping).not.toHaveBeenCalled();
     });
   });
 });

@@ -16,6 +16,7 @@ import { PrismaService } from "./prisma.service";
 import { CryptoService } from "../common/crypto/crypto.service";
 import { PiiTokenizerService } from "../modules/pii/pii-tokenizer.service";
 import { InternalEventLogger } from "../common/events/internal.logger";
+import { HeartbeatService } from "../modules/monitoring/heartbeat.service";
 
 /** Outcome of one extraction attempt. `retry` leaves the session due. */
 type ExtractionOutcome = "captured" | "empty" | "retry";
@@ -62,6 +63,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     private readonly internalLog: InternalEventLogger,
     private readonly crypto: CryptoService,
     private readonly piiTokenizer: PiiTokenizerService,
+    private readonly heartbeat: HeartbeatService,
   ) {
     // Both default to sensible values; override in .env to watch it run fast
     // while testing (e.g. DATA_EXTRACT_DEBOUNCE_MS=5000, DATA_EXTRACT_POLL_MS=5000).
@@ -113,6 +115,8 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     if (this.polling) return false;
     this.polling = true;
     void this.runDuePass()
+      // The HTTP trigger only started the pass; this is where it finished.
+      .then(() => this.heartbeat.ping("DATA_EXTRACTION"))
       .catch((err) => {
         this.logger.warn(
           `Extraction pass failed: ${err instanceof Error ? err.message : "unknown"}`,

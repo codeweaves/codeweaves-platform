@@ -1,9 +1,10 @@
-import { Controller, Logger, Post, UseGuards } from '@nestjs/common';
-import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
+import { Controller, Logger, Post, UseGuards } from "@nestjs/common";
+import { ApiExcludeEndpoint, ApiTags } from "@nestjs/swagger";
 
-import { Public } from '../../decorators/public.decorator';
-import { InternalSecretGuard } from '../../guards/internal-secret.guard';
-import { HandoverService } from '../../services/handover.service';
+import { Public } from "../../decorators/public.decorator";
+import { InternalSecretGuard } from "../../guards/internal-secret.guard";
+import { HeartbeatService } from "../../modules/monitoring/heartbeat.service";
+import { HandoverService } from "../../services/handover.service";
 
 /**
  * Internal trigger for the idle-handover sweep — auto-resolves abandoned live
@@ -20,19 +21,24 @@ import { HandoverService } from '../../services/handover.service';
  * The sweep is a fast bounded DB pass (<=200 rows) + best-effort realtime, so
  * we await it and return the count rather than fire-and-forget.
  */
-@ApiTags('Internal')
+@ApiTags("Internal")
 @Public()
 @UseGuards(InternalSecretGuard)
-@Controller('internal/handover')
+@Controller("internal/handover")
 export class HandoverSweepController {
   private readonly logger = new Logger(HandoverSweepController.name);
 
-  constructor(private readonly handover: HandoverService) {}
+  constructor(
+    private readonly handover: HandoverService,
+    private readonly heartbeat: HeartbeatService,
+  ) {}
 
-  @Post('sweep')
+  @Post("sweep")
   @ApiExcludeEndpoint()
   async sweep(): Promise<{ resolved: number }> {
     const result = await this.handover.sweepIdleHandovers();
+    // Awaited run, so a successful return here is the finished sweep.
+    this.heartbeat.ping("HANDOVER_SWEEP");
     return result;
   }
 }

@@ -19,6 +19,7 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | [0010](0010-integration-addon-owns-allowed-domains.md)       | Integration add-on owns allowed domains       | Accepted | 2026-10-09 |
 | [0011](0011-llm-provider-set.md)                             | LLM providers are OpenAI, Gemini and Sarvam   | Accepted | 2026-10-10 |
 | [0012](0012-usage-ledger-and-price-list.md)                  | Usage ledger and price list                   | Accepted | 2026-10-10 |
+| [0013](0013-external-monitoring-and-alerting.md)             | External monitoring and alerting              | Accepted | 2026-10-10 |
 
 ## When to write one
 
