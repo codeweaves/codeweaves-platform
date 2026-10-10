@@ -19,8 +19,8 @@ const row = (
 
 describe("PriceCatalogService", () => {
   const findMany = jest.fn();
-  // eslint-disable-next-line @typescript-eslint/no-explicit-any
   const svc = () =>
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     new PriceCatalogService({ providerPrice: { findMany } } as any);
 
   beforeEach(() => findMany.mockReset());
