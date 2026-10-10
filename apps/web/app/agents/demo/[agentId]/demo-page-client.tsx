@@ -236,20 +236,6 @@ export function DemoPageClient({ agentId }: DemoPageClientProps) {
       }
     }
     fetchAgent();
-
-    // Fire-and-forget warmup. Pre-populates OpenAI's prompt cache for this
-    // agent so the user's first real message lands on a warm cache
-    // (~700-900ms LLM TTFT vs ~1500-2500ms cold). Mirrors the widget's
-    // warmupAgent() in apps/widget. Combined with the server's 24h prompt
-    // cache retention, this benefits every demo visitor's first turn.
-    void fetch(apiUrl("/public/chat/warmup"), {
-      method: "POST",
-      headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ agentId }),
-      keepalive: true,
-    }).catch(() => {
-      /* swallow — warmup is a hint, not a contract */
-    });
   }, [agentId]);
 
   // A reload keeps the visitor's decision for this notice revision; a changed

@@ -3,22 +3,22 @@ import {
   Logger,
   OnModuleDestroy,
   OnModuleInit,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { Prisma } from '@prisma/client';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { Prisma } from "@prisma/client";
 
 import {
   AiClassifierService,
   type ExtractableField,
-} from '../common/ai/ai-classifier.service';
+} from "../common/ai/ai-classifier.service";
 
-import { PrismaService } from './prisma.service';
-import { CryptoService } from '../common/crypto/crypto.service';
-import { PiiTokenizerService } from '../modules/pii/pii-tokenizer.service';
-import { InternalEventLogger } from '../common/events/internal.logger';
+import { PrismaService } from "./prisma.service";
+import { CryptoService } from "../common/crypto/crypto.service";
+import { PiiTokenizerService } from "../modules/pii/pii-tokenizer.service";
+import { InternalEventLogger } from "../common/events/internal.logger";
 
 /** Outcome of one extraction attempt. `retry` leaves the session due. */
-type ExtractionOutcome = 'captured' | 'empty' | 'retry';
+type ExtractionOutcome = "captured" | "empty" | "retry";
 
 /**
  * DataExtractionService: pulls an agent's configured data fields out of a
@@ -66,21 +66,21 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     // Both default to sensible values; override in .env to watch it run fast
     // while testing (e.g. DATA_EXTRACT_DEBOUNCE_MS=5000, DATA_EXTRACT_POLL_MS=5000).
     this.debounceMs = this.readMsConfig(
-      'DATA_EXTRACT_DEBOUNCE_MS',
+      "DATA_EXTRACT_DEBOUNCE_MS",
       DataExtractionService.DEFAULT_DEBOUNCE_MS,
     );
     this.pollMs = this.readMsConfig(
-      'DATA_EXTRACT_POLL_MS',
+      "DATA_EXTRACT_POLL_MS",
       DataExtractionService.DEFAULT_POLL_MS,
     );
     this.pollEnabled =
-      this.config.get<string>('DATA_EXTRACT_POLL_ENABLED') !== 'false';
+      this.config.get<string>("DATA_EXTRACT_POLL_ENABLED") !== "false";
   }
 
   onModuleInit(): void {
     if (!this.pollEnabled || this.pollMs <= 0) {
       this.logger.log(
-        'Data-extraction poller OFF (expecting an external scheduler to call /internal/data-extraction/run).',
+        "Data-extraction poller OFF (expecting an external scheduler to call /internal/data-extraction/run).",
       );
       return;
     }
@@ -115,7 +115,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     void this.runDuePass()
       .catch((err) => {
         this.logger.warn(
-          `Extraction pass failed: ${err instanceof Error ? err.message : 'unknown'}`,
+          `Extraction pass failed: ${err instanceof Error ? err.message : "unknown"}`,
         );
       })
       .finally(() => {
@@ -139,7 +139,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
       });
     } catch (err) {
       this.logger.warn(
-        `Failed to schedule extraction for session ${chatSessionId}: ${err instanceof Error ? err.message : 'unknown'}`,
+        `Failed to schedule extraction for session ${chatSessionId}: ${err instanceof Error ? err.message : "unknown"}`,
       );
     }
   }
@@ -154,7 +154,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     const now = new Date();
     const due = await this.prisma.chatSession.findMany({
       where: { extractionDueAt: { not: null, lte: now } },
-      orderBy: { extractionDueAt: 'asc' },
+      orderBy: { extractionDueAt: "asc" },
       take: DataExtractionService.MAX_PER_PASS,
       select: { id: true, extractionDueAt: true },
     });
@@ -164,7 +164,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     }
     const start = Date.now();
     this.logger.log(`Extraction poll: ${due.length} session(s) due.`);
-    this.internalLog.logStarted('DATA_EXTRACTION_RUN_STARTED', {
+    this.internalLog.logStarted("DATA_EXTRACTION_RUN_STARTED", {
       due: due.length,
     });
 
@@ -172,9 +172,9 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     for (const session of due) {
       const outcome = await this.extractForSession(session.id).catch((err) => {
         this.logger.warn(
-          `Extraction failed for session ${session.id}: ${err instanceof Error ? err.message : 'unknown'}`,
+          `Extraction failed for session ${session.id}: ${err instanceof Error ? err.message : "unknown"}`,
         );
-        return 'retry' as const;
+        return "retry" as const;
       });
 
       // 'retry' (extractor couldn't run) → leave the marker so a later pass
@@ -182,18 +182,18 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
       // pushed the due time forward meanwhile (race-safe: updateMany matches
       // zero rows if it moved, so the session stays due and is reprocessed
       // next pass, merging the newer data).
-      if (outcome === 'retry') continue;
+      if (outcome === "retry") continue;
       await this.prisma.chatSession.updateMany({
         where: { id: session.id, extractionDueAt: session.extractionDueAt },
         data: { extractionDueAt: null },
       });
-      if (outcome === 'captured') captured += 1;
+      if (outcome === "captured") captured += 1;
     }
 
     this.logger.log(
       `Extraction poll done: captured ${captured}/${due.length}.`,
     );
-    this.internalLog.logCompleted('DATA_EXTRACTION_RUN_COMPLETED', {
+    this.internalLog.logCompleted("DATA_EXTRACTION_RUN_COMPLETED", {
       latencyMs: Date.now() - start,
       metadata: { due: due.length, captured },
     });
@@ -216,21 +216,21 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
           select: {
             organizationId: true,
             dataFields: {
-              orderBy: { order: 'asc' },
+              orderBy: { order: "asc" },
               select: { key: true, label: true, type: true, description: true },
             },
           },
         },
         messages: {
-          orderBy: { createdAt: 'asc' },
+          orderBy: { createdAt: "asc" },
           select: { role: true, content: true },
         },
         collectedData: { select: { data: true } },
       },
     });
 
-    if (!session || session.agent.dataFields.length === 0) return 'empty';
-    if (session.messages.length === 0) return 'empty';
+    if (!session || session.agent.dataFields.length === 0) return "empty";
+    if (session.messages.length === 0) return "empty";
 
     const extractable: ExtractableField[] = session.agent.dataFields.map(
       (field) => ({
@@ -242,7 +242,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     );
 
     // Nothing from the user → nothing of theirs to capture; skip the LLM call.
-    if (!session.messages.some((m) => m.role === 'USER')) return 'empty';
+    if (!session.messages.some((m) => m.role === "USER")) return "empty";
 
     // The extractor LLM must NEVER see real VAULT-tier values. Build the
     // transcript from the STORED (tokenised) messages, so it only ever sees
@@ -250,13 +250,17 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     // below. This preserves the "no raw VAULT PII to the LLM" guarantee for the
     // extraction call too, not just the chat call.
     const transcript = this.buildTranscript(session.messages);
-    const rawValues = await this.ai.extractFields(transcript, extractable);
+    const rawValues = await this.ai.extractFields(transcript, extractable, {
+      organizationId: session.agent.organizationId,
+      agentId: session.agentId,
+      chatSessionId,
+    });
 
     // null = the extractor didn't actually run (unconfigured key or a failed
     // call). Retry rather than marking this conversation done, so a transient
     // blip doesn't drop a lead.
-    if (rawValues === null) return 'retry';
-    if (Object.keys(rawValues).length === 0) return 'empty';
+    if (rawValues === null) return "retry";
+    if (Object.keys(rawValues).length === 0) return "empty";
 
     // Detokenise the extracted VALUES via the session vault: a captured
     // [BANK_ACCOUNT_1] becomes the real account number before we encrypt it.
@@ -268,7 +272,8 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     );
     const values: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rawValues)) {
-      values[key] = typeof value === 'string' ? piiCtx.detokenize(value) : value;
+      values[key] =
+        typeof value === "string" ? piiCtx.detokenize(value) : value;
     }
 
     // Merge over anything captured earlier (latest value wins, e.g. a corrected
@@ -298,7 +303,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `Captured ${Object.keys(values).length} field(s) for session ${chatSessionId}.`,
     );
-    return 'captured';
+    return "captured";
   }
 
   private buildTranscript(
@@ -313,12 +318,12 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     const joined = messages
       // SYSTEM rows are event markers ("Visitor asked for a human", "X took
       // over") — never real conversation, so keep them out of the LLM context.
-      .filter((m) => m.role !== 'SYSTEM')
+      .filter((m) => m.role !== "SYSTEM")
       // Only the visitor (USER) is the data subject. The bot AND any human
       // teammate who took the chat over (HUMAN_AGENT) are the business's side,
       // so both collapse to [ASSISTANT] — used as context, never as a source.
-      .map((m) => `[${m.role === 'USER' ? 'USER' : 'ASSISTANT'}]: ${m.content}`)
-      .join('\n');
+      .map((m) => `[${m.role === "USER" ? "USER" : "ASSISTANT"}]: ${m.content}`)
+      .join("\n");
     if (joined.length <= DataExtractionService.TRANSCRIPT_CHAR_CAP) {
       return joined;
     }
@@ -333,9 +338,9 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
 }
 
 /** Map a stored DataFieldType to the JSON primitive the extractor emits. */
-function toJsonType(type: string): ExtractableField['jsonType'] {
-  if (type === 'NUMBER') return 'number';
-  if (type === 'BOOLEAN') return 'boolean';
+function toJsonType(type: string): ExtractableField["jsonType"] {
+  if (type === "NUMBER") return "number";
+  if (type === "BOOLEAN") return "boolean";
   // STRING, EMAIL, PHONE, DATE all serialise as strings.
-  return 'string';
+  return "string";
 }

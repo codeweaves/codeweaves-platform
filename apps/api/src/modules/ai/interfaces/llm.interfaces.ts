@@ -31,8 +31,7 @@ export type LlmFeature =
   | "rag-query"
   | "rag-contextual"
   | "rag-evaluation"
-  | "embedding"
-  | "warmup";
+  | "embedding";
 
 /**
  * Input shape for LLM completions. Shared between `generateCompletion()`
@@ -77,8 +76,10 @@ export interface LlmCompletionRequest {
   organizationId: string;
   /** Agent making this call. */
   agentId: string;
-  /** Session (conversation) this call belongs to, if any. */
+  /** Public session id (event logs only). */
   sessionId?: string;
+  /** Internal ChatSession id, for the usage ledger (ADR-0012). */
+  chatSessionId?: string;
   /** Assistant ChatMessage ID, set after message is persisted. */
   messageId?: string;
   /** Trace ID for cross-referencing with ChatTrace. */

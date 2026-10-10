@@ -1,13 +1,13 @@
-import { Test } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { DataExtractionService } from '../../../src/services/data-extraction.service';
-import { PrismaService } from '../../../src/services/prisma.service';
-import { AiClassifierService } from '../../../src/common/ai/ai-classifier.service';
-import { InternalEventLogger } from '../../../src/common/events/internal.logger';
-import { CryptoService } from '../../../src/common/crypto/crypto.service';
-import { PiiTokenizerService } from '../../../src/modules/pii/pii-tokenizer.service';
+import { Test } from "@nestjs/testing";
+import { ConfigService } from "@nestjs/config";
+import { DataExtractionService } from "../../../src/services/data-extraction.service";
+import { PrismaService } from "../../../src/services/prisma.service";
+import { AiClassifierService } from "../../../src/common/ai/ai-classifier.service";
+import { InternalEventLogger } from "../../../src/common/events/internal.logger";
+import { CryptoService } from "../../../src/common/crypto/crypto.service";
+import { PiiTokenizerService } from "../../../src/modules/pii/pii-tokenizer.service";
 
-describe('DataExtractionService', () => {
+describe("DataExtractionService", () => {
   let service: DataExtractionService;
 
   const mockPrisma = {
@@ -32,7 +32,7 @@ describe('DataExtractionService', () => {
   // tokens). The vault itself is unit-tested in pii-tokenizer.service.spec.ts.
   const mockPiiTokenizer = { forSession: jest.fn() };
 
-  const sessionId = 'sess-1';
+  const sessionId = "sess-1";
 
   beforeEach(async () => {
     jest.clearAllMocks();
@@ -43,7 +43,9 @@ describe('DataExtractionService', () => {
       (d: Record<string, unknown> | null | undefined) => d ?? {},
     );
     mockConfig.get.mockReturnValue(undefined); // use defaults; timer not started (.compile doesn't call onModuleInit)
-    mockPiiTokenizer.forSession.mockResolvedValue({ detokenize: (s: string) => s });
+    mockPiiTokenizer.forSession.mockResolvedValue({
+      detokenize: (s: string) => s,
+    });
     const moduleRef = await Test.createTestingModule({
       providers: [
         DataExtractionService,
@@ -52,7 +54,11 @@ describe('DataExtractionService', () => {
         { provide: ConfigService, useValue: mockConfig },
         {
           provide: InternalEventLogger,
-          useValue: { logStarted: jest.fn(), logCompleted: jest.fn(), logFailed: jest.fn() },
+          useValue: {
+            logStarted: jest.fn(),
+            logCompleted: jest.fn(),
+            logFailed: jest.fn(),
+          },
         },
         { provide: CryptoService, useValue: mockCrypto },
         { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
@@ -62,24 +68,24 @@ describe('DataExtractionService', () => {
   });
 
   const baseSession = (overrides: Record<string, unknown> = {}) => ({
-    agentId: 'agent-1',
+    agentId: "agent-1",
     agent: {
-      organizationId: 'org-1',
+      organizationId: "org-1",
       dataFields: [
-        { key: 'email', label: 'Email', type: 'EMAIL', description: null },
-        { key: 'age', label: 'Age', type: 'NUMBER', description: null },
+        { key: "email", label: "Email", type: "EMAIL", description: null },
+        { key: "age", label: "Age", type: "NUMBER", description: null },
       ],
     },
     messages: [
-      { role: 'USER', content: 'hi my email is a@b.com' },
-      { role: 'ASSISTANT', content: 'thanks' },
+      { role: "USER", content: "hi my email is a@b.com" },
+      { role: "ASSISTANT", content: "thanks" },
     ],
     collectedData: null,
     ...overrides,
   });
 
-  describe('scheduleExtraction()', () => {
-    it('stamps a future extractionDueAt on the session', async () => {
+  describe("scheduleExtraction()", () => {
+    it("stamps a future extractionDueAt on the session", async () => {
       mockPrisma.chatSession.update.mockResolvedValue({});
       const before = Date.now();
       await service.scheduleExtraction(sessionId);
@@ -88,23 +94,23 @@ describe('DataExtractionService', () => {
       const arg = mockPrisma.chatSession.update.mock.calls[0][0];
       expect(arg.where).toEqual({ id: sessionId });
       expect(arg.data.extractionDueAt).toBeInstanceOf(Date);
-      expect((arg.data.extractionDueAt as Date).getTime()).toBeGreaterThanOrEqual(
-        before,
-      );
+      expect(
+        (arg.data.extractionDueAt as Date).getTime(),
+      ).toBeGreaterThanOrEqual(before);
     });
 
-    it('swallows DB errors (must never break the reply)', async () => {
-      mockPrisma.chatSession.update.mockRejectedValue(new Error('db down'));
+    it("swallows DB errors (must never break the reply)", async () => {
+      mockPrisma.chatSession.update.mockRejectedValue(new Error("db down"));
       await expect(
         service.scheduleExtraction(sessionId),
       ).resolves.toBeUndefined();
     });
   });
 
-  describe('extractForSession()', () => {
+  describe("extractForSession()", () => {
     it("returns 'empty' (no LLM) when the session is missing", async () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(null);
-      expect(await service.extractForSession(sessionId)).toBe('empty');
+      expect(await service.extractForSession(sessionId)).toBe("empty");
       expect(mockAi.extractFields).not.toHaveBeenCalled();
     });
 
@@ -112,7 +118,7 @@ describe('DataExtractionService', () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(
         baseSession({ agent: { dataFields: [] } }),
       );
-      expect(await service.extractForSession(sessionId)).toBe('empty');
+      expect(await service.extractForSession(sessionId)).toBe("empty");
       expect(mockAi.extractFields).not.toHaveBeenCalled();
     });
 
@@ -120,38 +126,48 @@ describe('DataExtractionService', () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(
         baseSession({ messages: [] }),
       );
-      expect(await service.extractForSession(sessionId)).toBe('empty');
+      expect(await service.extractForSession(sessionId)).toBe("empty");
       expect(mockAi.extractFields).not.toHaveBeenCalled();
     });
 
     it("returns 'captured' and upserts mapped values", async () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(baseSession());
-      mockAi.extractFields.mockResolvedValue({ email: 'a@b.com' });
+      mockAi.extractFields.mockResolvedValue({ email: "a@b.com" });
       mockPrisma.collectedData.upsert.mockResolvedValue({});
 
-      expect(await service.extractForSession(sessionId)).toBe('captured');
+      expect(await service.extractForSession(sessionId)).toBe("captured");
       // EMAIL → string, NUMBER → number mapping passed to the extractor.
-      expect(mockAi.extractFields).toHaveBeenCalledWith(expect.any(String), [
-        { key: 'email', label: 'Email', jsonType: 'string', description: null },
-        { key: 'age', label: 'Age', jsonType: 'number', description: null },
-      ]);
+      expect(mockAi.extractFields).toHaveBeenCalledWith(
+        expect.any(String),
+        [
+          {
+            key: "email",
+            label: "Email",
+            jsonType: "string",
+            description: null,
+          },
+          { key: "age", label: "Age", jsonType: "number", description: null },
+        ],
+        // Usage scope for the cost ledger (ADR-0012).
+        expect.objectContaining({ chatSessionId: sessionId }),
+      );
       expect(mockPrisma.collectedData.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           where: { chatSessionId: sessionId },
           create: expect.objectContaining({
-            agentId: 'agent-1',
+            agentId: "agent-1",
             chatSessionId: sessionId,
-            data: { email: 'a@b.com' },
+            data: { email: "a@b.com" },
           }),
         }),
       );
     });
 
-    it('merges new values over previously captured data', async () => {
+    it("merges new values over previously captured data", async () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(
-        baseSession({ collectedData: { data: { name: 'Dhruv' } } }),
+        baseSession({ collectedData: { data: { name: "Dhruv" } } }),
       );
-      mockAi.extractFields.mockResolvedValue({ email: 'a@b.com' });
+      mockAi.extractFields.mockResolvedValue({ email: "a@b.com" });
       mockPrisma.collectedData.upsert.mockResolvedValue({});
 
       await service.extractForSession(sessionId);
@@ -159,7 +175,7 @@ describe('DataExtractionService', () => {
       expect(mockPrisma.collectedData.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
           update: expect.objectContaining({
-            data: { name: 'Dhruv', email: 'a@b.com' },
+            data: { name: "Dhruv", email: "a@b.com" },
           }),
         }),
       );
@@ -168,102 +184,114 @@ describe('DataExtractionService', () => {
     it("returns 'empty' and writes nothing when no values are found", async () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(baseSession());
       mockAi.extractFields.mockResolvedValue({});
-      expect(await service.extractForSession(sessionId)).toBe('empty');
+      expect(await service.extractForSession(sessionId)).toBe("empty");
       expect(mockPrisma.collectedData.upsert).not.toHaveBeenCalled();
     });
 
     it("returns 'retry' when the extractor couldn't run (null)", async () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(baseSession());
       mockAi.extractFields.mockResolvedValue(null);
-      expect(await service.extractForSession(sessionId)).toBe('retry');
+      expect(await service.extractForSession(sessionId)).toBe("retry");
       expect(mockPrisma.collectedData.upsert).not.toHaveBeenCalled();
     });
 
-    it('feeds the extractor TOKENS and detokenizes its OUTPUT (no raw VAULT to LLM)', async () => {
+    it("feeds the extractor TOKENS and detokenizes its OUTPUT (no raw VAULT to LLM)", async () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(
         baseSession({
           agent: {
-            organizationId: 'org-1',
+            organizationId: "org-1",
             dataFields: [
-              { key: 'bank_account', label: 'Bank account', type: 'STRING', description: null },
+              {
+                key: "bank_account",
+                label: "Bank account",
+                type: "STRING",
+                description: null,
+              },
             ],
           },
-          messages: [{ role: 'USER', content: 'my bank account is [BANK_ACCOUNT_1]' }],
+          messages: [
+            { role: "USER", content: "my bank account is [BANK_ACCOUNT_1]" },
+          ],
         }),
       );
       // The vault maps the token back to the real value — applied to the
       // extractor's OUTPUT, not its input.
       mockPiiTokenizer.forSession.mockResolvedValue({
-        detokenize: (s: string) => s.replace('[BANK_ACCOUNT_1]', '998877665544'),
+        detokenize: (s: string) =>
+          s.replace("[BANK_ACCOUNT_1]", "998877665544"),
       });
-      mockAi.extractFields.mockResolvedValue({ bank_account: '[BANK_ACCOUNT_1]' });
+      mockAi.extractFields.mockResolvedValue({
+        bank_account: "[BANK_ACCOUNT_1]",
+      });
       mockPrisma.collectedData.upsert.mockResolvedValue({});
 
-      expect(await service.extractForSession(sessionId)).toBe('captured');
+      expect(await service.extractForSession(sessionId)).toBe("captured");
 
       // The extractor received the TOKEN, never the real number.
       const transcriptArg = mockAi.extractFields.mock.calls[0][0] as string;
-      expect(transcriptArg).toContain('[BANK_ACCOUNT_1]');
-      expect(transcriptArg).not.toContain('998877665544');
+      expect(transcriptArg).toContain("[BANK_ACCOUNT_1]");
+      expect(transcriptArg).not.toContain("998877665544");
 
       // The STORED value is the detokenized real number (crypto is passthrough here).
       expect(mockPrisma.collectedData.upsert).toHaveBeenCalledWith(
         expect.objectContaining({
-          create: expect.objectContaining({ data: { bank_account: '998877665544' } }),
+          create: expect.objectContaining({
+            data: { bank_account: "998877665544" },
+          }),
         }),
       );
     });
 
-    it('drops SYSTEM rows and labels HUMAN_AGENT as [ASSISTANT] in the transcript', async () => {
+    it("drops SYSTEM rows and labels HUMAN_AGENT as [ASSISTANT] in the transcript", async () => {
       mockPrisma.chatSession.findUnique.mockResolvedValue(
         baseSession({
           messages: [
-            { role: 'USER', content: 'hi my email is me@self.com' },
-            { role: 'ASSISTANT', content: 'reach us at support@biz.com' },
-            { role: 'SYSTEM', content: 'Dhruv took over. AI paused' },
+            { role: "USER", content: "hi my email is me@self.com" },
+            { role: "ASSISTANT", content: "reach us at support@biz.com" },
+            { role: "SYSTEM", content: "Dhruv took over. AI paused" },
             {
-              role: 'HUMAN_AGENT',
-              content: 'this is Dhruv, ping me at dhruv@biz.com',
+              role: "HUMAN_AGENT",
+              content: "this is Dhruv, ping me at dhruv@biz.com",
             },
           ],
         }),
       );
-      mockAi.extractFields.mockResolvedValue({ email: 'me@self.com' });
+      mockAi.extractFields.mockResolvedValue({ email: "me@self.com" });
       mockPrisma.collectedData.upsert.mockResolvedValue({});
 
       await service.extractForSession(sessionId);
 
       const transcript = mockAi.extractFields.mock.calls[0][0] as string;
-      expect(transcript).toContain('[USER]: hi my email is me@self.com');
+      expect(transcript).toContain("[USER]: hi my email is me@self.com");
       // A human teammate is the business's side — never tagged [USER].
       expect(transcript).toContain(
-        '[ASSISTANT]: this is Dhruv, ping me at dhruv@biz.com',
+        "[ASSISTANT]: this is Dhruv, ping me at dhruv@biz.com",
       );
       // SYSTEM event lines never reach the LLM.
-      expect(transcript).not.toContain('took over');
-      expect(transcript).not.toContain('[SYSTEM]');
+      expect(transcript).not.toContain("took over");
+      expect(transcript).not.toContain("[SYSTEM]");
     });
   });
 
-  describe('runDuePass()', () => {
-    it('returns 0 and extracts nothing when none are due', async () => {
+  describe("runDuePass()", () => {
+    it("returns 0 and extracts nothing when none are due", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue([]);
-      const spy = jest.spyOn(service, 'extractForSession');
+      const spy = jest.spyOn(service, "extractForSession");
       expect(await service.runDuePass()).toBe(0);
       expect(spy).not.toHaveBeenCalled();
     });
 
-    it('clears the due marker for processed sessions and counts captures', async () => {
-      const due1 = new Date('2026-06-20T10:00:00Z');
-      const due2 = new Date('2026-06-20T10:01:00Z');
+    it("clears the due marker for processed sessions and counts captures", async () => {
+      const due1 = new Date("2026-06-20T10:00:00Z");
+      const due2 = new Date("2026-06-20T10:01:00Z");
       mockPrisma.chatSession.findMany.mockResolvedValue([
-        { id: 's1', extractionDueAt: due1 },
-        { id: 's2', extractionDueAt: due2 },
+        { id: "s1", extractionDueAt: due1 },
+        { id: "s2", extractionDueAt: due2 },
       ]);
       jest
-        .spyOn(service, 'extractForSession')
-        .mockResolvedValueOnce('captured')
-        .mockResolvedValueOnce('empty');
+        .spyOn(service, "extractForSession")
+        .mockResolvedValueOnce("captured")
+        .mockResolvedValueOnce("empty");
       mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
 
       const captured = await service.runDuePass();
@@ -271,26 +299,26 @@ describe('DataExtractionService', () => {
       expect(captured).toBe(1);
       // Both cleared (captured + empty are both "done"), race-safe on the value.
       expect(mockPrisma.chatSession.updateMany).toHaveBeenCalledWith({
-        where: { id: 's1', extractionDueAt: due1 },
+        where: { id: "s1", extractionDueAt: due1 },
         data: { extractionDueAt: null },
       });
       expect(mockPrisma.chatSession.updateMany).toHaveBeenCalledWith({
-        where: { id: 's2', extractionDueAt: due2 },
+        where: { id: "s2", extractionDueAt: due2 },
         data: { extractionDueAt: null },
       });
     });
 
     it("leaves the due marker (no clear) when extraction returns 'retry'", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue([
-        { id: 's1', extractionDueAt: new Date('2026-06-20T10:00:00Z') },
+        { id: "s1", extractionDueAt: new Date("2026-06-20T10:00:00Z") },
       ]);
-      jest.spyOn(service, 'extractForSession').mockResolvedValue('retry');
+      jest.spyOn(service, "extractForSession").mockResolvedValue("retry");
 
       expect(await service.runDuePass()).toBe(0);
       expect(mockPrisma.chatSession.updateMany).not.toHaveBeenCalled();
     });
 
-    it('queries only sessions whose due time has passed', async () => {
+    it("queries only sessions whose due time has passed", async () => {
       mockPrisma.chatSession.findMany.mockResolvedValue([]);
       await service.runDuePass();
       const arg = mockPrisma.chatSession.findMany.mock.calls[0][0];
@@ -299,8 +327,8 @@ describe('DataExtractionService', () => {
     });
   });
 
-  describe('triggerDuePass()', () => {
-    it('starts a background pass and is overlap-guarded (no concurrent pass)', async () => {
+  describe("triggerDuePass()", () => {
+    it("starts a background pass and is overlap-guarded (no concurrent pass)", async () => {
       // Make the pass hang so it stays "in flight" across the second call.
       let release!: () => void;
       mockPrisma.chatSession.findMany.mockReturnValue(

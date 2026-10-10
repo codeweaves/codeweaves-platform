@@ -173,6 +173,7 @@ model Organization {
   agents          Agent[]
   notifications   Notification[]
   roleAssignments UserRoleAssignment[]
+  usageRecords    UsageRecord[]
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
   deletedAt       DateTime?
@@ -306,6 +307,7 @@ model Agent {
   collectedData           CollectedData[]
   chatSessions            ChatSession[]
   notifications           Notification[]
+  usageRecords            UsageRecord[]
   visitorConsents         VisitorConsent[]
   createdAt               DateTime           @default(now())
   updatedAt               DateTime           @updatedAt
@@ -596,6 +598,7 @@ model ChatSession {
   collectedData       CollectedData?
   // Append-only history of every handover cycle on this chat (see HandoverEvent).
   handoverEvents      HandoverEvent[]
+  usageRecords        UsageRecord[]
   createdAt           DateTime        @default(now())
   updatedAt           DateTime        @updatedAt
   lastMessageAt       DateTime?
@@ -941,6 +944,139 @@ model LlmUsage {
   @@index([feature])
   @@index([traceId])
   @@map("llm_usage")
+}
+
+// ============================================================================
+// Usage cost ledger (ADR-0012)
+// ============================================================================
+
+/// What one price row is charged per. `per` on the row says how many units the
+/// price covers (e.g. 1,000,000 tokens, 3,600 seconds, 1 character).
+enum PriceUnit {
+  INPUT_TOKEN
+  CACHED_INPUT_TOKEN
+  CACHE_WRITE_TOKEN
+  OUTPUT_TOKEN
+  AUDIO_SECOND
+  CHARACTER
+  MESSAGE
+  EMAIL
+}
+
+enum Currency {
+  USD
+  INR
+}
+
+/// Which part of the product spent the money.
+enum UsageFeature {
+  CHAT // agent replies: widget text, voice, WhatsApp
+  SUMMARY // rolling conversation summary
+  TITLE // conversation title
+  CLASSIFIER // topic category + language detection
+  DATA_EXTRACTION // background data-capture field extraction
+  RAG // retrieval-time LLM calls (query rewrite, contextual chunking, eval)
+  EMBEDDING
+  STT // speech-to-text
+  TTS // text-to-speech
+  VOICE_PREVIEW // editor voice preview, platform cost
+  WHATSAPP_MESSAGE // Meta per-message charge, paid by the client
+  EMAIL // Resend, per recipient
+}
+
+/// How the billable quantity was obtained.
+enum QuantitySource {
+  PROVIDER_REPORTED // read from the provider's response (token usage, duration)
+  MEASURED // counted by us (characters sent, decoded audio length)
+  ESTIMATED // approximated (e.g. a stream aborted before its usage arrived)
+}
+
+/// Who pays the provider. CLIENT rows are shown apart from our own cost.
+enum BilledTo {
+  PLATFORM
+  CLIENT // e.g. WhatsApp: Meta bills the client's own WhatsApp Business Account
+}
+
+/// List price of one billable unit, effective from a date. A price change adds
+/// a new row; rows are never edited, so past costs stay reproducible.
+model ProviderPrice {
+  id            String    @id @default(uuid())
+  /// Lower-case provider key: 'openai', 'gemini', 'sarvam', 'deepgram', ...
+  provider      String
+  /// Model name without the provider prefix ('gpt-4.1-mini'); '*' = any model.
+  model         String
+  unit          PriceUnit
+  /// Amount charged for `per` units, in `currency`.
+  price         Decimal   @db.Decimal(18, 8)
+  per           Int
+  currency      Currency
+  effectiveFrom DateTime
+  /// Where the price came from (pricing page, invoice). Required.
+  sourceUrl     String
+  note          String?
+  createdById   String?
+  createdAt     DateTime  @default(now())
+
+  @@unique([provider, model, unit, effectiveFrom])
+  @@index([provider, model])
+  @@map("provider_prices")
+}
+
+/// One billable provider call. Cost is computed by us from the quantities and
+/// the price list (ADR-0012), in the provider's currency; reports convert to
+/// INR at query time with fx_rates.
+model UsageRecord {
+  id                String         @id @default(uuid())
+  occurredAt        DateTime       @default(now())
+  /// Null for platform cost not tied to a client (e.g. voice previews).
+  organizationId    String?
+  organization      Organization?  @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  agentId           String?
+  agent             Agent?         @relation(fields: [agentId], references: [id], onDelete: SetNull)
+  /// Internal ChatSession id. Erasing the conversation keeps the cost row.
+  chatSessionId     String?
+  chatSession       ChatSession?   @relation(fields: [chatSessionId], references: [id], onDelete: SetNull)
+  messageId         String?
+  traceId           String?
+  channel           EventChannel
+  feature           UsageFeature
+  provider          String
+  model             String
+  providerRequestId String?
+  inputTokens       Int?
+  cachedInputTokens Int?
+  cacheWriteTokens  Int?
+  outputTokens      Int?
+  reasoningTokens   Int?
+  audioSeconds      Decimal?       @db.Decimal(12, 3)
+  characters        Int?
+  units             Int?
+  /// Null when no price matched; the call is still recorded and flagged.
+  cost              Decimal?       @db.Decimal(18, 8)
+  currency          Currency?
+  /// Snapshot of the unit prices used: [{ unit, priceId, price, per, quantity, amount }].
+  pricing           Json?
+  quantitySource    QuantitySource
+  billedTo          BilledTo       @default(PLATFORM)
+  latencyMs         Int?
+
+  @@index([organizationId, occurredAt])
+  @@index([agentId, occurredAt])
+  @@index([chatSessionId])
+  @@index([provider, model, occurredAt])
+  @@index([occurredAt])
+  @@map("usage_records")
+}
+
+/// Daily USD→INR reference rate for converting costs in reports.
+model FxRate {
+  date      DateTime @id @db.Date
+  usdToInr  Decimal  @db.Decimal(12, 6)
+  /// 'frankfurter' (central-bank reference rate) or 'manual'.
+  source    String
+  fetchedAt DateTime @default(now())
+
+  @@map("fx_rates")
 }
 
 // Reversible PII tokenization map ("vault"). One row per unique PII value per
