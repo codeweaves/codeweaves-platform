@@ -145,21 +145,6 @@ export function getDeviceId(): string {
 }
 
 /**
- * The device ID this browser already has, or null. Never creates one.
- *
- * For calls made before the visitor uses the chat (the load-time warmup): the
- * ID is set on first use of the chat, the service the visitor asked for, not
- * on page load (EDPB 2/2023 on terminal storage). The server falls back to the
- * IP for rate limiting when the header is absent.
- */
-export function peekDeviceId(): string | null {
-  if (cachedDeviceId) return cachedDeviceId;
-  const stored = readLocalStorage() ?? readCookie();
-  if (stored) cachedDeviceId = stored;
-  return stored;
-}
-
-/**
  * Clears the cached device ID and removes it from all storage.
  * Useful for logout or GDPR data clearing flows.
  */

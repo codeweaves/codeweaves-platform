@@ -8,7 +8,6 @@ import {
   Res,
   Req,
   HttpException,
-  HttpCode,
 } from "@nestjs/common";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
 import { AppLogger } from "../../common/logger/app-logger";
@@ -40,11 +39,6 @@ import type { ChatMessageMetadata } from "../../services/chat-metadata.interface
 import { detectFallback } from "../../utils/fallback-detection";
 
 const STREAM_TIMEOUT_MS = 30_000;
-
-const warmupSchema = z.object({
-  agentId: z.string().min(1).max(128),
-});
-type WarmupDto = z.infer<typeof warmupSchema>;
 
 const requestHumanSchema = z.object({
   agentId: z.string().min(1).max(128),
@@ -78,93 +72,6 @@ export class PublicChatController {
    */
   private visitorFrom(req: Request): VisitorIdentity {
     return resolveWebVisitor(this.crypto, req);
-  }
-
-  /**
-   * Warmup: fire a tiny LLM call to populate OpenAI's prompt cache for this
-   * agent's system prompt + KB before the user types their first message.
-   *
-   * Triggered by the widget when it loads (or when the user first opens it).
-   * By the time the user actually types (~5-60s later), OpenAI has the
-   * 1280-token prefix cached → first-message LLM TTFT drops from ~1500-2500ms
-   * cold to ~700-900ms warm. Combined with `prompt_cache_retention: '24h'`,
-   * the cache stays alive across the entire day.
-   *
-   * Fire-and-forget: returns 204 immediately. The background LLM call runs to
-   * completion (~700-1500ms) and populates the cache. If the call fails (rate
-   * limit, network), the next real user message just pays the cold tax — same
-   * as before this endpoint existed. No downstream consequences.
-   *
-   * Rate-limit via the existing per-device message rate limiter — abuse here
-   * would translate to LLM cost, so we cap it.
-   */
-  @Post("warmup")
-  @HttpCode(204)
-  @ApiOperation({ summary: "Pre-warm the agent's LLM prompt cache" })
-  @ApiResponse({ status: 204, description: "Warmup queued" })
-  async warmup(
-    @Body(new ZodValidationPipe(warmupSchema)) dto: WarmupDto,
-    @Req() req: Request,
-  ): Promise<void> {
-    const deviceId = this.messageRateLimitService.getDeviceIdentifier(req);
-    const clientIp = this.messageRateLimitService.getClientIp(req);
-    const rateLimitResult =
-      await this.messageRateLimitService.checkMessageRateLimit(
-        deviceId,
-        dto.agentId,
-        clientIp,
-      );
-    // Silently skip if rate-limited — warmup is a perf hint, not a real action.
-    if (!rateLimitResult.allowed) return;
-
-    // Resolve agent first (cheap, will hit allowedDomains middleware cache too).
-    // If the agent doesn't exist we silently no-op — never leak existence info
-    // via the warmup endpoint.
-    let agent: Awaited<ReturnType<ChatService["resolveAgent"]>>;
-    try {
-      agent = await this.chatService.resolveAgent(dto.agentId);
-    } catch {
-      return;
-    }
-
-    const routingMode = resolveRoutingMode(agent.aiConfig);
-    // Only OpenAI-backed agents benefit from auto-cache. n8n mode is a no-op.
-    if (routingMode !== "direct") return;
-
-    // Fire-and-forget the LLM call. Use the streaming path so the actual wire
-    // format matches what the real chat endpoint sends — that's what OpenAI's
-    // cache fingerprints on. We discard chunks; we only care about the prefix
-    // landing in the backend's cache.
-    void (async () => {
-      try {
-        const fullAgent = await this.prisma.agent.findUnique({
-          where: { id: agent.id },
-        });
-        if (!fullAgent) return;
-        const stream = this.directChatService.stream({
-          agent: fullAgent,
-          chatSessionId: "warmup",
-          externalSessionId: "warmup",
-          newUserMessage: "ping",
-          recentHistory: [],
-          feature: "warmup",
-        });
-        // eslint-disable-next-line @typescript-eslint/no-unused-vars
-        for await (const _chunk of stream) {
-          // Drain the stream. We don't need any chunk content — the side
-          // effect (populating OpenAI's prompt cache) happens server-side as
-          // the LLM call progresses, independent of whether we read chunks.
-        }
-      } catch (err) {
-        this.log.warn(
-          "warmup",
-          `background LLM warmup failed for agent ${agent.id}`,
-          {
-            err: err instanceof Error ? err.message : String(err),
-          },
-        );
-      }
-    })();
   }
 
   @Post("send")

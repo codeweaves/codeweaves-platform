@@ -9,7 +9,7 @@
 
 import type { SendMessageResponse } from "../types";
 import type { ConsentNoticeView } from "./consent";
-import { getDeviceId, peekDeviceId } from "../utils/device-id";
+import { getDeviceId } from "../utils/device-id";
 import { WidgetApiError, mapResponseError } from "./api-errors";
 import { fetchWithRetry } from "./fetch-utils";
 import {
@@ -63,39 +63,6 @@ function ensureInit(): void {
       retryable: false,
     });
   }
-}
-
-/**
- * Fire-and-forget warmup hint to the backend. Pre-populates OpenAI's prompt
- * cache for this agent so the user's first real message lands on a warm cache
- * (~700-900ms LLM TTFT instead of ~1500-2500ms cold). Combined with the
- * server's `prompt_cache_retention: '24h'`, this benefits every user that
- * opens the widget — even the day's first visitor.
- *
- * Returns immediately. The fetch is sent without awaiting the response — if
- * the backend takes 700ms to fire its LLM call in the background, we don't
- * care, the widget UI shouldn't block. Errors are swallowed.
- */
-export function warmupAgent(agentId: string): void {
-  if (!baseUrl) return;
-  // Use fetch directly (no retry, no error mapping) — this is a hint, not a
-  // contract. If it fails, the user just pays the cold-start tax on their
-  // first message — same as before this function existed.
-  // Runs on page load, before the visitor touches the chat, so it must not
-  // create the device ID (see peekDeviceId). Send one only if it exists.
-  const existing = peekDeviceId();
-  const headers: Record<string, string> = {
-    "Content-Type": "application/json",
-  };
-  if (existing) headers["X-Device-Id"] = existing;
-  void fetch(`${baseUrl}/api/klivo/v1/public/chat/warmup`, {
-    method: "POST",
-    headers,
-    body: JSON.stringify({ agentId }),
-    keepalive: true, // tolerate page unload races
-  }).catch(() => {
-    /* swallow */
-  });
 }
 
 // ── sendMessage (Task 2) ────────────────────────────────────────────

@@ -11,7 +11,7 @@ import {
 import { revealWidget } from "../shadow-dom";
 import { isDomainAllowed } from "../utils/domain-validator";
 import { debug, warn } from "../utils/debug";
-import { initApiClient, warmupAgent } from "../services/api-client";
+import { initApiClient } from "../services/api-client";
 import { initVoiceClient } from "../services/voice-client";
 import { initSession } from "../services/session-manager";
 import {
@@ -180,12 +180,6 @@ export function Widget({ agentId, apiBaseUrl = "", hostElement }: WidgetProps) {
           initApiClient(apiBaseUrl);
           initVoiceClient(apiBaseUrl);
           initSession(agentId);
-
-          // Fire-and-forget warmup: pre-populates OpenAI's prompt cache for
-          // this agent so the user's first real message lands on a warm cache
-          // (~700-900ms LLM TTFT vs ~1500-2500ms cold). Combined with the
-          // server's 24h cache retention, this benefits every widget load.
-          warmupAgent(agentId);
 
           // Reload / tab close = new session (matches `session-manager.ts`'s
           // in-memory-only behaviour). The chat history is intentionally NOT
