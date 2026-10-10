@@ -1,4 +1,11 @@
-import { Body, Controller, Get, HttpCode, Post } from "@nestjs/common";
+import {
+  Body,
+  Controller,
+  Get,
+  HttpCode,
+  Post,
+  UseGuards,
+} from "@nestjs/common";
 import {
   ApiBearerAuth,
   ApiOperation,
@@ -12,6 +19,7 @@ import {
   type CurrentUserData,
 } from "../../decorators/current-user.decorator";
 import { RequirePermission } from "../../decorators/require-permission.decorator";
+import { PlatformOnlyGuard } from "../../guards/platform-only.guard";
 import {
   createProviderPriceSchema,
   type CreateProviderPrice,
@@ -30,6 +38,7 @@ import {
  */
 @ApiTags("Admin: prices")
 @ApiBearerAuth()
+@UseGuards(PlatformOnlyGuard)
 @Controller("admin/prices")
 export class PriceAdminController {
   constructor(private readonly prices: PriceAdminService) {}

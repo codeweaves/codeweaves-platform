@@ -5,6 +5,7 @@ import {
   ParseUUIDPipe,
   Query,
   Res,
+  UseGuards,
 } from "@nestjs/common";
 import {
   ApiBearerAuth,
@@ -22,6 +23,7 @@ import {
   type CurrentUserData,
 } from "../../decorators/current-user.decorator";
 import { RequirePermission } from "../../decorators/require-permission.decorator";
+import { PlatformOnlyGuard } from "../../guards/platform-only.guard";
 import {
   usageQuerySchema,
   usageRankQuerySchema,
@@ -54,6 +56,7 @@ import {
  */
 @ApiTags("Admin: usage")
 @ApiBearerAuth()
+@UseGuards(PlatformOnlyGuard)
 @Controller("admin/usage")
 export class UsageReportController {
   private readonly log = new AppLogger(UsageReportController.name);
