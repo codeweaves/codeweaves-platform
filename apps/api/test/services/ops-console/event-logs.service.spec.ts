@@ -114,7 +114,7 @@ describe("EventLogsService", () => {
       ]);
 
       const page = await service.list(parse({}));
-      const row = page.data[0];
+      const row = page.data[0]!;
 
       expect(row.requestUrl).not.toContain("AIza-secret");
       expect(row.requestUrl).toContain("alt=sse");

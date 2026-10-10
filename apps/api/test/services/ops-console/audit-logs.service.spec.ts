@@ -151,8 +151,8 @@ describe("AuditLogsService", () => {
         agent: { id: "ag-1", name: "Helper" },
       }),
     );
-    expect(page.data[1].organization).toBeNull();
-    expect(page.data[1].agent).toBeNull();
+    expect(page.data[1]!.organization).toBeNull();
+    expect(page.data[1]!.agent).toBeNull();
   });
 
   it("skips the name lookups when the page is empty", async () => {
@@ -184,7 +184,7 @@ describe("AuditLogsService", () => {
 
     const page = await service.list(parse({}));
 
-    expect(page.data[0].data).toEqual({
+    expect(page.data[0]!.data).toEqual({
       name: "HUBSPOT",
       apiKey: "[REDACTED]",
       nested: { password: "[REDACTED]" },

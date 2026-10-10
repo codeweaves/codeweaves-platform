@@ -22,14 +22,13 @@ export interface CronJobDefinition {
   /** Null when the job records no failure event of its own. */
   failedEvent: string | null;
   expectedEveryMinutes: number;
-  /**
-   * The job records a run only when it had work. A gap then means "no work",
-   * not "not running", so it reads as idle instead of overdue.
-   */
-  logsOnlyWhenBusy?: boolean;
 }
 
-/** Every internal cron (docs/runbooks/cron-jobs.md) and the event it records. */
+/**
+ * Every internal cron (docs/runbooks/cron-jobs.md) and the event it records.
+ * Each job writes its completed event on every run, idle runs included, so a
+ * gap always means the scheduler stopped calling it.
+ */
 export const CRON_JOBS: readonly CronJobDefinition[] = [
   {
     key: "dataExtraction",
@@ -38,7 +37,6 @@ export const CRON_JOBS: readonly CronJobDefinition[] = [
     completedEvent: "DATA_EXTRACTION_RUN_COMPLETED",
     failedEvent: null,
     expectedEveryMinutes: 1,
-    logsOnlyWhenBusy: true,
   },
   {
     key: "handoverSweep",
@@ -82,7 +80,7 @@ export const CRON_JOBS: readonly CronJobDefinition[] = [
   },
 ];
 
-export type CronJobState = "ok" | "failed" | "overdue" | "never" | "idle";
+export type CronJobState = "ok" | "failed" | "overdue" | "never";
 
 export interface CronJobStatus {
   key: string;
@@ -336,10 +334,11 @@ export function buildJobStatus(
   const stuck = !!backlog && backlog.waiting > 0;
 
   let state: CronJobState;
-  if (stuck) state = "overdue";
-  else if (!lastRun) state = job.logsOnlyWhenBusy ? "idle" : "never";
+  if (!lastRun) state = "never";
   else if (failedLast) state = "failed";
-  else if (stale) state = job.logsOnlyWhenBusy ? "idle" : "overdue";
+  // Stuck work counts as overdue even when runs are recent: the job runs but
+  // does not clear what is due.
+  else if (stale || stuck) state = "overdue";
   else state = "ok";
 
   return {

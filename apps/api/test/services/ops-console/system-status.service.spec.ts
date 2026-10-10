@@ -66,6 +66,12 @@ describe("SystemStatusService", () => {
             latencyMs: null,
             errorMessage: null,
           },
+          {
+            eventName: "DATA_EXTRACTION_RUN_COMPLETED",
+            createdAt: minutesAgo(1),
+            latencyMs: 0,
+            errorMessage: null,
+          },
         ],
         'GROUP BY "eventName"': [
           { eventName: "HANDOVER_SWEEP_COMPLETED", count: 288 },
@@ -121,10 +127,10 @@ describe("SystemStatusService", () => {
     // Daily job last seen 50 h ago: more than twice its schedule.
     expect(job("fxRate").state).toBe("overdue");
     expect(job("retention").state).toBe("never");
-    // Only logs when busy, and nothing is waiting: idle, not alarming.
+    // Ran 1 minute ago (an idle pass still logs a row), nothing waiting.
     expect(job("dataExtraction")).toEqual(
       expect.objectContaining({
-        state: "idle",
+        state: "ok",
         backlog: { waiting: 0, oldestDueAt: null },
       }),
     );
@@ -139,7 +145,7 @@ describe("SystemStatusService", () => {
       lastFailureAt: minutesAgo(2).toISOString(),
       alert: true,
     });
-    expect(status.providers.rows[1].alert).toBe(false);
+    expect(status.providers.rows[1]!.alert).toBe(false);
 
     expect(status.unpricedUsage).toEqual({
       windowHours: 24,
@@ -255,7 +261,29 @@ describe("buildJobStatus", () => {
     ).toBe("overdue");
   });
 
-  it("flags a busy-only job as overdue when conversations are stuck waiting", () => {
+  it("data extraction is overdue 2 minutes after its last (even idle) run", () => {
+    const extraction = CRON_JOBS.find((j) => j.key === "dataExtraction")!;
+    const at = (m: number) =>
+      buildJobStatus(
+        extraction,
+        row(minutesAgo(m)),
+        undefined,
+        1,
+        0,
+        { waiting: 0, oldestDueAt: null },
+        NOW,
+      ).state;
+    expect(at(1)).toBe("ok");
+    expect(at(3)).toBe("overdue");
+  });
+
+  it("is never when no run was recorded", () => {
+    expect(
+      buildJobStatus(daily, undefined, undefined, 0, 0, undefined, NOW).state,
+    ).toBe("never");
+  });
+
+  it("flags data extraction as overdue when conversations are stuck waiting", () => {
     const extraction = CRON_JOBS.find((j) => j.key === "dataExtraction")!;
     const s = buildJobStatus(
       extraction,

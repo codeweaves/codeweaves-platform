@@ -281,6 +281,44 @@ describe("DataExtractionService", () => {
       expect(spy).not.toHaveBeenCalled();
     });
 
+    it("records exactly one COMPLETED row on an idle pass (cron liveness)", async () => {
+      mockPrisma.chatSession.findMany.mockResolvedValue([]);
+      const internalLog = (
+        service as unknown as { internalLog: InternalEventLogger }
+      ).internalLog;
+
+      await service.runDuePass();
+
+      expect(internalLog.logStarted).not.toHaveBeenCalled();
+      expect(internalLog.logCompleted).toHaveBeenCalledTimes(1);
+      expect(internalLog.logCompleted).toHaveBeenCalledWith(
+        "DATA_EXTRACTION_RUN_COMPLETED",
+        expect.objectContaining({ metadata: { due: 0, captured: 0 } }),
+      );
+    });
+
+    it("keeps the STARTED / COMPLETED pair on a busy pass", async () => {
+      mockPrisma.chatSession.findMany.mockResolvedValue([
+        { id: "s1", extractionDueAt: new Date("2026-06-20T10:00:00Z") },
+      ]);
+      jest.spyOn(service, "extractForSession").mockResolvedValue("captured");
+      mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
+      const internalLog = (
+        service as unknown as { internalLog: InternalEventLogger }
+      ).internalLog;
+
+      await service.runDuePass();
+
+      expect(internalLog.logStarted).toHaveBeenCalledWith(
+        "DATA_EXTRACTION_RUN_STARTED",
+        { due: 1 },
+      );
+      expect(internalLog.logCompleted).toHaveBeenCalledWith(
+        "DATA_EXTRACTION_RUN_COMPLETED",
+        expect.objectContaining({ metadata: { due: 1, captured: 1 } }),
+      );
+    });
+
     it("clears the due marker for processed sessions and counts captures", async () => {
       const due1 = new Date("2026-06-20T10:00:00Z");
       const due2 = new Date("2026-06-20T10:01:00Z");
