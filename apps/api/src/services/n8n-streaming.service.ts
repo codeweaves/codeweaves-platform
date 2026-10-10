@@ -1,17 +1,21 @@
-import { lookup } from 'node:dns/promises';
-import { isIP } from 'node:net';
+import { lookup } from "node:dns/promises";
+import { isIP } from "node:net";
 
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { N8nStreamChunk, VALID_CHUNK_TYPES } from './n8n-stream.interface';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { N8nStreamChunk, VALID_CHUNK_TYPES } from "./n8n-stream.interface";
+import { maskSessionId } from "../common/events/redaction.util";
 
 const DEFAULT_STREAM_TIMEOUT_MS = 30_000;
 const MAX_BUFFER_SIZE = 1_048_576; // 1 MB
 
 /** True if an IPv4 literal is in a range the server must never dial. */
 function isBlockedIpv4(ip: string): boolean {
-  const octets = ip.split('.').map(Number);
-  if (octets.length !== 4 || octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)) {
+  const octets = ip.split(".").map(Number);
+  if (
+    octets.length !== 4 ||
+    octets.some((o) => !Number.isInteger(o) || o < 0 || o > 255)
+  ) {
     return true; // unparseable → block
   }
   const [a, b] = octets as [number, number, number, number];
@@ -32,25 +36,25 @@ function isBlockedIpv4(ip: string): boolean {
  * `0:0:0:0:0:0:0:1`) — textual prefix matching cannot do this safely.
  */
 function expandIpv6(ip: string): number[] | null {
-  let s = ip.toLowerCase().split('%')[0]!; // drop any zone index
+  let s = ip.toLowerCase().split("%")[0]!; // drop any zone index
 
   // A trailing dotted-quad occupies the last two groups.
   let tailGroups: number[] = [];
   const dotted = s.match(/(\d+\.\d+\.\d+\.\d+)$/);
   if (dotted) {
-    const o = dotted[1]!.split('.').map(Number);
+    const o = dotted[1]!.split(".").map(Number);
     if (o.some((n) => !Number.isInteger(n) || n < 0 || n > 255)) return null;
     tailGroups = [(o[0]! << 8) | o[1]!, (o[2]! << 8) | o[3]!];
-    s = s.slice(0, dotted.index!).replace(/:$/, '');
-    if (s === '') s = '::';
+    s = s.slice(0, dotted.index!).replace(/:$/, "");
+    if (s === "") s = "::";
   }
 
-  const halves = s.split('::');
+  const halves = s.split("::");
   if (halves.length > 2) return null;
 
   const parseSide = (side: string): number[] | null => {
     if (!side) return [];
-    const parts = side.split(':');
+    const parts = side.split(":");
     const out: number[] = [];
     for (const p of parts) {
       if (!/^[0-9a-f]{1,4}$/.test(p)) return null;
@@ -59,8 +63,8 @@ function expandIpv6(ip: string): number[] | null {
     return out;
   };
 
-  const head = parseSide(halves[0] ?? '');
-  const tail = halves.length === 2 ? parseSide(halves[1] ?? '') : [];
+  const head = parseSide(halves[0] ?? "");
+  const tail = halves.length === 2 ? parseSide(halves[1] ?? "") : [];
   if (head === null || tail === null) return null;
 
   const explicit = [...head, ...tail, ...tailGroups];
@@ -129,7 +133,8 @@ export class N8nStreamingService {
 
   constructor(private readonly configService: ConfigService) {
     this.streamTimeoutMs =
-      this.configService.get<number>('N8N_STREAM_TIMEOUT_MS') ?? DEFAULT_STREAM_TIMEOUT_MS;
+      this.configService.get<number>("N8N_STREAM_TIMEOUT_MS") ??
+      DEFAULT_STREAM_TIMEOUT_MS;
   }
 
   /**
@@ -160,51 +165,57 @@ export class N8nStreamingService {
     let response: Response;
     try {
       response = await fetch(webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ chatInput: message, sessionId }),
         signal: combinedSignal,
         // Never auto-follow redirects: a 30x to an internal address would bypass
         // the pre-flight host check below (SSRF via redirect).
-        redirect: 'error',
+        redirect: "error",
       });
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'TimeoutError') {
-        this.logger.warn(`Streaming timeout for session ${sessionId}`);
-        throw new Error('Streaming request timed out');
+      if (error instanceof DOMException && error.name === "TimeoutError") {
+        this.logger.warn(
+          `Streaming timeout for session ${maskSessionId(sessionId)}`,
+        );
+        throw new Error("Streaming request timed out");
       }
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        this.logger.debug(`Stream aborted for session ${sessionId}`);
+      if (error instanceof DOMException && error.name === "AbortError") {
+        this.logger.debug(
+          `Stream aborted for session ${maskSessionId(sessionId)}`,
+        );
         return;
       }
       this.logger.error(
-        `Streaming fetch error for session ${sessionId}: ${error instanceof Error ? error.message : 'Unknown'}`,
+        `Streaming fetch error for session ${maskSessionId(sessionId)}: ${error instanceof Error ? error.message : "Unknown"}`,
       );
-      throw new Error('Failed to connect to streaming endpoint');
+      throw new Error("Failed to connect to streaming endpoint");
     }
 
     if (!response.ok) {
       const errorBody = await this.safeReadErrorBody(response);
       this.logger.error(
-        `Streaming endpoint returned ${response.status} for session ${sessionId}: ${errorBody}`,
+        `Streaming endpoint returned ${response.status} for session ${maskSessionId(sessionId)}: ${errorBody}`,
       );
       throw new Error(`Streaming endpoint returned HTTP ${response.status}`);
     }
 
     const body = response.body;
     if (!body) {
-      this.logger.error(`No response body for streaming session ${sessionId}`);
-      throw new Error('Streaming response has no body');
+      this.logger.error(
+        `No response body for streaming session ${maskSessionId(sessionId)}`,
+      );
+      throw new Error("Streaming response has no body");
     }
 
     const reader = body.getReader();
     const decoder = new TextDecoder();
-    let buffer = '';
+    let buffer = "";
 
     const onAbort = () => {
       reader.cancel().catch(() => {});
     };
-    combinedSignal.addEventListener('abort', onAbort, { once: true });
+    combinedSignal.addEventListener("abort", onAbort, { once: true });
 
     try {
       while (true) {
@@ -214,12 +225,14 @@ export class N8nStreamingService {
         buffer += decoder.decode(value, { stream: true });
 
         if (buffer.length > MAX_BUFFER_SIZE) {
-          this.logger.error(`Buffer exceeded ${MAX_BUFFER_SIZE} bytes for session ${sessionId}, aborting`);
-          throw new Error('Streaming response exceeded maximum buffer size');
+          this.logger.error(
+            `Buffer exceeded ${MAX_BUFFER_SIZE} bytes for session ${maskSessionId(sessionId)}, aborting`,
+          );
+          throw new Error("Streaming response exceeded maximum buffer size");
         }
 
-        const lines = buffer.split('\n');
-        buffer = lines.pop() || '';
+        const lines = buffer.split("\n");
+        buffer = lines.pop() || "";
 
         for (const line of lines) {
           const chunk = this.parseChunk(line, sessionId);
@@ -233,17 +246,21 @@ export class N8nStreamingService {
         if (chunk) yield chunk;
       }
     } catch (error) {
-      if (error instanceof DOMException && error.name === 'AbortError') {
-        this.logger.debug(`Stream reading aborted for session ${sessionId}`);
+      if (error instanceof DOMException && error.name === "AbortError") {
+        this.logger.debug(
+          `Stream reading aborted for session ${maskSessionId(sessionId)}`,
+        );
         return;
       }
-      if (error instanceof DOMException && error.name === 'TimeoutError') {
-        this.logger.warn(`Stream reading timed out for session ${sessionId}`);
-        throw new Error('Streaming request timed out');
+      if (error instanceof DOMException && error.name === "TimeoutError") {
+        this.logger.warn(
+          `Stream reading timed out for session ${maskSessionId(sessionId)}`,
+        );
+        throw new Error("Streaming request timed out");
       }
       throw error;
     } finally {
-      combinedSignal.removeEventListener('abort', onAbort);
+      combinedSignal.removeEventListener("abort", onAbort);
       reader.releaseLock();
     }
   }
@@ -260,11 +277,11 @@ export class N8nStreamingService {
     try {
       url = new URL(webhookUrl);
     } catch {
-      throw new Error('Invalid webhook URL');
+      throw new Error("Invalid webhook URL");
     }
 
-    if (url.protocol !== 'http:' && url.protocol !== 'https:') {
-      throw new Error('Webhook URL must use http or https');
+    if (url.protocol !== "http:" && url.protocol !== "https:") {
+      throw new Error("Webhook URL must use http or https");
     }
 
     // Enforce SSRF host-blocking in PRODUCTION only. Local dev/test rigs
@@ -274,17 +291,17 @@ export class N8nStreamingService {
     // hatch to disable it even in production (e.g. a private-network n8n reached
     // over a VPC); it never forces blocking on elsewhere.
     const enforceBlock =
-      process.env.NODE_ENV === 'production' &&
-      process.env.N8N_ALLOW_PRIVATE_WEBHOOK_HOSTS !== 'true';
+      process.env.NODE_ENV === "production" &&
+      process.env.N8N_ALLOW_PRIVATE_WEBHOOK_HOSTS !== "true";
     if (!enforceBlock) return;
 
     // `URL.hostname` wraps IPv6 literals in brackets ("[::1]"); strip them so
     // isIP/range-checking sees the bare address.
-    const host = url.hostname.replace(/^\[|\]$/g, '');
+    const host = url.hostname.replace(/^\[|\]$/g, "");
 
     if (isIP(host)) {
       if (isBlockedAddress(host)) {
-        throw new Error('Webhook URL resolves to a disallowed address');
+        throw new Error("Webhook URL resolves to a disallowed address");
       }
       return;
     }
@@ -293,12 +310,12 @@ export class N8nStreamingService {
     try {
       addresses = await lookup(host, { all: true });
     } catch {
-      throw new Error('Webhook host could not be resolved');
+      throw new Error("Webhook host could not be resolved");
     }
 
     for (const { address } of addresses) {
       if (isBlockedAddress(address)) {
-        throw new Error('Webhook URL resolves to a disallowed address');
+        throw new Error("Webhook URL resolves to a disallowed address");
       }
     }
   }
@@ -315,22 +332,26 @@ export class N8nStreamingService {
     try {
       parsed = JSON.parse(trimmed) as Record<string, unknown>;
     } catch {
-      this.logger.warn(`Malformed chunk skipped for session ${sessionId}: ${trimmed.slice(0, 100)}`);
+      this.logger.warn(
+        `Malformed chunk skipped for session ${maskSessionId(sessionId)}: ${trimmed.slice(0, 100)}`,
+      );
       return null;
     }
 
     const type = parsed.type;
-    if (typeof type !== 'string' || !VALID_CHUNK_TYPES.has(type)) {
-      this.logger.warn(`Unknown chunk type skipped for session ${sessionId}: ${String(type)}`);
+    if (typeof type !== "string" || !VALID_CHUNK_TYPES.has(type)) {
+      this.logger.warn(
+        `Unknown chunk type skipped for session ${maskSessionId(sessionId)}: ${String(type)}`,
+      );
       return null;
     }
 
     const chunk = parsed as unknown as N8nStreamChunk;
 
     // Validate begin/end chunks have metadata with timestamp
-    if ((type === 'begin' || type === 'end') && !chunk.metadata?.timestamp) {
+    if ((type === "begin" || type === "end") && !chunk.metadata?.timestamp) {
       this.logger.warn(
-        `${type} chunk missing metadata.timestamp for session ${sessionId}, yielding anyway`,
+        `${type} chunk missing metadata.timestamp for session ${maskSessionId(sessionId)}, yielding anyway`,
       );
     }
 
@@ -345,7 +366,7 @@ export class N8nStreamingService {
       const text = await response.text();
       return text.slice(0, 200);
     } catch {
-      return '(unable to read error body)';
+      return "(unable to read error body)";
     }
   }
 }

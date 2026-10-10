@@ -2,7 +2,11 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../services/prisma.service";
 import { getRequestContext } from "./correlation.storage";
-import { sanitizeHeaders, capJson } from "../events/redaction.util";
+import {
+  sanitizeHeaders,
+  capJson,
+  maskSessionInUrl,
+} from "../events/redaction.util";
 import type { EventLogInput } from "../events/event-log.types";
 import {
   maskPiiDeep,
@@ -151,7 +155,7 @@ export class TracerService {
           ),
           sessionId: await this.resolveChatSessionId(input.sessionId),
           correlationId: input.correlationId ?? ctx?.correlationId ?? null,
-          requestUrl: input.requestUrl ?? null,
+          requestUrl: maskSessionInUrl(input.requestUrl) ?? null,
           responseStatus: input.responseStatus ?? null,
           latencyMs: input.latencyMs ?? null,
           success: input.success ?? true,

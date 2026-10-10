@@ -10,6 +10,7 @@ import { Observable } from "rxjs";
 import { tap } from "rxjs/operators";
 import { getRequestContext } from "../common/tracer/correlation.storage";
 import { maskPiiText } from "../modules/pii/mask-pii";
+import { maskSessionInUrl } from "../common/events/redaction.util";
 import { TracerService } from "../common/tracer/tracer.service";
 import {
   resolveChannel,
@@ -65,7 +66,7 @@ export class LoggingInterceptor implements NestInterceptor {
           const res = context.switchToHttp().getResponse();
           if (!quiet) {
             this.logger.log(
-              `← ${method} ${originalUrl} ${res.statusCode} ${Date.now() - now}ms`,
+              `← ${method} ${maskSessionInUrl(originalUrl)} ${res.statusCode} ${Date.now() - now}ms`,
             );
           }
           if (captureEnvelope && res.statusCode < 400) {
@@ -79,7 +80,7 @@ export class LoggingInterceptor implements NestInterceptor {
             err instanceof Error ? err.message : "Unknown error",
           );
           this.logger.error(
-            `← ${method} ${originalUrl} ${status} ${Date.now() - now}ms — ${message}`,
+            `← ${method} ${maskSessionInUrl(originalUrl)} ${status} ${Date.now() - now}ms — ${message}`,
           );
         },
       }),

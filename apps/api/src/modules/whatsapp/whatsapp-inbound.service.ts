@@ -3,6 +3,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { CryptoService } from "../../common/crypto/crypto.service";
 import { ChatService } from "../../services/chat.service";
 import { PrismaService } from "../../services/prisma.service";
+import { maskSessionId } from "../../common/events/redaction.util";
 import { DirectChatService } from "../ai/direct-chat.service";
 import type { DirectChatResult } from "../ai/interfaces/direct-chat.interfaces";
 import type {
@@ -203,7 +204,7 @@ export class WhatsappInboundService {
         userText,
       );
       this.logger.log(
-        `WhatsApp session ${session.sessionId} is in human handover — AI reply suppressed.`,
+        `WhatsApp session ${maskSessionId(session.sessionId)} is in human handover — AI reply suppressed.`,
       );
       return;
     }
@@ -263,7 +264,7 @@ export class WhatsappInboundService {
       });
     } catch (err) {
       this.logger.error(
-        `Orchestration failed for session ${session.sessionId} (${maskPhone(from)}): ${err instanceof Error ? err.message : String(err)}`,
+        `Orchestration failed for session ${maskSessionId(session.sessionId)} (${maskPhone(from)}): ${err instanceof Error ? err.message : String(err)}`,
       );
       this.whatsappLog.logInboundException({
         agentId: agent.id,
@@ -281,7 +282,7 @@ export class WhatsappInboundService {
     const replyText = result.text?.trim() ?? "";
     if (!replyText) {
       this.logger.warn(
-        `Empty reply for session ${session.sessionId} — nothing to send.`,
+        `Empty reply for session ${maskSessionId(session.sessionId)} — nothing to send.`,
       );
       return;
     }
@@ -323,7 +324,7 @@ export class WhatsappInboundService {
         replyMode = "voice";
       } catch (err) {
         this.logger.warn(
-          `Voice reply failed for session ${session.sessionId} — falling back to text: ${err instanceof Error ? err.message : String(err)}`,
+          `Voice reply failed for session ${maskSessionId(session.sessionId)} — falling back to text: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }
@@ -340,7 +341,7 @@ export class WhatsappInboundService {
         delivered = true;
       } catch (err) {
         this.logger.error(
-          `Failed to deliver reply for session ${session.sessionId}: ${err instanceof Error ? err.message : String(err)}`,
+          `Failed to deliver reply for session ${maskSessionId(session.sessionId)}: ${err instanceof Error ? err.message : String(err)}`,
         );
       }
     }

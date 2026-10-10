@@ -80,6 +80,53 @@ const TOKEN_METRIC_KEYS = new Set([
   "timetolasttoken",
 ]);
 
+/**
+ * Keys holding the public widget session id. It is a bearer credential (it
+ * reads and posts to that conversation), so logs keep only a prefix: enough
+ * to match lines, useless as a credential. Internal ids (chatSessionId) are
+ * not credentials and stay whole.
+ */
+const SESSION_ID_KEYS = new Set(["sessionid", "publicsessionid"]);
+const SESSION_ID_PREFIX = 8;
+
+/** The loggable form of a public session id: its first 8 characters. */
+export function maskSessionId(id: string | null | undefined): string {
+  if (!id) return String(id);
+  return id.length > SESSION_ID_PREFIX
+    ? `${id.slice(0, SESSION_ID_PREFIX)}…`
+    : id;
+}
+
+/**
+ * Routes that carry the public session id in the path, and query params that
+ * carry it. Only id-like segments (16+ id characters) are masked, so static
+ * route names such as /handover/inbox stay readable.
+ */
+const SESSION_IN_PATH =
+  /(\/(?:public\/chat|conversations|handover|dev\/ai\/sessions)\/)([A-Za-z0-9_-]{16,})/g;
+const SESSION_IN_QUERY =
+  /([?&](?:sessionId|session|publicSessionId)=)([^&#]+)/gi;
+
+/** A URL safe to log: any public session id in it is cut to its prefix. */
+export function maskSessionInUrl(url: string): string;
+export function maskSessionInUrl(
+  url: string | null | undefined,
+): string | null | undefined;
+export function maskSessionInUrl(
+  url: string | null | undefined,
+): string | null | undefined {
+  if (!url) return url;
+  return url
+    .replace(
+      SESSION_IN_PATH,
+      (_m, prefix: string, id: string) => `${prefix}${maskSessionId(id)}`,
+    )
+    .replace(
+      SESSION_IN_QUERY,
+      (_m, key: string, id: string) => `${key}${maskSessionId(id)}`,
+    );
+}
+
 /** True when an object key's VALUE must be replaced with [REDACTED]. */
 export function isSensitiveKey(key: string): boolean {
   const k = key.toLowerCase();
@@ -140,7 +187,11 @@ export function redact(value: unknown, depth = 0): unknown {
       )
       .map(([k, v]) => [
         k,
-        isSensitiveKey(k) ? "[REDACTED]" : redact(v, depth + 1),
+        isSensitiveKey(k)
+          ? "[REDACTED]"
+          : SESSION_ID_KEYS.has(k.toLowerCase()) && typeof v === "string"
+            ? maskSessionId(v)
+            : redact(v, depth + 1),
       ]),
   );
 }

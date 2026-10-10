@@ -8,6 +8,7 @@ import { AgentsService } from "./agents.service";
 import { HmacService } from "../common/security/hmac.service";
 import { CryptoService } from "../common/crypto/crypto.service";
 import { TracerService } from "../common/tracer/tracer.service";
+import { maskSessionId } from "../common/events/redaction.util";
 import { WidgetEventLogger } from "../common/events/widget.logger";
 import { AppLogger } from "../common/logger/app-logger";
 import { DirectChatService } from "../modules/ai/direct-chat.service";
@@ -989,7 +990,7 @@ export class ChatService {
       if (error instanceof DOMException && error.name === "TimeoutError") {
         this.log.warn(
           "callN8nWebhook",
-          `n8n webhook timeout for session ${sessionId}`,
+          `n8n webhook timeout for session ${maskSessionId(sessionId)}`,
           { sessionId },
         );
         throw new BadGatewayException(
@@ -998,7 +999,7 @@ export class ChatService {
       }
       this.log.error(
         "callN8nWebhook",
-        `n8n webhook network error for session ${sessionId}`,
+        `n8n webhook network error for session ${maskSessionId(sessionId)}`,
         error,
         { sessionId },
       );
@@ -1010,7 +1011,7 @@ export class ChatService {
     if (!response.ok) {
       this.log.error(
         "callN8nWebhook",
-        `n8n webhook returned ${response.status} for session ${sessionId}`,
+        `n8n webhook returned ${response.status} for session ${maskSessionId(sessionId)}`,
         undefined,
         { sessionId, status: response.status },
       );
@@ -1047,7 +1048,7 @@ export class ChatService {
         );
         this.log.error(
           "callN8nWebhook",
-          `unexpected n8n response format for session ${sessionId}`,
+          `unexpected n8n response format for session ${maskSessionId(sessionId)}`,
           undefined,
           { sessionId, preview: truncated },
         );
@@ -1065,7 +1066,7 @@ export class ChatService {
       if (error instanceof BadGatewayException) throw error;
       this.log.error(
         "callN8nWebhook",
-        `failed to parse n8n response for session ${sessionId}`,
+        `failed to parse n8n response for session ${maskSessionId(sessionId)}`,
         error,
         { sessionId },
       );
