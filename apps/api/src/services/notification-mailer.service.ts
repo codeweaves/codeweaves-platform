@@ -1,9 +1,9 @@
-import { Injectable } from '@nestjs/common';
-import { PrismaService } from './prisma.service';
-import { EmailService } from './email.service';
-import { EmailTemplateService } from './email-template.service';
-import type { EmailTemplateKey } from './email-template.registry';
-import { AppLogger } from '../common/logger/app-logger';
+import { Injectable } from "@nestjs/common";
+import { PrismaService } from "./prisma.service";
+import { EmailService } from "./email.service";
+import { EmailTemplateService } from "./email-template.service";
+import type { EmailTemplateKey } from "./email-template.registry";
+import { AppLogger } from "../common/logger/app-logger";
 
 /**
  * Hard ceiling on recipients per notification email.
@@ -73,9 +73,12 @@ export class NotificationMailerService {
     tagType: string;
   }): Promise<void> {
     try {
-      const to = await this.resolveRecipients(input.organizationId, input.recipients);
+      const to = await this.resolveRecipients(
+        input.organizationId,
+        input.recipients,
+      );
       if (to.length === 0) {
-        this.log.warn('send', 'no recipients resolved — skipping email', {
+        this.log.warn("send", "no recipients resolved — skipping email", {
           organizationId: input.organizationId,
           templateKey: input.templateKey,
         });
@@ -93,10 +96,11 @@ export class NotificationMailerService {
         html,
         text,
         tags: { type: input.tagType },
+        organizationId: input.organizationId,
       });
     } catch (err) {
       // Swallowed on purpose — see the class doc.
-      this.log.warn('send', 'notification email failed (ignored)', {
+      this.log.warn("send", "notification email failed (ignored)", {
         organizationId: input.organizationId,
         templateKey: input.templateKey,
         err: err instanceof Error ? err.message : String(err),

@@ -53,6 +53,7 @@ describe("VoiceController", () => {
     synthesize: jest.fn(),
     getVoiceConfig: jest.fn(),
     streamingTTS: jest.fn(),
+    recordSttUsage: jest.fn(),
   };
 
   const mockChatService = {
@@ -222,6 +223,7 @@ describe("VoiceController", () => {
     mockChatService.resolveAgent.mockResolvedValue({
       id: AGENT_ID,
       hmacEnabled: false,
+      organizationId: "org-id",
     });
 
     // Default: rate limit allowed
@@ -290,6 +292,16 @@ describe("VoiceController", () => {
 
       expect(res.status).toHaveBeenCalledWith(HttpStatus.NOT_ACCEPTABLE);
       expect(result.errorCode).toBe(voiceErrorCodes.PROVIDER_UNAVAILABLE);
+      expect(mockVoiceService.recordSttUsage).toHaveBeenCalledTimes(1);
+      expect(mockVoiceService.recordSttUsage).toHaveBeenCalledWith(
+        mockSttResult,
+        {
+          organizationId: "org-id",
+          agentId: AGENT_ID,
+          chatSessionId: null,
+          channel: "VOICE",
+        },
+      );
       expect(
         mockN8nStreamingService.streamFromWebhookUrl,
       ).not.toHaveBeenCalled();
@@ -417,6 +429,44 @@ describe("VoiceController", () => {
 
       expect(res.status).toHaveBeenCalledWith(HttpStatus.UNPROCESSABLE_ENTITY);
       expect(result.errorCode).toBe(voiceErrorCodes.NO_SPEECH_DETECTED);
+      // An empty transcript was still a billed STT call.
+      expect(mockVoiceService.recordSttUsage).toHaveBeenCalledTimes(1);
+      expect(mockVoiceService.recordSttUsage.mock.calls[0][1]).toEqual(
+        expect.objectContaining({ chatSessionId: null }),
+      );
+    });
+
+    it("passes the widget's recording length to STT", async () => {
+      mockVoiceService.transcribe.mockResolvedValueOnce({
+        ...mockSttResult,
+        transcript: "",
+      });
+
+      await controller.voiceConversation(
+        createMockAudioFile(),
+        { agentId: AGENT_ID, durationMs: 4200 },
+        streamingReq(),
+        createMockResponse(),
+      );
+
+      expect(mockVoiceService.transcribe).toHaveBeenCalledWith(
+        expect.objectContaining({ durationMs: 4200 }),
+      );
+    });
+
+    it("records nothing when STT itself fails (no billed call)", async () => {
+      mockVoiceService.transcribe.mockRejectedValueOnce(
+        new VoiceProviderError("sarvam", "down"),
+      );
+
+      await controller.voiceConversation(
+        createMockAudioFile(),
+        { agentId: AGENT_ID },
+        streamingReq(),
+        createMockResponse(),
+      );
+
+      expect(mockVoiceService.recordSttUsage).not.toHaveBeenCalled();
     });
   });
 
@@ -458,6 +508,10 @@ describe("VoiceController", () => {
         confidence: 0.95,
         latencyMs: 150,
       });
+      expect(mockVoiceService.recordSttUsage).toHaveBeenCalledWith(
+        mockSttResult,
+        { organizationId: "org-id", agentId: AGENT_ID, channel: "VOICE" },
+      );
     });
 
     it("should pass audio buffer and mimetype to voiceService", async () => {
@@ -552,6 +606,15 @@ describe("VoiceController", () => {
         durationMs: 2000,
         latencyMs: 300,
       });
+      expect(mockVoiceService.synthesize).toHaveBeenCalledWith(
+        expect.objectContaining({
+          usage: {
+            organizationId: "org-id",
+            agentId: AGENT_ID,
+            channel: "VOICE",
+          },
+        }),
+      );
     });
 
     it("should pass optional voiceId and speed to voiceService", async () => {
@@ -935,6 +998,23 @@ describe("VoiceController", () => {
       expect(parsed[0].text).toBe("Hello, how are you?");
       expect(parsed[1].type).toBe("audio");
       expect(parsed[2].type).toBe("end");
+
+      expect(mockVoiceService.recordSttUsage).toHaveBeenCalledTimes(1);
+      expect(mockVoiceService.recordSttUsage).toHaveBeenCalledWith(
+        mockSttResult,
+        {
+          organizationId: "org-id",
+          agentId: AGENT_ID,
+          chatSessionId: "session-123",
+          channel: "VOICE",
+        },
+      );
+      expect(mockVoiceService.streamingTTS.mock.calls[0][4]).toEqual({
+        organizationId: "org-id",
+        agentId: AGENT_ID,
+        chatSessionId: "session-123",
+        channel: "VOICE",
+      });
     });
 
     it("handover pause: captures the inbound once (no double-persist) and skips the AI", async () => {

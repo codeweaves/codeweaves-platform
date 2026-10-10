@@ -1,15 +1,17 @@
-import { Test } from '@nestjs/testing';
-import { ConfigService } from '@nestjs/config';
-import { DataRetentionService } from '../../../src/services/data-retention.service';
-import { EventLogRetentionService } from '../../../src/services/event-log-retention.service';
-import { PrismaService } from '../../../src/services/prisma.service';
+import { Test } from "@nestjs/testing";
+import { ConfigService } from "@nestjs/config";
+import { DataRetentionService } from "../../../src/services/data-retention.service";
+import { EventLogRetentionService } from "../../../src/services/event-log-retention.service";
+import { PrismaService } from "../../../src/services/prisma.service";
+import { InternalEventLogger } from "../../../src/common/events/internal.logger";
 
-describe('DataRetentionService', () => {
+describe("DataRetentionService", () => {
   let service: DataRetentionService;
 
   const mockPrisma = { $executeRaw: jest.fn() };
   const mockConfig = { get: jest.fn() };
   const mockEventLogRetention = { cleanup: jest.fn() };
+  const mockInternalLog = { logCompleted: jest.fn(), logFailed: jest.fn() };
 
   const env = (vars: Record<string, string | undefined>) => {
     mockConfig.get.mockImplementation((key: string) => vars[key]);
@@ -31,12 +33,13 @@ describe('DataRetentionService', () => {
         { provide: PrismaService, useValue: mockPrisma },
         { provide: ConfigService, useValue: mockConfig },
         { provide: EventLogRetentionService, useValue: mockEventLogRetention },
+        { provide: InternalEventLogger, useValue: mockInternalLog },
       ],
     }).compile();
     service = moduleRef.get(DataRetentionService);
   });
 
-  it('defaults: chat_traces armed at 90 days, audit_logs kept forever', async () => {
+  it("defaults: chat_traces armed at 90 days, audit_logs kept forever", async () => {
     const result = await service.run();
 
     // chat_traces swept with the 90-day default…
@@ -53,8 +56,8 @@ describe('DataRetentionService', () => {
     expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(1);
   });
 
-  it('respects configured windows for both tables', async () => {
-    env({ CHAT_TRACE_RETENTION_DAYS: '30', AUDIT_LOG_RETENTION_DAYS: '400' });
+  it("respects configured windows for both tables", async () => {
+    env({ CHAT_TRACE_RETENTION_DAYS: "30", AUDIT_LOG_RETENTION_DAYS: "400" });
 
     const result = await service.run();
 
@@ -65,8 +68,8 @@ describe('DataRetentionService', () => {
     expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(2);
   });
 
-  it('window=0 disables a sweep entirely (no DELETE issued)', async () => {
-    env({ CHAT_TRACE_RETENTION_DAYS: '0' });
+  it("window=0 disables a sweep entirely (no DELETE issued)", async () => {
+    env({ CHAT_TRACE_RETENTION_DAYS: "0" });
 
     const result = await service.run();
 
@@ -78,8 +81,8 @@ describe('DataRetentionService', () => {
     expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
   });
 
-  it('treats a non-numeric window as disabled, not as the default', async () => {
-    env({ CHAT_TRACE_RETENTION_DAYS: 'yes please' });
+  it("treats a non-numeric window as disabled, not as the default", async () => {
+    env({ CHAT_TRACE_RETENTION_DAYS: "yes please" });
 
     const result = await service.run();
 
@@ -87,7 +90,7 @@ describe('DataRetentionService', () => {
     expect(mockPrisma.$executeRaw).not.toHaveBeenCalled();
   });
 
-  it('keeps deleting in batches until a short batch signals completion', async () => {
+  it("keeps deleting in batches until a short batch signals completion", async () => {
     // Two full batches then a partial one → 3 statements, counts summed.
     mockPrisma.$executeRaw
       .mockResolvedValueOnce(5000)
@@ -100,7 +103,7 @@ describe('DataRetentionService', () => {
     expect(mockPrisma.$executeRaw).toHaveBeenCalledTimes(3);
   });
 
-  it('uses a cutoff of now minus the window', async () => {
+  it("uses a cutoff of now minus the window", async () => {
     const before = Date.now();
     const result = await service.run();
     const after = Date.now();
@@ -111,17 +114,47 @@ describe('DataRetentionService', () => {
     expect(cutoff).toBeLessThanOrEqual(after - ninetyDays + 1000);
   });
 
-  it('delegates event_logs to the existing retention service', async () => {
+  it("delegates event_logs to the existing retention service", async () => {
     mockEventLogRetention.cleanup.mockResolvedValue({
       deleted: 42,
       skipped: false,
       retentionDays: 365,
-      cutoff: '2025-07-24T00:00:00.000Z',
+      cutoff: "2025-07-24T00:00:00.000Z",
     });
 
     const result = await service.run();
 
     expect(mockEventLogRetention.cleanup).toHaveBeenCalledTimes(1);
     expect(result.eventLogs.deleted).toBe(42);
+  });
+
+  it("records RETENTION_RUN_COMPLETED with the deleted counts", async () => {
+    mockPrisma.$executeRaw.mockResolvedValueOnce(3);
+
+    await service.run();
+
+    expect(mockInternalLog.logCompleted).toHaveBeenCalledWith(
+      "RETENTION_RUN_COMPLETED",
+      expect.objectContaining({
+        metadata: {
+          deleted: { chatTraces: 3, auditLogs: 0, eventLogs: 0 },
+        },
+      }),
+    );
+    expect(mockInternalLog.logFailed).not.toHaveBeenCalled();
+  });
+
+  it("records RETENTION_RUN_FAILED and rethrows when a sweep fails", async () => {
+    const boom = new Error("statement timeout");
+    mockPrisma.$executeRaw.mockRejectedValue(boom);
+
+    await expect(service.run()).rejects.toThrow("statement timeout");
+
+    expect(mockInternalLog.logFailed).toHaveBeenCalledWith(
+      "RETENTION_RUN_FAILED",
+      boom,
+      expect.anything(),
+    );
+    expect(mockInternalLog.logCompleted).not.toHaveBeenCalled();
   });
 });

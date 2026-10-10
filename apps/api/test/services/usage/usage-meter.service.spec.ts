@@ -119,6 +119,28 @@ describe("UsageMeterService", () => {
     });
   });
 
+  it("drops a duplicate of a fixed-id row without retrying (another instance stored it)", async () => {
+    price.mockResolvedValue({ cost: 0.115, currency: "INR", lines: [] });
+    create.mockRejectedValue(
+      new Prisma.PrismaClientKnownRequestError("unique", {
+        code: "P2002",
+        clientVersion: "test",
+      }),
+    );
+    await meter().write({ ...event, id: "fixed-id" });
+    expect(create).toHaveBeenCalledTimes(1);
+    expect(create).toHaveBeenCalledWith({
+      data: expect.objectContaining({ id: "fixed-id" }),
+    });
+  });
+
+  it("lets the database pick the id when none is given", async () => {
+    price.mockResolvedValue({ cost: 0, currency: null, lines: [] });
+    create.mockResolvedValue({});
+    await meter().write(event);
+    expect(create.mock.calls[0][0].data).not.toHaveProperty("id");
+  });
+
   it("waits for in-flight writes on shutdown", async () => {
     price.mockResolvedValue({ cost: 0, currency: null, lines: [] });
     let finish!: () => void;

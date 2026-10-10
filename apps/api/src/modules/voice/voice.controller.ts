@@ -187,7 +187,7 @@ export class VoiceController {
 
     // Step 1: STT
     const sttStart = Date.now();
-    let sttResult;
+    let sttResult: STTResponse;
     try {
       sttResult = await this.voiceService.transcribe({
         audio: audioFile.buffer,
@@ -195,6 +195,7 @@ export class VoiceController {
         languageHint: dto.languageHint as SupportedLanguage | undefined,
         agentId: resolvedAgentId,
         sessionId: dto.sessionId,
+        durationMs: dto.durationMs,
       });
     } catch (error) {
       const { errorCode, status } = this.classifyVoiceError(error);
@@ -229,157 +230,178 @@ export class VoiceController {
     }
     const sttLatencyMs = Date.now() - sttStart;
 
-    if (!sttResult.transcript.trim()) {
-      // STT couldn't extract clear speech. Could be noisy audio, mumbled input, or a
-      // too-short recording — we don't differentiate; one generic message keeps copy simple.
-      this.log.warn("voiceConversation", "no speech detected in audio", {
+    // The STT call is billed now, but the conversation is only known once
+    // handleStreamingVoice resolves it. Record exactly once: with the session
+    // when the turn gets that far, without it when the turn ends earlier.
+    let sttRecorded = false;
+    const recordStt = (chatSessionId: string | null): void => {
+      if (sttRecorded) return;
+      sttRecorded = true;
+      this.voiceService.recordSttUsage(sttResult, {
+        organizationId: agent.organizationId,
         agentId: resolvedAgentId,
-        detectedLanguage: sttResult.detectedLanguage,
+        chatSessionId,
+        channel: "VOICE",
       });
-      res.status(HttpStatus.UNPROCESSABLE_ENTITY);
-      return {
-        error: true,
-        errorCode: voiceErrorCodes.NO_SPEECH_DETECTED,
-        message:
-          "We couldn't make that out. Please try again from a quieter spot.",
-      };
-    }
+    };
 
-    // Streaming-only path. Clients MUST send Accept: application/x-ndjson.
-    // Branches into direct-mode (no webhook needed) or n8n-mode (webhook URL
-    // required) based on the agent's aiConfig.routingMode. Legacy non-streaming
-    // fallback was removed — every voice consumer uses streaming exclusively.
-    const clientAcceptsNdjson = req.headers["accept"]?.includes(
-      "application/x-ndjson",
-    );
-    if (!clientAcceptsNdjson) {
-      this.log.warn(
-        "voiceConversation",
-        "client does not accept application/x-ndjson",
-        {
+    try {
+      if (!sttResult.transcript.trim()) {
+        // STT couldn't extract clear speech. Could be noisy audio, mumbled input, or a
+        // too-short recording — we don't differentiate; one generic message keeps copy simple.
+        this.log.warn("voiceConversation", "no speech detected in audio", {
           agentId: resolvedAgentId,
-        },
-      );
-      res.status(HttpStatus.NOT_ACCEPTABLE);
-      return {
-        error: true,
-        errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
-        message:
-          "Voice conversation requires a streaming-capable client (Accept: application/x-ndjson).",
-      };
-    }
-
-    // Resolve full agent for routing-mode + aiConfig inspection. ChatService.resolveAgent
-    // returns a stripped projection, so we hit the DB again for the full record.
-    // Cheap query (PK lookup) and only runs on the voice endpoint.
-    const fullAgent = await this.prisma.agent.findUniqueOrThrow({
-      where: { id: resolvedAgentId },
-    });
-    const routingMode = resolveRoutingMode(fullAgent.aiConfig);
-    this.log.info("voiceConversation", "routing resolved", {
-      agentId: resolvedAgentId,
-      routingMode,
-    });
-
-    let webhookUrl: string | null = null;
-    if (routingMode === "n8n") {
-      try {
-        webhookUrl =
-          await this.agentsService.getEffectiveWebhookUrl(resolvedAgentId);
-      } catch (error) {
-        if (!(error instanceof NotFoundException)) {
-          this.log.error(
-            "voiceConversation",
-            "failed to fetch webhook URL",
-            error,
-            {
-              agentId: resolvedAgentId,
-            },
-          );
-        }
+          detectedLanguage: sttResult.detectedLanguage,
+        });
+        res.status(HttpStatus.UNPROCESSABLE_ENTITY);
+        return {
+          error: true,
+          errorCode: voiceErrorCodes.NO_SPEECH_DETECTED,
+          message:
+            "We couldn't make that out. Please try again from a quieter spot.",
+        };
       }
-      if (!webhookUrl) {
+
+      // Streaming-only path. Clients MUST send Accept: application/x-ndjson.
+      // Branches into direct-mode (no webhook needed) or n8n-mode (webhook URL
+      // required) based on the agent's aiConfig.routingMode. Legacy non-streaming
+      // fallback was removed — every voice consumer uses streaming exclusively.
+      const clientAcceptsNdjson = req.headers["accept"]?.includes(
+        "application/x-ndjson",
+      );
+      if (!clientAcceptsNdjson) {
         this.log.warn(
           "voiceConversation",
-          "n8n agent has no webhook URL configured",
+          "client does not accept application/x-ndjson",
           {
             agentId: resolvedAgentId,
           },
         );
-        res.status(HttpStatus.PRECONDITION_FAILED);
+        res.status(HttpStatus.NOT_ACCEPTABLE);
         return {
           error: true,
           errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
           message:
-            "Agent is not configured for voice conversations (no webhook URL).",
+            "Voice conversation requires a streaming-capable client (Accept: application/x-ndjson).",
         };
       }
-    }
 
-    let voiceConfig: VoiceConfigDto;
-    try {
-      voiceConfig = await this.voiceService.getVoiceConfig(resolvedAgentId);
-    } catch (error) {
+      // Resolve full agent for routing-mode + aiConfig inspection. ChatService.resolveAgent
+      // returns a stripped projection, so we hit the DB again for the full record.
+      // Cheap query (PK lookup) and only runs on the voice endpoint.
+      const fullAgent = await this.prisma.agent.findUniqueOrThrow({
+        where: { id: resolvedAgentId },
+      });
+      const routingMode = resolveRoutingMode(fullAgent.aiConfig);
+      this.log.info("voiceConversation", "routing resolved", {
+        agentId: resolvedAgentId,
+        routingMode,
+      });
+
+      let webhookUrl: string | null = null;
+      if (routingMode === "n8n") {
+        try {
+          webhookUrl =
+            await this.agentsService.getEffectiveWebhookUrl(resolvedAgentId);
+        } catch (error) {
+          if (!(error instanceof NotFoundException)) {
+            this.log.error(
+              "voiceConversation",
+              "failed to fetch webhook URL",
+              error,
+              {
+                agentId: resolvedAgentId,
+              },
+            );
+          }
+        }
+        if (!webhookUrl) {
+          this.log.warn(
+            "voiceConversation",
+            "n8n agent has no webhook URL configured",
+            {
+              agentId: resolvedAgentId,
+            },
+          );
+          res.status(HttpStatus.PRECONDITION_FAILED);
+          return {
+            error: true,
+            errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
+            message:
+              "Agent is not configured for voice conversations (no webhook URL).",
+          };
+        }
+      }
+
+      let voiceConfig: VoiceConfigDto;
+      try {
+        voiceConfig = await this.voiceService.getVoiceConfig(resolvedAgentId);
+      } catch (error) {
+        this.log.warn(
+          "voiceConversation",
+          "failed to fetch voice config — defaulting to TTS enabled",
+          {
+            agentId: resolvedAgentId,
+            error: error instanceof Error ? error.message : "unknown",
+          },
+        );
+        voiceConfig = { ttsEnabled: true } as VoiceConfigDto;
+      }
+
+      // Direct-mode streaming: agent has aiConfig.routingMode = 'direct', so we
+      // bypass n8n entirely and pipe DirectChatService → voice adapter → existing
+      // VoiceService.streamingTTS pipeline. No webhook URL needed.
+      if (routingMode === "direct") {
+        await this.handleStreamingVoice(
+          dto,
+          sttResult,
+          sttLatencyMs,
+          "direct",
+          fullAgent,
+          null,
+          voiceConfig,
+          startTime,
+          res,
+          resolvedAgentId,
+          visitor,
+          recordStt,
+        );
+        return;
+      }
+
+      if (webhookUrl) {
+        await this.handleStreamingVoice(
+          dto,
+          sttResult,
+          sttLatencyMs,
+          "n8n",
+          fullAgent,
+          webhookUrl,
+          voiceConfig,
+          startTime,
+          res,
+          resolvedAgentId,
+          visitor,
+          recordStt,
+        );
+        return;
+      }
+
+      // No valid routing — return error (legacy sequential path removed)
       this.log.warn(
         "voiceConversation",
-        "failed to fetch voice config — defaulting to TTS enabled",
-        {
-          agentId: resolvedAgentId,
-          error: error instanceof Error ? error.message : "unknown",
-        },
+        "no valid routing configuration for agent",
+        { agentId: resolvedAgentId, routingMode },
       );
-      voiceConfig = { ttsEnabled: true } as VoiceConfigDto;
+      res.status(HttpStatus.PRECONDITION_FAILED);
+      return {
+        error: true,
+        errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
+        message: "Voice conversation requires a routing configuration.",
+      };
+    } finally {
+      recordStt(null);
     }
-
-    // Direct-mode streaming: agent has aiConfig.routingMode = 'direct', so we
-    // bypass n8n entirely and pipe DirectChatService → voice adapter → existing
-    // VoiceService.streamingTTS pipeline. No webhook URL needed.
-    if (routingMode === "direct") {
-      await this.handleStreamingVoice(
-        dto,
-        sttResult,
-        sttLatencyMs,
-        "direct",
-        fullAgent,
-        null,
-        voiceConfig,
-        startTime,
-        res,
-        resolvedAgentId,
-        visitor,
-      );
-      return;
-    }
-
-    if (webhookUrl) {
-      await this.handleStreamingVoice(
-        dto,
-        sttResult,
-        sttLatencyMs,
-        "n8n",
-        fullAgent,
-        webhookUrl,
-        voiceConfig,
-        startTime,
-        res,
-        resolvedAgentId,
-        visitor,
-      );
-      return;
-    }
-
-    // No valid routing — return error (legacy sequential path removed)
-    this.log.warn(
-      "voiceConversation",
-      "no valid routing configuration for agent",
-      { agentId: resolvedAgentId, routingMode },
-    );
-    res.status(HttpStatus.PRECONDITION_FAILED);
-    return {
-      error: true,
-      errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
-      message: "Voice conversation requires a routing configuration.",
-    };
   }
 
   @Post("transcribe")
@@ -450,6 +472,12 @@ export class VoiceController {
         audioFormat: audioFile.mimetype,
         languageHint: dto.languageHint as SupportedLanguage | undefined,
         agentId: resolvedAgentId,
+        durationMs: dto.durationMs,
+      });
+      this.voiceService.recordSttUsage(result, {
+        organizationId: agent.organizationId,
+        agentId: resolvedAgentId,
+        channel: "VOICE",
       });
 
       return {
@@ -533,6 +561,11 @@ export class VoiceController {
         voiceId: dto.voiceId,
         speed: dto.speed,
         agentId: resolvedAgentId,
+        usage: {
+          organizationId: agent.organizationId,
+          agentId: resolvedAgentId,
+          channel: "VOICE",
+        },
       });
 
       return {
@@ -589,6 +622,7 @@ export class VoiceController {
     res: Response,
     resolvedAgentId: string,
     visitor: VisitorIdentity,
+    recordStt: (chatSessionId: string | null) => void,
   ): Promise<void> {
     // Resolve session for message storage
     const session = await this.chatService.resolveOrCreateSession(
@@ -597,6 +631,7 @@ export class VoiceController {
       dto.source ?? "WIDGET",
       visitor,
     );
+    recordStt(session.id);
     this.log.debug("handleStreamingVoice", "streaming voice turn starting", {
       agentId: resolvedAgentId,
       sessionId: session.sessionId,
@@ -845,6 +880,12 @@ export class VoiceController {
         sttResult.detectedLanguage,
         resolvedAgentId,
         voiceConfig,
+        {
+          organizationId: fullAgent.organizationId,
+          agentId: resolvedAgentId,
+          chatSessionId: session.id,
+          channel: "VOICE",
+        },
       );
 
       for await (const chunk of voiceStream) {

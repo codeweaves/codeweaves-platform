@@ -33,7 +33,11 @@ describe("WhatsappInboundService", () => {
     uploadMedia: jest.Mock;
     sendAudio: jest.Mock;
   };
-  let voice: { transcribe: jest.Mock; synthesize: jest.Mock };
+  let voice: {
+    transcribe: jest.Mock;
+    synthesize: jest.Mock;
+    recordSttUsage: jest.Mock;
+  };
   let service: WhatsappInboundService;
 
   const channel = {
@@ -74,13 +78,11 @@ describe("WhatsappInboundService", () => {
     };
     crypto = { decrypt: jest.fn().mockReturnValue("token") };
     chat = {
-      resolveOrCreateVisitorSession: jest
-        .fn()
-        .mockResolvedValue({
-          id: "sess-db",
-          sessionId: "wa:p1:15551234567",
-          agentId: "a1",
-        }),
+      resolveOrCreateVisitorSession: jest.fn().mockResolvedValue({
+        id: "sess-db",
+        sessionId: "wa:p1:15551234567",
+        agentId: "a1",
+      }),
       saveUserMessage: jest.fn().mockResolvedValue(undefined),
       saveAssistantMessage: jest.fn().mockResolvedValue(undefined),
       updateSessionTimestamp: jest.fn().mockResolvedValue(undefined),
@@ -100,23 +102,20 @@ describe("WhatsappInboundService", () => {
     send = {
       sendText: jest.fn().mockResolvedValue("wamid.out"),
       markReadAndShowTyping: jest.fn().mockResolvedValue(undefined),
-      downloadMedia: jest
-        .fn()
-        .mockResolvedValue({
-          buffer: Buffer.from("audio"),
-          mimeType: "audio/ogg",
-        }),
+      downloadMedia: jest.fn().mockResolvedValue({
+        buffer: Buffer.from("audio"),
+        mimeType: "audio/ogg",
+      }),
       uploadMedia: jest.fn().mockResolvedValue("media-out"),
       sendAudio: jest.fn().mockResolvedValue("wamid.aud"),
     };
     voice = {
+      recordSttUsage: jest.fn(),
       transcribe: jest.fn(),
-      synthesize: jest
-        .fn()
-        .mockResolvedValue({
-          audio: Buffer.from("mp3"),
-          audioFormat: "audio/mpeg",
-        }),
+      synthesize: jest.fn().mockResolvedValue({
+        audio: Buffer.from("mp3"),
+        audioFormat: "audio/mpeg",
+      }),
     };
     service = new WhatsappInboundService(
       prisma as unknown as PrismaService,
@@ -247,6 +246,40 @@ describe("WhatsappInboundService", () => {
       );
     });
 
+    it("records the voice note's STT call once, against the conversation", async () => {
+      const stt = { transcript: "what are your hours?", provider: "sarvam" };
+      voice.transcribe.mockResolvedValue(stt);
+
+      await service.handleInbound(audioJob);
+
+      expect(voice.recordSttUsage).toHaveBeenCalledTimes(1);
+      expect(voice.recordSttUsage).toHaveBeenCalledWith(stt, {
+        organizationId: "org-1",
+        agentId: "a1",
+        chatSessionId: "sess-db",
+        channel: "WHATSAPP",
+      });
+    });
+
+    it("records the STT call without a conversation when the transcript is empty", async () => {
+      voice.transcribe.mockResolvedValue({ transcript: "  " });
+
+      await service.handleInbound(audioJob);
+
+      expect(voice.recordSttUsage).toHaveBeenCalledTimes(1);
+      expect(voice.recordSttUsage.mock.calls[0][1]).toEqual(
+        expect.objectContaining({ chatSessionId: null, channel: "WHATSAPP" }),
+      );
+    });
+
+    it("records no STT call for a text message or a failed transcription", async () => {
+      await service.handleInbound(job);
+      voice.transcribe.mockRejectedValue(new Error("stt down"));
+      await service.handleInbound(audioJob);
+
+      expect(voice.recordSttUsage).not.toHaveBeenCalled();
+    });
+
     it("asks the user to retry when transcription throws", async () => {
       voice.transcribe.mockRejectedValue(new Error("stt down"));
 
@@ -289,7 +322,16 @@ describe("WhatsappInboundService", () => {
       await service.handleInbound(audioJob);
 
       expect(voice.synthesize).toHaveBeenCalledWith(
-        expect.objectContaining({ language: "en", agentId: "a1" }),
+        expect.objectContaining({
+          language: "en",
+          agentId: "a1",
+          usage: {
+            organizationId: "org-1",
+            agentId: "a1",
+            chatSessionId: "sess-db",
+            channel: "WHATSAPP",
+          },
+        }),
       );
       expect(send.uploadMedia).toHaveBeenCalled();
       expect(send.sendAudio).toHaveBeenCalledWith(

@@ -1,16 +1,17 @@
-import { Module } from '@nestjs/common';
+import { Module } from "@nestjs/common";
 
-import { AgentsModule } from '../agents.module';
-import { AiModule } from '../ai/ai.module';
-import { ChatModule } from '../chat.module';
-import { PrismaModule } from '../prisma.module';
-import { VoiceModule } from '../voice/voice.module';
+import { AgentsModule } from "../agents.module";
+import { AiModule } from "../ai/ai.module";
+import { ChatModule } from "../chat.module";
+import { PrismaModule } from "../prisma.module";
+import { VoiceModule } from "../voice/voice.module";
 
-import { WhatsappChannelController } from './whatsapp-channel.controller';
-import { WhatsappChannelService } from './whatsapp-channel.service';
-import { WhatsappInboundService } from './whatsapp-inbound.service';
-import { WhatsappSendModule } from './whatsapp-send.module';
-import { WhatsappWebhookController } from './whatsapp-webhook.controller';
+import { WhatsappChannelController } from "./whatsapp-channel.controller";
+import { WhatsappChannelService } from "./whatsapp-channel.service";
+import { WhatsappInboundService } from "./whatsapp-inbound.service";
+import { WhatsappSendModule } from "./whatsapp-send.module";
+import { WhatsappUsageService } from "./whatsapp-usage.service";
+import { WhatsappWebhookController } from "./whatsapp-webhook.controller";
 
 /**
  * WhatsApp channel: a second front-end onto the same agents the widget serves.
@@ -27,8 +28,19 @@ import { WhatsappWebhookController } from './whatsapp-webhook.controller';
  * CryptoService (token encryption) is global; authorization is the global PermissionGuard.
  */
 @Module({
-  imports: [PrismaModule, ChatModule, AgentsModule, AiModule, VoiceModule, WhatsappSendModule],
+  imports: [
+    PrismaModule,
+    ChatModule,
+    AgentsModule,
+    AiModule,
+    VoiceModule,
+    WhatsappSendModule,
+  ],
   controllers: [WhatsappWebhookController, WhatsappChannelController],
-  providers: [WhatsappChannelService, WhatsappInboundService],
+  providers: [
+    WhatsappChannelService,
+    WhatsappInboundService,
+    WhatsappUsageService,
+  ],
 })
 export class WhatsappModule {}

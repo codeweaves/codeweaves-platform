@@ -3,6 +3,7 @@ import { ApiExcludeEndpoint, ApiTags } from "@nestjs/swagger";
 
 import { Public } from "../../decorators/public.decorator";
 import { InternalSecretGuard } from "../../guards/internal-secret.guard";
+import { HeartbeatService } from "../monitoring/heartbeat.service";
 import { FxRateService } from "./fx-rate.service";
 
 /**
@@ -19,11 +20,17 @@ import { FxRateService } from "./fx-rate.service";
 @UseGuards(InternalSecretGuard)
 @Controller("internal/fx")
 export class FxRateController {
-  constructor(private readonly fx: FxRateService) {}
+  constructor(
+    private readonly fx: FxRateService,
+    private readonly heartbeat: HeartbeatService,
+  ) {}
 
   @Post("run")
   @ApiExcludeEndpoint()
-  run(): Promise<{ date: string; usdToInr: number }> {
-    return this.fx.refresh();
+  async run(): Promise<{ date: string; usdToInr: number }> {
+    const result = await this.fx.refresh();
+    // Awaited run, so a successful return here is the stored rate.
+    this.heartbeat.ping("FX");
+    return result;
   }
 }

@@ -35,6 +35,8 @@ import { RbacModule } from "../common/rbac/rbac.module";
 import { SecurityModule } from "../common/security/security.module";
 import { SupabaseStorageModule } from "./supabase-storage.module";
 import { UsageModule } from "./usage/usage.module";
+import { OpsConsoleModule } from "./ops-console/ops-console.module";
+import { MonitoringModule } from "./monitoring/monitoring.module";
 import { JwtAuthGuard } from "../guards/jwt-auth.guard";
 import { UserSyncGuard } from "../guards/user-sync.guard";
 import { PermissionGuard } from "../guards/permission.guard";
@@ -86,6 +88,8 @@ import { AllExceptionsFilter } from "../filters/all-exceptions.filter";
     SecurityModule,
     SupabaseStorageModule,
     UsageModule,
+    OpsConsoleModule,
+    MonitoringModule,
     HealthModule,
   ],
   providers: [

@@ -156,6 +156,7 @@ function buildFormData(params: {
   agentId: string;
   sessionId?: string;
   languageHint?: string;
+  durationMs?: number;
 }): FormData {
   const formData = new FormData();
   const ext = blobExtension(params.audio);
@@ -164,6 +165,10 @@ function buildFormData(params: {
   formData.append("source", "WIDGET");
   if (params.sessionId) formData.append("sessionId", params.sessionId);
   if (params.languageHint) formData.append("languageHint", params.languageHint);
+  // Recording length: the server prices speech-to-text from it, because
+  // browser WebM recordings usually carry no duration.
+  if (params.durationMs !== undefined)
+    formData.append("durationMs", String(Math.round(params.durationMs)));
   return formData;
 }
 
@@ -192,6 +197,8 @@ export async function streamVoiceConversation(params: {
   agentId: string;
   sessionId?: string;
   languageHint?: string;
+  /** How long the visitor recorded, in ms. */
+  durationMs?: number;
   signal?: AbortSignal;
   callbacks: StreamVoiceCallbacks;
 }): Promise<{ sessionId: string | null; messageId: string | null }> {
@@ -205,6 +212,7 @@ export async function streamVoiceConversation(params: {
     agentId: params.agentId,
     sessionId: resolvedSessionId,
     languageHint: params.languageHint,
+    durationMs: params.durationMs,
   });
 
   const response = await fetch(voiceUrl(params.agentId), {

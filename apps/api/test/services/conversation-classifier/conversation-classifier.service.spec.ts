@@ -3,6 +3,7 @@ import { ConversationClassifierService } from "../../../src/services/conversatio
 import { PrismaService } from "../../../src/services/prisma.service";
 import { AiClassifierService } from "../../../src/common/ai/ai-classifier.service";
 import { InternalEventLogger } from "../../../src/common/events/internal.logger";
+import { HeartbeatService } from "../../../src/modules/monitoring/heartbeat.service";
 
 describe("ConversationClassifierService", () => {
   let service: ConversationClassifierService;
@@ -20,6 +21,8 @@ describe("ConversationClassifierService", () => {
     detectLanguage: jest.fn(),
   };
 
+  const mockHeartbeat = { ping: jest.fn() };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -34,6 +37,7 @@ describe("ConversationClassifierService", () => {
             logFailed: jest.fn(),
           },
         },
+        { provide: HeartbeatService, useValue: mockHeartbeat },
       ],
     }).compile();
 
@@ -110,6 +114,41 @@ describe("ConversationClassifierService", () => {
       await new Promise((r) => setImmediate(r)); // let it settle + clear the guard
 
       expect(service.triggerBatch()).toBe(true); // free again
+    });
+
+    it("pings the heartbeat only once the background pass has finished", async () => {
+      let release!: () => void;
+      mockPrisma.chatSession.findMany.mockReturnValue(
+        new Promise((resolve) => {
+          release = () => resolve([]);
+        }),
+      );
+
+      service.triggerBatch();
+      await new Promise((r) => setImmediate(r));
+      expect(mockHeartbeat.ping).not.toHaveBeenCalled(); // started, not done
+
+      release();
+      await new Promise((r) => setImmediate(r));
+      expect(mockHeartbeat.ping).toHaveBeenCalledWith("CLASSIFIER");
+    });
+
+    it("pings the heartbeat on an idle pass with no candidates", async () => {
+      mockPrisma.chatSession.findMany.mockResolvedValue([]);
+
+      service.triggerBatch();
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockHeartbeat.ping).toHaveBeenCalledWith("CLASSIFIER");
+    });
+
+    it("does not ping the heartbeat when the pass fails", async () => {
+      mockPrisma.chatSession.findMany.mockRejectedValue(new Error("db down"));
+
+      service.triggerBatch();
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockHeartbeat.ping).not.toHaveBeenCalled();
     });
   });
 

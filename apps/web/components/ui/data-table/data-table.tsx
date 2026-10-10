@@ -1,15 +1,15 @@
-import { useState, useEffect, useCallback, useRef, Fragment } from 'react';
+import { useState, useEffect, useCallback, useRef, Fragment } from "react";
 import {
   flexRender,
   getCoreRowModel,
   useReactTable,
   SortingState,
   FilterFn,
-} from '@tanstack/react-table';
-import { cn } from '@/lib/utils';
+} from "@tanstack/react-table";
+import { cn } from "@/lib/utils";
 
 // Module augmentation to add custom filter function
-declare module '@tanstack/react-table' {
+declare module "@tanstack/react-table" {
   interface FilterFns {
     multipleFilter: FilterFn<unknown>;
   }
@@ -21,28 +21,37 @@ import {
   TableHead,
   TableHeader,
   TableRow,
-} from '@/components/ui/table';
-import { DataTableToolbar } from './data-table-toolbar';
-import { DataTablePagination } from './data-table-pagination';
-import { DataTableSkeleton } from './data-table-skeleton';
-import { DataTableExpandToggle } from './data-table-expand-toggle';
+} from "@/components/ui/table";
+import { DataTableToolbar } from "./data-table-toolbar";
+import { DataTablePagination } from "./data-table-pagination";
+import { DataTableSkeleton } from "./data-table-skeleton";
+import { DataTableExpandToggle } from "./data-table-expand-toggle";
 import {
   DataTableProps,
   DataTableTexts,
   DataTableHeaderRenderProps,
   DataTableFooterRenderProps,
   DataTableToolbarRenderProps,
-} from './types';
+} from "./types";
 
 const DEFAULT_TEXTS: Required<DataTableTexts> = {
-  selected: 'row(s) selected',
-  noResults: 'No results found.',
-  rowsPerPage: 'Rows per page',
-  of: 'of',
-  page: 'Page',
+  selected: "row(s) selected",
+  noResults: "No results found.",
+  rowsPerPage: "Rows per page",
+  of: "of",
+  page: "Page",
 };
 
 const DEFAULT_PAGE_SIZE_OPTIONS = [10, 20, 30, 50, 100];
+
+/** True when a row click started on its own control (button, link, input). */
+function isFromInteractiveChild(target: EventTarget, row: Element): boolean {
+  const el = target instanceof Element ? target : null;
+  const control = el?.closest(
+    'button, a, input, select, textarea, [role="checkbox"]',
+  );
+  return !!control && control !== row && row.contains(control);
+}
 
 export function DataTable<TData, TValue, TSubRow = unknown>({
   columns,
@@ -78,6 +87,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
   onExpandedChange: controlledOnExpandedChange,
   defaultExpanded = {},
   getRowId,
+  onRowClick,
   // Customization options
   pageSizeOptions = DEFAULT_PAGE_SIZE_OPTIONS,
   fixedLayout = true,
@@ -95,13 +105,14 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
 }: DataTableProps<TData, TValue, TSubRow>) {
   // Determine if we're in controlled mode (user manages state) or internal mode (we manage state)
   const isControlled =
-    controlledPageIndex !== undefined && controlledOnPaginationChange !== undefined;
+    controlledPageIndex !== undefined &&
+    controlledOnPaginationChange !== undefined;
 
   // Internal state (used when onFetch is provided and not in controlled mode)
   const [internalPageIndex, setInternalPageIndex] = useState(0);
   const [internalPageSize, setInternalPageSize] = useState(initialPageSize);
   const [internalSorting, setInternalSorting] = useState<SortingState>([]);
-  const [internalSearchValue, setInternalSearchValue] = useState('');
+  const [internalSearchValue, setInternalSearchValue] = useState("");
   const [internalFilterValues, setInternalFilterValues] = useState<
     Record<string, string | string[]>
   >({});
@@ -111,7 +122,8 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
     internalFilterValuesRef.current = internalFilterValues;
   }, [internalFilterValues]);
   // Expandable rows state
-  const [internalExpanded, setInternalExpanded] = useState<Record<string, boolean>>(defaultExpanded);
+  const [internalExpanded, setInternalExpanded] =
+    useState<Record<string, boolean>>(defaultExpanded);
 
   // Debounce timer ref for search
   const debounceTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -121,7 +133,9 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
 
   // Use controlled values if provided, otherwise use internal state
   const pageIndex = isControlled ? controlledPageIndex : internalPageIndex;
-  const pageSize = isControlled ? (controlledPageSize ?? initialPageSize) : internalPageSize;
+  const pageSize = isControlled
+    ? (controlledPageSize ?? initialPageSize)
+    : internalPageSize;
   const sorting = controlledSorting ?? internalSorting;
   const searchValue = controlledSearchValue ?? internalSearchValue;
   const filterValues = controlledFilterValues ?? internalFilterValues;
@@ -143,7 +157,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
         onFetch(params);
       }
     },
-    [onFetch, isControlled]
+    [onFetch, isControlled],
   );
 
   // Initial fetch on mount (only in internal mode)
@@ -185,7 +199,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       internalSorting,
       internalSearchValue,
       internalFilterValues,
-    ]
+    ],
   );
 
   const handleSortingChange = useCallback(
@@ -211,7 +225,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       internalPageSize,
       internalSearchValue,
       internalFilterValues,
-    ]
+    ],
   );
 
   const handleSearchChange = useCallback(
@@ -225,7 +239,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
         // Note: triggerFetch is called in the debounce effect below
       }
     },
-    [isControlled, controlledOnSearchChange]
+    [isControlled, controlledOnSearchChange],
   );
 
   // Debounced search effect - triggers fetch after user stops typing
@@ -274,7 +288,10 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       if (isControlled) {
         controlledOnFilterChange?.(filterId, value);
       } else {
-        const newFilters = { ...internalFilterValuesRef.current, [filterId]: value };
+        const newFilters = {
+          ...internalFilterValuesRef.current,
+          [filterId]: value,
+        };
         internalFilterValuesRef.current = newFilters;
         setInternalFilterValues(newFilters);
         setInternalPageIndex(0); // Reset to first page
@@ -300,14 +317,14 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       internalPageSize,
       internalSorting,
       internalSearchValue,
-    ]
+    ],
   );
 
   const handleClearAll = useCallback(() => {
     if (isControlled) {
       controlledOnClearAll?.();
     } else {
-      setInternalSearchValue('');
+      setInternalSearchValue("");
       internalFilterValuesRef.current = {};
       setInternalFilterValues({});
       setInternalSorting([]);
@@ -316,7 +333,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
         page: 0,
         pageSize: internalPageSize,
         sorting: [],
-        search: '',
+        search: "",
         filters: {},
       });
     }
@@ -333,7 +350,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
         setInternalExpanded(newExpanded);
       }
     },
-    [expanded, controlledOnExpandedChange]
+    [expanded, controlledOnExpandedChange],
   );
 
   // Helper to get unique row ID
@@ -348,7 +365,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       if (rowAny.uniqueId !== undefined) return String(rowAny.uniqueId);
       return String(index);
     },
-    [getRowId]
+    [getRowId],
   );
 
   // Helper to get ID from any row (sub-rows use same logic)
@@ -359,25 +376,31 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       if (row.uniqueId !== undefined) return String(row.uniqueId);
       return String(index);
     },
-    []
+    [],
   );
 
   // Get indentation class based on depth level
   const getIndentClass = (depth: number): string => {
     switch (depth) {
       case 1:
-        return 'pl-4';
+        return "pl-4";
       case 2:
-        return 'pl-8';
+        return "pl-8";
       default:
-        return 'pl-12';
+        return "pl-12";
     }
   };
 
   // Recursive function to render nested sub-rows (supports up to 3 levels: parent -> child -> grandchild)
   const renderNestedSubRows = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
-    (subRows: any[], parentId: string, parentRow: any, depth: number): React.ReactNode[] => {
+    (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      subRows: any[],
+      parentId: string,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      parentRow: any,
+      depth: number,
+    ): React.ReactNode[] => {
       if (!expandableConfig || depth > 2) return []; // Max depth of 2 (grandchild level)
 
       return subRows.flatMap((subRow, subIndex) => {
@@ -391,18 +414,32 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
 
         // Render the sub-row itself
         if (expandableConfig.renderSubRowCells) {
-          const cells = expandableConfig.renderSubRowCells(subRow, parentRow, subIndex);
+          const cells = expandableConfig.renderSubRowCells(
+            subRow,
+            parentRow,
+            subIndex,
+          );
           rows.push(
             <TableRow
               key={subRowId}
-              data-slot={depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row'}
+              data-slot={
+                depth === 1
+                  ? "data-table-child-row"
+                  : "data-table-grandchild-row"
+              }
               className={cn(
-                'bg-muted/30',
-                depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row',
-                isSubRowExpanded && hasGrandChildren && 'data-table-row-expanded font-medium',
-                expandableConfig.childRowClassName
+                "bg-muted/30",
+                depth === 1
+                  ? "data-table-child-row"
+                  : "data-table-grandchild-row",
+                isSubRowExpanded &&
+                  hasGrandChildren &&
+                  "data-table-row-expanded font-medium",
+                expandableConfig.childRowClassName,
               )}
-              data-expanded={isSubRowExpanded && hasGrandChildren ? 'true' : undefined}
+              data-expanded={
+                isSubRowExpanded && hasGrandChildren ? "true" : undefined
+              }
               data-depth={depth}
             >
               {/* Expand toggle cell for nested rows */}
@@ -410,7 +447,9 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                 {hasGrandChildren && (
                   <DataTableExpandToggle
                     isExpanded={isSubRowExpanded}
-                    onToggle={() => handleExpandChange(subRowId, !isSubRowExpanded)}
+                    onToggle={() =>
+                      handleExpandChange(subRowId, !isSubRowExpanded)
+                    }
                     hasChildren={true}
                   />
                 )}
@@ -423,28 +462,38 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                   className={cn(
                     cellIndex === 0 && expandableConfig.indentChildren !== false
                       ? getIndentClass(depth)
-                      : '',
-                    cell.className
+                      : "",
+                    cell.className,
                   )}
                 >
                   {cell.content}
                 </TableCell>
               ))}
-            </TableRow>
+            </TableRow>,
           );
         } else {
           // Legacy: single cell spanning all columns
           rows.push(
             <TableRow
               key={subRowId}
-              data-slot={depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row'}
+              data-slot={
+                depth === 1
+                  ? "data-table-child-row"
+                  : "data-table-grandchild-row"
+              }
               className={cn(
-                'bg-muted/30',
-                depth === 1 ? 'data-table-child-row' : 'data-table-grandchild-row',
-                isSubRowExpanded && hasGrandChildren && 'data-table-row-expanded font-medium',
-                expandableConfig.childRowClassName
+                "bg-muted/30",
+                depth === 1
+                  ? "data-table-child-row"
+                  : "data-table-grandchild-row",
+                isSubRowExpanded &&
+                  hasGrandChildren &&
+                  "data-table-row-expanded font-medium",
+                expandableConfig.childRowClassName,
               )}
-              data-expanded={isSubRowExpanded && hasGrandChildren ? 'true' : undefined}
+              data-expanded={
+                isSubRowExpanded && hasGrandChildren ? "true" : undefined
+              }
               data-depth={depth}
             >
               {/* Expand toggle cell for nested rows */}
@@ -452,30 +501,44 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                 {hasGrandChildren && (
                   <DataTableExpandToggle
                     isExpanded={isSubRowExpanded}
-                    onToggle={() => handleExpandChange(subRowId, !isSubRowExpanded)}
+                    onToggle={() =>
+                      handleExpandChange(subRowId, !isSubRowExpanded)
+                    }
                     hasChildren={true}
                   />
                 )}
               </TableCell>
               <TableCell
-                colSpan={(expandableConfig.subRowColSpan ?? columns.length)}
-                className={expandableConfig.indentChildren !== false ? getIndentClass(depth + 1) : ''}
+                colSpan={expandableConfig.subRowColSpan ?? columns.length}
+                className={
+                  expandableConfig.indentChildren !== false
+                    ? getIndentClass(depth + 1)
+                    : ""
+                }
               >
                 {expandableConfig.renderSubRow?.(subRow, parentRow, subIndex)}
               </TableCell>
-            </TableRow>
+            </TableRow>,
           );
         }
 
         // Recursively render grandchildren if expanded
         if (isSubRowExpanded && hasGrandChildren) {
-          rows.push(...renderNestedSubRows(grandChildren, subRowId, subRow, depth + 1));
+          rows.push(
+            ...renderNestedSubRows(grandChildren, subRowId, subRow, depth + 1),
+          );
         }
 
         return rows;
       });
     },
-    [expandableConfig, expanded, handleExpandChange, getAnyRowId, columns.length]
+    [
+      expandableConfig,
+      expanded,
+      handleExpandChange,
+      getAnyRowId,
+      columns.length,
+    ],
   );
 
   // Track the visible width of the scroll container for centering empty state
@@ -507,13 +570,13 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
     manualPagination: true,
     manualSorting: true,
     onPaginationChange: (updater) => {
-      if (typeof updater === 'function') {
+      if (typeof updater === "function") {
         const newState = updater({ pageIndex, pageSize });
         handlePaginationChange(newState.pageIndex, newState.pageSize);
       }
     },
     onSortingChange: (updater) => {
-      if (typeof updater === 'function') {
+      if (typeof updater === "function") {
         const newState = updater(sorting);
         handleSortingChange(newState);
       } else {
@@ -521,7 +584,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       }
     },
     onRowSelectionChange: (updater) => {
-      if (typeof updater === 'function') {
+      if (typeof updater === "function") {
         const newState = updater(rowSelection);
         onRowSelectionChange?.(newState);
       } else {
@@ -533,7 +596,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
   });
 
   const selectedCount = Object.keys(rowSelection).filter(
-    (key) => rowSelection[key]
+    (key) => rowSelection[key],
   ).length;
 
   // Check if any filters, search, or sorting is active
@@ -543,12 +606,15 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
     (filterValues &&
       Object.entries(filterValues).some(([, value]) => {
         if (Array.isArray(value)) return value.length > 0;
-        return value && value !== 'all';
+        return value && value !== "all";
       }));
 
   // Render props data
   const headerRenderProps: DataTableHeaderRenderProps = { title, totalItems };
-  const footerRenderProps: DataTableFooterRenderProps = { selectedCount, totalItems };
+  const footerRenderProps: DataTableFooterRenderProps = {
+    selectedCount,
+    totalItems,
+  };
   const toolbarRenderProps: DataTableToolbarRenderProps = {
     searchConfig,
     searchValue,
@@ -620,15 +686,20 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
       )}
 
       {/* Table */}
-      <div ref={borderRef} data-slot="data-table-border" className="rounded-md border">
-        <Table data-slot="data-table-table" className={fixedLayout ? 'table-fixed' : undefined}>
+      <div
+        ref={borderRef}
+        data-slot="data-table-border"
+        className="rounded-md border"
+      >
+        <Table
+          data-slot="data-table-table"
+          className={fixedLayout ? "table-fixed" : undefined}
+        >
           <TableHeader data-slot="data-table-thead">
             {table.getHeaderGroups().map((headerGroup) => (
               <TableRow key={headerGroup.id} data-slot="data-table-header-row">
                 {/* Empty header cell for expand toggle column */}
-                {expandableConfig && (
-                  <TableHead className="w-10" />
-                )}
+                {expandableConfig && <TableHead className="w-10" />}
                 {headerGroup.headers.map((header) => {
                   const size = header.column.columnDef.size;
                   return (
@@ -642,7 +713,7 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                         ? null
                         : flexRender(
                             header.column.columnDef.header,
-                            header.getContext()
+                            header.getContext(),
                           )}
                     </TableHead>
                   );
@@ -654,8 +725,17 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
             {isLoading ? (
               renderLoading ? (
                 <TableRow>
-                  <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0!">
-                    <div data-slot="data-table-loading" className="sticky left-0 flex items-center justify-center" style={containerWidth ? { width: containerWidth } : undefined}>
+                  <TableCell
+                    colSpan={columns.length + (expandableConfig ? 1 : 0)}
+                    className="p-0!"
+                  >
+                    <div
+                      data-slot="data-table-loading"
+                      className="sticky left-0 flex items-center justify-center"
+                      style={
+                        containerWidth ? { width: containerWidth } : undefined
+                      }
+                    >
                       {renderLoading()}
                     </div>
                   </TableCell>
@@ -675,44 +755,93 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
                     {/* Parent Row */}
                     <TableRow
                       data-slot="data-table-row"
-                      data-state={row.getIsSelected() && 'selected'}
-                      data-expanded={isRowExpanded && hasChildren ? 'true' : undefined}
+                      data-state={row.getIsSelected() && "selected"}
+                      data-expanded={
+                        isRowExpanded && hasChildren ? "true" : undefined
+                      }
                       className={cn(
-                        'data-table-parent-row',
-                        isRowExpanded && hasChildren && 'data-table-row-expanded font-medium'
+                        "data-table-parent-row",
+                        isRowExpanded &&
+                          hasChildren &&
+                          "data-table-row-expanded font-medium",
+                        onRowClick &&
+                          "cursor-pointer focus-visible:outline-2 focus-visible:-outline-offset-2 focus-visible:outline-ring",
                       )}
+                      {...(onRowClick && {
+                        tabIndex: 0,
+                        onClick: (e: React.MouseEvent<HTMLTableRowElement>) => {
+                          if (isFromInteractiveChild(e.target, e.currentTarget))
+                            return;
+                          onRowClick(row.original);
+                        },
+                        onKeyDown: (
+                          e: React.KeyboardEvent<HTMLTableRowElement>,
+                        ) => {
+                          if (e.target !== e.currentTarget) return;
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            onRowClick(row.original);
+                          }
+                        },
+                      })}
                     >
                       {/* Expand toggle cell */}
                       {expandableConfig && (
-                        <TableCell data-slot="data-table-expand-toggle" className="w-10 px-2">
+                        <TableCell
+                          data-slot="data-table-expand-toggle"
+                          className="w-10 px-2"
+                        >
                           <DataTableExpandToggle
                             isExpanded={isRowExpanded}
-                            onToggle={() => handleExpandChange(rowId, !isRowExpanded)}
+                            onToggle={() =>
+                              handleExpandChange(rowId, !isRowExpanded)
+                            }
                             hasChildren={hasChildren ?? false}
                           />
                         </TableCell>
                       )}
                       {row.getVisibleCells().map((cell) => (
-                        <TableCell key={cell.id} data-slot="data-table-td" data-column-id={cell.column.id}>
-                          {flexRender(cell.column.columnDef.cell, cell.getContext())}
+                        <TableCell
+                          key={cell.id}
+                          data-slot="data-table-td"
+                          data-column-id={cell.column.id}
+                        >
+                          {flexRender(
+                            cell.column.columnDef.cell,
+                            cell.getContext(),
+                          )}
                         </TableCell>
                       ))}
                     </TableRow>
 
                     {/* Child/Sub Rows (when expanded) - supports recursive nesting */}
-                    {expandableConfig && isRowExpanded && hasChildren &&
-                      renderNestedSubRows(subRows, rowId, row.original, 1)
-                    }
+                    {expandableConfig &&
+                      isRowExpanded &&
+                      hasChildren &&
+                      renderNestedSubRows(subRows, rowId, row.original, 1)}
                   </Fragment>
                 );
               })
             ) : (
               <TableRow>
-                <TableCell colSpan={columns.length + (expandableConfig ? 1 : 0)} className="p-0!">
-                  <div data-slot="data-table-empty" className="sticky left-0 flex items-center justify-center" style={containerWidth ? { width: containerWidth } : undefined}>
-                    {renderEmpty ? renderEmpty() : (
+                <TableCell
+                  colSpan={columns.length + (expandableConfig ? 1 : 0)}
+                  className="p-0!"
+                >
+                  <div
+                    data-slot="data-table-empty"
+                    className="sticky left-0 flex items-center justify-center"
+                    style={
+                      containerWidth ? { width: containerWidth } : undefined
+                    }
+                  >
+                    {renderEmpty ? (
+                      renderEmpty()
+                    ) : (
                       <div className="flex h-32 items-center justify-center">
-                        <span className="text-sm text-muted-foreground">{mergedTexts.noResults}</span>
+                        <span className="text-sm text-muted-foreground">
+                          {mergedTexts.noResults}
+                        </span>
                       </div>
                     )}
                   </div>

@@ -390,6 +390,27 @@ describe("Entity Logger Services", () => {
         "inv-1",
         "INVITATION_CREATED",
         { response: { email: "test@test.com" } },
+        undefined,
+      );
+    });
+
+    it("scopes the audit row to the invite's organization when it has one", async () => {
+      await logger.logInvitationCreated("inv-1", {}, "org-1");
+      expect(mockTracerService.logAuditEvent).toHaveBeenCalledWith(
+        "inv-1",
+        "INVITATION_CREATED",
+        { response: {} },
+        { organizationId: "org-1" },
+      );
+    });
+
+    it("passes no scope for a platform-staff invite (no organization)", async () => {
+      await logger.logInvitationCreated("inv-1", {}, null);
+      expect(mockTracerService.logAuditEvent).toHaveBeenCalledWith(
+        "inv-1",
+        "INVITATION_CREATED",
+        { response: {} },
+        undefined,
       );
     });
 
@@ -399,6 +420,7 @@ describe("Entity Logger Services", () => {
         "inv-1",
         "INVITATION_CANCELLED",
         { response: { id: "inv-1" } },
+        undefined,
       );
     });
   });
@@ -456,6 +478,7 @@ describe("Entity Logger Services", () => {
         "clerk_inv_1",
         "CLERK_INVITATION_CREATED",
         { response: { email: "test@test.com" } },
+        undefined,
       );
     });
   });
@@ -479,6 +502,17 @@ describe("Entity Logger Services", () => {
         "email-1",
         "EMAIL_SENT",
         { response: { to: "test@test.com" } },
+        undefined,
+      );
+    });
+
+    it("scopes EMAIL_SENT to the organization the email is for", async () => {
+      await logger.logEmailSent("email-1", {}, "org-1");
+      expect(mockTracerService.logAuditEvent).toHaveBeenCalledWith(
+        "email-1",
+        "EMAIL_SENT",
+        { response: {} },
+        { organizationId: "org-1" },
       );
     });
 
@@ -490,6 +524,7 @@ describe("Entity Logger Services", () => {
         "email-1",
         "EMAIL_SEND_EXCEPTION",
         expect.objectContaining({ error: { message: expect.any(String) } }),
+        undefined,
       );
     });
   });

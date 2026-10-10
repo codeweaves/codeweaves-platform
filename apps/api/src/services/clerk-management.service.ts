@@ -1,8 +1,8 @@
-import { Injectable, Logger } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { createClerkClient, type ClerkClient } from '@clerk/backend';
-import { ClerkLoggerService } from '../common/logger/clerk.logger';
-import { ProviderEventLogger } from '../common/events/provider.logger';
+import { Injectable, Logger } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { createClerkClient, type ClerkClient } from "@clerk/backend";
+import { ClerkLoggerService } from "../common/logger/clerk.logger";
+import { ProviderEventLogger } from "../common/events/provider.logger";
 
 export interface CreatedInvitation {
   id: string;
@@ -20,7 +20,7 @@ export class ClerkManagementService {
     private readonly clerkLogger: ClerkLoggerService,
     private readonly providerLog: ProviderEventLogger,
   ) {
-    const secretKey = this.configService.get<string>('CLERK_SECRET_KEY', '');
+    const secretKey = this.configService.get<string>("CLERK_SECRET_KEY", "");
     this.clerk = createClerkClient({ secretKey });
   }
 
@@ -36,6 +36,8 @@ export class ClerkManagementService {
     email: string;
     redirectUrl: string;
     expiresInDays: number;
+    /** For the audit row; null for a platform-staff invite. */
+    organizationId?: string | null;
   }): Promise<CreatedInvitation> {
     try {
       const invitation = await this.clerk.invitations.createInvitation({
@@ -46,16 +48,20 @@ export class ClerkManagementService {
         ignoreExisting: true,
       });
 
-      await this.clerkLogger.logClerkInvitationCreated(invitation.id, {
-        email: params.email,
-        invitationId: invitation.id,
-      });
+      await this.clerkLogger.logClerkInvitationCreated(
+        invitation.id,
+        { email: params.email, invitationId: invitation.id },
+        params.organizationId,
+      );
       this.providerLog.log({
-        channel: 'DASHBOARD',
-        eventName: 'CLERK_INVITATION_COMPLETED',
-        direction: 'OUTBOUND',
-        provider: 'CLERK',
-        requestPayload: { email: params.email, expiresInDays: params.expiresInDays },
+        channel: "DASHBOARD",
+        eventName: "CLERK_INVITATION_COMPLETED",
+        direction: "OUTBOUND",
+        provider: "CLERK",
+        requestPayload: {
+          email: params.email,
+          expiresInDays: params.expiresInDays,
+        },
         responsePayload: { invitationId: invitation.id },
       });
 
@@ -65,12 +71,13 @@ export class ClerkManagementService {
         params.email,
         error,
         { request: { email: params.email } },
+        params.organizationId,
       );
       this.providerLog.log({
-        channel: 'DASHBOARD',
-        eventName: 'CLERK_INVITATION_FAILED',
-        direction: 'OUTBOUND',
-        provider: 'CLERK',
+        channel: "DASHBOARD",
+        eventName: "CLERK_INVITATION_FAILED",
+        direction: "OUTBOUND",
+        provider: "CLERK",
         requestPayload: { email: params.email },
         success: false,
         errorMessage: error instanceof Error ? error.message : String(error),
@@ -90,9 +97,9 @@ export class ClerkManagementService {
   async isEmailVerified(clerkUserId: string, email: string): Promise<boolean> {
     const user = await this.providerLog.traced(
       {
-        channel: 'DASHBOARD',
-        provider: 'CLERK',
-        eventBase: 'CLERK_USER_GET',
+        channel: "DASHBOARD",
+        provider: "CLERK",
+        eventBase: "CLERK_USER_GET",
         requestPayload: { clerkUserId },
       },
       () => this.clerk.users.getUser(clerkUserId),
@@ -101,7 +108,7 @@ export class ClerkManagementService {
     return user.emailAddresses.some(
       (e) =>
         e.emailAddress.toLowerCase() === target &&
-        e.verification?.status === 'verified',
+        e.verification?.status === "verified",
     );
   }
 
@@ -109,17 +116,22 @@ export class ClerkManagementService {
    * Revokes a pending Clerk invitation, making its link unusable. Idempotent:
    * a 404 (already revoked / not found) is treated as success.
    */
-  async revokeInvitation(invitationId: string): Promise<void> {
+  async revokeInvitation(
+    invitationId: string,
+    organizationId?: string | null,
+  ): Promise<void> {
     try {
       await this.clerk.invitations.revokeInvitation(invitationId);
-      await this.clerkLogger.logClerkInvitationRevoked(invitationId, {
+      await this.clerkLogger.logClerkInvitationRevoked(
         invitationId,
-      });
+        { invitationId },
+        organizationId,
+      );
       this.providerLog.log({
-        channel: 'DASHBOARD',
-        eventName: 'CLERK_INVITATION_REVOKE_COMPLETED',
-        direction: 'OUTBOUND',
-        provider: 'CLERK',
+        channel: "DASHBOARD",
+        eventName: "CLERK_INVITATION_REVOKE_COMPLETED",
+        direction: "OUTBOUND",
+        provider: "CLERK",
         requestPayload: { invitationId },
       });
     } catch (error) {
@@ -130,10 +142,10 @@ export class ClerkManagementService {
         return;
       }
       this.providerLog.log({
-        channel: 'DASHBOARD',
-        eventName: 'CLERK_INVITATION_REVOKE_FAILED',
-        direction: 'OUTBOUND',
-        provider: 'CLERK',
+        channel: "DASHBOARD",
+        eventName: "CLERK_INVITATION_REVOKE_FAILED",
+        direction: "OUTBOUND",
+        provider: "CLERK",
         requestPayload: { invitationId },
         success: false,
         errorMessage: error instanceof Error ? error.message : String(error),
@@ -142,6 +154,7 @@ export class ClerkManagementService {
         invitationId,
         error,
         { request: { invitationId } },
+        organizationId,
       );
       throw error;
     }

@@ -73,7 +73,7 @@ All token prices are per 1M tokens. `in`, `cached` and `out` are the list prices
 | Deepgram nova-3                     | `seconds × channels × $0.0043 / 60`                                                                                                     | `metadata.duration`                                      |
 | ElevenLabs Scribe v2                | `seconds × $0.22 / 3600`                                                                                                                | `audio_duration_secs`                                    |
 | Sarvam TTS `bulbul:v3` (INR)        | `characters × ₹0.003`                                                                                                                   | Characters of text we send                               |
-| ElevenLabs TTS (USD pricing)        | `characters × $0.04 / 1000`                                                                                                             | `character-cost` header, or characters sent on WebSocket |
+| ElevenLabs TTS (USD pricing)        | `characters × $0.04 / 1000`                                                                                                             | characters sent (the `character-cost` header is credits) |
 | Meta WhatsApp (client pays)         | `0` if failed or `billable=false`, else the rate for (category, country). The first 1,000 service messages a month per number are free. | Status webhook `pricing`                                 |
 | Resend                              | Recipients × the per-email rate of the current plan. The free tier is 0.                                                                | Recipient count                                          |
 
@@ -117,12 +117,21 @@ Each PR ends green on lint, check-types, build and `test:cov`, plus `/verify` fo
    - Deepgram: `metadata.duration`.
    - ElevenLabs: `audio_duration_secs`.
    - Sarvam: WhatsApp voice notes are OGG/Opus, so `music-metadata` reads their duration. The widget sends its recording length, which the server clamps to 0 to 60 s, because browser WebM files often carry no duration. These rows are marked `quantitySource = MEASURED`.
-2. TTS quantities: characters of text sent for Sarvam and ElevenLabs WebSocket; the `character-cost` header for ElevenLabs HTTP. A sentence that falls back to a second provider is billed twice, so it is recorded twice.
+2. TTS quantities: characters of text sent, for every provider. Not the ElevenLabs `character-cost` header: it reports credits (0.5 per character on Turbo), found in /verify. A sentence that falls back to a second provider is billed twice, so it is recorded twice.
 3. One STT call per turn: `saaras:v3` handles English too, so Deepgram and ElevenLabs become failover only. This removes the second STT charge on English turns. **Confirm English quality on test clips before merging.**
 4. WhatsApp voice notes longer than 30 s: send them to Sarvam's batch API, or split them. Pick one after testing the `saaras:v3` limit.
 5. WhatsApp: read status webhooks and write pass-through rows. The organization is resolved from `phoneNumberId`, through the channel, to the agent.
 6. Resend: one row per send, with quantity = recipients. Pass the organization in.
 7. Voice previews: recorded with no organization, feature `VOICE_PREVIEW`.
+
+Changes from this plan, made while building PR 3:
+
+- OGG duration comes from a small parser of our own (last page granule / 48 kHz, minus the Opus pre-skip), not `music-metadata`. WAV is read from its header. That avoids a new dependency for about 60 lines of code.
+- When nothing can be measured (no container duration and no widget length), the row is stored with `quantitySource = ESTIMATED`, from bytes at an assumed 64 kbps.
+- STT failover: when Sarvam throws, Deepgram and then ElevenLabs get the caller's language hint, or else the agent's default language.
+- WhatsApp rows for recipients outside India use the model `<category>:intl`. The price list holds India rates only, so these rows stay unpriced and flagged instead of priced at the wrong rate.
+- Meta only marks a message `billable` after the monthly free tier, so free messages are never recorded. Utility and authentication volume tiers are not applied.
+- Item 4 (WhatsApp voice notes longer than 30 s) is not done. It still needs a test of the `saaras:v3` length limit.
 
 ### PR 4: super admin console (platform roles only)
 

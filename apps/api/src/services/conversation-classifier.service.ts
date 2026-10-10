@@ -2,6 +2,7 @@ import { Injectable, Logger } from "@nestjs/common";
 import { PrismaService } from "./prisma.service";
 import { AiClassifierService } from "../common/ai/ai-classifier.service";
 import { InternalEventLogger } from "../common/events/internal.logger";
+import { HeartbeatService } from "../modules/monitoring/heartbeat.service";
 
 /**
  * Conversation categorisation logic, invoked by a BullMQ repeatable job
@@ -46,6 +47,7 @@ export class ConversationClassifierService {
     private readonly prisma: PrismaService,
     private readonly ai: AiClassifierService,
     private readonly internalLog: InternalEventLogger,
+    private readonly heartbeat: HeartbeatService,
   ) {}
 
   /**
@@ -68,6 +70,8 @@ export class ConversationClassifierService {
           latencyMs: Date.now() - start,
           metadata: { processed },
         });
+        // The HTTP trigger only started the pass; this is where it finished.
+        this.heartbeat.ping("CLASSIFIER");
       })
       .catch((err) => {
         this.logger.warn(

@@ -6,21 +6,23 @@ import {
   Res,
   Query,
   type RawBodyRequest,
-} from '@nestjs/common';
-import { ApiTags, ApiOperation, ApiExcludeEndpoint } from '@nestjs/swagger';
-import { createHmac, timingSafeEqual } from 'node:crypto';
-import type { Request, Response } from 'express';
+} from "@nestjs/common";
+import { ApiTags, ApiOperation, ApiExcludeEndpoint } from "@nestjs/swagger";
+import { createHmac, timingSafeEqual } from "node:crypto";
+import type { Request, Response } from "express";
 
-import { Public } from '../../decorators/public.decorator';
-import { AppLogger } from '../../common/logger/app-logger';
-import { WhatsappEventLogger } from '../../common/events/whatsapp.logger';
+import { Public } from "../../decorators/public.decorator";
+import { AppLogger } from "../../common/logger/app-logger";
+import { WhatsappEventLogger } from "../../common/events/whatsapp.logger";
 
 import type {
   WhatsappInboundJob,
+  WhatsappStatus,
   WhatsappWebhookPayload,
-} from './interfaces/whatsapp.interfaces';
-import { WhatsappConfigService } from './whatsapp-config.service';
-import { WhatsappInboundService } from './whatsapp-inbound.service';
+} from "./interfaces/whatsapp.interfaces";
+import { WhatsappConfigService } from "./whatsapp-config.service";
+import { WhatsappInboundService } from "./whatsapp-inbound.service";
+import { WhatsappUsageService } from "./whatsapp-usage.service";
 
 /**
  * Single public webhook for ALL orgs. Meta routes every inbound message here; the
@@ -37,9 +39,9 @@ import { WhatsappInboundService } from './whatsapp-inbound.service';
  * in-memory ring of seen message ids guards against the rare genuine duplicate
  * within this instance. No Redis, no queue.
  */
-@ApiTags('WhatsApp Webhook')
+@ApiTags("WhatsApp Webhook")
 @Public()
-@Controller('public/whatsapp')
+@Controller("public/whatsapp")
 export class WhatsappWebhookController {
   private readonly log = new AppLogger(WhatsappWebhookController.name);
 
@@ -56,40 +58,44 @@ export class WhatsappWebhookController {
     private readonly config: WhatsappConfigService,
     private readonly inbound: WhatsappInboundService,
     private readonly whatsappLog: WhatsappEventLogger,
+    private readonly usage: WhatsappUsageService,
   ) {}
 
   /** GET verification handshake — Meta calls this once when you register the webhook. */
-  @Get('webhook')
-  @ApiOperation({ summary: 'WhatsApp webhook verification handshake' })
+  @Get("webhook")
+  @ApiOperation({ summary: "WhatsApp webhook verification handshake" })
   verify(
     @Query() query: Record<string, string>,
     @Res() res: Response,
   ): Response {
-    const mode = query['hub.mode'];
-    const token = query['hub.verify_token'];
-    const challenge = query['hub.challenge'];
+    const mode = query["hub.mode"];
+    const token = query["hub.verify_token"];
+    const challenge = query["hub.challenge"];
     const verifyToken = this.config.verifyToken;
 
-    if (mode === 'subscribe' && verifyToken && token === verifyToken) {
+    if (mode === "subscribe" && verifyToken && token === verifyToken) {
       // `hub.challenge` is always a numeric token from Meta. Echo it only when
       // it is digits-only + as text/plain, so a crafted
       // `?hub.challenge=<script>…` can never be reflected back as HTML
       // (reflected-XSS hardening).
       if (!challenge || !/^\d+$/.test(challenge)) {
-        this.log.warn('verify', 'token matched but hub.challenge was not a numeric token');
-        return res.status(400).send('Bad Request');
+        this.log.warn(
+          "verify",
+          "token matched but hub.challenge was not a numeric token",
+        );
+        return res.status(400).send("Bad Request");
       }
       // Semantic event: Meta successfully verified the webhook. Fire-and-forget.
       this.whatsappLog.logWebhookVerified();
-      this.log.info('verify', 'webhook verification succeeded');
-      return res.status(200).type('text/plain').send(challenge);
+      this.log.info("verify", "webhook verification succeeded");
+      return res.status(200).type("text/plain").send(challenge);
     }
-    this.log.warn('verify', 'webhook verification failed (token mismatch)');
-    return res.status(403).send('Forbidden');
+    this.log.warn("verify", "webhook verification failed (token mismatch)");
+    return res.status(403).send("Forbidden");
   }
 
   /** POST event notifications. */
-  @Post('webhook')
+  @Post("webhook")
   @ApiExcludeEndpoint()
   async receive(
     @Req() req: RawBodyRequest<Request>,
@@ -97,31 +103,35 @@ export class WhatsappWebhookController {
   ): Promise<Response> {
     if (!this.config.isConfigured) {
       this.log.error(
-        'receive',
-        'WhatsApp not configured (WHATSAPP_APP_SECRET / WHATSAPP_WEBHOOK_VERIFY_TOKEN missing)',
+        "receive",
+        "WhatsApp not configured (WHATSAPP_APP_SECRET / WHATSAPP_WEBHOOK_VERIFY_TOKEN missing)",
       );
-      this.whatsappLog.logWebhookRejected('not_configured');
+      this.whatsappLog.logWebhookRejected("not_configured");
       return res.status(503).send();
     }
 
     const raw = req.rawBody;
-    if (!raw || !this.verifySignature(raw, req.headers['x-hub-signature-256'])) {
-      this.log.warn('receive', 'signature verification failed');
-      this.whatsappLog.logWebhookRejected('signature_verification_failed');
+    if (
+      !raw ||
+      !this.verifySignature(raw, req.headers["x-hub-signature-256"])
+    ) {
+      this.log.warn("receive", "signature verification failed");
+      this.whatsappLog.logWebhookRejected("signature_verification_failed");
       return res.status(401).send();
     }
 
     let payload: WhatsappWebhookPayload;
     try {
-      payload = JSON.parse(raw.toString('utf8')) as WhatsappWebhookPayload;
+      payload = JSON.parse(raw.toString("utf8")) as WhatsappWebhookPayload;
     } catch {
       // Unparseable — ACK 200 so Meta doesn't retry a body we can never accept.
-      this.log.warn('receive', 'unparseable webhook body');
-      this.whatsappLog.logWebhookRejected('unparseable_body');
+      this.log.warn("receive", "unparseable webhook body");
+      this.whatsappLog.logWebhookRejected("unparseable_body");
       return res.status(200).send();
     }
 
     const jobs = this.extractJobs(payload);
+    const statuses = this.extractStatuses(payload);
 
     // ACK Meta immediately, BEFORE processing. A fast 200 stops Meta retrying,
     // which is what prevents duplicate deliveries now that there's no queue.
@@ -132,19 +142,29 @@ export class WhatsappWebhookController {
     // (WhatsappInboundService already best-effort replies to the user on failure).
     for (const job of jobs) {
       if (!this.markSeen(job.messageId)) {
-        this.log.debug('receive', 'duplicate WhatsApp delivery — skipping', {
+        this.log.debug("receive", "duplicate WhatsApp delivery — skipping", {
           messageId: job.messageId,
         });
         continue;
       }
-      void this.inbound.handleInbound(job).catch((err: unknown) =>
-        this.log.error(
-          'receive',
-          'inbound processing failed',
-          err,
-          { messageId: job.messageId },
-        ),
-      );
+      void this.inbound
+        .handleInbound(job)
+        .catch((err: unknown) =>
+          this.log.error("receive", "inbound processing failed", err, {
+            messageId: job.messageId,
+          }),
+        );
+    }
+
+    // Status webhooks carry Meta's per-message charge.
+    for (const { phoneNumberId, items } of statuses) {
+      void this.usage
+        .recordStatuses(phoneNumberId, items)
+        .catch((err: unknown) =>
+          this.log.error("receive", "status processing failed", err, {
+            phoneNumberId,
+          }),
+        );
     }
 
     return res;
@@ -174,11 +194,28 @@ export class WhatsappWebhookController {
     const appSecret = this.config.appSecret;
     if (!appSecret || !header || Array.isArray(header)) return false;
     const expected =
-      'sha256=' + createHmac('sha256', appSecret).update(raw).digest('hex');
+      "sha256=" + createHmac("sha256", appSecret).update(raw).digest("hex");
     const expectedBuf = Buffer.from(expected);
     const actualBuf = Buffer.from(header);
     if (expectedBuf.length !== actualBuf.length) return false;
     return timingSafeEqual(expectedBuf, actualBuf);
+  }
+
+  /** Status updates for messages we sent, grouped by receiving number. */
+  private extractStatuses(
+    payload: WhatsappWebhookPayload,
+  ): Array<{ phoneNumberId: string; items: WhatsappStatus[] }> {
+    const out: Array<{ phoneNumberId: string; items: WhatsappStatus[] }> = [];
+    for (const entry of payload.entry ?? []) {
+      for (const change of entry.changes ?? []) {
+        const phoneNumberId = change.value?.metadata?.phone_number_id;
+        const items = change.value?.statuses;
+        if (phoneNumberId && Array.isArray(items) && items.length > 0) {
+          out.push({ phoneNumberId, items });
+        }
+      }
+    }
+    return out;
   }
 
   /** Pull the inbound text messages out of the (nested) webhook envelope. */
@@ -193,21 +230,21 @@ export class WhatsappWebhookController {
         for (const msg of value.messages) {
           // Text and audio (voice notes) are handled. Images/documents/etc. are
           // ignored for now.
-          if (msg.type === 'text' && msg.text?.body) {
+          if (msg.type === "text" && msg.text?.body) {
             jobs.push({
               phoneNumberId,
               from: msg.from,
               messageId: msg.id,
-              type: 'text',
+              type: "text",
               text: msg.text.body,
               contactName,
             });
-          } else if (msg.type === 'audio' && msg.audio?.id) {
+          } else if (msg.type === "audio" && msg.audio?.id) {
             jobs.push({
               phoneNumberId,
               from: msg.from,
               messageId: msg.id,
-              type: 'audio',
+              type: "audio",
               mediaId: msg.audio.id,
               contactName,
             });

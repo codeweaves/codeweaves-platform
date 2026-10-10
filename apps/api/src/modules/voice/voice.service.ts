@@ -19,11 +19,14 @@ import {
   type LanguageDetectionResponse,
   type SupportedLanguage,
   type VoiceListItem,
+  type VoiceUsageScope,
   VOICE_PROVIDERS,
   UnsupportedLanguageError,
   VoiceProviderError,
 } from "./providers/voice-provider.interface";
 import { PrismaService } from "../../services/prisma.service";
+import { UsageMeterService } from "../usage/usage-meter.service";
+import { PREVIEW_AGENT_ID } from "./providers/tts-usage";
 import {
   toSpeakableText,
   hasSpeakableContent,
@@ -36,6 +39,9 @@ const DEFAULT_VOICE_CONFIG: VoiceConfigDto = Object.freeze(
 
 /** Providers that should only be used in routing when no real provider is available */
 const NON_ROUTABLE_PROVIDERS = new Set(["stub"]);
+
+/** STT order: Sarvam handles every language; the rest are failover only. */
+const STT_FAILOVER_ORDER = ["sarvam", "deepgram", "elevenlabs"] as const;
 
 /** Providers that do not support TTS */
 const NO_TTS_PROVIDERS = new Set(["deepgram"]);
@@ -152,6 +158,7 @@ export class VoiceService {
   constructor(
     @Inject(VOICE_PROVIDERS) providers: VoiceProvider[],
     private readonly prisma: PrismaService,
+    private readonly usageMeter: UsageMeterService,
   ) {
     for (const provider of providers) {
       this.registerProvider(provider);
@@ -222,10 +229,19 @@ export class VoiceService {
       }));
   }
 
+  /**
+   * One billed STT call per voice turn. Sarvam `saaras:v3` transcribes every
+   * language, English included, and detects the language in the same call.
+   * Deepgram, then ElevenLabs, run only when the provider before them throws,
+   * so a turn is never transcribed (and billed) twice. An agent's
+   * `sttProvider` override is used as-is.
+   *
+   * The result carries the call's `usage`; the caller records it with
+   * `recordSttUsage()` once it knows the conversation.
+   */
   async transcribe(request: STTRequest): Promise<STTResponse> {
     const config = await this.getVoiceConfig(request.agentId);
 
-    // 1. Agent has an STT provider override → use it as-is, skip detection.
     if (config.sttProvider) {
       const override = this.sttProviders.get(config.sttProvider);
       if (override) {
@@ -233,12 +249,7 @@ export class VoiceService {
           agentId: request.agentId,
           provider: config.sttProvider,
         });
-        return this.timed(
-          override,
-          "transcribe",
-          request,
-          `override=${config.sttProvider}`,
-        );
+        return this.timed(override, request, `override=${config.sttProvider}`);
       }
       this.log.warn(
         "transcribe",
@@ -249,143 +260,78 @@ export class VoiceService {
       );
     }
 
-    // 2. Caller passed an explicit language hint → route on language.
-    if (request.languageHint) {
-      const provider = this.resolveSTTProvider(config, request.languageHint);
-      this.log.info("transcribe", "routing on language hint", {
-        agentId: request.agentId,
-        languageHint: request.languageHint,
-        provider: provider.name,
-      });
-      return this.timed(
-        provider,
-        "transcribe",
-        request,
-        `hint=${request.languageHint}`,
-      );
+    const chain = STT_FAILOVER_ORDER.map((name) =>
+      this.sttProviders.get(name),
+    ).filter((p): p is VoiceProvider => !!p);
+    if (chain.length === 0) {
+      throw new BadGatewayException("No STT providers available");
     }
 
-    // 3. Auto-detect path. Sarvam transcribes + detects language in one call. Then:
-    //    - Indian language detected → Sarvam's transcript is the right answer (no second call).
-    //    - English / other detected → call Deepgram fresh; Sarvam is unreliable for English
-    //      even when it returns a transcript. Deepgram failure falls back to ElevenLabs,
-    //      and finally to Sarvam's original transcript (so we never end with nothing).
-    const sarvam = this.sttProviders.get("sarvam");
-    if (!sarvam) {
-      // No Sarvam at all — fall back to default-language routing.
-      this.log.warn(
-        "transcribe",
-        "no Sarvam provider — falling back to default-language routing",
-        {
-          agentId: request.agentId,
-          defaultLanguage: config.defaultLanguage ?? "en",
-        },
-      );
-      const fallback = this.resolveSTTProvider(
-        config,
-        config.defaultLanguage ?? "en",
-      );
-      return this.timed(fallback, "transcribe", request, "no-sarvam-fallback");
-    }
-
-    this.log.info(
-      "transcribe",
-      "no language hint — Sarvam detect + transcribe (step 1)",
-      {
-        agentId: request.agentId,
-      },
-    );
-    const sarvamResult = await this.timed(
-      sarvam,
-      "transcribe",
-      request,
-      "auto-detect-step-1",
-    );
-
-    if (this.INDIAN_LANGUAGES.has(sarvamResult.detectedLanguage)) {
-      // Sarvam is the best choice for Indian languages — accept its result (even if empty,
-      // no other provider does Indian better).
-      this.log.info(
-        "transcribe",
-        "Indian language detected — keeping Sarvam transcript",
-        {
-          detectedLanguage: sarvamResult.detectedLanguage,
-        },
-      );
-      return sarvamResult;
-    }
-
-    // English / other language — Deepgram is the reliable transcriber.
-    const detectedLang = sarvamResult.detectedLanguage;
-    const deepgram = this.sttProviders.get("deepgram");
-    if (deepgram) {
+    let firstError: unknown;
+    for (const [i, provider] of chain.entries()) {
+      // Sarvam auto-detects with no hint. A failover provider has no detected
+      // language to go on, so it gets the agent's default language instead.
+      const languageHint =
+        i === 0
+          ? request.languageHint
+          : (request.languageHint ??
+            (config.defaultLanguage as SupportedLanguage | undefined));
       try {
-        this.log.info(
-          "transcribe",
-          "non-Indian language — re-transcribing via Deepgram (step 2)",
-          {
-            detectedLanguage: detectedLang,
-          },
-        );
         return await this.timed(
-          deepgram,
-          "transcribe",
-          { ...request, languageHint: detectedLang },
-          `english-step-2 (lang=${detectedLang})`,
+          provider,
+          { ...request, languageHint },
+          i === 0 ? "primary" : `failover-${i}`,
         );
       } catch (error) {
-        this.log.warn("transcribe", "Deepgram failed — trying fallback chain", {
-          detectedLanguage: detectedLang,
+        firstError ??= error;
+        this.log.warn("transcribe", "STT provider failed", {
+          provider: provider.name,
+          next: chain[i + 1]?.name ?? null,
           error: error instanceof Error ? error.message : "unknown",
         });
       }
     }
-
-    // Deepgram unavailable or threw — try ElevenLabs scribe_v2 (also supports English).
-    const elevenlabs = this.sttProviders.get("elevenlabs");
-    if (elevenlabs) {
-      try {
-        this.log.info("transcribe", "falling back to ElevenLabs STT", {
-          detectedLanguage: detectedLang,
-        });
-        return await this.timed(
-          elevenlabs,
-          "transcribe",
-          { ...request, languageHint: detectedLang },
-          `english-fallback-elevenlabs`,
-        );
-      } catch (error) {
-        this.log.warn(
-          "transcribe",
-          "ElevenLabs also failed — using Sarvam's auto-detect transcript",
-          {
-            error: error instanceof Error ? error.message : "unknown",
-          },
-        );
-      }
-    }
-
-    return sarvamResult;
+    throw firstError;
   }
 
   /** Wraps a provider call with consistent latency logging. Keeps transcribe() readable. */
   private async timed(
     provider: VoiceProvider,
-    op: "transcribe",
     request: STTRequest,
     note: string,
   ): Promise<STTResponse> {
     const startTime = Date.now();
-    const result = await provider[op](request);
+    const result = await provider.transcribe(request);
     const latencyMs = Date.now() - startTime;
     this.log.info("timed", "STT provider call complete", {
-      op,
       provider: provider.name,
       detectedLanguage: result.detectedLanguage,
       latencyMs,
       note,
     });
     return result;
+  }
+
+  /**
+   * Record the STT call behind `stt` in the usage ledger. Fire-and-forget.
+   * Kept apart from transcribe() because the conversation (chatSessionId) is
+   * usually resolved after the transcript, and some turns end before it is.
+   */
+  recordSttUsage(stt: STTResponse, scope: VoiceUsageScope): void {
+    if (!stt.usage) return;
+    this.usageMeter.record({
+      organizationId: scope.organizationId ?? null,
+      agentId: scope.agentId ?? null,
+      chatSessionId: scope.chatSessionId ?? null,
+      channel: scope.channel,
+      feature: "STT",
+      provider: stt.provider,
+      model: stt.usage.model,
+      providerRequestId: stt.usage.providerRequestId ?? null,
+      quantities: { audioSeconds: stt.usage.audioSeconds },
+      quantitySource: stt.usage.quantitySource,
+      latencyMs: stt.latencyMs,
+    });
   }
 
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
@@ -512,6 +458,8 @@ export class VoiceService {
     language: string,
     agentId: string,
     config?: VoiceConfigDto,
+    /** Who the TTS calls are billed to. */
+    usage?: VoiceUsageScope,
   ): AsyncGenerator<VoiceStreamChunk> {
     const resolvedConfig = config ?? (await this.getVoiceConfig(agentId));
     if (resolvedConfig.ttsEnabled === false) {
@@ -543,6 +491,7 @@ export class VoiceService {
         agentId,
         resolvedConfig,
         provider,
+        usage,
       );
       return;
     }
@@ -556,6 +505,7 @@ export class VoiceService {
       agentId,
       resolvedConfig,
       provider,
+      usage,
     );
   }
 
@@ -617,6 +567,7 @@ export class VoiceService {
     agentId: string,
     config: VoiceConfigDto,
     provider: VoiceProvider,
+    usage: VoiceUsageScope | undefined,
   ): AsyncGenerator<VoiceStreamChunk> {
     // openSynthesisSession is guaranteed by the caller's check, but TS can't
     // narrow that across the method boundary — fall through to per-sentence
@@ -628,6 +579,7 @@ export class VoiceService {
         agentId,
         config,
         provider,
+        usage,
       );
       return;
     }
@@ -647,6 +599,7 @@ export class VoiceService {
         agentId,
         voiceId: config.ttsVoiceId,
         speed: config.ttsSpeed,
+        usage,
       });
 
       // Tokens stream in; we synthesise each sentence sequentially on the
@@ -761,6 +714,7 @@ export class VoiceService {
               agentId,
               voiceId: config.ttsVoiceId,
               speed: config.ttsSpeed,
+              usage,
             });
             yield {
               type: "audio",
@@ -876,6 +830,7 @@ export class VoiceService {
     agentId: string,
     config: VoiceConfigDto,
     provider: VoiceProvider,
+    usage: VoiceUsageScope | undefined,
   ): AsyncGenerator<VoiceStreamChunk> {
     const sentenceBuffer = new SentenceBuffer();
     const ttsPromises: Promise<VoiceStreamChunk[]>[] = [];
@@ -918,6 +873,7 @@ export class VoiceService {
                   config,
                   provider,
                   ttsPromises.length,
+                  usage,
                 ),
               );
               notifyYielder();
@@ -935,6 +891,7 @@ export class VoiceService {
               config,
               provider,
               ttsPromises.length,
+              usage,
             ),
           );
           notifyYielder();
@@ -988,6 +945,7 @@ export class VoiceService {
     config: VoiceConfigDto,
     primaryProvider: VoiceProvider,
     sentenceIndex: number,
+    usage: VoiceUsageScope | undefined,
   ): Promise<VoiceStreamChunk[]> {
     const out: VoiceStreamChunk[] = [];
     for await (const chunk of this.synthesizeSentenceWithFallback(
@@ -997,6 +955,7 @@ export class VoiceService {
       config,
       primaryProvider,
       sentenceIndex,
+      usage,
     )) {
       out.push(chunk);
     }
@@ -1010,6 +969,7 @@ export class VoiceService {
     config: VoiceConfigDto,
     primaryProvider: VoiceProvider,
     sentenceIndex: number,
+    usage: VoiceUsageScope | undefined,
   ): AsyncGenerator<VoiceStreamChunk, boolean> {
     // Strip emoji/symbols before TTS (Sarvam rejects text with no language
     // characters); keep the ORIGINAL `sentence` for the display `text` field so
@@ -1038,6 +998,7 @@ export class VoiceService {
       agentId,
       voiceId: config.ttsVoiceId,
       speed: config.ttsSpeed,
+      usage,
     };
 
     // Try primary provider. When `voiceConfig.ttsStreaming` is true AND the
@@ -1315,41 +1276,6 @@ export class VoiceService {
     };
   }
 
-  private resolveSTTProvider(
-    config: VoiceConfigDto,
-    language: string,
-  ): VoiceProvider {
-    // Priority 1: Agent override
-    if (config.sttProvider) {
-      const override = this.sttProviders.get(config.sttProvider);
-      if (override) return override;
-      this.log.warn(
-        "resolveSTTProvider",
-        "STT override provider not found — falling back to language-based routing",
-        {
-          override: config.sttProvider,
-        },
-      );
-    }
-
-    // Priority 2: Language-based routing
-    if (this.INDIAN_LANGUAGES.has(language)) {
-      const sarvam = this.sttProviders.get("sarvam");
-      if (sarvam) return sarvam;
-    }
-
-    // Priority 3: Default → Deepgram
-    const deepgram = this.sttProviders.get("deepgram");
-    if (deepgram) return deepgram;
-
-    // Last resort: first available STT provider
-    const firstProvider = this.sttProviders.values().next().value;
-    if (!firstProvider) {
-      throw new BadGatewayException("No STT providers available");
-    }
-    return firstProvider;
-  }
-
   private resolveTTSProvider(
     config: VoiceConfigDto,
     language: SupportedLanguage,
@@ -1564,7 +1490,14 @@ export class VoiceService {
       language: lang,
       voiceId,
       speed: 1.0,
-      agentId: "__preview__",
+      agentId: PREVIEW_AGENT_ID,
+      // Editor previews are platform cost, not tied to a client.
+      usage: {
+        channel: "DASHBOARD",
+        feature: "VOICE_PREVIEW",
+        organizationId: null,
+        agentId: null,
+      },
     };
     const ttsResult = ttsProvider.synthesizePreview
       ? await ttsProvider.synthesizePreview(ttsRequest)

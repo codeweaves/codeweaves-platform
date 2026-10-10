@@ -38,6 +38,10 @@ export enum Resource {
   Privacy = "Privacy",
   EmailTemplate = "EmailTemplate",
   AuditLog = "AuditLog",
+  /** Provider usage and cost reports (ADR-0012). Platform-only. */
+  Usage = "Usage",
+  /** The provider price list. Platform-only. */
+  Price = "Price",
 }
 
 export enum Action {

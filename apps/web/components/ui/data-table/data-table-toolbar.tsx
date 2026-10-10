@@ -1,31 +1,43 @@
-import { useState, useMemo, useRef } from 'react';
-import { Input } from '@/components/ui/input';
-import { Button } from '@/components/ui/button';
-import { Calendar } from '@/components/ui/calendar';
-import { Popover, PopoverContent, PopoverTrigger } from '@/components/ui/popover';
+import { useState, useMemo, useRef } from "react";
+import { Input } from "@/components/ui/input";
+import { Button } from "@/components/ui/button";
+import { Calendar } from "@/components/ui/calendar";
+import {
+  Popover,
+  PopoverContent,
+  PopoverTrigger,
+} from "@/components/ui/popover";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
+} from "@/components/ui/select";
 import {
   DropdownMenu,
   DropdownMenuCheckboxItem,
   DropdownMenuContent,
   DropdownMenuItem,
   DropdownMenuTrigger,
-} from '@/components/ui/dropdown-menu';
-import { Search, X, ChevronDown, Download, Loader2, CalendarIcon, Check } from 'lucide-react';
-import { format } from 'date-fns';
-import { cn } from '@/lib/utils';
+} from "@/components/ui/dropdown-menu";
+import {
+  Search,
+  X,
+  ChevronDown,
+  Download,
+  Loader2,
+  CalendarIcon,
+  Check,
+} from "lucide-react";
+import { format } from "date-fns";
+import { cn } from "@/lib/utils";
 import {
   DataTableToolbarProps,
   DataTableFilterConfig,
   DataTableExportConfig,
   DataTableExportFormat,
-} from './types';
+} from "./types";
 
 function SingleSelectFilter({
   filter,
@@ -38,7 +50,10 @@ function SingleSelectFilter({
 }) {
   return (
     <Select value={value} onValueChange={onChange}>
-      <SelectTrigger className="w-[250px] cursor-pointer">
+      <SelectTrigger
+        className="w-[250px] cursor-pointer"
+        aria-label={filter.label}
+      >
         <SelectValue placeholder={filter.placeholder || filter.label} />
       </SelectTrigger>
       <SelectContent>
@@ -56,14 +71,14 @@ function SingleSelectFilter({
 }
 
 const FORMAT_LABELS: Record<DataTableExportFormat, string> = {
-  csv: 'CSV',
-  xlsx: 'Excel',
-  json: 'JSON',
+  csv: "CSV",
+  xlsx: "Excel",
+  json: "JSON",
 };
 
 function ExportButton({ config }: { config: DataTableExportConfig }) {
-  const formats = config.formats ?? ['csv'];
-  const label = config.label ?? 'Export';
+  const formats = config.formats ?? ["csv"];
+  const label = config.label ?? "Export";
 
   // Single format - just a button
   if (formats.length === 1) {
@@ -89,7 +104,12 @@ function ExportButton({ config }: { config: DataTableExportConfig }) {
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" size="sm" disabled={config.isExporting} className="h-9">
+        <Button
+          variant="outline"
+          size="sm"
+          disabled={config.isExporting}
+          className="h-9"
+        >
           {config.isExporting ? (
             <Loader2 className="size-4 animate-spin" />
           ) : (
@@ -128,7 +148,8 @@ function MultiSelectFilter({
     selectedCount === 0
       ? filter.placeholder || filter.label
       : selectedCount === 1
-        ? (filter.options ?? []).find((o) => o.value === values[0])?.label || values[0]
+        ? (filter.options ?? []).find((o) => o.value === values[0])?.label ||
+          values[0]
         : `${selectedCount} selected`;
 
   const handleToggle = (optionValue: string) => {
@@ -142,8 +163,13 @@ function MultiSelectFilter({
   return (
     <DropdownMenu>
       <DropdownMenuTrigger asChild>
-        <Button variant="outline" className="w-[250px] justify-between gap-0 pl-3 pr-0 font-normal">
-          <span className="flex-1 min-w-0 truncate text-left">{displayText}</span>
+        <Button
+          variant="outline"
+          className="w-[250px] justify-between gap-0 pl-3 pr-0 font-normal"
+        >
+          <span className="flex-1 min-w-0 truncate text-left">
+            {displayText}
+          </span>
           {selectedCount > 0 ? (
             <span
               className="w-[30px] flex items-center justify-center shrink-0 opacity-30 hover:opacity-100 cursor-pointer transition-opacity"
@@ -162,20 +188,32 @@ function MultiSelectFilter({
           )}
         </Button>
       </DropdownMenuTrigger>
-      <DropdownMenuContent align="start" className="data-table-filter-dropdown w-[250px] max-h-[300px] overflow-y-auto">
+      <DropdownMenuContent
+        align="start"
+        className="data-table-filter-dropdown w-[250px] max-h-[300px] overflow-y-auto"
+      >
         {(filter.options ?? []).map((option) => {
           const checked = values.includes(option.value);
           return (
             <DropdownMenuItem
               key={option.value}
-              onSelect={(e) => { e.preventDefault(); handleToggle(option.value); }}
+              onSelect={(e) => {
+                e.preventDefault();
+                handleToggle(option.value);
+              }}
               className="flex items-center gap-2 cursor-pointer"
             >
-              <div className={cn(
-                "size-4 shrink-0 rounded border flex items-center justify-center transition-colors cursor-pointer",
-                checked ? "bg-primary border-primary" : "border-input bg-background"
-              )}>
-                {checked && <Check className="size-3 text-primary-foreground" />}
+              <div
+                className={cn(
+                  "size-4 shrink-0 rounded border flex items-center justify-center transition-colors cursor-pointer",
+                  checked
+                    ? "bg-primary border-primary"
+                    : "border-input bg-background",
+                )}
+              >
+                {checked && (
+                  <Check className="size-3 text-primary-foreground" />
+                )}
               </div>
               {option.icon && <option.icon className="size-4" />}
               {option.label}
@@ -187,30 +225,34 @@ function MultiSelectFilter({
   );
 }
 
-function buildRangeDisplayText(fromValue: string, toValue: string, label: string): string {
+function buildRangeDisplayText(
+  fromValue: string,
+  toValue: string,
+  label: string,
+): string {
   const currentYear = new Date().getFullYear();
   if (!fromValue) return label;
 
-  const fromDate = new Date(fromValue + 'T00:00:00');
+  const fromDate = new Date(fromValue + "T00:00:00");
   const fromYear = fromDate.getFullYear();
 
   if (!toValue) {
-    const yearSuffix = fromYear !== currentYear ? `, ${fromYear}` : '';
-    return `From ${format(fromDate, 'MMM d')}${yearSuffix}`;
+    const yearSuffix = fromYear !== currentYear ? `, ${fromYear}` : "";
+    return `From ${format(fromDate, "MMM d")}${yearSuffix}`;
   }
 
-  const toDate = new Date(toValue + 'T00:00:00');
+  const toDate = new Date(toValue + "T00:00:00");
   const toYear = toDate.getFullYear();
 
   // Same day
   if (fromValue === toValue) {
-    const yearSuffix = fromYear !== currentYear ? `, ${fromYear}` : '';
-    return `${format(fromDate, 'EEE, MMM d')}${yearSuffix}`;
+    const yearSuffix = fromYear !== currentYear ? `, ${fromYear}` : "";
+    return `${format(fromDate, "EEE, MMM d")}${yearSuffix}`;
   }
 
   if (fromYear === toYear) {
-    const yearSuffix = fromYear !== currentYear ? `, ${fromYear}` : '';
-    return `${format(fromDate, 'MMM d')} – ${format(toDate, 'MMM d')}${yearSuffix}`;
+    const yearSuffix = fromYear !== currentYear ? `, ${fromYear}` : "";
+    return `${format(fromDate, "MMM d")} – ${format(toDate, "MMM d")}${yearSuffix}`;
   }
 
   // Spans two different years — show abbreviated year on each
@@ -218,12 +260,12 @@ function buildRangeDisplayText(fromValue: string, toValue: string, label: string
 }
 
 function formatDateFull(dateStr: string): string {
-  const date = new Date(dateStr + 'T00:00:00');
-  return format(date, 'MMM dd, yyyy');
+  const date = new Date(dateStr + "T00:00:00");
+  return format(date, "MMM dd, yyyy");
 }
 
 function toDateString(date: Date): string {
-  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, '0')}-${String(date.getDate()).padStart(2, '0')}`;
+  return `${date.getFullYear()}-${String(date.getMonth() + 1).padStart(2, "0")}-${String(date.getDate()).padStart(2, "0")}`;
 }
 
 function DateRangeFilter({
@@ -252,12 +294,16 @@ function DateRangeFilter({
     setOpen(isOpen);
   };
 
-  const from = pendingFrom ? new Date(pendingFrom + 'T00:00:00') : undefined;
-  const to = pendingTo ? new Date(pendingTo + 'T00:00:00') : undefined;
+  const from = pendingFrom ? new Date(pendingFrom + "T00:00:00") : undefined;
+  const to = pendingTo ? new Date(pendingTo + "T00:00:00") : undefined;
   const hasSelection = fromValue || toValue;
   const hasPendingSelection = pendingFrom && pendingTo;
 
-  const displayText = buildRangeDisplayText(fromValue, toValue, filter.placeholder || filter.label);
+  const displayText = buildRangeDisplayText(
+    fromValue,
+    toValue,
+    filter.placeholder || filter.label,
+  );
 
   const handleApply = () => {
     onFromChange(pendingFrom);
@@ -266,10 +312,10 @@ function DateRangeFilter({
   };
 
   const handleClear = () => {
-    setPendingFrom('');
-    setPendingTo('');
-    onFromChange('');
-    onToChange('');
+    setPendingFrom("");
+    setPendingTo("");
+    onFromChange("");
+    onToChange("");
     setOpen(false);
   };
 
@@ -280,7 +326,7 @@ function DateRangeFilter({
           variant="outline"
           className={cn(
             "w-[250px] justify-start text-left font-normal gap-0 pl-3 pr-0",
-            !hasSelection && "text-muted-foreground"
+            !hasSelection && "text-muted-foreground",
           )}
         >
           <CalendarIcon className="size-4 shrink-0 mr-2" />
@@ -301,7 +347,12 @@ function DateRangeFilter({
           )}
         </Button>
       </PopoverTrigger>
-      <PopoverContent className="w-auto p-0" align="start" sideOffset={8} onOpenAutoFocus={(e) => e.preventDefault()}>
+      <PopoverContent
+        className="w-auto p-0"
+        align="start"
+        sideOffset={8}
+        onOpenAutoFocus={(e) => e.preventDefault()}
+      >
         <div className="flex flex-col">
           {/* Calendar */}
           <div className="p-2">
@@ -310,8 +361,8 @@ function DateRangeFilter({
               defaultMonth={from || new Date()}
               selected={from || to ? { from, to } : undefined}
               onSelect={(range) => {
-                setPendingFrom(range?.from ? toDateString(range.from) : '');
-                setPendingTo(range?.to ? toDateString(range.to) : '');
+                setPendingFrom(range?.from ? toDateString(range.from) : "");
+                setPendingTo(range?.to ? toDateString(range.to) : "");
               }}
               disabled={{ after: new Date() }}
               numberOfMonths={1}
@@ -324,13 +375,21 @@ function DateRangeFilter({
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground w-8">Start</span>
               <div className="flex-1 rounded-md border px-3 py-1.5 text-sm">
-                {pendingFrom ? formatDateFull(pendingFrom) : <span className="text-muted-foreground">Select start</span>}
+                {pendingFrom ? (
+                  formatDateFull(pendingFrom)
+                ) : (
+                  <span className="text-muted-foreground">Select start</span>
+                )}
               </div>
             </div>
             <div className="flex items-center gap-3">
               <span className="text-xs text-muted-foreground w-8">End</span>
               <div className="flex-1 rounded-md border px-3 py-1.5 text-sm">
-                {pendingTo ? formatDateFull(pendingTo) : <span className="text-muted-foreground">Select end</span>}
+                {pendingTo ? (
+                  formatDateFull(pendingTo)
+                ) : (
+                  <span className="text-muted-foreground">Select end</span>
+                )}
               </div>
             </div>
           </div>
@@ -363,7 +422,7 @@ function ComboboxFilter({
   onChange: (value: string) => void;
 }) {
   const [open, setOpen] = useState(false);
-  const [inputValue, setInputValue] = useState('');
+  const [inputValue, setInputValue] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
 
   const options = useMemo(() => filter.options ?? [], [filter.options]);
@@ -377,13 +436,13 @@ function ComboboxFilter({
 
   const handleSelect = (optionValue: string) => {
     onChange(optionValue);
-    setInputValue('');
+    setInputValue("");
     setOpen(false);
     inputRef.current?.blur();
   };
 
   const handleFocus = () => {
-    setInputValue('');
+    setInputValue("");
     setOpen(true);
   };
 
@@ -391,7 +450,7 @@ function ComboboxFilter({
     // Delay so onMouseDown on an option can fire before the blur closes the list
     setTimeout(() => {
       setOpen(false);
-      setInputValue('');
+      setInputValue("");
     }, 150);
   };
 
@@ -403,10 +462,10 @@ function ComboboxFilter({
         className={cn(
           "flex h-9 w-full rounded-xl border border-input bg-background px-3 py-1 pr-[30px] text-sm shadow-xs",
           "placeholder:text-muted-foreground focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
-          !selectedOption && !open && "text-muted-foreground"
+          !selectedOption && !open && "text-muted-foreground",
         )}
         placeholder={filter.placeholder || filter.label}
-        value={open ? inputValue : (selectedOption?.label ?? '')}
+        value={open ? inputValue : (selectedOption?.label ?? "")}
         onChange={(e) => setInputValue(e.target.value)}
         onFocus={handleFocus}
         onBlur={handleBlur}
@@ -417,8 +476,8 @@ function ComboboxFilter({
           className="absolute right-0 top-1/2 -translate-y-1/2 w-[30px] flex items-center justify-center shrink-0 opacity-30 hover:opacity-100 cursor-pointer transition-opacity"
           onPointerDown={(e) => {
             e.preventDefault();
-            onChange('');
-            setInputValue('');
+            onChange("");
+            setInputValue("");
             setOpen(false);
           }}
         >
@@ -432,7 +491,9 @@ function ComboboxFilter({
         <div className="absolute top-full z-50 mt-1 w-full rounded-md border bg-popover shadow-md">
           <div className="max-h-[220px] overflow-y-auto py-1">
             {filtered.length === 0 ? (
-              <div className="px-3 py-4 text-center text-sm text-muted-foreground">No results</div>
+              <div className="px-3 py-4 text-center text-sm text-muted-foreground">
+                No results
+              </div>
             ) : (
               filtered.map((option) => {
                 const isSelected = option.value === value;
@@ -444,12 +505,14 @@ function ComboboxFilter({
                     onClick={() => handleSelect(option.value)}
                     className={cn(
                       "w-full flex items-center gap-2 px-3 py-1.5 text-sm text-left hover:bg-accent cursor-pointer transition-colors",
-                      isSelected && "font-medium"
+                      isSelected && "font-medium",
                     )}
                   >
                     {option.icon && <option.icon className="size-4 shrink-0" />}
                     <span className="flex-1 truncate">{option.label}</span>
-                    {isSelected && <Check className="size-3.5 shrink-0 text-primary" />}
+                    {isSelected && (
+                      <Check className="size-3.5 shrink-0 text-primary" />
+                    )}
                   </button>
                 );
               })
@@ -471,22 +534,28 @@ export function DataTableToolbar({
   exportConfig,
 }: DataTableToolbarProps) {
   return (
-    <div data-slot="data-table-toolbar" className="flex flex-wrap items-center justify-between gap-4">
+    <div
+      data-slot="data-table-toolbar"
+      className="flex flex-wrap items-center justify-between gap-4"
+    >
       {/* Search Input + Filters (grouped on the left) */}
-      <div data-slot="data-table-toolbar-filters" className="flex flex-wrap items-center gap-2">
+      <div
+        data-slot="data-table-toolbar-filters"
+        className="flex flex-wrap items-center gap-2"
+      >
         {searchConfig && (
           <div data-slot="data-table-search" className="relative w-[250px]">
             <Search className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-muted-foreground" />
             <Input
               placeholder={searchConfig.placeholder}
-              value={searchValue ?? ''}
+              value={searchValue ?? ""}
               onChange={(e) => onSearchChange?.(e.target.value)}
               className="rounded-xl pl-10 pr-[30px]"
             />
             {searchValue && (
               <X
                 className="absolute right-0 top-1/2 -translate-y-1/2 size-4 w-[30px] cursor-pointer opacity-30 hover:opacity-100 transition-opacity"
-                onClick={() => onSearchChange?.('')}
+                onClick={() => onSearchChange?.("")}
               />
             )}
           </div>
@@ -494,27 +563,37 @@ export function DataTableToolbar({
 
         {/* Filter Dropdowns + Date Ranges */}
         {filters?.map((filter) => {
-          if (filter.type === 'dateRange') {
+          if (filter.type === "dateRange") {
             const fromKey = filter.fromKey || `${filter.id}From`;
             const toKey = filter.toKey || `${filter.id}To`;
             return (
-              <div key={filter.id} data-slot="data-table-filter" data-filter-id={filter.id} data-filter-type="dateRange">
+              <div
+                key={filter.id}
+                data-slot="data-table-filter"
+                data-filter-id={filter.id}
+                data-filter-type="dateRange"
+              >
                 <DateRangeFilter
                   filter={filter}
-                  fromValue={(filterValues?.[fromKey] as string) ?? ''}
-                  toValue={(filterValues?.[toKey] as string) ?? ''}
+                  fromValue={(filterValues?.[fromKey] as string) ?? ""}
+                  toValue={(filterValues?.[toKey] as string) ?? ""}
                   onFromChange={(value) => onFilterChange?.(fromKey, value)}
                   onToChange={(value) => onFilterChange?.(toKey, value)}
                 />
               </div>
             );
           }
-          if (filter.type === 'combobox') {
+          if (filter.type === "combobox") {
             return (
-              <div key={filter.id} data-slot="data-table-filter" data-filter-id={filter.id} data-filter-type="combobox">
+              <div
+                key={filter.id}
+                data-slot="data-table-filter"
+                data-filter-id={filter.id}
+                data-filter-type="combobox"
+              >
                 <ComboboxFilter
                   filter={filter}
-                  value={(filterValues?.[filter.id] as string) ?? ''}
+                  value={(filterValues?.[filter.id] as string) ?? ""}
                   onChange={(value) => onFilterChange?.(filter.id, value)}
                 />
               </div>
@@ -522,7 +601,12 @@ export function DataTableToolbar({
           }
           if (filter.multiSelect) {
             return (
-              <div key={filter.id} data-slot="data-table-filter" data-filter-id={filter.id} data-filter-type="multiSelect">
+              <div
+                key={filter.id}
+                data-slot="data-table-filter"
+                data-filter-id={filter.id}
+                data-filter-type="multiSelect"
+              >
                 <MultiSelectFilter
                   filter={filter}
                   values={
@@ -536,10 +620,15 @@ export function DataTableToolbar({
             );
           }
           return (
-            <div key={filter.id} data-slot="data-table-filter" data-filter-id={filter.id} data-filter-type="select">
+            <div
+              key={filter.id}
+              data-slot="data-table-filter"
+              data-filter-id={filter.id}
+              data-filter-type="select"
+            >
               <SingleSelectFilter
                 filter={filter}
-                value={(filterValues?.[filter.id] as string) ?? 'all'}
+                value={(filterValues?.[filter.id] as string) ?? "all"}
                 onChange={(value) => onFilterChange?.(filter.id, value)}
               />
             </div>

@@ -16,6 +16,7 @@ import { PrismaService } from "./prisma.service";
 import { CryptoService } from "../common/crypto/crypto.service";
 import { PiiTokenizerService } from "../modules/pii/pii-tokenizer.service";
 import { InternalEventLogger } from "../common/events/internal.logger";
+import { HeartbeatService } from "../modules/monitoring/heartbeat.service";
 
 /** Outcome of one extraction attempt. `retry` leaves the session due. */
 type ExtractionOutcome = "captured" | "empty" | "retry";
@@ -62,6 +63,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     private readonly internalLog: InternalEventLogger,
     private readonly crypto: CryptoService,
     private readonly piiTokenizer: PiiTokenizerService,
+    private readonly heartbeat: HeartbeatService,
   ) {
     // Both default to sensible values; override in .env to watch it run fast
     // while testing (e.g. DATA_EXTRACT_DEBOUNCE_MS=5000, DATA_EXTRACT_POLL_MS=5000).
@@ -112,7 +114,13 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
   triggerDuePass(): boolean {
     if (this.polling) return false;
     this.polling = true;
-    void this.runDuePass()
+    void this.runPass()
+      // The HTTP trigger only started the pass; this is where it finished.
+      // A stalled pass (nothing could be extracted) does not ping, so Better
+      // Stack alerts the same way as when the job stops running.
+      .then(({ stalled }) => {
+        if (!stalled) this.heartbeat.ping("DATA_EXTRACTION");
+      })
       .catch((err) => {
         this.logger.warn(
           `Extraction pass failed: ${err instanceof Error ? err.message : "unknown"}`,
@@ -151,6 +159,15 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
    * Returns the number of sessions that had data captured this pass.
    */
   async runDuePass(): Promise<number> {
+    return (await this.runPass()).captured;
+  }
+
+  /**
+   * One pass. `stalled` is true when sessions were due and every one failed
+   * (for example, the LLM is down): the job ran but did no work, so it is
+   * logged as FAILED instead of COMPLETED and must not count as healthy.
+   */
+  private async runPass(): Promise<{ captured: number; stalled: boolean }> {
     const now = new Date();
     const due = await this.prisma.chatSession.findMany({
       where: { extractionDueAt: { not: null, lte: now } },
@@ -160,7 +177,13 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (due.length === 0) {
-      return 0;
+      // Every pass leaves exactly one row, so the ops console can tell an
+      // idle job from a dead one. Idle passes skip STARTED: one row per run.
+      this.internalLog.logCompleted("DATA_EXTRACTION_RUN_COMPLETED", {
+        latencyMs: 0,
+        metadata: { due: 0, captured: 0 },
+      });
+      return { captured: 0, stalled: false };
     }
     const start = Date.now();
     this.logger.log(`Extraction poll: ${due.length} session(s) due.`);
@@ -169,6 +192,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     });
 
     let captured = 0;
+    let retried = 0;
     for (const session of due) {
       const outcome = await this.extractForSession(session.id).catch((err) => {
         this.logger.warn(
@@ -182,7 +206,10 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
       // pushed the due time forward meanwhile (race-safe: updateMany matches
       // zero rows if it moved, so the session stays due and is reprocessed
       // next pass, merging the newer data).
-      if (outcome === "retry") continue;
+      if (outcome === "retry") {
+        retried += 1;
+        continue;
+      }
       await this.prisma.chatSession.updateMany({
         where: { id: session.id, extractionDueAt: session.extractionDueAt },
         data: { extractionDueAt: null },
@@ -193,11 +220,19 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     this.logger.log(
       `Extraction poll done: captured ${captured}/${due.length}.`,
     );
+    if (retried === due.length) {
+      this.internalLog.logFailed(
+        "DATA_EXTRACTION_RUN_FAILED",
+        new Error("every due conversation failed to extract"),
+        { metadata: { due: due.length, retried } },
+      );
+      return { captured, stalled: true };
+    }
     this.internalLog.logCompleted("DATA_EXTRACTION_RUN_COMPLETED", {
       latencyMs: Date.now() - start,
-      metadata: { due: due.length, captured },
+      metadata: { due: due.length, captured, retried },
     });
-    return captured;
+    return { captured, stalled: false };
   }
 
   /**
