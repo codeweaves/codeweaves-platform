@@ -8,7 +8,7 @@ import type { PrismaService } from "../../../src/services/prisma.service";
 
 const status = (over: Partial<WhatsappStatus> = {}): WhatsappStatus => ({
   id: "wamid.1",
-  status: "sent",
+  status: "delivered",
   timestamp: "1760000000",
   recipient_id: "919876543210",
   pricing: { billable: true, pricing_model: "PMP", category: "service" },
@@ -78,6 +78,18 @@ describe("WhatsappUsageService", () => {
 
     expect(record).not.toHaveBeenCalled();
     expect(prisma.usageRecord.findMany).not.toHaveBeenCalled();
+  });
+
+  it("records nothing on sent alone: Meta charges only delivered messages", async () => {
+    await service.recordStatuses("PNID", [status({ status: "sent" })]);
+
+    expect(record).not.toHaveBeenCalled();
+  });
+
+  it("records a read that arrives without a delivered", async () => {
+    await service.recordStatuses("PNID", [status({ status: "read" })]);
+
+    expect(record).toHaveBeenCalledTimes(1);
   });
 
   it("records a message once when Meta repeats pricing on sent, delivered and read", async () => {

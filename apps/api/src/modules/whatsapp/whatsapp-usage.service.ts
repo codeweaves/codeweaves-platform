@@ -9,6 +9,13 @@ import type { WhatsappStatus } from "./interfaces/whatsapp.interfaces";
 /** Provider key of Meta's per-message charge in `provider_prices`. */
 export const META_WHATSAPP_PROVIDER = "meta_whatsapp";
 
+/**
+ * Meta charges only delivered messages. `pricing` also rides on `sent`, but a
+ * message that is sent and never delivered is not charged. A `read` can
+ * arrive without a `delivered`, so either one counts.
+ */
+const CHARGED_STATUSES = new Set(["delivered", "read"]);
+
 /** The price list holds India (+91) rates only. */
 const PRICED_COUNTRY_PREFIX = "91";
 
@@ -20,8 +27,8 @@ const PRICED_COUNTRY_PREFIX = "91";
  * decides what is billable: messages in the monthly free tier or a free window
  * arrive with `billable: false` and are not recorded.
  *
- * One row per message id (wamid). Meta repeats `pricing` on `sent`,
- * `delivered` and `read`, so duplicates are dropped twice over: an in-memory
+ * One row per message id (wamid), on `delivered` or `read`. Meta can send
+ * pricing on both, so duplicates are dropped twice over: an in-memory
  * set catches the burst on this instance, and a ledger lookup catches repeats
  * after a restart or on another instance.
  */
@@ -43,7 +50,11 @@ export class WhatsappUsageService {
   ): Promise<void> {
     const billable = new Map<string, WhatsappStatus>();
     for (const s of statuses) {
-      if (!s?.id || s.status === "failed" || s.pricing?.billable !== true) {
+      if (
+        !s?.id ||
+        !CHARGED_STATUSES.has(s.status) ||
+        s.pricing?.billable !== true
+      ) {
         continue;
       }
       if (this.seen.has(s.id) || billable.has(s.id)) continue;
