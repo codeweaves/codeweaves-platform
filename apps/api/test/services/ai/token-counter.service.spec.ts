@@ -100,8 +100,8 @@ describe("TokenCounterService", () => {
       const messages: ModelMessage[] = [
         {
           role: "user",
-          // eslint-disable-next-line @typescript-eslint/no-explicit-any
           content: [
+            // eslint-disable-next-line @typescript-eslint/no-explicit-any
             { type: "image", image: "data:image/png;base64,xxx" } as any,
           ],
         },
