@@ -124,6 +124,8 @@ export interface EventLogRow {
 
 export interface EventLogDetail extends EventLogRow {
   actor: { id: string; email: string; name: string | null } | null;
+  /** The linked conversation; `sessionId` is the id its dashboard page takes. */
+  conversation: { id: string; sessionId: string; agentName: string } | null;
   visitorId: string | null;
   requestHeaders: Record<string, string> | null;
   requestPayload: unknown;

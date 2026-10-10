@@ -1,5 +1,6 @@
 "use client";
 
+import Link from "next/link";
 import { useCallback, useMemo, useState } from "react";
 import type { ColumnDef } from "@tanstack/react-table";
 import { AlertCircle, Loader2, RefreshCw } from "lucide-react";
@@ -373,10 +374,25 @@ function EventLogSheet({
                     {data.agentId ?? "-"}
                   </span>
                 </DetailRow>
-                <DetailRow label="Session ID">
-                  <span className="font-mono text-xs">
-                    {data.sessionId ?? "-"}
-                  </span>
+                <DetailRow label="Conversation">
+                  {data.conversation ? (
+                    <span className="flex flex-wrap gap-x-3 gap-y-1">
+                      <Link
+                        href={`/dashboard/conversations?session=${encodeURIComponent(data.conversation.sessionId)}`}
+                        className="text-primary underline-offset-4 hover:underline"
+                      >
+                        Open conversation ({data.conversation.agentName})
+                      </Link>
+                      <Link
+                        href={`/dashboard/admin/usage/conversations/${data.conversation.id}`}
+                        className="text-primary underline-offset-4 hover:underline"
+                      >
+                        Cost breakdown
+                      </Link>
+                    </span>
+                  ) : (
+                    "-"
+                  )}
                 </DetailRow>
                 <DetailRow label="Correlation ID">
                   <span className="font-mono text-xs">

@@ -24,6 +24,9 @@ describe("TracerService", () => {
     agent: {
       findUnique: jest.fn(),
     },
+    chatSession: {
+      findFirst: jest.fn(),
+    },
   };
 
   beforeEach(async () => {
@@ -292,6 +295,69 @@ describe("TracerService", () => {
       await expect(
         service.logEvent({ channel: "DASHBOARD", eventName: "X" }),
       ).resolves.toBeUndefined();
+    });
+
+    describe("session id (the public one is a credential and never stored)", () => {
+      const sessionWritten = () =>
+        mockPrismaService.eventLog.create.mock.calls.at(-1)[0].data.sessionId;
+
+      beforeEach(() => {
+        mockPrismaService.eventLog.create.mockResolvedValue({});
+      });
+
+      it("stores the conversation's internal id when given the public session id", async () => {
+        mockPrismaService.chatSession.findFirst.mockResolvedValue({
+          id: "cs-internal",
+        });
+        await service.logEvent({
+          channel: "WIDGET",
+          eventName: "WIDGET_MESSAGE_RECEIVED",
+          sessionId: "public-sess",
+        });
+        expect(mockPrismaService.chatSession.findFirst).toHaveBeenCalledWith({
+          where: { OR: [{ sessionId: "public-sess" }, { id: "public-sess" }] },
+          select: { id: true },
+        });
+        expect(sessionWritten()).toBe("cs-internal");
+      });
+
+      it("drops a value that matches no conversation (e.g. 'warmup')", async () => {
+        mockPrismaService.chatSession.findFirst.mockResolvedValue(null);
+        await service.logEvent({
+          channel: "WIDGET",
+          eventName: "LLM_COMPLETION_COMPLETED",
+          sessionId: "warmup",
+        });
+        expect(sessionWritten()).toBeNull();
+      });
+
+      it("drops the value, and still writes the row, when the lookup fails", async () => {
+        mockPrismaService.chatSession.findFirst.mockRejectedValue(
+          new Error("db"),
+        );
+        await service.logEvent({
+          channel: "WIDGET",
+          eventName: "X",
+          sessionId: "public-sess",
+        });
+        expect(sessionWritten()).toBeNull();
+      });
+
+      it("looks each session up once, then serves it from the cache", async () => {
+        mockPrismaService.chatSession.findFirst.mockResolvedValue({
+          id: "cs-internal",
+        });
+        for (let i = 0; i < 3; i++) {
+          await service.logEvent({
+            channel: "WIDGET",
+            eventName: "X",
+            sessionId: "public-sess",
+          });
+        }
+        expect(mockPrismaService.chatSession.findFirst).toHaveBeenCalledTimes(
+          1,
+        );
+      });
     });
 
     describe("organization from the agent (public traffic has no signed-in user)", () => {

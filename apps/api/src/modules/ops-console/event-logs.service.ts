@@ -52,6 +52,12 @@ export interface EventLogPage {
 export interface EventLogDetail extends Omit<EventLogListRow, "organization"> {
   organization: { id: string; name: string } | null;
   actor: { id: string; email: string; name: string | null } | null;
+  /**
+   * The conversation `sessionId` points at. `sessionId` here is the public id
+   * the dashboard's conversation page takes; it is returned to platform staff
+   * for the link, never stored in the log.
+   */
+  conversation: { id: string; sessionId: string; agentName: string } | null;
   visitorId: string | null;
   requestHeaders: Record<string, string> | null;
   requestPayload: unknown;
@@ -90,6 +96,19 @@ const LIST_SELECT = {
 export class EventLogsService {
   constructor(private readonly prisma: PrismaService) {}
 
+  /**
+   * Rows store the internal ChatSession.id. Staff may paste the public widget
+   * session id instead (it is what the conversation page URL shows), so map
+   * it; any other value is matched as given.
+   */
+  private async chatSessionId(value: string): Promise<string> {
+    const session = await this.prisma.chatSession.findUnique({
+      where: { sessionId: value },
+      select: { id: true },
+    });
+    return session?.id ?? value;
+  }
+
   async list(q: EventLogListQuery): Promise<EventLogPage> {
     const { from, to } = resolveWindow(q, DEFAULT_WINDOW_MS, MAX_WINDOW_DAYS);
     const { skip, take } = pageWindow(q.page, q.limit);
@@ -103,13 +122,16 @@ export class EventLogsService {
     if (q.success !== undefined) and.push({ success: q.success });
     if (q.organizationId) and.push({ organizationId: q.organizationId });
     if (q.agentId) and.push({ agentId: q.agentId });
-    if (q.sessionId) and.push({ sessionId: q.sessionId });
+    if (q.sessionId) {
+      and.push({ sessionId: await this.chatSessionId(q.sessionId) });
+    }
     if (q.search) {
-      // Paste a session or correlation id, or type part of an event name.
+      // Paste a session (public or internal) or correlation id, or type part
+      // of an event name.
       and.push({
         OR: [
           { eventName: { contains: q.search, mode: "insensitive" } },
-          { sessionId: q.search },
+          { sessionId: await this.chatSessionId(q.search) },
           { correlationId: q.search },
         ],
       });
@@ -166,7 +188,7 @@ export class EventLogsService {
     });
     if (!row) throw new NotFoundException("Event log not found");
 
-    const [organization, actor] = await Promise.all([
+    const [organization, actor, session] = await Promise.all([
       row.organizationId
         ? this.prisma.organization.findUnique({
             where: { id: row.organizationId },
@@ -179,12 +201,29 @@ export class EventLogsService {
             select: { id: true, email: true, name: true },
           })
         : null,
+      row.sessionId
+        ? this.prisma.chatSession.findUnique({
+            where: { id: row.sessionId },
+            select: {
+              id: true,
+              sessionId: true,
+              agent: { select: { name: true } },
+            },
+          })
+        : null,
     ]);
 
     return {
       ...row,
       organization,
       actor,
+      conversation: session
+        ? {
+            id: session.id,
+            sessionId: session.sessionId,
+            agentName: session.agent.name,
+          }
+        : null,
       requestUrl: scrubUrl(row.requestUrl),
       requestHeaders: stripHeaders(row.requestHeaders),
       requestPayload: redact(row.requestPayload),

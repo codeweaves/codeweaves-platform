@@ -20,16 +20,49 @@ const LOG_MASK_LIMITS: MaskLimits = {
   maxDepth: 8,
 };
 
-/** Agents whose organization is cached. Cleared, not grown, past this. */
+/** Entries per lookup cache. Cleared, not grown, past this. */
 const AGENT_ORG_CACHE_MAX = 10_000;
+const SESSION_ID_CACHE_MAX = 10_000;
 
 @Injectable()
 export class TracerService {
   private readonly logger = new Logger(TracerService.name);
   /** agentId → organizationId. An agent never moves to another organization. */
   private readonly agentOrg = new Map<string, string>();
+  /** Session id as callers pass it (public or internal) → ChatSession.id. */
+  private readonly chatSessionIds = new Map<string, string>();
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * `event_logs.sessionId` holds the conversation's internal ChatSession.id.
+   * Callers often pass the public widget session id, which is a bearer
+   * credential and must never be stored in a log, so it is swapped for the
+   * internal id here, at the single writer. A value that matches no
+   * conversation (e.g. a pre-session "warmup") is dropped, not stored.
+   */
+  private async resolveChatSessionId(
+    sessionId: string | undefined,
+  ): Promise<string | null> {
+    if (!sessionId) return null;
+    const cached = this.chatSessionIds.get(sessionId);
+    if (cached) return cached;
+    try {
+      const session = await this.prisma.chatSession.findFirst({
+        where: { OR: [{ sessionId }, { id: sessionId }] },
+        select: { id: true },
+      });
+      if (!session) return null;
+      if (this.chatSessionIds.size >= SESSION_ID_CACHE_MAX) {
+        this.chatSessionIds.clear();
+      }
+      this.chatSessionIds.set(sessionId, session.id);
+      return session.id;
+    } catch {
+      // Unknown is safer than storing a value that may be a credential.
+      return null;
+    }
+  }
 
   /**
    * The organization a row belongs to: the caller's, else the agent's own
@@ -116,7 +149,7 @@ export class TracerService {
             input.agentId,
             ctx?.organizationId,
           ),
-          sessionId: input.sessionId ?? null,
+          sessionId: await this.resolveChatSessionId(input.sessionId),
           correlationId: input.correlationId ?? ctx?.correlationId ?? null,
           requestUrl: input.requestUrl ?? null,
           responseStatus: input.responseStatus ?? null,
