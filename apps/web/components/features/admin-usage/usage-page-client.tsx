@@ -194,6 +194,9 @@ export function UsagePageClient() {
   );
 
   useEffect(() => {
+    // Without access the redirect above owns the URL; a replace here would
+    // run after it and cancel it.
+    if (!canRead) return;
     const params = new URLSearchParams();
     params.set("from", range.from);
     params.set("to", range.to);
@@ -210,7 +213,7 @@ export function UsagePageClient() {
     if (channel) params.set("channel", channel);
     if (billedTo) params.set("billedTo", billedTo);
     routerRef.current.replace(`?${params.toString()}`, { scroll: false });
-  }, [range, org, agent, provider, feature, channel, billedTo]);
+  }, [canRead, range, org, agent, provider, feature, channel, billedTo]);
 
   // All six requests start together; none waits on another.
   const summary = useUsageSummary(filters);
