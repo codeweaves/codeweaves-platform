@@ -13,13 +13,14 @@ The API runs **no in-process scheduler**. An external cron (Supabase `pg_cron`, 
 
 ## Symptom
 
-One of the effects above. No recent run rows:
+One of the effects above. The ops console page `/dashboard/admin/status` shows the last run of each job and flags it overdue after twice its schedule. Every job writes one `event_logs` row per run, idle runs included (`DATA_EXTRACTION_RUN_COMPLETED`, `HANDOVER_SWEEP_COMPLETED`, `CLASSIFIER_RUN_*`, `FX_RATE_RUN_*`, `RETENTION_RUN_*`, `EVENT_LOG_CLEANUP_*`). The same check in SQL:
 
 ```sql
 SELECT "eventName", max("createdAt") AS last_run
 FROM event_logs
 WHERE channel = 'INTERNAL'
-  AND ("eventName" LIKE '%_RUN_%' OR "eventName" LIKE '%SWEEP%')
+  AND ("eventName" LIKE '%_RUN_%' OR "eventName" LIKE '%SWEEP%' OR "eventName" LIKE '%CLEANUP%')
+  AND "createdAt" >= now() - interval '30 days'
 GROUP BY 1;
 ```
 

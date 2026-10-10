@@ -39,6 +39,9 @@ export * from "./agent-data-fields.js";
 // Re-export usage and cost console schemas and types (ADR-0012)
 export * from "./usage.js";
 
+// Ops console (platform-only) audit / event log queries
+export * from "./admin-logs.js";
+
 // ============================================
 // Common Schemas
 // ============================================

@@ -160,6 +160,12 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     });
 
     if (due.length === 0) {
+      // Every pass leaves exactly one row, so the ops console can tell an
+      // idle job from a dead one. Idle passes skip STARTED: one row per run.
+      this.internalLog.logCompleted("DATA_EXTRACTION_RUN_COMPLETED", {
+        latencyMs: 0,
+        metadata: { due: 0, captured: 0 },
+      });
       return 0;
     }
     const start = Date.now();
