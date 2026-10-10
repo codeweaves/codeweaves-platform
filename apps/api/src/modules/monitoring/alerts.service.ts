@@ -226,7 +226,20 @@ export class AlertsService {
       }
 
       this.log.info("run", "alert run complete", { ...summary });
-      if (summary.failedChecks.length === 0) this.heartbeat.ping("ALERTS");
+      // One row per run, so the status page can show this job like the others.
+      if (summary.failedChecks.length === 0) {
+        this.internalLog.logCompleted("ALERTS_RUN_COMPLETED", {
+          latencyMs: Date.now() - now.getTime(),
+          metadata: { ...summary },
+        });
+        this.heartbeat.ping("ALERTS");
+      } else {
+        this.internalLog.logFailed(
+          "ALERTS_RUN_FAILED",
+          new Error(`alert checks failed: ${summary.failedChecks.join(", ")}`),
+          { metadata: { ...summary } },
+        );
+      }
       return summary;
     } finally {
       this.running = false;

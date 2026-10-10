@@ -78,6 +78,14 @@ export const CRON_JOBS: readonly CronJobDefinition[] = [
     failedEvent: "EVENT_LOG_CLEANUP_FAILED",
     expectedEveryMinutes: 24 * 60,
   },
+  {
+    key: "alerts",
+    label: "Alerts",
+    endpoint: "/internal/alerts/run",
+    completedEvent: "ALERTS_RUN_COMPLETED",
+    failedEvent: "ALERTS_RUN_FAILED",
+    expectedEveryMinutes: 15,
+  },
 ];
 
 export type CronJobState = "ok" | "failed" | "overdue" | "never";

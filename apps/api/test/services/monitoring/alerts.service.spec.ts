@@ -32,7 +32,7 @@ describe("AlertsService", () => {
   };
   const slack = { isConfigured: jest.fn(), send: jest.fn() };
   const heartbeat = { ping: jest.fn() };
-  const internalLog = { logCompleted: jest.fn() };
+  const internalLog = { logCompleted: jest.fn(), logFailed: jest.fn() };
 
   // State the default mocks read from. Each test sets only what it needs.
   let providerGroups: ProviderGroup[];
@@ -141,6 +141,30 @@ describe("AlertsService", () => {
       expect(summary.checked).toBe(3);
       expect(summary.alertsSent).toBe(1);
       expect(heartbeat.ping).not.toHaveBeenCalled();
+      expect(internalLog.logFailed).toHaveBeenCalledWith(
+        "ALERTS_RUN_FAILED",
+        expect.any(Error),
+        expect.objectContaining({
+          metadata: expect.objectContaining({
+            failedChecks: ["org-daily-cost"],
+          }),
+        }),
+      );
+      expect(internalLog.logCompleted).not.toHaveBeenCalledWith(
+        "ALERTS_RUN_COMPLETED",
+        expect.anything(),
+      );
+    });
+
+    it("writes one ALERTS_RUN_COMPLETED row per healthy run, for the status page", async () => {
+      await make().run();
+
+      expect(internalLog.logCompleted).toHaveBeenCalledWith(
+        "ALERTS_RUN_COMPLETED",
+        expect.objectContaining({
+          metadata: expect.objectContaining({ checked: 4, failedChecks: [] }),
+        }),
+      );
     });
 
     it("records each delivered alert as an ALERT_SENT event with its key", async () => {
@@ -192,7 +216,10 @@ describe("AlertsService", () => {
 
       const first = await svc.run();
       expect(first).toMatchObject({ alertsSent: 0, deferred: 1 });
-      expect(internalLog.logCompleted).not.toHaveBeenCalled();
+      expect(internalLog.logCompleted).not.toHaveBeenCalledWith(
+        "ALERT_SENT",
+        expect.anything(),
+      );
 
       slack.send.mockResolvedValue(true);
       const second = await svc.run();

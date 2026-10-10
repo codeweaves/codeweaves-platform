@@ -25,11 +25,15 @@ export function resolveChannel(url: string): EventChannel {
  * events (with char/byte counts), and their request bodies carry raw visitor
  * conversation text + repeat every turn — capturing the envelope too would
  * duplicate rows and store the full message text we deliberately keep out.
- * DASHBOARD (agent editor, CRUD) + INTERNAL (cron) have no dedicated events and
- * carry config/ids, so the envelope is where their audit trail lives.
+ * INTERNAL (cron) is EXCLUDED too: every internal job writes its own
+ * `*_RUN_COMPLETED` / `*_FAILED` row with its outcome, so the envelope only
+ * duplicated it (about 1,750 rows a day on dev). Failed internal calls (a wrong
+ * secret, a 500) are still captured as INTERNAL_HTTP_ERROR by AllExceptionsFilter.
+ * DASHBOARD (agent editor, CRUD) has no dedicated events and carries
+ * config/ids, so the envelope is where its trail lives.
  */
 export function capturesHttpEnvelope(channel: EventChannel): boolean {
-  return channel === "DASHBOARD" || channel === "INTERNAL";
+  return channel === "DASHBOARD";
 }
 
 /**

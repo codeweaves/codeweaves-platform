@@ -1,13 +1,13 @@
-import { ExecutionContext, HttpException } from '@nestjs/common';
-import { of, throwError } from 'rxjs';
-import { LoggingInterceptor } from '../../src/interceptors/logging.interceptor';
-import { TracerService } from '../../src/common/tracer/tracer.service';
+import { ExecutionContext, HttpException } from "@nestjs/common";
+import { of, throwError } from "rxjs";
+import { LoggingInterceptor } from "../../src/interceptors/logging.interceptor";
+import { TracerService } from "../../src/common/tracer/tracer.service";
 import {
   requestContextStorage,
   RequestContext,
-} from '../../src/common/tracer/correlation.storage';
+} from "../../src/common/tracer/correlation.storage";
 
-describe('LoggingInterceptor', () => {
+describe("LoggingInterceptor", () => {
   let interceptor: LoggingInterceptor;
   const logEvent = jest.fn().mockResolvedValue(undefined);
   const tracer = { logEvent } as unknown as TracerService;
@@ -27,12 +27,15 @@ describe('LoggingInterceptor', () => {
     statusCode?: number;
   }) {
     const request = {
-      method: opts?.method ?? 'GET',
-      originalUrl: opts?.originalUrl ?? '/api/klivo/v1/organizations',
+      method: opts?.method ?? "GET",
+      originalUrl: opts?.originalUrl ?? "/api/klivo/v1/organizations",
       params: opts?.params ?? {},
-      headers: { authorization: 'Bearer x', 'content-type': 'application/json' },
+      headers: {
+        authorization: "Bearer x",
+        "content-type": "application/json",
+      },
       body: opts?.body,
-      ip: '1.2.3.4',
+      ip: "1.2.3.4",
       user: opts?.user,
     };
     const response = { statusCode: opts?.statusCode ?? 200 };
@@ -45,33 +48,33 @@ describe('LoggingInterceptor', () => {
     return { context, request, response };
   }
 
-  it('logs response with status code and duration', (done) => {
+  it("logs response with status code and duration", (done) => {
     const { context } = createMockContext();
-    const next = { handle: () => of({ data: 'test' }) };
+    const next = { handle: () => of({ data: "test" }) };
     interceptor.intercept(context, next).subscribe({ complete: () => done() });
   });
 
-  it('enriches AsyncLocalStorage with userId/clerkId/organizationId + ip', (done) => {
+  it("enriches AsyncLocalStorage with userId/clerkId/organizationId + ip", (done) => {
     const { context } = createMockContext({
-      user: { id: 'user-uuid', clerkId: 'user_123', organizationId: 'org-1' },
+      user: { id: "user-uuid", clerkId: "user_123", organizationId: "org-1" },
     });
-    const next = { handle: () => of({ data: 'test' }) };
-    requestContextStorage.run({ correlationId: 'c' } as RequestContext, () => {
+    const next = { handle: () => of({ data: "test" }) };
+    requestContextStorage.run({ correlationId: "c" } as RequestContext, () => {
       interceptor.intercept(context, next).subscribe({
         next: () => {
           const store = requestContextStorage.getStore()!;
-          expect(store.userId).toBe('user-uuid');
-          expect(store.clerkId).toBe('user_123');
-          expect(store.organizationId).toBe('org-1');
-          expect(store.ip).toBe('1.2.3.4');
+          expect(store.userId).toBe("user-uuid");
+          expect(store.clerkId).toBe("user_123");
+          expect(store.organizationId).toBe("org-1");
+          expect(store.ip).toBe("1.2.3.4");
         },
         complete: () => done(),
       });
     });
   });
 
-  it('does NOT write an event_logs row for GET requests', (done) => {
-    const { context } = createMockContext({ method: 'GET' });
+  it("does NOT write an event_logs row for GET requests", (done) => {
+    const { context } = createMockContext({ method: "GET" });
     const next = { handle: () => of({ ok: true }) };
     interceptor.intercept(context, next).subscribe({
       complete: () => {
@@ -81,51 +84,51 @@ describe('LoggingInterceptor', () => {
     });
   });
 
-  it('writes a DASHBOARD_HTTP_POST envelope for a mutating dashboard request', (done) => {
+  it("writes a DASHBOARD_HTTP_POST envelope for a mutating dashboard request", (done) => {
     const { context } = createMockContext({
-      method: 'POST',
-      originalUrl: '/api/klivo/v1/agents',
-      body: { name: 'New Agent' },
+      method: "POST",
+      originalUrl: "/api/klivo/v1/agents",
+      body: { name: "New Agent" },
       statusCode: 201,
     });
-    const next = { handle: () => of({ id: 'agent-1' }) };
+    const next = { handle: () => of({ id: "agent-1" }) };
     interceptor.intercept(context, next).subscribe({
       complete: () => {
         expect(logEvent).toHaveBeenCalledTimes(1);
         const arg = logEvent.mock.calls[0][0];
-        expect(arg.channel).toBe('DASHBOARD');
-        expect(arg.eventName).toBe('DASHBOARD_HTTP_POST');
+        expect(arg.channel).toBe("DASHBOARD");
+        expect(arg.eventName).toBe("DASHBOARD_HTTP_POST");
         expect(arg.responseStatus).toBe(201);
         expect(arg.success).toBe(true);
-        expect(arg.requestPayload).toEqual({ name: 'New Agent' });
+        expect(arg.requestPayload).toEqual({ name: "New Agent" });
         done();
       },
     });
   });
 
-  it('resolves channel + agentId for the agent editor (PATCH /agents/:id)', (done) => {
+  it("resolves channel + agentId for the agent editor (PATCH /agents/:id)", (done) => {
     const { context } = createMockContext({
-      method: 'PATCH',
-      originalUrl: '/api/klivo/v1/agents/agent-42',
-      params: { id: 'agent-42' },
-      body: { name: 'Renamed' },
+      method: "PATCH",
+      originalUrl: "/api/klivo/v1/agents/agent-42",
+      params: { id: "agent-42" },
+      body: { name: "Renamed" },
     });
-    const next = { handle: () => of({ id: 'agent-42' }) };
+    const next = { handle: () => of({ id: "agent-42" }) };
     interceptor.intercept(context, next).subscribe({
       complete: () => {
         const arg = logEvent.mock.calls[0][0];
-        expect(arg.channel).toBe('DASHBOARD');
-        expect(arg.agentId).toBe('agent-42');
+        expect(arg.channel).toBe("DASHBOARD");
+        expect(arg.agentId).toBe("agent-42");
         done();
       },
     });
   });
 
-  it('does NOT capture WIDGET/VOICE/WHATSAPP envelopes (dedicated events + raw bodies)', (done) => {
+  it("does NOT capture WIDGET/VOICE/WHATSAPP envelopes (dedicated events + raw bodies)", (done) => {
     const { context } = createMockContext({
-      method: 'POST',
-      originalUrl: '/api/klivo/v1/public/chat/message',
-      body: { message: 'hi' },
+      method: "POST",
+      originalUrl: "/api/klivo/v1/public/chat/message",
+      body: { message: "hi" },
     });
     const next = { handle: () => of({}) };
     interceptor.intercept(context, next).subscribe({
@@ -136,10 +139,24 @@ describe('LoggingInterceptor', () => {
     });
   });
 
-  it('does not capture when EVENT_LOG_HTTP_CAPTURE=false', (done) => {
-    process.env.EVENT_LOG_HTTP_CAPTURE = 'false';
+  it("does NOT capture INTERNAL cron envelopes (each job writes its own run row)", (done) => {
+    const { context } = createMockContext({
+      method: "POST",
+      originalUrl: "/api/klivo/v1/internal/data-extraction/run",
+    });
+    const next = { handle: () => of({ started: true }) };
+    interceptor.intercept(context, next).subscribe({
+      complete: () => {
+        expect(logEvent).not.toHaveBeenCalled();
+        done();
+      },
+    });
+  });
+
+  it("does not capture when EVENT_LOG_HTTP_CAPTURE=false", (done) => {
+    process.env.EVENT_LOG_HTTP_CAPTURE = "false";
     interceptor = new LoggingInterceptor(tracer);
-    const { context } = createMockContext({ method: 'POST' });
+    const { context } = createMockContext({ method: "POST" });
     const next = { handle: () => of({}) };
     interceptor.intercept(context, next).subscribe({
       complete: () => {
@@ -149,11 +166,16 @@ describe('LoggingInterceptor', () => {
     });
   });
 
-  it('does NOT write on ANY error path — all failures are owned by AllExceptionsFilter', (done) => {
+  it("does NOT write on ANY error path — all failures are owned by AllExceptionsFilter", (done) => {
     // 4xx thrown by guards never reach this interceptor anyway; centralising all
     // error capture in the filter is the single-capture-point guarantee.
-    const { context } = createMockContext({ method: 'POST', originalUrl: '/api/klivo/v1/agents' });
-    const next = { handle: () => throwError(() => new HttpException('Bad Request', 400)) };
+    const { context } = createMockContext({
+      method: "POST",
+      originalUrl: "/api/klivo/v1/agents",
+    });
+    const next = {
+      handle: () => throwError(() => new HttpException("Bad Request", 400)),
+    };
     interceptor.intercept(context, next).subscribe({
       error: () => {
         expect(logEvent).not.toHaveBeenCalled();
