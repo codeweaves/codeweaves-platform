@@ -168,6 +168,48 @@ export function useEventLog(id: string | null) {
   });
 }
 
+/**
+ * The HTTP envelope (`*_HTTP_*` row) written by the same request as an audit
+ * row: it holds the real request and response. Matched by correlation id,
+ * searched only in a window around the audit time so the query stays bounded.
+ * Fetched only when an audit sheet opens.
+ */
+export function useHttpEventForCorrelation(
+  correlationId: string | null,
+  at: string | null,
+) {
+  const { isAuthenticated, isLoading: authLoading } = useAuth();
+  const api = useApiClient();
+  return useQuery<EventLogDetail | null>({
+    queryKey: ["ops-console", "http-event-for", correlationId],
+    queryFn: async () => {
+      const t = new Date(at!).getTime();
+      const page: OpsPage<EventLogRow> = await api.get(
+        `/admin/event-logs${toQueryString({
+          page: 1,
+          limit: 20,
+          sortOrder: "asc",
+          search: correlationId!,
+          from: new Date(t - HTTP_MATCH_WINDOW_MS).toISOString(),
+          to: new Date(t + HTTP_MATCH_WINDOW_MS).toISOString(),
+        })}`,
+      );
+      const envelope = page.data.find((r) => r.eventName.includes("_HTTP_"));
+      return envelope
+        ? ((await api.get(
+            `/admin/event-logs/${envelope.id}`,
+          )) as EventLogDetail)
+        : null;
+    },
+    enabled: !!correlationId && !!at && isAuthenticated && !authLoading,
+    // Log rows never change once written.
+    staleTime: Infinity,
+  });
+}
+
+/** An audit row and its HTTP envelope are written in the same request. */
+const HTTP_MATCH_WINDOW_MS = 5 * 60_000;
+
 // ---------------------------------------------------------------------------
 // System status
 // ---------------------------------------------------------------------------

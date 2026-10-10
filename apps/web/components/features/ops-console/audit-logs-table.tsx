@@ -10,13 +10,6 @@ import {
   type DataTableFilterConfig,
 } from "@/components/ui/data-table";
 import { Button } from "@/components/ui/button";
-import {
-  Sheet,
-  SheetContent,
-  SheetDescription,
-  SheetHeader,
-  SheetTitle,
-} from "@/components/ui/sheet";
 import { usePermissions } from "@/hooks/use-permissions";
 import { useOrganizations } from "@/hooks/use-organizations";
 import { useUsers } from "@/hooks/use-rbac";
@@ -26,16 +19,14 @@ import {
   type AuditLogRow,
 } from "@/hooks/use-ops-console";
 import {
-  DetailRow,
-  JsonBlock,
   WindowNote,
   asList,
   asString,
   dayEndIso,
   dayStartIso,
-  formatFullTimestamp,
   formatTimestamp,
 } from "./ops-shared";
+import { AuditLogSheet } from "./audit-log-sheet";
 
 const PAGE_SIZES = [20, 50, 100];
 
@@ -230,56 +221,7 @@ export function AuditLogsTable() {
         hideSelectionCount
       />
 
-      <Sheet
-        open={!!selected}
-        onOpenChange={(open) => !open && setSelected(null)}
-      >
-        <SheetContent className="w-full overflow-y-auto sm:max-w-2xl">
-          {selected && (
-            <>
-              <SheetHeader>
-                <SheetTitle className="font-mono text-base break-all">
-                  {selected.event}
-                </SheetTitle>
-                <SheetDescription>
-                  {formatFullTimestamp(selected.createdAt)}
-                </SheetDescription>
-              </SheetHeader>
-              <div className="space-y-6 px-4 pb-6">
-                <dl className="space-y-2">
-                  <DetailRow label="User">
-                    {selected.user
-                      ? `${selected.user.name ?? ""} ${selected.user.email}`.trim()
-                      : "System"}
-                  </DetailRow>
-                  <DetailRow label="Organization">
-                    {selected.organization?.name ??
-                      selected.organizationId ??
-                      "-"}
-                  </DetailRow>
-                  <DetailRow label="Agent">
-                    {selected.agent?.name ?? selected.agentId ?? "-"}
-                  </DetailRow>
-                  <DetailRow label="Context ID">
-                    <span className="font-mono text-xs">
-                      {selected.contextId}
-                    </span>
-                  </DetailRow>
-                  <DetailRow label="Correlation ID">
-                    <span className="font-mono text-xs">
-                      {selected.correlationId ?? "-"}
-                    </span>
-                  </DetailRow>
-                </dl>
-                <section className="space-y-2">
-                  <h3 className="text-sm font-medium">Data</h3>
-                  <JsonBlock value={selected.data} className="max-h-[60vh]" />
-                </section>
-              </div>
-            </>
-          )}
-        </SheetContent>
-      </Sheet>
+      <AuditLogSheet row={selected} onClose={() => setSelected(null)} />
     </div>
   );
 }
