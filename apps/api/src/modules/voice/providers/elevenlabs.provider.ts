@@ -355,7 +355,7 @@ export class ElevenLabsProvider implements VoiceProvider {
 
           // Not the `character-cost` header: it counts credits (0.5 per
           // character on Turbo under legacy plans), while the price list is
-          // USD per character. Measured live: 81 characters, header 40.
+          // USD per character. Measured live: 80 characters, header 40.
           recordTtsUsage(this.usageMeter, {
             scope: request.usage,
             agentId: request.agentId,
