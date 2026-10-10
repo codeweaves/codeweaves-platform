@@ -18,6 +18,8 @@ import type {
 jest.mock("undici", () => {
   class FakeWebSocket {
     static instances: FakeWebSocket[] = [];
+    /** ElevenLabs closes with 1008 (bad key or voice) instead of sending audio. */
+    static elevenLabsRejects = false;
     sent: Array<Record<string, unknown>> = [];
     private readonly listeners: Record<string, Array<(e: unknown) => void>> =
       {};
@@ -40,7 +42,17 @@ jest.mock("undici", () => {
           this.emit("message", { data: JSON.stringify(data) }),
         );
       if (this.url.host === "api.elevenlabs.io" && frame.text === "") {
-        reply({ audio: Buffer.from("pcm").toString("base64"), isFinal: true });
+        if (FakeWebSocket.elevenLabsRejects) {
+          this.closed = true;
+          setImmediate(() =>
+            this.emit("close", { code: 1008, reason: "invalid api key" }),
+          );
+        } else {
+          reply({
+            audio: Buffer.from("pcm").toString("base64"),
+            isFinal: true,
+          });
+        }
       }
       if (this.url.host === "api.sarvam.ai" && frame.type === "flush") {
         reply({
@@ -335,6 +347,25 @@ describe("TTS usage recorded by each provider", () => {
         quantitySource: "MEASURED",
       }),
     );
+  });
+
+  it("ElevenLabs WebSocket: records nothing when the stream is rejected before any audio", async () => {
+    const { WebSocket } = jest.requireMock<{
+      WebSocket: { elevenLabsRejects: boolean };
+    }>("undici");
+    WebSocket.elevenLabsRejects = true;
+    try {
+      await drain(
+        new ElevenLabsProvider(config, providerLog, meter).synthesizeStream(
+          ttsRequest({ text: "Hello there" }),
+        ),
+      ).catch(() => undefined);
+    } finally {
+      WebSocket.elevenLabsRejects = false;
+    }
+
+    // The caller falls back to another provider, which records its own row.
+    expect(record).not.toHaveBeenCalled();
   });
 
   it("Sarvam WebSocket stream: one row with the characters of the text frame", async () => {

@@ -475,6 +475,15 @@ export class ElevenLabsProvider implements VoiceProvider {
       // these would be multiple frames followed by a final empty-text EOS.
       ws.send(JSON.stringify({ text: request.text }));
       ws.send(JSON.stringify({ text: "" }));
+    });
+
+    // Billed once, on the first audio chunk: only then has ElevenLabs accepted
+    // the key and synthesised. A stream that is rejected or times out before
+    // any audio falls back to another provider, which records its own row.
+    let usageRecorded = false;
+    const recordUsageOnce = (): void => {
+      if (usageRecorded) return;
+      usageRecorded = true;
       // Billed text is the sentence frame only: the " " opener and the empty
       // end-of-stream frame carry no characters to synthesise.
       recordTtsUsage(this.usageMeter, {
@@ -484,8 +493,9 @@ export class ElevenLabsProvider implements VoiceProvider {
         model: ELEVENLABS_TTS_MODEL,
         characters: ttsCharacters(request.text),
         quantitySource: "MEASURED",
+        latencyMs: Date.now() - startTime,
       });
-    });
+    };
 
     ws.addEventListener("message", (event) => {
       try {
@@ -506,6 +516,7 @@ export class ElevenLabsProvider implements VoiceProvider {
           isFinal?: boolean;
         };
         if (parsed.audio) {
+          recordUsageOnce();
           queue.push({
             audio: Buffer.from(parsed.audio, "base64"),
             // Raw PCM 24kHz 16-bit signed little-endian. Client plays each
@@ -762,7 +773,7 @@ export class ElevenLabsProvider implements VoiceProvider {
           new Blob([new Uint8Array(audio)]),
           "audio.webm",
         );
-        formData.append("model_id", "scribe_v2");
+        formData.append("model_id", ELEVENLABS_STT_MODEL);
         // Omit language_code to let ElevenLabs auto-detect
 
         const response = await fetch(
