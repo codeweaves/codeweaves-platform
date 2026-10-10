@@ -3,6 +3,7 @@ import type { WhatsappStatus } from "../../../src/modules/whatsapp/interfaces/wh
 import {
   WhatsappUsageService,
   priceModel,
+  usageRecordId,
 } from "../../../src/modules/whatsapp/whatsapp-usage.service";
 import type { PrismaService } from "../../../src/services/prisma.service";
 
@@ -48,6 +49,7 @@ describe("WhatsappUsageService", () => {
     );
     expect(record).toHaveBeenCalledTimes(1);
     expect(record).toHaveBeenCalledWith({
+      id: usageRecordId("wamid.1"),
       occurredAt: new Date(1760000000 * 1000),
       organizationId: "org-1",
       agentId: "agent-1",
@@ -152,6 +154,17 @@ describe("WhatsappUsageService", () => {
 
     await service.recordStatuses("PNID", [status({ status: "delivered" })]);
     expect(record).toHaveBeenCalledTimes(1);
+  });
+});
+
+describe("usageRecordId", () => {
+  it("is the same UUID for the same message on every instance, and differs per message", () => {
+    const id = usageRecordId("wamid.HBgM");
+    expect(id).toBe(usageRecordId("wamid.HBgM"));
+    expect(id).not.toBe(usageRecordId("wamid.other"));
+    expect(id).toMatch(
+      /^[0-9a-f]{8}-[0-9a-f]{4}-5[0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/,
+    );
   });
 });
 

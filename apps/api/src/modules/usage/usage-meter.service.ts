@@ -23,6 +23,12 @@ export interface UsageScope {
 }
 
 export interface UsageEvent extends UsageScope {
+  /**
+   * Fixed row id for a charge that must be stored once, even when two
+   * instances see it (WhatsApp status webhooks). A second insert with the same
+   * id hits the primary key and is dropped as already recorded.
+   */
+  id?: string;
   occurredAt?: Date;
   channel: EventChannel;
   feature: UsageFeature;
@@ -103,6 +109,14 @@ export class UsageMeterService implements OnModuleDestroy {
         await this.prisma.usageRecord.create({ data });
         return;
       } catch (err) {
+        // Same fixed id already stored (another instance won the race).
+        if (
+          event.id &&
+          err instanceof Prisma.PrismaClientKnownRequestError &&
+          err.code === "P2002"
+        ) {
+          return;
+        }
         if (attempt === 2) {
           this.log.error("write", "usage record lost after retry", err, {
             provider: event.provider,
@@ -138,6 +152,7 @@ export class UsageMeterService implements OnModuleDestroy {
   ): Prisma.UsageRecordUncheckedCreateInput {
     const q = event.quantities;
     return {
+      ...(event.id ? { id: event.id } : {}),
       occurredAt,
       organizationId: event.organizationId ?? null,
       agentId: event.agentId ?? null,

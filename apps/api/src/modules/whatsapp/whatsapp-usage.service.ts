@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import { Injectable } from "@nestjs/common";
 
 import { AppLogger } from "../../common/logger/app-logger";
@@ -28,9 +29,10 @@ const PRICED_COUNTRY_PREFIX = "91";
  * arrive with `billable: false` and are not recorded.
  *
  * One row per message id (wamid), on `delivered` or `read`. Meta can send
- * pricing on both, so duplicates are dropped twice over: an in-memory
- * set catches the burst on this instance, and a ledger lookup catches repeats
- * after a restart or on another instance.
+ * pricing on both, so duplicates are dropped three times over: an in-memory
+ * set catches the burst on this instance, a ledger lookup catches repeats
+ * after a restart, and a fixed row id derived from the wamid makes the
+ * primary key reject a second row when two instances race.
  */
 @Injectable()
 export class WhatsappUsageService {
@@ -95,6 +97,7 @@ export class WhatsappUsageService {
       for (const [wamid, status] of billable) {
         if (recorded.has(wamid)) continue;
         this.usageMeter.record({
+          id: usageRecordId(wamid),
           occurredAt: statusTime(status),
           organizationId: channel?.agent.organizationId ?? null,
           agentId: channel?.agentId ?? null,
@@ -146,6 +149,19 @@ export function priceModel(status: WhatsappStatus): string {
   return status.recipient_id?.startsWith(PRICED_COUNTRY_PREFIX)
     ? category
     : `${category}:intl`;
+}
+
+/**
+ * The same ledger row id for the same message on every instance, so a race
+ * between two instances ends at the primary key instead of in a second row.
+ * UUID-shaped (version 5 bits) from a SHA-256 of the wamid.
+ */
+export function usageRecordId(wamid: string): string {
+  const h = createHash("sha256")
+    .update(`${META_WHATSAPP_PROVIDER}:${wamid}`)
+    .digest("hex");
+  const variant = ((parseInt(h[16]!, 16) & 0x3) | 0x8).toString(16);
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-5${h.slice(13, 16)}-${variant}${h.slice(17, 20)}-${h.slice(20, 32)}`;
 }
 
 function statusTime(status: WhatsappStatus): Date | undefined {
