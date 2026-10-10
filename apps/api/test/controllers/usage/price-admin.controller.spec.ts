@@ -81,6 +81,11 @@ describe("PriceAdminController", () => {
       ["an unknown unit", { unit: "TOKEN" }],
       ["an unknown currency", { currency: "EUR" }],
       ["a bad date", { effectiveFrom: "next week" }],
+      ["a day that does not exist", { effectiveFrom: "2026-02-30" }],
+      [
+        "a date-time on a day that does not exist",
+        { effectiveFrom: "2026-04-31T10:00:00Z" },
+      ],
       ["a model with spaces", { model: "gpt 4" }],
       ["a provider with symbols", { provider: "open ai!" }],
     ])("rejects %s", (_label, patch) => {

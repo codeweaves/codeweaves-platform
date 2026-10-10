@@ -65,7 +65,23 @@ const isoDateOrDateTime = z
   .refine((s) => DATE_ONLY.test(s) || DATE_TIME.test(s), {
     message: "Use YYYY-MM-DD or an ISO date-time with an offset",
   })
-  .refine((s) => !Number.isNaN(Date.parse(s)), { message: "Invalid date" });
+  .refine((s) => !Number.isNaN(Date.parse(s)) && isCalendarDate(s), {
+    message: "Invalid date",
+  });
+
+/**
+ * The `YYYY-MM-DD` part names a real day. `Date.parse` alone rolls
+ * 2026-02-30 over to March 2 instead of rejecting it.
+ */
+function isCalendarDate(s: string): boolean {
+  const [y, m, d] = s.slice(0, 10).split("-").map(Number);
+  const date = new Date(Date.UTC(y!, m! - 1, d!));
+  return (
+    date.getUTCFullYear() === y &&
+    date.getUTCMonth() === m! - 1 &&
+    date.getUTCDate() === d
+  );
+}
 
 /** A date-only value is the start of that UTC day. */
 export function parseUsageInstant(value: string): Date {

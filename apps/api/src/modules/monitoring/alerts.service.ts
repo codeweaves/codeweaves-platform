@@ -299,7 +299,8 @@ export class AlertsService {
         SELECT d.org, d.is_today,
                CASE WHEN d.currency = 'USD' THEN d.cost * COALESCE(
                  (SELECT f."usdToInr" FROM fx_rates f WHERE f.date <= d.day ORDER BY f.date DESC LIMIT 1),
-                 (SELECT f."usdToInr" FROM fx_rates f ORDER BY f.date DESC LIMIT 1)
+                 -- Older than every stored rate: the earliest one, as the usage reports do.
+                 (SELECT f."usdToInr" FROM fx_rates f ORDER BY f.date ASC LIMIT 1)
                ) ELSE d.cost END AS inr
         FROM daily d
       )
