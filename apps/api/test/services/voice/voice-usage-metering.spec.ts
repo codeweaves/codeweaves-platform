@@ -272,10 +272,15 @@ describe("TTS usage recorded by each provider", () => {
     expect(record).not.toHaveBeenCalled();
   });
 
-  it("ElevenLabs HTTP: reads the character-cost header (PROVIDER_REPORTED)", async () => {
+  it("ElevenLabs HTTP: bills the characters sent, not the character-cost header (credits)", async () => {
+    // Turbo on a legacy plan: 0.5 credits per character, so the header is
+    // about half the character count. The price list is USD per character.
     mockFetch.mockResolvedValueOnce({
       ok: true,
-      headers: new Headers({ "character-cost": "17", "request-id": "el-req" }),
+      headers: new Headers({
+        "character-cost": String(Math.floor(characters / 2)),
+        "request-id": "el-req",
+      }),
       arrayBuffer: async () => new ArrayBuffer(4),
     });
 
@@ -288,8 +293,8 @@ describe("TTS usage recorded by each provider", () => {
         provider: "elevenlabs",
         model: "eleven_turbo_v2_5",
         providerRequestId: "el-req",
-        quantities: { characters: 17 },
-        quantitySource: "PROVIDER_REPORTED",
+        quantities: { characters },
+        quantitySource: "MEASURED",
       }),
     );
   });

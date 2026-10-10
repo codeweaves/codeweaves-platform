@@ -71,8 +71,8 @@ export interface STTResponse {
 
 /**
  * Who a TTS call is billed to. TTS providers record their own usage rows,
- * because only they see what was sent (WebSocket frames, the ElevenLabs
- * `character-cost` header).
+ * because only they see the text that was actually sent (per sentence,
+ * WebSocket frames).
  */
 export interface VoiceUsageScope {
   organizationId?: string | null;

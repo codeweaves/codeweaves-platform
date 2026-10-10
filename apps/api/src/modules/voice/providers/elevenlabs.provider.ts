@@ -99,20 +99,6 @@ function scribeUsage(
   };
 }
 
-/** ElevenLabs reports the characters it billed in this header. */
-function billedCharacters(
-  response: Response,
-  text: string,
-): {
-  characters: number;
-  source: "PROVIDER_REPORTED" | "MEASURED";
-} {
-  const header = Number(response.headers?.get("character-cost"));
-  return Number.isFinite(header) && header > 0
-    ? { characters: header, source: "PROVIDER_REPORTED" }
-    : { characters: ttsCharacters(text), source: "MEASURED" };
-}
-
 @Injectable()
 export class ElevenLabsProvider implements VoiceProvider {
   private readonly log = new AppLogger(ElevenLabsProvider.name);
@@ -367,14 +353,16 @@ export class ElevenLabsProvider implements VoiceProvider {
           const arrayBuffer = await response.arrayBuffer();
           const audio = Buffer.from(arrayBuffer);
 
-          const billed = billedCharacters(response, request.text);
+          // Not the `character-cost` header: it counts credits (0.5 per
+          // character on Turbo under legacy plans), while the price list is
+          // USD per character. Measured live: 81 characters, header 40.
           recordTtsUsage(this.usageMeter, {
             scope: request.usage,
             agentId: request.agentId,
             provider: this.name,
             model: ELEVENLABS_TTS_MODEL,
-            characters: billed.characters,
-            quantitySource: billed.source,
+            characters: ttsCharacters(request.text),
+            quantitySource: "MEASURED",
             providerRequestId: response.headers?.get("request-id") ?? null,
             latencyMs: Date.now() - startTime,
           });
