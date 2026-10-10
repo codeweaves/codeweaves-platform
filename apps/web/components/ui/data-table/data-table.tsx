@@ -393,10 +393,11 @@ export function DataTable<TData, TValue, TSubRow = unknown>({
 
   // Recursive function to render nested sub-rows (supports up to 3 levels: parent -> child -> grandchild)
   const renderNestedSubRows = useCallback(
-    // eslint-disable-next-line @typescript-eslint/no-explicit-any
     (
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       subRows: any[],
       parentId: string,
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
       parentRow: any,
       depth: number,
     ): React.ReactNode[] => {
