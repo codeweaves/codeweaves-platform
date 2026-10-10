@@ -5,7 +5,10 @@ import { ChatService } from "../../services/chat.service";
 import { PrismaService } from "../../services/prisma.service";
 import { DirectChatService } from "../ai/direct-chat.service";
 import type { DirectChatResult } from "../ai/interfaces/direct-chat.interfaces";
-import type { SupportedLanguage } from "../voice/providers/voice-provider.interface";
+import type {
+  STTResponse,
+  SupportedLanguage,
+} from "../voice/providers/voice-provider.interface";
 import { VoiceService } from "../voice/voice.service";
 
 import { WhatsappInboundJob } from "./interfaces/whatsapp.interfaces";
@@ -110,6 +113,18 @@ export class WhatsappInboundService {
     //     channel-neutral.
     let userText: string;
     let sttLanguage: SupportedLanguage | undefined;
+    // Billed STT call, recorded once the conversation is known (or on the
+    // early return below when it never is).
+    let stt: STTResponse | undefined;
+    const recordStt = (chatSessionId: string | null): void => {
+      if (!stt) return;
+      this.voiceService.recordSttUsage(stt, {
+        organizationId: agent.organizationId,
+        agentId: agent.id,
+        chatSessionId,
+        channel: "WHATSAPP",
+      });
+    };
     if (job.type === "audio") {
       if (!job.mediaId) {
         this.logger.warn(`Audio job ${messageId} has no mediaId — dropping.`);
@@ -120,7 +135,7 @@ export class WhatsappInboundService {
           job.mediaId,
           accessToken,
         );
-        const stt = await this.voiceService.transcribe({
+        stt = await this.voiceService.transcribe({
           audio: media.buffer,
           audioFormat: media.mimeType,
           agentId: agent.id,
@@ -142,6 +157,7 @@ export class WhatsappInboundService {
         return;
       }
       if (!userText) {
+        recordStt(null);
         this.logger.warn(
           `Empty transcript for ${messageId} — asking user to retry.`,
         );
@@ -167,6 +183,7 @@ export class WhatsappInboundService {
       "WHATSAPP",
       from,
     );
+    recordStt(session.id);
 
     this.whatsappLog.logMessageReceived({
       agentId: agent.id,
@@ -283,6 +300,12 @@ export class WhatsappInboundService {
           text: markdownToPlainText(replyText),
           language: sttLanguage ?? "en",
           agentId: agent.id,
+          usage: {
+            organizationId: agent.organizationId,
+            agentId: agent.id,
+            chatSessionId: session.id,
+            channel: "WHATSAPP",
+          },
         });
         const mediaId = await this.whatsappSend.uploadMedia(
           phoneNumberId,

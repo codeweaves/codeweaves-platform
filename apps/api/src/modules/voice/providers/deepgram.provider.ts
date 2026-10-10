@@ -1,18 +1,23 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { HttpStatus } from '@nestjs/common';
-import { AppLogger } from '../../../common/logger/app-logger';
-import { ProviderEventLogger, PROVIDERS } from '../../../common/events/provider.logger';
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { HttpStatus } from "@nestjs/common";
+import { AppLogger } from "../../../common/logger/app-logger";
+import {
+  ProviderEventLogger,
+  PROVIDERS,
+} from "../../../common/events/provider.logger";
 import type {
   VoiceProvider,
   STTRequest,
   STTResponse,
+  STTUsage,
   TTSRequest,
   TTSResponse,
   LanguageDetectionResponse,
   SupportedLanguage,
-} from './voice-provider.interface';
-import { VoiceProviderError } from './voice-provider.interface';
+} from "./voice-provider.interface";
+import { VoiceProviderError } from "./voice-provider.interface";
+import { measureAudioSeconds } from "../utils/audio-duration";
 
 interface DeepgramResponse {
   metadata: {
@@ -38,6 +43,33 @@ interface DeepgramResponse {
   };
 }
 
+const DEEPGRAM_STT_MODEL = "nova-3";
+
+/** Deepgram bills duration x channels; both come back in `metadata`. */
+function deepgramUsage(data: DeepgramResponse, request: STTRequest): STTUsage {
+  const duration = data.metadata?.duration;
+  if (typeof duration !== "number" || !Number.isFinite(duration)) {
+    const measured = measureAudioSeconds(
+      request.audio,
+      request.audioFormat,
+      request.durationMs,
+    );
+    return {
+      model: DEEPGRAM_STT_MODEL,
+      audioSeconds: measured.seconds,
+      quantitySource: measured.source,
+      providerRequestId: data.metadata?.request_id ?? null,
+    };
+  }
+  const channels = data.metadata.channels > 0 ? data.metadata.channels : 1;
+  return {
+    model: DEEPGRAM_STT_MODEL,
+    audioSeconds: duration * channels,
+    quantitySource: "PROVIDER_REPORTED",
+    providerRequestId: data.metadata.request_id ?? null,
+  };
+}
+
 interface DeepgramError {
   err_code: string;
   err_msg: string;
@@ -49,57 +81,71 @@ export class DeepgramProvider implements VoiceProvider {
   private readonly log = new AppLogger(DeepgramProvider.name);
   private readonly apiKey: string;
 
-  readonly name = 'deepgram';
+  readonly name = "deepgram";
   // Nova-3 supported languages. Verify gu (Gujarati) and kn (Kannada) availability
   // against Deepgram docs — they may have limited accuracy for these languages.
   readonly supportedLanguages: SupportedLanguage[] = [
-    'en', 'hi', 'mr', 'bn', 'ta', 'te', 'gu', 'kn',
+    "en",
+    "hi",
+    "mr",
+    "bn",
+    "ta",
+    "te",
+    "gu",
+    "kn",
   ];
 
   constructor(
     private readonly configService: ConfigService,
     private readonly providerLog: ProviderEventLogger,
   ) {
-    this.apiKey = this.configService.get<string>('DEEPGRAM_API_KEY') || '';
+    this.apiKey = this.configService.get<string>("DEEPGRAM_API_KEY") || "";
 
     if (!this.apiKey) {
-      this.log.warn('constructor', 'DEEPGRAM_API_KEY not configured — Deepgram provider will not work');
+      this.log.warn(
+        "constructor",
+        "DEEPGRAM_API_KEY not configured — Deepgram provider will not work",
+      );
     }
   }
 
   private getContentType(format: string): string {
     const map: Record<string, string> = {
-      'webm': 'audio/webm',
-      'wav': 'audio/wav',
-      'mp3': 'audio/mp3',
-      'ogg': 'audio/ogg',
-      'flac': 'audio/flac',
+      webm: "audio/webm",
+      wav: "audio/wav",
+      mp3: "audio/mp3",
+      ogg: "audio/ogg",
+      flac: "audio/flac",
     };
     const contentType = map[format];
     if (!contentType) {
-      this.log.warn('getContentType', 'unknown audio format — defaulting to audio/webm', { format });
-      return 'audio/webm';
+      this.log.warn(
+        "getContentType",
+        "unknown audio format — defaulting to audio/webm",
+        { format },
+      );
+      return "audio/webm";
     }
     return contentType;
   }
 
   private extractFormat(audioFormat: string): string {
     // Handle both "audio/webm" and "webm" formats
-    if (audioFormat.includes('/')) {
-      return audioFormat.split('/')[1] ?? audioFormat;
+    if (audioFormat.includes("/")) {
+      return audioFormat.split("/")[1] ?? audioFormat;
     }
     return audioFormat;
   }
 
   async transcribe(request: STTRequest): Promise<STTResponse> {
-    const url = new URL('https://api.deepgram.com/v1/listen');
-    url.searchParams.set('model', 'nova-3');
-    url.searchParams.set('language', request.languageHint || 'en');
-    url.searchParams.set('smart_format', 'true');
-    url.searchParams.set('punctuate', 'true');
+    const url = new URL("https://api.deepgram.com/v1/listen");
+    url.searchParams.set("model", DEEPGRAM_STT_MODEL);
+    url.searchParams.set("language", request.languageHint || "en");
+    url.searchParams.set("smart_format", "true");
+    url.searchParams.set("punctuate", "true");
 
     const format = this.extractFormat(request.audioFormat);
-    this.log.debug('transcribe', 'STT request', {
+    this.log.debug("transcribe", "STT request", {
       agentId: request.agentId,
       format,
       languageHint: request.languageHint,
@@ -110,9 +156,9 @@ export class DeepgramProvider implements VoiceProvider {
     // DEEPGRAM_STT_COMPLETED / _FAILED with timing. Never stores audio bytes.
     return this.providerLog.traced<STTResponse>(
       {
-        channel: 'VOICE',
+        channel: "VOICE",
         provider: PROVIDERS.DEEPGRAM,
-        eventBase: 'DEEPGRAM_STT',
+        eventBase: "DEEPGRAM_STT",
         agentId: request.agentId,
         sessionId: request.sessionId,
         requestUrl: url.toString(),
@@ -134,10 +180,10 @@ export class DeepgramProvider implements VoiceProvider {
         const startTime = Date.now();
 
         const response = await fetch(url.toString(), {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Authorization': `Token ${this.apiKey}`,
-            'Content-Type': this.getContentType(format),
+            Authorization: `Token ${this.apiKey}`,
+            "Content-Type": this.getContentType(format),
           },
           body: new Uint8Array(request.audio),
           signal: AbortSignal.timeout(10_000),
@@ -155,13 +201,16 @@ export class DeepgramProvider implements VoiceProvider {
         const alternative = channel?.alternatives[0];
 
         const result: STTResponse = {
-          transcript: alternative?.transcript || '',
+          transcript: alternative?.transcript || "",
           confidence: alternative?.confidence || 0,
-          detectedLanguage: (channel?.detected_language || request.languageHint || 'en') as SupportedLanguage,
+          detectedLanguage: (channel?.detected_language ||
+            request.languageHint ||
+            "en") as SupportedLanguage,
           provider: this.name,
           latencyMs: Date.now() - startTime,
+          usage: deepgramUsage(data, request),
         };
-        this.log.info('transcribe', 'STT completed', {
+        this.log.info("transcribe", "STT completed", {
           detectedLanguage: result.detectedLanguage,
           transcriptChars: result.transcript.length,
           latencyMs: result.latencyMs,
@@ -175,9 +224,13 @@ export class DeepgramProvider implements VoiceProvider {
   // Throws for ALL languages (including English) so VoiceService routing (story 10-5)
   // can fall back to Sarvam or ElevenLabs.
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
-    this.log.warn('synthesize', 'Deepgram TTS not implemented — caller must route to Sarvam/ElevenLabs', {
-      language: request.language,
-    });
+    this.log.warn(
+      "synthesize",
+      "Deepgram TTS not implemented — caller must route to Sarvam/ElevenLabs",
+      {
+        language: request.language,
+      },
+    );
     throw new VoiceProviderError(
       this.name,
       `Deepgram TTS is not implemented. Use Sarvam or ElevenLabs for language: ${request.language}.`,
@@ -185,25 +238,34 @@ export class DeepgramProvider implements VoiceProvider {
     );
   }
 
-  async detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse> {
-    const url = new URL('https://api.deepgram.com/v1/listen');
-    url.searchParams.set('model', 'nova-3');
-    url.searchParams.set('language', 'multi');
-    url.searchParams.set('smart_format', 'true');
-    url.searchParams.set('punctuate', 'true');
+  async detectLanguage(
+    audio: Buffer,
+    audioFormat: string,
+  ): Promise<LanguageDetectionResponse> {
+    const url = new URL("https://api.deepgram.com/v1/listen");
+    url.searchParams.set("model", DEEPGRAM_STT_MODEL);
+    url.searchParams.set("language", "multi");
+    url.searchParams.set("smart_format", "true");
+    url.searchParams.set("punctuate", "true");
 
     const format = this.extractFormat(audioFormat);
-    this.log.debug('detectLanguage', 'auto-detect request', { format, audioBytes: audio.length });
+    this.log.debug("detectLanguage", "auto-detect request", {
+      format,
+      audioBytes: audio.length,
+    });
 
     return this.providerLog.traced<LanguageDetectionResponse>(
       {
-        channel: 'VOICE',
+        channel: "VOICE",
         provider: PROVIDERS.DEEPGRAM,
-        eventBase: 'DEEPGRAM_STT_DETECT',
+        eventBase: "DEEPGRAM_STT_DETECT",
         requestUrl: url.toString(),
         requestPayload: { audioBytes: audio.length, audioMime: audioFormat },
         extract: (r) => ({
-          responsePayload: { detectedLanguage: r.detectedLanguage, confidence: r.confidence },
+          responsePayload: {
+            detectedLanguage: r.detectedLanguage,
+            confidence: r.confidence,
+          },
           metadata: { latencyMs: r.latencyMs },
         }),
       },
@@ -211,10 +273,10 @@ export class DeepgramProvider implements VoiceProvider {
         const startTime = Date.now();
 
         const response = await fetch(url.toString(), {
-          method: 'POST',
+          method: "POST",
           headers: {
-            'Authorization': `Token ${this.apiKey}`,
-            'Content-Type': this.getContentType(format),
+            Authorization: `Token ${this.apiKey}`,
+            "Content-Type": this.getContentType(format),
           },
           body: new Uint8Array(audio),
           signal: AbortSignal.timeout(10_000),
@@ -232,12 +294,13 @@ export class DeepgramProvider implements VoiceProvider {
         const alternative = channel?.alternatives[0];
 
         const result: LanguageDetectionResponse = {
-          detectedLanguage: (channel?.detected_language || 'en') as SupportedLanguage,
+          detectedLanguage: (channel?.detected_language ||
+            "en") as SupportedLanguage,
           confidence: alternative?.confidence || 0,
           provider: this.name,
           latencyMs: Date.now() - startTime,
         };
-        this.log.info('detectLanguage', 'detection completed', {
+        this.log.info("detectLanguage", "detection completed", {
           detectedLanguage: result.detectedLanguage,
           latencyMs: result.latencyMs,
         });
@@ -247,10 +310,10 @@ export class DeepgramProvider implements VoiceProvider {
   }
 
   private handleNetworkError(error: Error): VoiceProviderError {
-    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
+    if (error.name === "TimeoutError" || error.name === "AbortError") {
       return new VoiceProviderError(
         this.name,
-        'Request timed out after 10s',
+        "Request timed out after 10s",
         HttpStatus.GATEWAY_TIMEOUT,
         error,
       );
@@ -277,7 +340,7 @@ export class DeepgramProvider implements VoiceProvider {
 
     const message = errorData?.err_msg || `HTTP ${response.status}`;
 
-    this.log.error('handleErrorResponse', 'Deepgram API error', undefined, {
+    this.log.error("handleErrorResponse", "Deepgram API error", undefined, {
       status: response.status,
       code: errorData?.err_code,
       message,
@@ -285,16 +348,32 @@ export class DeepgramProvider implements VoiceProvider {
 
     switch (response.status) {
       case 401:
-        throw new VoiceProviderError(this.name, message, HttpStatus.UNAUTHORIZED);
+        throw new VoiceProviderError(
+          this.name,
+          message,
+          HttpStatus.UNAUTHORIZED,
+        );
       case 429:
-        throw new VoiceProviderError(this.name, message, HttpStatus.TOO_MANY_REQUESTS);
+        throw new VoiceProviderError(
+          this.name,
+          message,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
       case 400:
-        throw new VoiceProviderError(this.name, message, HttpStatus.BAD_REQUEST);
+        throw new VoiceProviderError(
+          this.name,
+          message,
+          HttpStatus.BAD_REQUEST,
+        );
       case 500:
       case 502:
       case 503:
       default:
-        throw new VoiceProviderError(this.name, message, HttpStatus.BAD_GATEWAY);
+        throw new VoiceProviderError(
+          this.name,
+          message,
+          HttpStatus.BAD_GATEWAY,
+        );
     }
   }
 }

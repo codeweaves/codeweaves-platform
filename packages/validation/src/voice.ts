@@ -73,6 +73,18 @@ export type VoiceConfigDto = z.infer<typeof voiceConfigSchema>;
 // Voice Conversation Schema
 // ============================================
 
+/**
+ * Recording length the widget measured, in ms. Sent as a multipart field, so
+ * it arrives as a string. Only used to price STT for providers that report no
+ * duration; anything unreadable is dropped instead of failing the turn.
+ */
+const recordingDurationMs = z.coerce
+  .number()
+  .finite()
+  .nonnegative()
+  .optional()
+  .catch(undefined);
+
 export const voiceConversationSchema = z.object({
   agentId: z
     .string()
@@ -88,6 +100,7 @@ export const voiceConversationSchema = z.object({
     .optional(),
   languageHint: supportedLanguageEnum.optional(),
   source: z.enum(["DEMO", "WIDGET", "WHATSAPP"]).optional(),
+  durationMs: recordingDurationMs,
 });
 
 export type VoiceConversationDto = z.infer<typeof voiceConversationSchema>;
@@ -102,6 +115,7 @@ export const transcribeSchema = z.object({
     .min(1, "Agent ID is required")
     .max(128, "Agent ID must be at most 128 characters"),
   languageHint: supportedLanguageEnum.optional(),
+  durationMs: recordingDurationMs,
 });
 
 export type TranscribeDto = z.infer<typeof transcribeSchema>;

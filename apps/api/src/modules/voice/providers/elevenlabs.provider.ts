@@ -1,26 +1,36 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import { HttpStatus } from '@nestjs/common';
-import { WebSocket } from 'undici';
-import { AppLogger } from '../../../common/logger/app-logger';
-import { ProviderEventLogger, PROVIDERS } from '../../../common/events/provider.logger';
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { HttpStatus } from "@nestjs/common";
+import { WebSocket } from "undici";
+import { AppLogger } from "../../../common/logger/app-logger";
+import {
+  ProviderEventLogger,
+  PROVIDERS,
+} from "../../../common/events/provider.logger";
+import { UsageMeterService } from "../../usage/usage-meter.service";
+import { measureAudioSeconds } from "../utils/audio-duration";
+import { recordTtsUsage, ttsCharacters } from "./tts-usage";
 import type {
   VoiceProvider,
   STTRequest,
   STTResponse,
+  STTUsage,
   TTSRequest,
   TTSResponse,
   TTSStreamChunk,
   LanguageDetectionResponse,
   SupportedLanguage,
   VoiceListItem,
-} from './voice-provider.interface';
-import { VoiceProviderError } from './voice-provider.interface';
+} from "./voice-provider.interface";
+import { VoiceProviderError } from "./voice-provider.interface";
 
 interface ElevenLabsSTTResponse {
   language_code: string;
   language_probability: number;
   text: string;
+  /** Billed audio length. */
+  audio_duration_secs?: number;
+  transcription_id?: string;
   words: Array<{
     text: string;
     start: number;
@@ -50,9 +60,9 @@ interface ElevenLabsVoiceListResponse {
 
 /** Maps ElevenLabs `labels.language` (or accent fallback) to our SupportedLanguage codes. */
 const ELEVENLABS_LANGUAGE_MAP: Record<string, SupportedLanguage> = {
-  english: 'en',
-  hindi: 'hi',
-  tamil: 'ta',
+  english: "en",
+  hindi: "hi",
+  tamil: "ta",
 };
 
 // Turbo v2.5 over Multilingual v2: independently measured 264ms TTFT vs
@@ -60,7 +70,48 @@ const ELEVENLABS_LANGUAGE_MAP: Record<string, SupportedLanguage> = {
 // ElevenLabs free tier, and supports the same 32 languages including Hindi /
 // Marathi / Tamil. Quality WER 5.2% vs 3.9% — small drop, but for short
 // chatbot replies that drop is imperceptible against the 5× latency win.
-const ELEVENLABS_TTS_MODEL = 'eleven_turbo_v2_5';
+const ELEVENLABS_TTS_MODEL = "eleven_turbo_v2_5";
+const ELEVENLABS_STT_MODEL = "scribe_v2";
+
+function scribeUsage(
+  data: ElevenLabsSTTResponse,
+  request: STTRequest,
+): STTUsage {
+  const reported = data.audio_duration_secs;
+  if (typeof reported === "number" && Number.isFinite(reported)) {
+    return {
+      model: ELEVENLABS_STT_MODEL,
+      audioSeconds: reported,
+      quantitySource: "PROVIDER_REPORTED",
+      providerRequestId: data.transcription_id ?? null,
+    };
+  }
+  const measured = measureAudioSeconds(
+    request.audio,
+    request.audioFormat,
+    request.durationMs,
+  );
+  return {
+    model: ELEVENLABS_STT_MODEL,
+    audioSeconds: measured.seconds,
+    quantitySource: measured.source,
+    providerRequestId: data.transcription_id ?? null,
+  };
+}
+
+/** ElevenLabs reports the characters it billed in this header. */
+function billedCharacters(
+  response: Response,
+  text: string,
+): {
+  characters: number;
+  source: "PROVIDER_REPORTED" | "MEASURED";
+} {
+  const header = Number(response.headers?.get("character-cost"));
+  return Number.isFinite(header) && header > 0
+    ? { characters: header, source: "PROVIDER_REPORTED" }
+    : { characters: ttsCharacters(text), source: "MEASURED" };
+}
 
 @Injectable()
 export class ElevenLabsProvider implements VoiceProvider {
@@ -83,24 +134,33 @@ export class ElevenLabsProvider implements VoiceProvider {
   private inFlight = 0;
   private readonly waitQueue: Array<() => void> = [];
 
-  readonly name = 'elevenlabs';
+  readonly name = "elevenlabs";
   readonly supportedLanguages: SupportedLanguage[] = [
-    'en', 'hi', 'ta', // Multilingual v2 only supports Hindi + Tamil from Indian languages
+    "en",
+    "hi",
+    "ta", // Multilingual v2 only supports Hindi + Tamil from Indian languages
   ];
 
   constructor(
     private readonly configService: ConfigService,
     private readonly providerLog: ProviderEventLogger,
+    private readonly usageMeter: UsageMeterService,
   ) {
-    this.apiKey = this.configService.get<string>('ELEVENLABS_API_KEY') || '';
+    this.apiKey = this.configService.get<string>("ELEVENLABS_API_KEY") || "";
     this.defaultVoiceId =
-      this.configService.get<string>('ELEVENLABS_DEFAULT_VOICE_ID') || 'Xb7hH8MSUJpSbSDYk0k2';
-    const configured = this.configService.get<string>('ELEVENLABS_MAX_CONCURRENT');
+      this.configService.get<string>("ELEVENLABS_DEFAULT_VOICE_ID") ||
+      "Xb7hH8MSUJpSbSDYk0k2";
+    const configured = this.configService.get<string>(
+      "ELEVENLABS_MAX_CONCURRENT",
+    );
     const parsed = configured ? parseInt(configured, 10) : NaN;
     this.maxConcurrent = Number.isFinite(parsed) && parsed > 0 ? parsed : 2;
 
     if (!this.apiKey) {
-      this.log.warn('constructor', 'ELEVENLABS_API_KEY not configured — ElevenLabs provider will not work');
+      this.log.warn(
+        "constructor",
+        "ELEVENLABS_API_KEY not configured — ElevenLabs provider will not work",
+      );
     }
   }
 
@@ -129,7 +189,7 @@ export class ElevenLabsProvider implements VoiceProvider {
   }
 
   async transcribe(request: STTRequest): Promise<STTResponse> {
-    this.log.debug('transcribe', 'STT request', {
+    this.log.debug("transcribe", "STT request", {
       agentId: request.agentId,
       languageHint: request.languageHint,
       audioBytes: request.audio.length,
@@ -137,12 +197,12 @@ export class ElevenLabsProvider implements VoiceProvider {
 
     return this.providerLog.traced<STTResponse>(
       {
-        channel: 'VOICE',
+        channel: "VOICE",
         provider: PROVIDERS.ELEVENLABS,
-        eventBase: 'ELEVENLABS_STT',
+        eventBase: "ELEVENLABS_STT",
         agentId: request.agentId,
         sessionId: request.sessionId,
-        requestUrl: 'https://api.elevenlabs.io/v1/speech-to-text',
+        requestUrl: "https://api.elevenlabs.io/v1/speech-to-text",
         requestPayload: {
           audioBytes: request.audio.length,
           audioMime: request.audioFormat,
@@ -161,25 +221,32 @@ export class ElevenLabsProvider implements VoiceProvider {
         const startTime = Date.now();
 
         const formData = new FormData();
-        formData.append('file', new Blob([new Uint8Array(request.audio)]), 'audio.webm');
-        formData.append('model_id', 'scribe_v2');
+        formData.append(
+          "file",
+          new Blob([new Uint8Array(request.audio)]),
+          "audio.webm",
+        );
+        formData.append("model_id", ELEVENLABS_STT_MODEL);
         if (request.languageHint) {
-          formData.append('language_code', request.languageHint);
+          formData.append("language_code", request.languageHint);
         }
 
-        const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-          method: 'POST',
-          headers: {
-            'xi-api-key': this.apiKey,
+        const response = await fetch(
+          "https://api.elevenlabs.io/v1/speech-to-text",
+          {
+            method: "POST",
+            headers: {
+              "xi-api-key": this.apiKey,
+            },
+            body: formData,
+            signal: AbortSignal.timeout(10_000),
           },
-          body: formData,
-          signal: AbortSignal.timeout(10_000),
-        }).catch((error: Error) => {
-          throw this.handleNetworkError(error, 'transcribe');
+        ).catch((error: Error) => {
+          throw this.handleNetworkError(error, "transcribe");
         });
 
         if (!response.ok) {
-          await this.handleErrorResponse(response, 'transcribe');
+          await this.handleErrorResponse(response, "transcribe");
         }
 
         const data = (await response.json()) as ElevenLabsSTTResponse;
@@ -187,11 +254,12 @@ export class ElevenLabsProvider implements VoiceProvider {
         const result: STTResponse = {
           transcript: data.text,
           confidence: data.language_probability ?? 0,
-          detectedLanguage: (data.language_code as SupportedLanguage) || 'en',
+          detectedLanguage: (data.language_code as SupportedLanguage) || "en",
           provider: this.name,
           latencyMs: Date.now() - startTime,
+          usage: scribeUsage(data, request),
         };
-        this.log.info('transcribe', 'STT completed', {
+        this.log.info("transcribe", "STT completed", {
           detectedLanguage: result.detectedLanguage,
           transcriptChars: result.transcript.length,
           latencyMs: result.latencyMs,
@@ -202,7 +270,12 @@ export class ElevenLabsProvider implements VoiceProvider {
   }
 
   async synthesize(request: TTSRequest): Promise<TTSResponse> {
-    return this.synthesizeWithFormat(request, 'mp3_44100_128', 'audio/mp3', 'synthesize');
+    return this.synthesizeWithFormat(
+      request,
+      "mp3_44100_128",
+      "audio/mp3",
+      "synthesize",
+    );
   }
 
   /** Preview synthesis returns Ogg Opus (free-tier compatible — wav_44100 needs Pro).
@@ -210,7 +283,12 @@ export class ElevenLabsProvider implements VoiceProvider {
    *  so unlike MP3 there's no leading priming silence to clip the first consonant.
    *  Ref: https://medium.com/vimeo-engineering-blog/a-brief-history-of-gapless-audio-and-what-you-can-do-about-it-ea9e1c343215 */
   async synthesizePreview(request: TTSRequest): Promise<TTSResponse> {
-    return this.synthesizeWithFormat(request, 'opus_48000_32', 'audio/ogg', 'synthesizePreview');
+    return this.synthesizeWithFormat(
+      request,
+      "opus_48000_32",
+      "audio/ogg",
+      "synthesizePreview",
+    );
   }
 
   private async synthesizeWithFormat(
@@ -222,7 +300,7 @@ export class ElevenLabsProvider implements VoiceProvider {
     const voiceId = request.voiceId || this.defaultVoiceId;
     const sanitizedVoiceId = encodeURIComponent(voiceId);
     const url = `https://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}?output_format=${elevenlabsFormat}`;
-    this.log.debug('synthesizeWithFormat', 'TTS request', {
+    this.log.debug("synthesizeWithFormat", "TTS request", {
       agentId: request.agentId,
       operation,
       language: request.language,
@@ -237,9 +315,9 @@ export class ElevenLabsProvider implements VoiceProvider {
     try {
       return await this.providerLog.traced<TTSResponse>(
         {
-          channel: 'VOICE',
+          channel: "VOICE",
           provider: PROVIDERS.ELEVENLABS,
-          eventBase: 'ELEVENLABS_TTS',
+          eventBase: "ELEVENLABS_TTS",
           agentId: request.agentId,
           sessionId: request.sessionId,
           requestUrl: url,
@@ -250,17 +328,21 @@ export class ElevenLabsProvider implements VoiceProvider {
             language: request.language,
           },
           extract: (r) => ({
-            metadata: { audioBytes: r.audio.length, format: r.audioFormat, latencyMs: r.latencyMs },
+            metadata: {
+              audioBytes: r.audio.length,
+              format: r.audioFormat,
+              latencyMs: r.latencyMs,
+            },
           }),
         },
         async () => {
           const startTime = Date.now();
 
           const response = await fetch(url, {
-            method: 'POST',
+            method: "POST",
             headers: {
-              'Content-Type': 'application/json',
-              'xi-api-key': this.apiKey,
+              "Content-Type": "application/json",
+              "xi-api-key": this.apiKey,
             },
             body: JSON.stringify({
               text: request.text,
@@ -285,7 +367,19 @@ export class ElevenLabsProvider implements VoiceProvider {
           const arrayBuffer = await response.arrayBuffer();
           const audio = Buffer.from(arrayBuffer);
 
-          this.log.info('synthesizeWithFormat', 'TTS completed', {
+          const billed = billedCharacters(response, request.text);
+          recordTtsUsage(this.usageMeter, {
+            scope: request.usage,
+            agentId: request.agentId,
+            provider: this.name,
+            model: ELEVENLABS_TTS_MODEL,
+            characters: billed.characters,
+            quantitySource: billed.source,
+            providerRequestId: response.headers?.get("request-id") ?? null,
+            latencyMs: Date.now() - startTime,
+          });
+
+          this.log.info("synthesizeWithFormat", "TTS completed", {
             operation,
             audioBytes: audio.length,
             format: audioFormat,
@@ -335,7 +429,7 @@ export class ElevenLabsProvider implements VoiceProvider {
     let emittedBytes = 0;
     const voiceId = request.voiceId || this.defaultVoiceId;
     const sanitizedVoiceId = encodeURIComponent(voiceId);
-    this.log.debug('synthesizeStream', 'opening ElevenLabs WS TTS stream', {
+    this.log.debug("synthesizeStream", "opening ElevenLabs WS TTS stream", {
       agentId: request.agentId,
       language: request.language,
       voiceId,
@@ -345,13 +439,13 @@ export class ElevenLabsProvider implements VoiceProvider {
     const url = new URL(
       `wss://api.elevenlabs.io/v1/text-to-speech/${sanitizedVoiceId}/stream-input`,
     );
-    url.searchParams.set('model_id', ELEVENLABS_TTS_MODEL);
+    url.searchParams.set("model_id", ELEVENLABS_TTS_MODEL);
     // Raw PCM 24kHz 16-bit signed LE. Each chunk is independently playable
     // (no MP3-style header dependency), so VoiceService can forward chunks
     // to the client as they arrive instead of collecting them server-side.
     // 24kHz mono = ~48KB/s — ~3x bandwidth vs MP3 128kbps but trivial at
     // chat-reply scale and the streaming-perception win is worth it.
-    url.searchParams.set('output_format', 'pcm_24000');
+    url.searchParams.set("output_format", "pcm_24000");
 
     // ws bridge: undici WebSocket fires events; we bridge into an async queue
     // so callers can `for await` over chunks naturally.
@@ -373,13 +467,13 @@ export class ElevenLabsProvider implements VoiceProvider {
 
     const ws = new WebSocket(url);
 
-    ws.addEventListener('open', () => {
+    ws.addEventListener("open", () => {
       // Initial frame: voice config + API key. The leading-space text triggers
       // ElevenLabs to set up the synthesis context; subsequent text frames
       // append to the synthesis input.
       ws.send(
         JSON.stringify({
-          text: ' ',
+          text: " ",
           voice_settings: {
             stability: 0.5,
             similarity_boost: 0.75,
@@ -392,28 +486,43 @@ export class ElevenLabsProvider implements VoiceProvider {
       // ready (sentence-bounded streaming). Once we move to token-streaming,
       // these would be multiple frames followed by a final empty-text EOS.
       ws.send(JSON.stringify({ text: request.text }));
-      ws.send(JSON.stringify({ text: '' }));
+      ws.send(JSON.stringify({ text: "" }));
+      // Billed text is the sentence frame only: the " " opener and the empty
+      // end-of-stream frame carry no characters to synthesise.
+      recordTtsUsage(this.usageMeter, {
+        scope: request.usage,
+        agentId: request.agentId,
+        provider: this.name,
+        model: ELEVENLABS_TTS_MODEL,
+        characters: ttsCharacters(request.text),
+        quantitySource: "MEASURED",
+      });
     });
 
-    ws.addEventListener('message', (event) => {
+    ws.addEventListener("message", (event) => {
       try {
         // Undici's WebSocket MessageEvent type doesn't match DOM's well; cast
         // and extract the payload by shape. Server-side WS always sends text
         // frames containing JSON for this endpoint, so we expect a string.
-        const data = (event as unknown as { data: string | Buffer | ArrayBuffer }).data;
+        const data = (
+          event as unknown as { data: string | Buffer | ArrayBuffer }
+        ).data;
         const raw =
-          typeof data === 'string'
+          typeof data === "string"
             ? data
             : data instanceof Buffer
-              ? data.toString('utf-8')
+              ? data.toString("utf-8")
               : new TextDecoder().decode(data);
-        const parsed = JSON.parse(raw) as { audio?: string | null; isFinal?: boolean };
+        const parsed = JSON.parse(raw) as {
+          audio?: string | null;
+          isFinal?: boolean;
+        };
         if (parsed.audio) {
           queue.push({
-            audio: Buffer.from(parsed.audio, 'base64'),
+            audio: Buffer.from(parsed.audio, "base64"),
             // Raw PCM 24kHz 16-bit signed little-endian. Client plays each
             // chunk via AudioContext.createBuffer (no decodeAudioData needed).
-            audioFormat: 'audio/pcm; rate=24000',
+            audioFormat: "audio/pcm; rate=24000",
             latencyMs: Date.now() - startTime,
             isFinal: !!parsed.isFinal,
             provider: this.name,
@@ -436,15 +545,15 @@ export class ElevenLabsProvider implements VoiceProvider {
       }
     });
 
-    ws.addEventListener('error', () => {
+    ws.addEventListener("error", () => {
       // Undici WS doesn't pass a real Error object — we surface a generic
       // failure; the consumer falls back to batch synthesize().
-      wsError = new Error('ElevenLabs WebSocket connection error');
+      wsError = new Error("ElevenLabs WebSocket connection error");
       wsClosed = true;
       notify();
     });
 
-    ws.addEventListener('close', (event) => {
+    ws.addEventListener("close", (event) => {
       // Capture close code + reason so we can diagnose why EL is killing the
       // stream (rate limit, concurrency cap, auth, bad voice ID, etc.). The
       // 'error' event above is opaque per WS spec; the close event is where
@@ -454,20 +563,23 @@ export class ElevenLabsProvider implements VoiceProvider {
       const closeEvent = event as unknown as { code?: number; reason?: string };
       const code = closeEvent.code;
       const reason = closeEvent.reason;
-      if (!wsError && (code === undefined || (code !== 1000 && code !== 1005))) {
+      if (
+        !wsError &&
+        (code === undefined || (code !== 1000 && code !== 1005))
+      ) {
         // Surface non-normal closures as errors so the consumer can react
         // (and operators can see the code in logs). Normal close (1000) or
         // no-status (1005) after we've already streamed audio is fine.
         wsError = new Error(
-          `ElevenLabs WebSocket closed unexpectedly (code=${code ?? 'unknown'}${reason ? `, reason="${reason}"` : ''})`,
+          `ElevenLabs WebSocket closed unexpectedly (code=${code ?? "unknown"}${reason ? `, reason="${reason}"` : ""})`,
         );
       }
       // Temporarily logged at info (was debug) so we can see the close code
       // that's causing the mid-stream failure. Revert to debug once the EL WS
       // issue is diagnosed.
-      this.log.info('synthesizeStream', 'ElevenLabs WS closed', {
-        code: code ?? 'unknown',
-        reason: reason ?? '',
+      this.log.info("synthesizeStream", "ElevenLabs WS closed", {
+        code: code ?? "unknown",
+        reason: reason ?? "",
         hadError: !!wsError,
       });
       wsClosed = true;
@@ -477,7 +589,7 @@ export class ElevenLabsProvider implements VoiceProvider {
     // Safety: if WS hangs (no message in 15s) we throw to let caller fall back.
     const hardTimeout = setTimeout(() => {
       if (!wsClosed) {
-        wsError = new Error('ElevenLabs WebSocket hard timeout (15s)');
+        wsError = new Error("ElevenLabs WebSocket hard timeout (15s)");
         wsClosed = true;
         try {
           ws.close();
@@ -521,9 +633,11 @@ export class ElevenLabsProvider implements VoiceProvider {
       // — cast back to the declared type to read it.
       const streamErr = wsError as Error | null;
       this.providerLog.log({
-        channel: 'VOICE',
-        eventName: streamErr ? 'ELEVENLABS_TTS_STREAM_FAILED' : 'ELEVENLABS_TTS_STREAM_COMPLETED',
-        direction: 'OUTBOUND',
+        channel: "VOICE",
+        eventName: streamErr
+          ? "ELEVENLABS_TTS_STREAM_FAILED"
+          : "ELEVENLABS_TTS_STREAM_COMPLETED",
+        direction: "OUTBOUND",
         provider: PROVIDERS.ELEVENLABS,
         agentId: request.agentId,
         sessionId: request.sessionId,
@@ -539,8 +653,8 @@ export class ElevenLabsProvider implements VoiceProvider {
         metadata: {
           chunkCount: emittedChunks,
           totalBytes: emittedBytes,
-          format: 'audio/pcm; rate=24000',
-          protocol: 'websocket',
+          format: "audio/pcm; rate=24000",
+          protocol: "websocket",
         },
       });
     }
@@ -549,10 +663,10 @@ export class ElevenLabsProvider implements VoiceProvider {
   async listVoices(): Promise<VoiceListItem[]> {
     return this.providerLog.traced(
       {
-        channel: 'DASHBOARD',
+        channel: "DASHBOARD",
         provider: PROVIDERS.ELEVENLABS,
-        eventBase: 'ELEVENLABS_LIST_VOICES',
-        requestUrl: 'https://api.elevenlabs.io/v1/voices',
+        eventBase: "ELEVENLABS_LIST_VOICES",
+        requestUrl: "https://api.elevenlabs.io/v1/voices",
         extract: (voices: VoiceListItem[]) => ({
           responsePayload: { count: voices.length },
         }),
@@ -562,16 +676,16 @@ export class ElevenLabsProvider implements VoiceProvider {
   }
 
   private async fetchVoicesRaw(): Promise<VoiceListItem[]> {
-    const response = await fetch('https://api.elevenlabs.io/v1/voices', {
-      method: 'GET',
-      headers: { 'xi-api-key': this.apiKey },
+    const response = await fetch("https://api.elevenlabs.io/v1/voices", {
+      method: "GET",
+      headers: { "xi-api-key": this.apiKey },
       signal: AbortSignal.timeout(10_000),
     }).catch((error: Error) => {
-      throw this.handleNetworkError(error, 'listVoices');
+      throw this.handleNetworkError(error, "listVoices");
     });
 
     if (!response.ok) {
-      await this.handleErrorResponse(response, 'listVoices');
+      await this.handleErrorResponse(response, "listVoices");
     }
 
     const data = (await response.json()) as ElevenLabsVoiceListResponse;
@@ -581,13 +695,20 @@ export class ElevenLabsProvider implements VoiceProvider {
         const compatibleModels = v.high_quality_base_model_ids ?? [];
         // Keep voices either explicitly compatible with our TTS model, or with an unknown
         // compatibility list (premade voices often omit this and still work).
-        return compatibleModels.length === 0 || compatibleModels.includes(ELEVENLABS_TTS_MODEL);
+        return (
+          compatibleModels.length === 0 ||
+          compatibleModels.includes(ELEVENLABS_TTS_MODEL)
+        );
       })
       .map((v): VoiceListItem => {
         const labels = v.labels ?? {};
-        const languageLabel = (labels.language ?? labels.accent ?? '').toLowerCase();
+        const languageLabel = (
+          labels.language ??
+          labels.accent ??
+          ""
+        ).toLowerCase();
         const language = ELEVENLABS_LANGUAGE_MAP[languageLabel];
-        const gender = labels.gender as VoiceListItem['gender'] | undefined;
+        const gender = labels.gender as VoiceListItem["gender"] | undefined;
 
         // Build a human-readable descriptor from labels: combine description ("calm",
         // "deep"), use_case ("narration"), age ("young"), and accent. Gender is shown
@@ -598,33 +719,49 @@ export class ElevenLabsProvider implements VoiceProvider {
           labels.use_case,
           labels.age,
           labels.accent,
-        ].filter((s): s is string => typeof s === 'string' && s.trim().length > 0);
+        ].filter(
+          (s): s is string => typeof s === "string" && s.trim().length > 0,
+        );
         const category =
-          descriptionParts.length > 0 ? descriptionParts.slice(0, 3).join(' · ') : undefined;
+          descriptionParts.length > 0
+            ? descriptionParts.slice(0, 3).join(" · ")
+            : undefined;
 
         return {
           id: v.voice_id,
           name: v.name,
           languages: language ? [language] : undefined,
-          gender: gender && ['male', 'female', 'neutral'].includes(gender) ? gender : undefined,
+          gender:
+            gender && ["male", "female", "neutral"].includes(gender)
+              ? gender
+              : undefined,
           category,
           previewUrl: v.preview_url ?? undefined,
         };
       });
   }
 
-  async detectLanguage(audio: Buffer, audioFormat: string): Promise<LanguageDetectionResponse> {
-    this.log.debug('detectLanguage', 'auto-detect request', { format: audioFormat, audioBytes: audio.length });
+  async detectLanguage(
+    audio: Buffer,
+    audioFormat: string,
+  ): Promise<LanguageDetectionResponse> {
+    this.log.debug("detectLanguage", "auto-detect request", {
+      format: audioFormat,
+      audioBytes: audio.length,
+    });
 
     return this.providerLog.traced<LanguageDetectionResponse>(
       {
-        channel: 'VOICE',
+        channel: "VOICE",
         provider: PROVIDERS.ELEVENLABS,
-        eventBase: 'ELEVENLABS_STT_DETECT',
-        requestUrl: 'https://api.elevenlabs.io/v1/speech-to-text',
+        eventBase: "ELEVENLABS_STT_DETECT",
+        requestUrl: "https://api.elevenlabs.io/v1/speech-to-text",
         requestPayload: { audioBytes: audio.length, audioMime: audioFormat },
         extract: (r) => ({
-          responsePayload: { detectedLanguage: r.detectedLanguage, confidence: r.confidence },
+          responsePayload: {
+            detectedLanguage: r.detectedLanguage,
+            confidence: r.confidence,
+          },
           metadata: { latencyMs: r.latencyMs },
         }),
       },
@@ -632,34 +769,41 @@ export class ElevenLabsProvider implements VoiceProvider {
         const startTime = Date.now();
 
         const formData = new FormData();
-        formData.append('file', new Blob([new Uint8Array(audio)]), 'audio.webm');
-        formData.append('model_id', 'scribe_v2');
+        formData.append(
+          "file",
+          new Blob([new Uint8Array(audio)]),
+          "audio.webm",
+        );
+        formData.append("model_id", "scribe_v2");
         // Omit language_code to let ElevenLabs auto-detect
 
-        const response = await fetch('https://api.elevenlabs.io/v1/speech-to-text', {
-          method: 'POST',
-          headers: {
-            'xi-api-key': this.apiKey,
+        const response = await fetch(
+          "https://api.elevenlabs.io/v1/speech-to-text",
+          {
+            method: "POST",
+            headers: {
+              "xi-api-key": this.apiKey,
+            },
+            body: formData,
+            signal: AbortSignal.timeout(10_000),
           },
-          body: formData,
-          signal: AbortSignal.timeout(10_000),
-        }).catch((error: Error) => {
-          throw this.handleNetworkError(error, 'detectLanguage');
+        ).catch((error: Error) => {
+          throw this.handleNetworkError(error, "detectLanguage");
         });
 
         if (!response.ok) {
-          await this.handleErrorResponse(response, 'detectLanguage');
+          await this.handleErrorResponse(response, "detectLanguage");
         }
 
         const data = (await response.json()) as ElevenLabsSTTResponse;
 
         const result: LanguageDetectionResponse = {
-          detectedLanguage: (data.language_code as SupportedLanguage) || 'en',
+          detectedLanguage: (data.language_code as SupportedLanguage) || "en",
           confidence: data.language_probability ?? 0,
           provider: this.name,
           latencyMs: Date.now() - startTime,
         };
-        this.log.info('detectLanguage', 'detection completed', {
+        this.log.info("detectLanguage", "detection completed", {
           detectedLanguage: result.detectedLanguage,
           latencyMs: result.latencyMs,
         });
@@ -668,9 +812,12 @@ export class ElevenLabsProvider implements VoiceProvider {
     );
   }
 
-  private handleNetworkError(error: Error, operation: string): VoiceProviderError {
-    if (error.name === 'TimeoutError' || error.name === 'AbortError') {
-      const timeout = operation === 'synthesize' ? '15s' : '10s';
+  private handleNetworkError(
+    error: Error,
+    operation: string,
+  ): VoiceProviderError {
+    if (error.name === "TimeoutError" || error.name === "AbortError") {
+      const timeout = operation === "synthesize" ? "15s" : "10s";
       return new VoiceProviderError(
         this.name,
         `Request timed out after ${timeout}`,
@@ -686,7 +833,10 @@ export class ElevenLabsProvider implements VoiceProvider {
     );
   }
 
-  private async handleErrorResponse(response: Response, operation: string): Promise<never> {
+  private async handleErrorResponse(
+    response: Response,
+    operation: string,
+  ): Promise<never> {
     let errorData: ElevenLabsErrorResponse | undefined;
     try {
       errorData = (await response.json()) as ElevenLabsErrorResponse;
@@ -700,7 +850,7 @@ export class ElevenLabsProvider implements VoiceProvider {
 
     const message = errorData?.detail?.message || `HTTP ${response.status}`;
 
-    this.log.error('handleErrorResponse', 'ElevenLabs API error', undefined, {
+    this.log.error("handleErrorResponse", "ElevenLabs API error", undefined, {
       operation,
       status: response.status,
       message,
@@ -708,16 +858,32 @@ export class ElevenLabsProvider implements VoiceProvider {
 
     switch (response.status) {
       case 401:
-        throw new VoiceProviderError(this.name, message, HttpStatus.UNAUTHORIZED);
+        throw new VoiceProviderError(
+          this.name,
+          message,
+          HttpStatus.UNAUTHORIZED,
+        );
       case 422:
-        throw new VoiceProviderError(this.name, message, HttpStatus.BAD_REQUEST);
+        throw new VoiceProviderError(
+          this.name,
+          message,
+          HttpStatus.BAD_REQUEST,
+        );
       case 429:
-        throw new VoiceProviderError(this.name, message, HttpStatus.TOO_MANY_REQUESTS);
+        throw new VoiceProviderError(
+          this.name,
+          message,
+          HttpStatus.TOO_MANY_REQUESTS,
+        );
       case 500:
       case 502:
       case 503:
       default:
-        throw new VoiceProviderError(this.name, message, HttpStatus.BAD_GATEWAY);
+        throw new VoiceProviderError(
+          this.name,
+          message,
+          HttpStatus.BAD_GATEWAY,
+        );
     }
   }
 }
