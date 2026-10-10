@@ -20,11 +20,49 @@ const LOG_MASK_LIMITS: MaskLimits = {
   maxDepth: 8,
 };
 
+/** Agents whose organization is cached. Cleared, not grown, past this. */
+const AGENT_ORG_CACHE_MAX = 10_000;
+
 @Injectable()
 export class TracerService {
   private readonly logger = new Logger(TracerService.name);
+  /** agentId → organizationId. An agent never moves to another organization. */
+  private readonly agentOrg = new Map<string, string>();
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * The organization a row belongs to: the caller's, else the agent's own
+   * organization, else the acting user's. Public traffic (widget, voice,
+   * WhatsApp) has an agent but no signed-in user, so without the agent lookup
+   * those rows had no organization. Looked up once per agent, then cached.
+   */
+  private async resolveOrganizationId(
+    explicit: string | undefined,
+    agentId: string | undefined,
+    contextOrg: string | undefined,
+  ): Promise<string | null> {
+    if (explicit) return explicit;
+    if (agentId) {
+      const cached = this.agentOrg.get(agentId);
+      if (cached) return cached;
+      let agent: { organizationId: string } | null = null;
+      try {
+        agent = await this.prisma.agent.findUnique({
+          where: { id: agentId },
+          select: { organizationId: true },
+        });
+      } catch {
+        // A failed lookup must not drop the row; fall back below.
+      }
+      if (agent) {
+        if (this.agentOrg.size >= AGENT_ORG_CACHE_MAX) this.agentOrg.clear();
+        this.agentOrg.set(agentId, agent.organizationId);
+        return agent.organizationId;
+      }
+    }
+    return contextOrg ?? null;
+  }
 
   private get eventLogEnabled(): boolean {
     return process.env.EVENT_LOG_ENABLED !== "false";
@@ -73,7 +111,11 @@ export class TracerService {
           clerkId: input.clerkId ?? ctx?.clerkId ?? null,
           visitorId: input.visitorId ?? null,
           agentId: input.agentId ?? null,
-          organizationId: input.organizationId ?? ctx?.organizationId ?? null,
+          organizationId: await this.resolveOrganizationId(
+            input.organizationId,
+            input.agentId,
+            ctx?.organizationId,
+          ),
           sessionId: input.sessionId ?? null,
           correlationId: input.correlationId ?? ctx?.correlationId ?? null,
           requestUrl: input.requestUrl ?? null,
@@ -121,12 +163,14 @@ export class TracerService {
           userId: context?.userId,
           clerkId: context?.clerkId,
           contextId,
-          // Typed tenancy scope. organizationId falls back to the acting user's
-          // org from the request context (same pattern as logEvent) when the
-          // caller doesn't pass one; agentId is caller-supplied only (the
-          // request context doesn't carry it).
-          organizationId:
-            scope?.organizationId ?? context?.organizationId ?? null,
+          // Typed tenancy scope, resolved the same way as logEvent: the
+          // caller's org, else the agent's org, else the acting user's org.
+          // agentId is caller-supplied only (the request context lacks it).
+          organizationId: await this.resolveOrganizationId(
+            scope?.organizationId,
+            scope?.agentId,
+            context?.organizationId,
+          ),
           agentId: scope?.agentId ?? null,
           event,
           data: data as Prisma.InputJsonValue,
