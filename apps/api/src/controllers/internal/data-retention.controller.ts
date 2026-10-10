@@ -1,12 +1,13 @@
-import { Controller, Post, UseGuards } from '@nestjs/common';
-import { ApiExcludeEndpoint, ApiTags } from '@nestjs/swagger';
+import { Controller, Post, UseGuards } from "@nestjs/common";
+import { ApiExcludeEndpoint, ApiTags } from "@nestjs/swagger";
 
-import { Public } from '../../decorators/public.decorator';
-import { InternalSecretGuard } from '../../guards/internal-secret.guard';
+import { Public } from "../../decorators/public.decorator";
+import { InternalSecretGuard } from "../../guards/internal-secret.guard";
+import { HeartbeatService } from "../../modules/monitoring/heartbeat.service";
 import {
   DataRetentionService,
   type RetentionSweepResult,
-} from '../../services/data-retention.service';
+} from "../../services/data-retention.service";
 
 /**
  * Internal trigger for the DPDP retention sweep (S4): one call trims
@@ -22,16 +23,22 @@ import {
  *   CHAT_TRACE_RETENTION_DAYS (default 90) · AUDIT_LOG_RETENTION_DAYS
  *   (default 0) · EVENT_LOG_RETENTION_DAYS (default 0 — set 365 in prod).
  */
-@ApiTags('Internal')
+@ApiTags("Internal")
 @Public()
 @UseGuards(InternalSecretGuard)
-@Controller('internal/retention')
+@Controller("internal/retention")
 export class DataRetentionController {
-  constructor(private readonly retention: DataRetentionService) {}
+  constructor(
+    private readonly retention: DataRetentionService,
+    private readonly heartbeat: HeartbeatService,
+  ) {}
 
-  @Post('run')
+  @Post("run")
   @ApiExcludeEndpoint()
-  run(): Promise<RetentionSweepResult> {
-    return this.retention.run();
+  async run(): Promise<RetentionSweepResult> {
+    const result = await this.retention.run();
+    // Awaited run, so a successful return here is the finished sweep.
+    this.heartbeat.ping("RETENTION");
+    return result;
   }
 }
