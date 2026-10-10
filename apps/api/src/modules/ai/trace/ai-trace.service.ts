@@ -16,6 +16,7 @@ import type {
   TraceStep,
 } from "./ai-trace.interfaces";
 import { maskPiiDeep, maskPiiText } from "../../pii/mask-pii";
+import { maskSessionId } from "../../../common/events/redaction.util";
 
 /**
  * Internal state we hold for each in-flight trace. Kept in memory only;
@@ -89,7 +90,8 @@ export class AiTraceService {
       traceId,
       correlationId,
       agentId: params.agentId,
-      sessionId: params.sessionId,
+      // The public session id is a bearer credential: only its prefix is logged.
+      sessionId: maskSessionId(params.sessionId),
     });
 
     const emitter = new EventEmitter();

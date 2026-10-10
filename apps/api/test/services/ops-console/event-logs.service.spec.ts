@@ -13,6 +13,7 @@ describe("EventLogsService", () => {
     eventLog: { findMany: jest.fn(), count: jest.fn(), findUnique: jest.fn() },
     organization: { findMany: jest.fn(), findUnique: jest.fn() },
     user: { findUnique: jest.fn() },
+    chatSession: { findUnique: jest.fn() },
   };
   let service: EventLogsService;
 
@@ -25,6 +26,7 @@ describe("EventLogsService", () => {
     prisma.organization.findMany.mockResolvedValue([]);
     prisma.organization.findUnique.mockResolvedValue(null);
     prisma.user.findUnique.mockResolvedValue(null);
+    prisma.chatSession.findUnique.mockResolvedValue(null);
   });
 
   const listArgs = () => prisma.eventLog.findMany.mock.calls[0][0];
@@ -87,6 +89,20 @@ describe("EventLogsService", () => {
       });
     });
 
+    it("finds rows by the public session id too (rows store the internal id)", async () => {
+      prisma.chatSession.findUnique.mockResolvedValue({ id: "cs-internal" });
+
+      await service.list(parse({ search: "public-sess" }));
+
+      expect(prisma.chatSession.findUnique).toHaveBeenCalledWith({
+        where: { sessionId: "public-sess" },
+        select: { id: true },
+      });
+      expect(listArgs().where.AND[1].OR).toContainEqual({
+        sessionId: "cs-internal",
+      });
+    });
+
     it("rejects a window wider than 30 days", async () => {
       await expect(
         service.list(
@@ -130,6 +146,36 @@ describe("EventLogsService", () => {
       prisma.eventLog.findUnique.mockResolvedValue(null);
 
       await expect(service.get(id)).rejects.toThrow(NotFoundException);
+    });
+
+    it("links the row's conversation, with the id its dashboard page takes", async () => {
+      prisma.eventLog.findUnique.mockResolvedValue({
+        id,
+        sessionId: "cs-internal",
+        organizationId: null,
+        actorUserId: null,
+        requestUrl: null,
+        requestHeaders: null,
+        requestPayload: null,
+        responsePayload: null,
+        metadata: null,
+      });
+      prisma.chatSession.findUnique.mockResolvedValue({
+        id: "cs-internal",
+        sessionId: "public-sess",
+        agent: { name: "Diya" },
+      });
+
+      const detail = await service.get(id);
+
+      expect(prisma.chatSession.findUnique).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { id: "cs-internal" } }),
+      );
+      expect(detail.conversation).toEqual({
+        id: "cs-internal",
+        sessionId: "public-sess",
+        agentName: "Diya",
+      });
     });
 
     it("strips credential headers and redacts payload secrets", async () => {

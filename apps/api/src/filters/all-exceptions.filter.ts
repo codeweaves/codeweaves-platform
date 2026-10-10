@@ -17,6 +17,7 @@ import {
 } from "../common/events/resolve-channel";
 import { CryptoService } from "../common/crypto/crypto.service";
 import { maskPiiText } from "../modules/pii/mask-pii";
+import { maskSessionInUrl } from "../common/events/redaction.util";
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
@@ -43,7 +44,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
     if (status >= 500) {
       // Console output (Render logs) is a log too: an error can echo the input.
       this.logger.error(
-        `[${context?.correlationId?.slice(0, 8) ?? "no-ctx"}] ${request.method} ${request.originalUrl} — ${maskPiiText(String(exception))}`,
+        `[${context?.correlationId?.slice(0, 8) ?? "no-ctx"}] ${request.method} ${maskSessionInUrl(request.originalUrl)} — ${maskPiiText(String(exception))}`,
         exception instanceof Error && exception.stack
           ? maskPiiText(exception.stack)
           : undefined,
@@ -52,7 +53,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
       this.sentryService.captureException(exception, {
         correlationId: context?.correlationId,
         method: request.method,
-        url: request.originalUrl,
+        url: maskSessionInUrl(request.originalUrl),
       });
     }
 

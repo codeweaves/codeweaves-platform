@@ -2,7 +2,11 @@ import { Injectable, Logger } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "../../services/prisma.service";
 import { getRequestContext } from "./correlation.storage";
-import { sanitizeHeaders, capJson } from "../events/redaction.util";
+import {
+  sanitizeHeaders,
+  capJson,
+  maskSessionInUrl,
+} from "../events/redaction.util";
 import type { EventLogInput } from "../events/event-log.types";
 import {
   maskPiiDeep,
@@ -20,11 +24,82 @@ const LOG_MASK_LIMITS: MaskLimits = {
   maxDepth: 8,
 };
 
+/** Entries per lookup cache. Cleared, not grown, past this. */
+const AGENT_ORG_CACHE_MAX = 10_000;
+const SESSION_ID_CACHE_MAX = 10_000;
+
 @Injectable()
 export class TracerService {
   private readonly logger = new Logger(TracerService.name);
+  /** agentId → organizationId. An agent never moves to another organization. */
+  private readonly agentOrg = new Map<string, string>();
+  /** Session id as callers pass it (public or internal) → ChatSession.id. */
+  private readonly chatSessionIds = new Map<string, string>();
 
   constructor(private readonly prisma: PrismaService) {}
+
+  /**
+   * `event_logs.sessionId` holds the conversation's internal ChatSession.id.
+   * Callers often pass the public widget session id, which is a bearer
+   * credential and must never be stored in a log, so it is swapped for the
+   * internal id here, at the single writer. A value that matches no
+   * conversation (e.g. a pre-session "warmup") is dropped, not stored.
+   */
+  private async resolveChatSessionId(
+    sessionId: string | undefined,
+  ): Promise<string | null> {
+    if (!sessionId) return null;
+    const cached = this.chatSessionIds.get(sessionId);
+    if (cached) return cached;
+    try {
+      const session = await this.prisma.chatSession.findFirst({
+        where: { OR: [{ sessionId }, { id: sessionId }] },
+        select: { id: true },
+      });
+      if (!session) return null;
+      if (this.chatSessionIds.size >= SESSION_ID_CACHE_MAX) {
+        this.chatSessionIds.clear();
+      }
+      this.chatSessionIds.set(sessionId, session.id);
+      return session.id;
+    } catch {
+      // Unknown is safer than storing a value that may be a credential.
+      return null;
+    }
+  }
+
+  /**
+   * The organization a row belongs to: the caller's, else the agent's own
+   * organization, else the acting user's. Public traffic (widget, voice,
+   * WhatsApp) has an agent but no signed-in user, so without the agent lookup
+   * those rows had no organization. Looked up once per agent, then cached.
+   */
+  private async resolveOrganizationId(
+    explicit: string | undefined,
+    agentId: string | undefined,
+    contextOrg: string | undefined,
+  ): Promise<string | null> {
+    if (explicit) return explicit;
+    if (agentId) {
+      const cached = this.agentOrg.get(agentId);
+      if (cached) return cached;
+      let agent: { organizationId: string } | null = null;
+      try {
+        agent = await this.prisma.agent.findUnique({
+          where: { id: agentId },
+          select: { organizationId: true },
+        });
+      } catch {
+        // A failed lookup must not drop the row; fall back below.
+      }
+      if (agent) {
+        if (this.agentOrg.size >= AGENT_ORG_CACHE_MAX) this.agentOrg.clear();
+        this.agentOrg.set(agentId, agent.organizationId);
+        return agent.organizationId;
+      }
+    }
+    return contextOrg ?? null;
+  }
 
   private get eventLogEnabled(): boolean {
     return process.env.EVENT_LOG_ENABLED !== "false";
@@ -73,10 +148,14 @@ export class TracerService {
           clerkId: input.clerkId ?? ctx?.clerkId ?? null,
           visitorId: input.visitorId ?? null,
           agentId: input.agentId ?? null,
-          organizationId: input.organizationId ?? ctx?.organizationId ?? null,
-          sessionId: input.sessionId ?? null,
+          organizationId: await this.resolveOrganizationId(
+            input.organizationId,
+            input.agentId,
+            ctx?.organizationId,
+          ),
+          sessionId: await this.resolveChatSessionId(input.sessionId),
           correlationId: input.correlationId ?? ctx?.correlationId ?? null,
-          requestUrl: input.requestUrl ?? null,
+          requestUrl: maskSessionInUrl(input.requestUrl) ?? null,
           responseStatus: input.responseStatus ?? null,
           latencyMs: input.latencyMs ?? null,
           success: input.success ?? true,
@@ -121,12 +200,14 @@ export class TracerService {
           userId: context?.userId,
           clerkId: context?.clerkId,
           contextId,
-          // Typed tenancy scope. organizationId falls back to the acting user's
-          // org from the request context (same pattern as logEvent) when the
-          // caller doesn't pass one; agentId is caller-supplied only (the
-          // request context doesn't carry it).
-          organizationId:
-            scope?.organizationId ?? context?.organizationId ?? null,
+          // Typed tenancy scope, resolved the same way as logEvent: the
+          // caller's org, else the agent's org, else the acting user's org.
+          // agentId is caller-supplied only (the request context lacks it).
+          organizationId: await this.resolveOrganizationId(
+            scope?.organizationId,
+            scope?.agentId,
+            context?.organizationId,
+          ),
           agentId: scope?.agentId ?? null,
           event,
           data: data as Prisma.InputJsonValue,

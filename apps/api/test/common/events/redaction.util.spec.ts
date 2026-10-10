@@ -3,6 +3,8 @@ import {
   redact,
   capJson,
   safeMeta,
+  maskSessionId,
+  maskSessionInUrl,
 } from "../../../src/common/events/redaction.util";
 
 describe("x-device-id header", () => {
@@ -190,5 +192,71 @@ describe("redaction.util", () => {
         "[meta-unserializable]",
       );
     });
+  });
+});
+
+describe("public session id (a bearer credential)", () => {
+  const publicId = "b442f8cc-3414-41a3-aad5-549ddc192d8c";
+
+  it("keeps only an 8-character prefix in logs, enough to match lines", () => {
+    expect(maskSessionId(publicId)).toBe("b442f8cc…");
+    expect(maskSessionId("short")).toBe("short");
+    expect(maskSessionId(undefined)).toBe("undefined");
+  });
+
+  it("is masked wherever a sessionId key appears, at any depth", () => {
+    const out = redact({
+      sessionId: publicId,
+      nested: { publicSessionId: publicId },
+    }) as Record<string, unknown>;
+    expect(out.sessionId).toBe("b442f8cc…");
+    expect((out.nested as Record<string, unknown>).publicSessionId).toBe(
+      "b442f8cc…",
+    );
+  });
+
+  it("leaves the internal chatSessionId whole (not a credential)", () => {
+    const out = redact({ chatSessionId: publicId }) as Record<string, unknown>;
+    expect(out.chatSessionId).toBe(publicId);
+  });
+
+  it("never prints the full id in a console log line", () => {
+    expect(safeMeta({ sessionId: publicId })).not.toContain(publicId);
+  });
+});
+
+describe("maskSessionInUrl", () => {
+  const id = "b442f8cc-3414-41a3-aad5-549ddc192d8c";
+
+  it.each([
+    [
+      `/api/klivo/v1/public/chat/${id}/poll`,
+      "/api/klivo/v1/public/chat/b442f8cc…/poll",
+    ],
+    [
+      `/api/klivo/v1/conversations/${id}`,
+      "/api/klivo/v1/conversations/b442f8cc…",
+    ],
+    [
+      `/api/klivo/v1/handover/${id}/takeover`,
+      "/api/klivo/v1/handover/b442f8cc…/takeover",
+    ],
+    [
+      `/api/klivo/v1/admin/event-logs?page=1&sessionId=${id}`,
+      "/api/klivo/v1/admin/event-logs?page=1&sessionId=b442f8cc…",
+    ],
+  ])("masks the session id in %s", (url, expected) => {
+    expect(maskSessionInUrl(url)).toBe(expected);
+  });
+
+  it("leaves static route names and other urls alone", () => {
+    for (const url of [
+      "/api/klivo/v1/handover/inbox-count",
+      "/api/klivo/v1/public/chat/stream",
+      "/api/klivo/v1/agents/8c2c1b65-7f2a-4a9c-9c65-3e0f7d4b2c33",
+    ]) {
+      expect(maskSessionInUrl(url)).toBe(url);
+    }
+    expect(maskSessionInUrl(null)).toBeNull();
   });
 });

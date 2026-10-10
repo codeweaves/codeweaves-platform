@@ -1,10 +1,11 @@
-import { Injectable, NestMiddleware, Logger } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
-import { randomUUID } from 'crypto';
+import { Injectable, NestMiddleware, Logger } from "@nestjs/common";
+import { Request, Response, NextFunction } from "express";
+import { randomUUID } from "crypto";
+import { maskSessionInUrl } from "../common/events/redaction.util";
 import {
   requestContextStorage,
   RequestContext,
-} from '../common/tracer/correlation.storage';
+} from "../common/tracer/correlation.storage";
 
 /**
  * High-frequency endpoints we don't want flooding the request log. The widget
@@ -15,23 +16,23 @@ const QUIET_PATHS = /\/poll(\?|$)/;
 
 @Injectable()
 export class CorrelationIdMiddleware implements NestMiddleware {
-  private readonly logger = new Logger('HTTP');
+  private readonly logger = new Logger("HTTP");
 
   use(req: Request, res: Response, next: NextFunction) {
-    const raw = req.headers['x-correlation-id'];
+    const raw = req.headers["x-correlation-id"];
     const correlationId =
-      (typeof raw === 'string' ? raw : undefined) || randomUUID();
-    res.setHeader('x-correlation-id', correlationId);
+      (typeof raw === "string" ? raw : undefined) || randomUUID();
+    res.setHeader("x-correlation-id", correlationId);
 
     const context: RequestContext = {
       correlationId,
       method: req.method,
-      url: req.originalUrl,
+      url: maskSessionInUrl(req.originalUrl),
     };
 
     if (!QUIET_PATHS.test(req.originalUrl)) {
       this.logger.log(
-        `→ ${req.method} ${req.originalUrl} [${correlationId.slice(0, 8)}]`,
+        `→ ${req.method} ${maskSessionInUrl(req.originalUrl)} [${correlationId.slice(0, 8)}]`,
       );
     }
 

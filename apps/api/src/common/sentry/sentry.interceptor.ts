@@ -3,11 +3,12 @@ import {
   NestInterceptor,
   ExecutionContext,
   CallHandler,
-} from '@nestjs/common';
-import { Observable } from 'rxjs';
-import * as Sentry from '@sentry/nestjs';
-import { SentryService } from './sentry.service';
-import { getRequestContext } from '../tracer/correlation.storage';
+} from "@nestjs/common";
+import { Observable } from "rxjs";
+import * as Sentry from "@sentry/nestjs";
+import { SentryService } from "./sentry.service";
+import { getRequestContext } from "../tracer/correlation.storage";
+import { maskSessionInUrl } from "../events/redaction.util";
 
 @Injectable()
 export class SentryInterceptor implements NestInterceptor {
@@ -34,22 +35,22 @@ export class SentryInterceptor implements NestInterceptor {
     }
 
     // Attach request context
-    Sentry.setContext('request', {
-      url: originalUrl,
+    Sentry.setContext("request", {
+      url: maskSessionInUrl(originalUrl),
       method,
       correlationId,
     });
 
     // Tag for easy filtering in Sentry dashboard
     if (correlationId) {
-      Sentry.setTag('correlationId', correlationId);
+      Sentry.setTag("correlationId", correlationId);
     }
 
     // Add HTTP breadcrumb for this request
     Sentry.addBreadcrumb({
-      category: 'http',
-      message: `${method} ${originalUrl}`,
-      level: 'info',
+      category: "http",
+      message: `${method} ${maskSessionInUrl(originalUrl)}`,
+      level: "info",
     });
 
     return next.handle();

@@ -1,6 +1,10 @@
 import type { ErrorEvent, EventHint } from "@sentry/nestjs";
 
-import { SENSITIVE_HEADERS, isSensitiveKey } from "../events/redaction.util";
+import {
+  SENSITIVE_HEADERS,
+  isSensitiveKey,
+  maskSessionInUrl,
+} from "../events/redaction.util";
 import { maskPiiText } from "../../modules/pii/mask-pii";
 
 /**
@@ -112,6 +116,12 @@ export function scrubSentryEvent(
   const request = event.request;
   if (request && request.cookies !== undefined && request.cookies !== null) {
     request.cookies = scrubCookies(request.cookies) as typeof request.cookies;
+  }
+
+  // The public widget session id sits in some route paths and is a bearer
+  // credential: keep only its prefix in the URL Sentry stores.
+  if (event.request?.url) {
+    event.request.url = maskSessionInUrl(event.request.url);
   }
 
   // Scrub request query string

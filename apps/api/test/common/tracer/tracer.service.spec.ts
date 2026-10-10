@@ -21,6 +21,12 @@ describe("TracerService", () => {
     eventLog: {
       create: jest.fn(),
     },
+    agent: {
+      findUnique: jest.fn(),
+    },
+    chatSession: {
+      findFirst: jest.fn(),
+    },
   };
 
   beforeEach(async () => {
@@ -289,6 +295,144 @@ describe("TracerService", () => {
       await expect(
         service.logEvent({ channel: "DASHBOARD", eventName: "X" }),
       ).resolves.toBeUndefined();
+    });
+
+    describe("session id (the public one is a credential and never stored)", () => {
+      const sessionWritten = () =>
+        mockPrismaService.eventLog.create.mock.calls.at(-1)[0].data.sessionId;
+
+      beforeEach(() => {
+        mockPrismaService.eventLog.create.mockResolvedValue({});
+      });
+
+      it("stores the conversation's internal id when given the public session id", async () => {
+        mockPrismaService.chatSession.findFirst.mockResolvedValue({
+          id: "cs-internal",
+        });
+        await service.logEvent({
+          channel: "WIDGET",
+          eventName: "WIDGET_MESSAGE_RECEIVED",
+          sessionId: "public-sess",
+        });
+        expect(mockPrismaService.chatSession.findFirst).toHaveBeenCalledWith({
+          where: { OR: [{ sessionId: "public-sess" }, { id: "public-sess" }] },
+          select: { id: true },
+        });
+        expect(sessionWritten()).toBe("cs-internal");
+      });
+
+      it("drops a value that matches no conversation (e.g. 'warmup')", async () => {
+        mockPrismaService.chatSession.findFirst.mockResolvedValue(null);
+        await service.logEvent({
+          channel: "WIDGET",
+          eventName: "LLM_COMPLETION_COMPLETED",
+          sessionId: "warmup",
+        });
+        expect(sessionWritten()).toBeNull();
+      });
+
+      it("drops the value, and still writes the row, when the lookup fails", async () => {
+        mockPrismaService.chatSession.findFirst.mockRejectedValue(
+          new Error("db"),
+        );
+        await service.logEvent({
+          channel: "WIDGET",
+          eventName: "X",
+          sessionId: "public-sess",
+        });
+        expect(sessionWritten()).toBeNull();
+      });
+
+      it("looks each session up once, then serves it from the cache", async () => {
+        mockPrismaService.chatSession.findFirst.mockResolvedValue({
+          id: "cs-internal",
+        });
+        for (let i = 0; i < 3; i++) {
+          await service.logEvent({
+            channel: "WIDGET",
+            eventName: "X",
+            sessionId: "public-sess",
+          });
+        }
+        expect(mockPrismaService.chatSession.findFirst).toHaveBeenCalledTimes(
+          1,
+        );
+      });
+    });
+
+    describe("organization from the agent (public traffic has no signed-in user)", () => {
+      beforeEach(() => {
+        mockPrismaService.eventLog.create.mockResolvedValue({});
+        mockPrismaService.agent.findUnique.mockResolvedValue({
+          organizationId: "org-of-agent",
+        });
+      });
+
+      const orgWritten = () =>
+        mockPrismaService.eventLog.create.mock.calls.at(-1)[0].data
+          .organizationId;
+
+      it("fills the agent's organization when the caller passes none", async () => {
+        await service.logEvent({
+          channel: "WIDGET",
+          eventName: "LLM_COMPLETION_COMPLETED",
+          agentId: "agent-1",
+        });
+        expect(orgWritten()).toBe("org-of-agent");
+      });
+
+      it("keeps the caller's organization over the agent lookup", async () => {
+        await service.logEvent({
+          channel: "WIDGET",
+          eventName: "X",
+          agentId: "agent-1",
+          organizationId: "org-explicit",
+        });
+        expect(orgWritten()).toBe("org-explicit");
+        expect(mockPrismaService.agent.findUnique).not.toHaveBeenCalled();
+      });
+
+      it("looks each agent up once, then serves it from the cache", async () => {
+        for (let i = 0; i < 3; i++) {
+          await service.logEvent({
+            channel: "WIDGET",
+            eventName: "X",
+            agentId: "agent-1",
+          });
+        }
+        expect(mockPrismaService.agent.findUnique).toHaveBeenCalledTimes(1);
+        expect(orgWritten()).toBe("org-of-agent");
+      });
+
+      it("falls back to the request context when the lookup fails, and still writes", async () => {
+        mockPrismaService.agent.findUnique.mockRejectedValue(new Error("db"));
+        await requestContextStorage.run(
+          { correlationId: "c", organizationId: "org-ctx" } as RequestContext,
+          () =>
+            service.logEvent({
+              channel: "WIDGET",
+              eventName: "X",
+              agentId: "a",
+            }),
+        );
+        expect(orgWritten()).toBe("org-ctx");
+      });
+
+      it("fills audit rows the same way", async () => {
+        mockPrismaService.auditLog.create.mockResolvedValue({});
+        await service.logAuditEvent(
+          "ctx",
+          "HANDOVER_TAKEN",
+          {},
+          {
+            agentId: "agent-1",
+          },
+        );
+        expect(
+          mockPrismaService.auditLog.create.mock.calls.at(-1)[0].data
+            .organizationId,
+        ).toBe("org-of-agent");
+      });
     });
   });
 
