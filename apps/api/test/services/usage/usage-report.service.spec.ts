@@ -746,7 +746,7 @@ describe("UsageReportService", () => {
       expect(filename).toBe("usage-2026-10-01-to-2026-10-03.csv");
       const lines = csv.split("\r\n").filter(Boolean);
       expect(lines.length).toBe(3);
-      expect(lines[0]).toMatch(/^﻿Occurred at \(UTC\),/);
+      expect(lines[0]).toMatch(/^\uFEFFOccurred at \(UTC\),/);
       // Values with commas are quoted, not split into extra columns.
       expect(lines[1]).toContain('"Acme, Inc"');
       expect(lines[1]).toContain("0.00000480,USD,84.000000,0.000403");
