@@ -1,8 +1,8 @@
-import { Agent, fetch as undiciFetch } from 'undici';
+import { Agent, fetch as undiciFetch } from "undici";
 
 /**
  * Shared undici HTTP dispatcher with aggressive keep-alive. Reused across every
- * AI SDK provider (Gemini, OpenAI, Groq, OpenRouter) so a warm pool of TCP+TLS
+ * AI SDK provider (OpenAI, Gemini, Sarvam) so a warm pool of TCP+TLS
  * connections persists between calls instead of re-handshaking every request.
  *
  * Why this exists:
@@ -44,9 +44,8 @@ const aiDispatcher = new Agent({
  * is a near-superset of the Web Fetch API — compatible at runtime, not
  * structurally identical at compile time.
  */
-export const keepAliveFetch = ((
-  input: RequestInfo | URL,
-  init?: RequestInit,
-) =>
-  undiciFetch(input as never, { ...init, dispatcher: aiDispatcher } as never)
-) as unknown as typeof fetch;
+export const keepAliveFetch = ((input: RequestInfo | URL, init?: RequestInit) =>
+  undiciFetch(
+    input as never,
+    { ...init, dispatcher: aiDispatcher } as never,
+  )) as unknown as typeof fetch;

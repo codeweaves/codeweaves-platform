@@ -40,12 +40,7 @@ function isValidDomain(s: string) {
   );
 }
 
-/**
- * Curated list of model IDs that ship pre-configured. The backend happily
- * accepts any valid provider-prefixed ID (see parseModelId), so we also
- * expose a "Custom" option that swaps in a free-text input — lets power
- * users target any new model the day it ships on OpenRouter.
- */
+/** A curated model the picker offers. The picker has no free-text option. */
 interface ModelOption {
   value: string;
   label: string;
@@ -55,19 +50,12 @@ interface ModelOption {
   detail: string;
 }
 
-// Curated model shortlist — the five we've benchmarked and proven for
-// production use (see docs/plans/latency-tests.md). Trimmed from the longer
-// historical list; admins can still type any model via the "Custom" option.
-//
-// Selection criteria:
+// Curated model shortlist. Providers are limited to OpenAI, Gemini and Sarvam
+// (ADR-0011); latency notes in docs/plans/latency-tests.md.
 //   - gpt-4.1 / gpt-4.1-mini: OpenAI quality benchmark + auto prompt caching
 //     (24h retention) for cost win. Mini is the recommended default.
-//   - gemini-2.5-flash: cheapest non-disqualified option, 1M context, free at
-//     low scale. Strong for multilingual.
-//   - qwen3-32b on Groq: sub-200ms TTFT from India, strong multilingual.
-//     Watch the free-tier RPM cap (60/min). Paid Groq tier removes the cap.
-//   - Claude Haiku 4.5: fastest TTFT in published benchmarks (~597ms median).
-//     New addition pending integration testing.
+//   - gemini-2.5-flash: cheapest quality option, 1M context, strong multilingual.
+//   - sarvam-105b: India-hosted, built for Indian languages.
 const CURATED_MODELS: ModelOption[] = [
   {
     value: "openai:gpt-4.1",
@@ -91,18 +79,11 @@ const CURATED_MODELS: ModelOption[] = [
       "1M-token context window with thinking disabled for low latency. Free tier covers 1500 requests/day. Strong multilingual, and the cheapest paid tier among the quality models. Good for long-document agents.",
   },
   {
-    value: "groq:qwen/qwen3-32b",
-    label: "Qwen 3 32B (Groq)",
-    hint: "Fastest from India. Strong multilingual.",
+    value: "sarvam:sarvam-105b",
+    label: "Sarvam 105B (Sarvam)",
+    hint: "Built for Indian languages. Hosted in India.",
     detail:
-      "Measured ~156ms time-to-first-token from India, and handles 29+ languages well. Free tier is capped at 60 requests/min and 500K tokens/day, production-ready once on a paid plan. Currently free during preview.",
-  },
-  {
-    value: "anthropic/claude-haiku-4-5",
-    label: "Claude Haiku 4.5 (Anthropic)",
-    hint: "Fastest published benchmarks. Not yet battle-tested here.",
-    detail:
-      "Fastest published time-to-first-token in 2026 benchmarks (~597ms median). A recent addition, still pending production testing in this codebase, so prefer it for experiments over critical agents.",
+      "Trained for Hindi, Marathi and other Indian languages, and served from India, close to your visitors. Not yet battle-tested here, so try it on a test agent before a live one.",
   },
 ];
 

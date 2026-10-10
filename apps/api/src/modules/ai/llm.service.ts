@@ -2,8 +2,8 @@ import {
   Injectable,
   InternalServerErrorException,
   Logger,
-} from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
+} from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
 import {
   APICallError,
   generateText,
@@ -11,14 +11,14 @@ import {
   streamText,
   type LanguageModelUsage,
   type ProviderMetadata,
-} from 'ai';
+} from "ai";
 
 /** Default max agent-loop steps when a request supplies tools (call + reply). */
 const DEFAULT_MAX_TOOL_STEPS = 3;
 
-import { EventChannel } from '@prisma/client';
-import { AiSdkService, parseModelId } from './ai-sdk.service';
-import { ProviderEventLogger } from '../../common/events/provider.logger';
+import { EventChannel } from "@prisma/client";
+import { AiSdkService, parseModelId } from "./ai-sdk.service";
+import { ProviderEventLogger } from "../../common/events/provider.logger";
 
 /**
  * AI SDK uses this shape for provider-specific call-time options (Gemini's
@@ -33,16 +33,15 @@ import type {
   LlmStreamChunk,
   LlmStreamHandle,
   LlmTokenUsage,
-} from './interfaces/llm.interfaces';
+} from "./interfaces/llm.interfaces";
 
 /**
  * Default streaming timeout. If no token arrives within this window the stream
  * is aborted and the caller sees an error. Configurable via
  * `AI_STREAM_TIMEOUT_MS`.
  *
- * Rationale: if OpenRouter or the upstream provider goes silent we don't want
- * client connections hanging forever. 60s is enough for even long RAG-grounded
- * responses on Llama 3.3 70B (which is the slowest model we recommend).
+ * Rationale: if the provider goes silent we don't want client connections
+ * hanging forever. 60s is enough for even long knowledge-grounded responses.
  */
 const DEFAULT_STREAM_TIMEOUT_MS = 60_000;
 
@@ -55,7 +54,6 @@ const DEFAULT_STREAM_TIMEOUT_MS = 60_000;
  *   - Translate our domain-typed LlmCompletionRequest into AI SDK call options
  *   - Normalise the AI SDK's `LanguageModelUsage` (fields may be undefined)
  *     into our always-populated `LlmTokenUsage`
- *   - Extract cost from OpenRouter's providerMetadata when present
  *   - Convert AI SDK errors into NestJS HTTP exceptions with useful codes
  *   - Measure latency (ttftMs for streaming, totalMs for both)
  *
@@ -88,18 +86,20 @@ export class LlmService {
    */
   private eventChannel(request: LlmCompletionRequest): EventChannel {
     if (request.channel) return request.channel;
-    if (request.feature === 'voice') return 'VOICE';
+    if (request.feature === "voice") return "VOICE";
     if (
-      request.feature === 'chat' ||
-      request.feature === 'chat-stream' ||
-      request.feature === 'warmup'
+      request.feature === "chat" ||
+      request.feature === "chat-stream" ||
+      request.feature === "warmup"
     )
-      return 'WIDGET';
-    return 'INTERNAL';
+      return "WIDGET";
+    return "INTERNAL";
   }
 
   /** Compact, safe request descriptor for the event log (never the full prompt). */
-  private describeRequest(request: LlmCompletionRequest): Record<string, unknown> {
+  private describeRequest(
+    request: LlmCompletionRequest,
+  ): Record<string, unknown> {
     return {
       modelId: request.modelId,
       feature: request.feature,
@@ -120,8 +120,7 @@ export class LlmService {
     request: LlmCompletionRequest,
   ): Promise<LlmCompletionResult> {
     const startedAt = performance.now();
-    const modelSettings = buildModelSettings(request);
-    const model = this.aiSdk.getModel(request.modelId, modelSettings);
+    const model = this.aiSdk.getModel(request.modelId);
     const providerOptions = buildProviderOptions(request);
 
     try {
@@ -148,24 +147,26 @@ export class LlmService {
       });
 
       const latencyMs = Math.round(performance.now() - startedAt);
-      this.logProviderDiagnostics(request.modelId, result.providerMetadata, result.usage);
+      this.logProviderDiagnostics(
+        request.modelId,
+        result.providerMetadata,
+        result.usage,
+      );
       const usage = normaliseUsage(result.usage, result.providerMetadata);
-      const cost = extractCost(result.providerMetadata);
-      const actualModel = extractActualModel(result.providerMetadata, request.modelId);
 
       this.providerLog.log({
         channel: this.eventChannel(request),
-        eventName: 'LLM_COMPLETION_COMPLETED',
-        direction: 'OUTBOUND',
+        eventName: "LLM_COMPLETION_COMPLETED",
+        direction: "OUTBOUND",
         provider: parseModelId(request.modelId).provider.toUpperCase(),
         agentId: request.agentId,
         sessionId: request.sessionId,
         requestPayload: this.describeRequest(request),
         latencyMs,
         metadata: {
-          model: actualModel,
+          model: request.modelId,
           finishReason: result.finishReason,
-          cost,
+          cost: null,
           inputTokens: usage.inputTokens,
           outputTokens: usage.outputTokens,
           totalTokens: usage.totalTokens,
@@ -175,8 +176,8 @@ export class LlmService {
       return {
         text: result.text,
         usage,
-        cost,
-        model: actualModel,
+        cost: null,
+        model: request.modelId,
         finishReason: result.finishReason,
         latencyMs,
         retryCount: 0, // ResilienceService layer will overwrite this if it retried
@@ -184,8 +185,8 @@ export class LlmService {
     } catch (err) {
       this.providerLog.log({
         channel: this.eventChannel(request),
-        eventName: 'LLM_COMPLETION_FAILED',
-        direction: 'OUTBOUND',
+        eventName: "LLM_COMPLETION_FAILED",
+        direction: "OUTBOUND",
         provider: parseModelId(request.modelId).provider.toUpperCase(),
         agentId: request.agentId,
         sessionId: request.sessionId,
@@ -221,8 +222,7 @@ export class LlmService {
   ): Promise<LlmStreamHandle> {
     const startedAt = performance.now();
     const timeoutMs = this.getStreamTimeout();
-    const modelSettings = buildModelSettings(request);
-    const model = this.aiSdk.getModel(request.modelId, modelSettings);
+    const model = this.aiSdk.getModel(request.modelId);
     const providerOptions = buildProviderOptions(request);
 
     // Abort signal that triggers on timeout (no token received within window).
@@ -230,7 +230,7 @@ export class LlmService {
     // timeout signal using AbortSignal.any — whichever fires first cancels.
     const timeoutController = new AbortController();
     const timeoutHandle = setTimeout(
-      () => timeoutController.abort(new Error('AI stream timeout')),
+      () => timeoutController.abort(new Error("AI stream timeout")),
       timeoutMs,
     );
     const combinedSignal = request.abortSignal
@@ -298,7 +298,7 @@ export class LlmService {
             firstTokenAt = performance.now();
           }
           if (delta.length > 0) {
-            yield { type: 'text-delta', content: delta };
+            yield { type: "text-delta", content: delta };
           }
         }
 
@@ -321,25 +321,20 @@ export class LlmService {
           usage,
         );
         const normalisedUsage = normaliseUsage(usage, providerMetadata);
-        const cost = extractCost(providerMetadata);
-        const actualModel = extractActualModel(
-          providerMetadata,
-          requestedModel,
-        );
 
         providerLog.log({
           channel: streamEventChannel,
-          eventName: 'LLM_COMPLETION_COMPLETED',
-          direction: 'OUTBOUND',
+          eventName: "LLM_COMPLETION_COMPLETED",
+          direction: "OUTBOUND",
           provider: streamProvider,
           agentId: streamAgentId,
           sessionId: streamSessionId,
           requestPayload: streamRequestPayload,
           latencyMs: totalMs,
           metadata: {
-            model: actualModel,
+            model: requestedModel,
             finishReason,
-            cost,
+            cost: null,
             inputTokens: normalisedUsage.inputTokens,
             outputTokens: normalisedUsage.outputTokens,
             totalTokens: normalisedUsage.totalTokens,
@@ -349,10 +344,10 @@ export class LlmService {
         });
 
         yield {
-          type: 'finish',
+          type: "finish",
           usage: normalisedUsage,
-          cost,
-          model: actualModel,
+          cost: null,
+          model: requestedModel,
           finishReason,
           ttftMs,
           totalMs,
@@ -364,8 +359,8 @@ export class LlmService {
         resolveCompletion({
           text,
           usage: normalisedUsage,
-          cost,
-          model: actualModel,
+          cost: null,
+          model: requestedModel,
           finishReason,
           latencyMs: totalMs,
           retryCount: 0,
@@ -374,8 +369,8 @@ export class LlmService {
         const wrapped = wrapError(err);
         providerLog.log({
           channel: streamEventChannel,
-          eventName: 'LLM_COMPLETION_FAILED',
-          direction: 'OUTBOUND',
+          eventName: "LLM_COMPLETION_FAILED",
+          direction: "OUTBOUND",
           provider: streamProvider,
           agentId: streamAgentId,
           sessionId: streamSessionId,
@@ -387,7 +382,7 @@ export class LlmService {
         // Emit an error chunk so SSE subscribers see the failure, then reject
         // the completion promise so awaiters unblock.
         yield {
-          type: 'error',
+          type: "error",
           error: wrapped.message,
         };
         rejectCompletion(wrapped);
@@ -415,7 +410,7 @@ export class LlmService {
   }
 
   private getStreamTimeout(): number {
-    const raw = this.config.get<string>('AI_STREAM_TIMEOUT_MS');
+    const raw = this.config.get<string>("AI_STREAM_TIMEOUT_MS");
     const parsed = raw ? Number.parseInt(raw, 10) : NaN;
     return Number.isFinite(parsed) && parsed > 0
       ? parsed
@@ -432,7 +427,7 @@ export class LlmService {
   private wrapError(err: unknown): Error {
     if (err instanceof APICallError) {
       this.logger.warn(
-        `LLM API error: status=${err.statusCode ?? 'n/a'} message=${err.message}`,
+        `LLM API error: status=${err.statusCode ?? "n/a"} message=${err.message}`,
       );
       // We DO NOT throw a rich NestJS HttpException here because wrapError
       // can be called inside an async generator, where throwing yields a
@@ -440,7 +435,7 @@ export class LlmService {
       // or ResilienceService) inspects the error and decides retry policy.
       return err;
     }
-    if (err instanceof Error && err.name === 'AbortError') {
+    if (err instanceof Error && err.name === "AbortError") {
       return err; // client disconnected or timeout — caller handles specially
     }
     if (err instanceof Error) {
@@ -448,7 +443,7 @@ export class LlmService {
       return err;
     }
     return new InternalServerErrorException(
-      'Unknown error from LLM service: ' + String(err),
+      "Unknown error from LLM service: " + String(err),
     );
   }
 }
@@ -456,33 +451,6 @@ export class LlmService {
 // ============================================================================
 // Helpers — kept as free functions so they're trivially testable.
 // ============================================================================
-
-/**
- * Build the `settings` object passed to `openrouter.chat(modelId, settings)`.
- *
- * OpenRouter-specific behaviour we bake in here:
- *   - Fallback routing is configured at MODEL-CREATION time, not per-call.
- *     Include the primary model as the first element so OpenRouter treats it
- *     as "try primary, then cascade". Passing this via AI SDK call-time
- *     `providerOptions` silently drops the field (verified against
- *     @openrouter/ai-sdk-provider v2.8.0 source).
- *   - OpenRouter's API caps the combined `models` array at 3 items. We trim
- *     defensively here so misconfigured agents can't ever send more than the
- *     hard limit (instead of getting an opaque 400 from OpenRouter). The
- *     validation schema also caps fallbackModels at 2, but this is belt-and-
- *     suspenders: a manually-set aiConfig JSONB or future schema change won't
- *     accidentally break chat.
- */
-const OPENROUTER_MAX_MODELS = 3;
-
-function buildModelSettings(
-  request: LlmCompletionRequest,
-): { models?: string[] } | undefined {
-  if (!request.fallbackModels?.length) return undefined;
-  const combined = [request.modelId, ...request.fallbackModels];
-  const trimmed = combined.slice(0, OPENROUTER_MAX_MODELS);
-  return { models: trimmed };
-}
 
 /**
  * Provider-specific request options that affect latency / output shape.
@@ -496,9 +464,6 @@ function buildModelSettings(
  *     ignored (Pro requires >=128) — setting 0 there is a no-op, not an error.
  *   - 2.5 Flash-Lite already has thinking disabled by default; setting 0 is
  *     redundant but harmless.
- *   - OpenRouter-routed google/gemini-* models go through OpenRouter's
- *     provider and do NOT honour @ai-sdk/google's providerOptions — they
- *     must be configured via OpenRouter's extra-body. We skip them here.
  *
  * OPENAI: `promptCacheKey` forces routing stickiness so the same agent's
  * requests land on the same OpenAI backend, giving reliable prompt-cache
@@ -519,27 +484,15 @@ function buildModelSettings(
  * day's first visitor hits a warm cache (~700-900ms TTFT).
  *   - Supported on gpt-4.1, gpt-4.1-mini, gpt-5*, and all future OpenAI
  *     models. Earlier models silently ignore unknown fields.
- *   - Pricing: cached tokens are still billed at the 50% cached discount.
- *     No extra cost for the 24h retention itself.
- *
- * GROQ: Qwen3 family ships with reasoning ON by default, which emits a
- * `<think>...</think>` chain-of-thought block in the response stream. For
- * chatbot use cases this both bloats TTFT (model spends 1-3s reasoning
- * before user-visible tokens) AND leaks the raw thoughts into the message
- * the user sees. We disable reasoning by default for Qwen3 via Groq's
- * `reasoning_effort: 'none'` — if we later add reasoning-heavy agents
- * (math, coding) we can gate this on an `aiConfig.reasoning` flag the same
- * way we'd gate Gemini's thinkingBudget.
- *   - Other reasoning models on Groq (DeepSeek-R1-Distill, GPT-OSS) emit
- *     reasoning via separate channels per their model cards, not in the
- *     text content, so they don't need this. Scoped to Qwen3 explicitly.
+ *   - Pricing: on gpt-4.1 and gpt-4.1-mini cached input bills at 25% of the
+ *     input price (docs/research/provider-costs/llm.md).
  */
 function buildProviderOptions(
   request: LlmCompletionRequest,
 ): ProviderOptions | undefined {
   const parsed = parseModelId(request.modelId);
 
-  if (parsed.provider === 'gemini') {
+  if (parsed.provider === "gemini") {
     return {
       google: {
         thinkingConfig: {
@@ -550,19 +503,11 @@ function buildProviderOptions(
     };
   }
 
-  if (parsed.provider === 'openai') {
+  if (parsed.provider === "openai") {
     return {
       openai: {
         promptCacheKey: `agent-${request.agentId}`,
-        promptCacheRetention: '24h',
-      },
-    };
-  }
-
-  if (parsed.provider === 'groq' && /^qwen[/-]/i.test(parsed.modelName)) {
-    return {
-      groq: {
-        reasoningEffort: 'none',
+        promptCacheRetention: "24h",
       },
     };
   }
@@ -589,8 +534,7 @@ function normaliseUsage(
     inputTokens: usage.inputTokens ?? 0,
     outputTokens: usage.outputTokens ?? 0,
     totalTokens:
-      usage.totalTokens ??
-      (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
+      usage.totalTokens ?? (usage.inputTokens ?? 0) + (usage.outputTokens ?? 0),
     cachedInputTokens: extractCachedTokens(usage, providerMetadata),
     reasoningTokens:
       usage.outputTokenDetails?.reasoningTokens ??
@@ -616,7 +560,6 @@ function logProviderDiagnosticsFree(
 ): void {
   const openai = metadata?.openai as Record<string, unknown> | undefined;
   const google = metadata?.google as Record<string, unknown> | undefined;
-  const openrouter = metadata?.openrouter as Record<string, unknown> | undefined;
 
   // A compact summary that keeps the interesting fields + redacts noise.
   const summary = {
@@ -642,7 +585,6 @@ function logProviderDiagnosticsFree(
           usageMetadata: google.usageMetadata,
         }
       : undefined,
-    openrouter: openrouter ? { usage: openrouter.usage } : undefined,
   };
 
   // Verified: extractCachedTokens() correctly surfaces sdkCacheRead /
@@ -663,7 +605,6 @@ function logProviderDiagnosticsFree(
  *                OR `providerMetadata.openai.promptTokensDetails.cachedTokens`
  *                   (camelCase variant some AI SDK versions emit)
  *   - Google:    `providerMetadata.google.cachedContentTokenCount`
- *   - OpenRouter: varies by upstream model
  *
  * We try each path; whichever is a number wins. Missing on every path → return
  * undefined so downstream code / trace can distinguish "not populated" from
@@ -680,7 +621,7 @@ function extractCachedTokens(
   // 1. AI SDK normalised shape (primary source when available).
   const normalised =
     usage.inputTokenDetails?.cacheReadTokens ?? usage.cachedInputTokens;
-  if (typeof normalised === 'number') return normalised;
+  if (typeof normalised === "number") return normalised;
 
   if (!metadata) return undefined;
 
@@ -691,84 +632,55 @@ function extractCachedTokens(
     | {
         cachedPromptTokens?: number;
         promptTokensDetails?: { cachedTokens?: number; cached_tokens?: number };
-        prompt_tokens_details?: { cached_tokens?: number; cachedTokens?: number };
+        prompt_tokens_details?: {
+          cached_tokens?: number;
+          cachedTokens?: number;
+        };
         usage?: {
-          prompt_tokens_details?: { cached_tokens?: number; cachedTokens?: number };
-          promptTokensDetails?: { cachedTokens?: number; cached_tokens?: number };
+          prompt_tokens_details?: {
+            cached_tokens?: number;
+            cachedTokens?: number;
+          };
+          promptTokensDetails?: {
+            cachedTokens?: number;
+            cached_tokens?: number;
+          };
           cachedPromptTokens?: number;
         };
       }
     | undefined;
-  if (typeof openai?.cachedPromptTokens === 'number') {
+  if (typeof openai?.cachedPromptTokens === "number") {
     return openai.cachedPromptTokens;
   }
   // camelCase top-level (AI SDK v6 normalisation in some paths)
   const camelTop =
     openai?.promptTokensDetails?.cachedTokens ??
     openai?.promptTokensDetails?.cached_tokens;
-  if (typeof camelTop === 'number') return camelTop;
+  if (typeof camelTop === "number") return camelTop;
   // snake_case top-level (raw OpenAI passthrough)
   const snakeTop =
     openai?.prompt_tokens_details?.cached_tokens ??
     openai?.prompt_tokens_details?.cachedTokens;
-  if (typeof snakeTop === 'number') return snakeTop;
+  if (typeof snakeTop === "number") return snakeTop;
   // nested under usage (older AI SDK shape)
   const nestedSnake =
     openai?.usage?.prompt_tokens_details?.cached_tokens ??
     openai?.usage?.prompt_tokens_details?.cachedTokens;
-  if (typeof nestedSnake === 'number') return nestedSnake;
+  if (typeof nestedSnake === "number") return nestedSnake;
   const nestedCamel =
     openai?.usage?.promptTokensDetails?.cachedTokens ??
     openai?.usage?.promptTokensDetails?.cached_tokens;
-  if (typeof nestedCamel === 'number') return nestedCamel;
-  if (typeof openai?.usage?.cachedPromptTokens === 'number') {
+  if (typeof nestedCamel === "number") return nestedCamel;
+  if (typeof openai?.usage?.cachedPromptTokens === "number") {
     return openai.usage.cachedPromptTokens;
   }
 
   // 3. Google Gemini providerMetadata — implicit + explicit context caching.
   const google = metadata.google as
-    | { cachedContentTokenCount?: number }
-    | undefined;
-  if (typeof google?.cachedContentTokenCount === 'number') {
+    { cachedContentTokenCount?: number } | undefined;
+  if (typeof google?.cachedContentTokenCount === "number") {
     return google.cachedContentTokenCount;
   }
 
   return undefined;
-}
-
-/**
- * OpenRouter returns the USD cost of each call in its response metadata. The
- * exact key path depends on how `@openrouter/ai-sdk-provider` forwards it.
- * Current shape (as of v2.8.0):
- *   providerMetadata.openrouter.usage.cost (USD as number)
- *
- * We guard against it being missing (non-OpenRouter providers, edge cases)
- * and return null rather than 0 so downstream analytics can distinguish
- * "we didn't get cost info" from "it was free".
- */
-function extractCost(metadata: ProviderMetadata | undefined): number | null {
-  if (!metadata) return null;
-  const openrouter = metadata.openrouter as
-    | { usage?: { cost?: number } }
-    | undefined;
-  const cost = openrouter?.usage?.cost;
-  return typeof cost === 'number' ? cost : null;
-}
-
-/**
- * When OpenRouter uses a fallback model (primary errored), the response
- * metadata includes the model that actually served the request. If we can't
- * determine it, fall back to the requested model ID.
- *
- * This matters for cost tracking: fallback models may be priced very
- * differently from the primary (e.g. falling back from gpt-4o to gpt-4o-mini
- * is 10x cheaper — the usage record should reflect what actually ran).
- */
-function extractActualModel(
-  metadata: ProviderMetadata | undefined,
-  requestedModel: string,
-): string {
-  if (!metadata) return requestedModel;
-  const openrouter = metadata.openrouter as { model?: string } | undefined;
-  return openrouter?.model ?? requestedModel;
 }

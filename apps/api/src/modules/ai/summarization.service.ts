@@ -1,19 +1,18 @@
-import { Injectable } from '@nestjs/common';
-import { ConfigService } from '@nestjs/config';
-import type { ModelMessage } from 'ai';
+import { Injectable } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import type { ModelMessage } from "ai";
 
-import { AppLogger } from '../../common/logger/app-logger';
-import type { LlmFeature } from './interfaces/llm.interfaces';
-import { LlmService } from './llm.service';
+import { AppLogger } from "../../common/logger/app-logger";
+import type { LlmFeature } from "./interfaces/llm.interfaces";
+import { LlmService } from "./llm.service";
 
 /**
- * Default summarisation model. Chosen for: fast, free, decent quality at
- * compression tasks. Groq Llama 3.3 70B returns first token in ~300ms, which
- * keeps the overall chat latency acceptable when summarisation runs inline.
+ * Default summarisation model: cheap and good at compression. Summaries run
+ * asynchronously off the reply path, so latency matters less than cost.
  *
  * Override per call via params.model, or globally via SUMMARIZATION_MODEL env.
  */
-const DEFAULT_SUMMARIZATION_MODEL = 'groq:llama-3.3-70b-versatile';
+const DEFAULT_SUMMARIZATION_MODEL = "openai:gpt-4.1-mini";
 const DEFAULT_MAX_SUMMARY_TOKENS = 300;
 
 const SUMMARISATION_SYSTEM_PROMPT = `You are a conversation summariser. Produce a concise, factual summary of the prior exchange between a user and an AI assistant.
@@ -86,7 +85,7 @@ export class SummarizationService {
   async summarize(params: SummarizeParams): Promise<SummarizeResult> {
     if (params.messages.length === 0) {
       return {
-        summary: '',
+        summary: "",
         tokensUsed: 0,
         cost: null,
         model: params.model ?? this.defaultModel(),
@@ -104,24 +103,28 @@ export class SummarizationService {
     // message or trying to continue the conversation.
     const transcript = params.messages
       .map((m) => {
-        const role = m.role === 'user' ? 'User' : 'Assistant';
-        const content = typeof m.content === 'string'
-          ? m.content
-          : Array.isArray(m.content)
+        const role = m.role === "user" ? "User" : "Assistant";
+        const content =
+          typeof m.content === "string"
             ? m.content
-                .map((p) =>
-                  typeof p === 'object' && p && 'text' in p && typeof p.text === 'string'
-                    ? p.text
-                    : '',
-                )
-                .join(' ')
-            : '';
+            : Array.isArray(m.content)
+              ? m.content
+                  .map((p) =>
+                    typeof p === "object" &&
+                    p &&
+                    "text" in p &&
+                    typeof p.text === "string"
+                      ? p.text
+                      : "",
+                  )
+                  .join(" ")
+              : "";
         return `${role}: ${content}`;
       })
-      .join('\n\n');
+      .join("\n\n");
 
     const userMessage: ModelMessage = {
-      role: 'user',
+      role: "user",
       content: `Summarise the following conversation:\n\n${transcript}`,
     };
 
@@ -135,12 +138,12 @@ export class SummarizationService {
       agentId: params.agentId,
       sessionId: params.sessionId,
       traceId: params.traceId,
-      feature: 'summarization' satisfies LlmFeature,
+      feature: "summarization" satisfies LlmFeature,
     });
 
     const summary = result.text.trim();
     this.log.debug(
-      'summarize',
+      "summarize",
       `Summarised ${params.messages.length} messages → ${summary.length} chars (${result.usage.outputTokens} tokens, ${result.latencyMs}ms)`,
     );
 
@@ -169,19 +172,19 @@ export class SummarizationService {
     sessionId?: string;
     traceId?: string;
   }): Promise<string> {
-    if (params.messages.length === 0) return 'New Conversation';
+    if (params.messages.length === 0) return "New Conversation";
 
     // Only need the first 2-4 turns to nail the topic
     const relevantMessages = params.messages.slice(0, 4);
     const transcript = relevantMessages
       .map((m) => {
-        const role = m.role === 'user' ? 'User' : 'Assistant';
-        const content = typeof m.content === 'string' ? m.content : '';
+        const role = m.role === "user" ? "User" : "Assistant";
+        const content = typeof m.content === "string" ? m.content : "";
         // Cap each message at 500 chars — we don't need the full text to
         // generate a good title, and shorter prompt = lower cost + latency.
         return `${role}: ${content.slice(0, 500)}`;
       })
-      .join('\n');
+      .join("\n");
 
     try {
       const result = await this.llmService.generateCompletion({
@@ -190,7 +193,7 @@ export class SummarizationService {
           'You generate short, specific titles for conversations. Output ONLY the title — no quotes, no preamble, no punctuation at the end. Maximum 8 words. Focus on the topic, not generic phrases like "User asks about".',
         messages: [
           {
-            role: 'user',
+            role: "user",
             content: `Generate a 5-8 word title for this conversation:\n\n${transcript}`,
           },
         ],
@@ -200,30 +203,30 @@ export class SummarizationService {
         agentId: params.agentId,
         sessionId: params.sessionId,
         traceId: params.traceId,
-        feature: 'title-generation' satisfies LlmFeature,
+        feature: "title-generation" satisfies LlmFeature,
       });
       // Clean up: strip quotes, trailing punctuation, hard-cap length.
       return (
         result.text
           .trim()
-          .replace(/^["'`]|["'`]$/g, '')
-          .replace(/[.!?]+$/, '')
-          .slice(0, 200) || 'New Conversation'
+          .replace(/^["'`]|["'`]$/g, "")
+          .replace(/[.!?]+$/, "")
+          .slice(0, 200) || "New Conversation"
       );
     } catch (err) {
       this.log.warn(
-        'generateTitle',
+        "generateTitle",
         `Title generation failed for session ${params.sessionId}: ${
-          err instanceof Error ? err.message : 'unknown'
+          err instanceof Error ? err.message : "unknown"
         }`,
       );
-      return 'New Conversation';
+      return "New Conversation";
     }
   }
 
   private defaultModel(): string {
     return (
-      this.config.get<string>('SUMMARIZATION_MODEL') ??
+      this.config.get<string>("SUMMARIZATION_MODEL") ??
       DEFAULT_SUMMARIZATION_MODEL
     );
   }

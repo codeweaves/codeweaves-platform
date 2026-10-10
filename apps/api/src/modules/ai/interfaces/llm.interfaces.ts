@@ -1,8 +1,8 @@
-import type { ModelMessage, ToolSet } from 'ai';
-import type { EventChannel } from '@prisma/client';
+import type { ModelMessage, ToolSet } from "ai";
+import type { EventChannel } from "@prisma/client";
 
 /**
- * Token usage as returned by OpenRouter (and normalised by the Vercel AI SDK).
+ * Token usage as returned by the provider (and normalised by the Vercel AI SDK).
  * `totalTokens` is NOT always `inputTokens + outputTokens` on models that
  * charge for reasoning / cached tokens separately, so trust the field
  * directly rather than recomputing.
@@ -23,16 +23,16 @@ export interface LlmTokenUsage {
  * written into `LlmUsage.feature` on every call.
  */
 export type LlmFeature =
-  | 'chat'
-  | 'chat-stream'
-  | 'voice'
-  | 'summarization'
-  | 'title-generation'
-  | 'rag-query'
-  | 'rag-contextual'
-  | 'rag-evaluation'
-  | 'embedding'
-  | 'warmup';
+  | "chat"
+  | "chat-stream"
+  | "voice"
+  | "summarization"
+  | "title-generation"
+  | "rag-query"
+  | "rag-contextual"
+  | "rag-evaluation"
+  | "embedding"
+  | "warmup";
 
 /**
  * Input shape for LLM completions. Shared between `generateCompletion()`
@@ -44,7 +44,7 @@ export type LlmFeature =
  * DirectChatService / ContextAssemblyService.
  */
 export interface LlmCompletionRequest {
-  /** OpenRouter model ID, e.g. 'anthropic/claude-sonnet-4'. */
+  /** Prefixed model ID, e.g. 'openai:gpt-4.1-mini' (see parseModelId). */
   modelId: string;
 
   /** Already-resolved system prompt (template variables replaced, RAG context injected). */
@@ -68,13 +68,6 @@ export interface LlmCompletionRequest {
   tools?: ToolSet;
   /** Max agent loop iterations when tools are used. */
   maxSteps?: number;
-
-  /**
-   * OpenRouter native model fallback: if the primary model errors or is rate-
-   * limited, OpenRouter will retry with the next model automatically. Order
-   * matters — first fallback is tried first.
-   */
-  fallbackModels?: string[];
 
   /** Abort mid-flight (on client disconnect, timeout, etc.). */
   abortSignal?: AbortSignal;
@@ -106,9 +99,9 @@ export interface LlmCompletionRequest {
 export interface LlmCompletionResult {
   text: string;
   usage: LlmTokenUsage;
-  /** USD cost from the provider (OpenRouter returns this in every response). */
+  /** USD cost. Null until the usage meter prices the call (ADR-0012). */
   cost: number | null;
-  /** The actual model used (differs from requested when fallback triggered). */
+  /** The model that served the call. */
   model: string;
   /** Why the model stopped generating. */
   finishReason: string;
@@ -123,9 +116,9 @@ export interface LlmCompletionResult {
  * `finish` fires once at the end with final usage + cost.
  */
 export type LlmStreamChunk =
-  | { type: 'text-delta'; content: string }
+  | { type: "text-delta"; content: string }
   | {
-      type: 'finish';
+      type: "finish";
       usage: LlmTokenUsage;
       cost: number | null;
       model: string;
@@ -133,7 +126,7 @@ export type LlmStreamChunk =
       ttftMs: number | null;
       totalMs: number;
     }
-  | { type: 'error'; error: string };
+  | { type: "error"; error: string };
 
 /**
  * Handle returned by `streamCompletion()`. The `stream` yields chunks as they

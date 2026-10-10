@@ -25,7 +25,7 @@ export interface ChatMessageMetadata {
   [key: string]: string | number | boolean | null | undefined;
 
   // ---- Baseline (required in all modes) ----------------------------------
-  streamingMode: 'direct' | 'simulated' | 'real';
+  streamingMode: "direct" | "simulated" | "real";
   backendReceivedAt: string; // ISO 8601
   backendRespondedAt: string; // ISO 8601
   responseLatencyMs: number; // wall-clock: backendRespondedAt - backendReceivedAt
@@ -51,7 +51,7 @@ export interface ChatMessageMetadata {
   traceId?: string | null;
   /** Actual model that served this reply (e.g. 'openai:gpt-4.1-mini'). */
   model?: string | null;
-  /** USD cost reported by provider (OpenRouter; null for others). */
+  /** USD cost. Null until the usage meter prices the call (ADR-0012). */
   cost?: number | null;
   inputTokens?: number | null;
   outputTokens?: number | null;

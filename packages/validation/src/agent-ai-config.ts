@@ -16,8 +16,8 @@ import { z } from "zod";
 /**
  * 'n8n'    — legacy: chat messages proxied to the agent's n8n webhook URL
  *            (existing behaviour, default for all agents pre-Phase 1).
- * 'direct' — native: NestJS calls OpenRouter directly with the configured
- *            model. Unlocks streaming, RAG, tool use, per-message tracing.
+ * 'direct' — native: NestJS calls the model provider directly with the
+ *            configured model. Unlocks streaming, tool use, per-message tracing.
  */
 export const aiRoutingModeEnum = z.enum(["n8n", "direct"]);
 export type AiRoutingMode = z.infer<typeof aiRoutingModeEnum>;
@@ -49,26 +49,23 @@ export type AiContextStrategy = z.infer<typeof aiContextStrategyEnum>;
 // ============================================
 
 /**
- * Accepted model ID formats:
+ * Accepted model ID formats (ADR-0011):
  *
- *   'anthropic/claude-sonnet-4'                — OpenRouter (default)
- *   'meta-llama/llama-3.3-70b-instruct:free'   — OpenRouter free-tier model
- *   'openrouter:anthropic/claude-sonnet-4'     — OpenRouter (explicit prefix)
- *   'openai:gpt-4o-mini'                       — OpenAI direct
- *   'gemini:gemini-2.5-flash'                  — Google AI Studio direct
- *   'groq:llama-3.3-70b-versatile'             — Groq direct
+ *   'openai:gpt-4.1-mini'       — OpenAI direct
+ *   'gemini:gemini-2.5-flash'   — Google AI Studio direct
+ *   'sarvam:sarvam-105b'        — Sarvam AI direct
  *
- * We enforce a minimal shape (non-empty, contains `:` or `/` separator) rather
- * than a hard allow-list — providers add new models weekly and we don't want
- * to block agents from using them without a deploy.
+ * The provider prefix is an allow-list; the model name after it is not, so a
+ * new model from a supported provider needs no deploy. The name may contain
+ * `:` and `/` (OpenAI fine-tunes are `ft:gpt-4.1-mini:org::id`).
  */
-const openRouterModelId = z
+const modelIdSchema = z
   .string()
   .min(3, "Model ID is required")
   .max(128, "Model ID is too long")
   .regex(
-    /^[a-z0-9._-]+[:/][a-z0-9.:/_-]+$/i,
-    'Model ID must include a provider prefix, e.g. "openai/gpt-4o-mini" (OpenRouter) or "groq:llama-3.3-70b-versatile" (Groq direct)',
+    /^(openai|gemini|sarvam):[a-z0-9.:/_-]+$/i,
+    'Model ID must start with openai:, gemini: or sarvam:, e.g. "openai:gpt-4.1-mini"',
   );
 
 export const agentAiConfigSchema = z
@@ -78,14 +75,7 @@ export const agentAiConfigSchema = z
 
     // ----- Model selection -----
     /** Override per agent; falls back to `DEFAULT_AI_MODEL` env var if absent. */
-    modelId: openRouterModelId.optional(),
-    /**
-     * Models to try in order if the primary model fails. OpenRouter's API
-     * caps the combined `models` array (primary + fallbacks) at 3 items, so
-     * we allow at most 2 fallbacks here. Trimmed silently at request time
-     * if over — see LlmService.
-     */
-    fallbackModels: z.array(openRouterModelId).max(2).optional(),
+    modelId: modelIdSchema.optional(),
 
     // ----- Sampling parameters -----
     /** Randomness. 0 = deterministic, 1 = balanced, 2 = creative. */

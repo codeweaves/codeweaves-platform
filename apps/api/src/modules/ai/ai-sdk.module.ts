@@ -1,14 +1,14 @@
-import { Module } from '@nestjs/common';
+import { Module } from "@nestjs/common";
 
-import { AiSdkService } from './ai-sdk.service';
-import { LlmService } from './llm.service';
-import { TokenCounterService } from './token-counter.service';
+import { AiSdkService } from "./ai-sdk.service";
+import { LlmService } from "./llm.service";
+import { TokenCounterService } from "./token-counter.service";
 
 /**
  * AI SDK module: the "leaf" module with lightweight, dependency-free utilities
  * that multiple higher-level modules consume.
  *
- *   - AiSdkService       — OpenRouter facade
+ *   - AiSdkService       — provider facade (OpenAI, Gemini, Sarvam)
  *   - LlmService         — generateText / streamText wrapper
  *   - TokenCounterService — js-tiktoken wrapper (pure utility, zero deps)
  *

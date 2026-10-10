@@ -63,7 +63,7 @@ const CAPTURE_ELIGIBLE_FEATURES = new Set<string>([
  *
  *   1. ContextAssemblyService  → load message history from DB
  *   2. (Phase 3: RAG retrieval → inject into system prompt)
- *   3. LlmService              → the actual OpenRouter call
+ *   3. LlmService              → the actual provider call
  *   4. AiTraceService          → log every step for visibility
  *
  * Two entry points:
@@ -397,7 +397,6 @@ export class DirectChatService {
             topP: config.topP,
             frequencyPenalty: config.frequencyPenalty,
             presencePenalty: config.presencePenalty,
-            fallbackModels: config.fallbackModels,
             abortSignal: req.abortSignal,
             organizationId: req.agent.organizationId,
             agentId: req.agent.id,
@@ -654,7 +653,6 @@ export class DirectChatService {
         topP: config.topP,
         frequencyPenalty: config.frequencyPenalty,
         presencePenalty: config.presencePenalty,
-        fallbackModels: config.fallbackModels,
         abortSignal: req.abortSignal,
         organizationId: req.agent.organizationId,
         agentId: req.agent.id,
