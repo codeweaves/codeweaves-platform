@@ -36,6 +36,9 @@ export * from "./agent-knowledge.js";
 // Re-export agent data-capture (field definitions) schemas and types
 export * from "./agent-data-fields.js";
 
+// Ops console (platform-only) audit / event log queries
+export * from "./admin-logs.js";
+
 // ============================================
 // Common Schemas
 // ============================================
