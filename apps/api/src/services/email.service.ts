@@ -79,10 +79,11 @@ export class EmailService {
 
       if (error) {
         this.logger.error(`Failed to send email: ${JSON.stringify(error)}`);
-        await this.emailLogger.logEmailFailed(toLabel, {
-          error,
-          request: { to: toLabel, subject: options.subject },
-        });
+        await this.emailLogger.logEmailFailed(
+          toLabel,
+          { error, request: { to: toLabel, subject: options.subject } },
+          options.organizationId,
+        );
         this.providerLog.log({
           channel: "DASHBOARD",
           eventName: "RESEND_EMAIL_FAILED",
@@ -110,10 +111,14 @@ export class EmailService {
         quantitySource: "MEASURED",
         latencyMs: Math.round(performance.now() - start),
       });
-      await this.emailLogger.logEmailSent(toLabel, {
-        response: data,
-        request: { to: toLabel, subject: options.subject },
-      });
+      await this.emailLogger.logEmailSent(
+        toLabel,
+        {
+          response: data,
+          request: { to: toLabel, subject: options.subject },
+        },
+        options.organizationId,
+      );
       this.providerLog.log({
         channel: "DASHBOARD",
         eventName: "RESEND_EMAIL_COMPLETED",
@@ -128,9 +133,12 @@ export class EmailService {
       this.logger.error(
         `Failed to send email: ${error instanceof Error ? error.message : "Unknown error"}`,
       );
-      await this.emailLogger.logEmailException(toLabel, error, {
-        request: { to: toLabel, subject: options.subject },
-      });
+      await this.emailLogger.logEmailException(
+        toLabel,
+        error,
+        { request: { to: toLabel, subject: options.subject } },
+        options.organizationId,
+      );
       this.providerLog.log({
         channel: "DASHBOARD",
         eventName: "RESEND_EMAIL_FAILED",

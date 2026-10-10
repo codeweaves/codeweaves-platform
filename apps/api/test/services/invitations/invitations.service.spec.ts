@@ -312,6 +312,7 @@ describe("InvitationsService", () => {
         email: "new@example.com",
         redirectUrl: "http://localhost:3000/sign-up",
         expiresInDays: 7,
+        organizationId: "org-uuid-1",
       });
       // Fresh invitation has no prior Clerk invitation → nothing to revoke
       expect(mockClerkManagement.revokeInvitation).not.toHaveBeenCalled();
@@ -567,6 +568,7 @@ describe("InvitationsService", () => {
       // Stale Clerk invitation revoked, fresh one issued
       expect(mockClerkManagement.revokeInvitation).toHaveBeenCalledWith(
         "clerk_inv_old",
+        mockInvitation.organizationId,
       );
       expect(mockClerkManagement.createInvitation).toHaveBeenCalled();
       expect(mockEmailTemplates.render).toHaveBeenCalledWith(
@@ -694,6 +696,7 @@ describe("InvitationsService", () => {
 
       expect(mockClerkManagement.revokeInvitation).toHaveBeenCalledWith(
         "clerk_inv_old",
+        mockInvitation.organizationId,
       );
       expect(mockClerkManagement.createInvitation).toHaveBeenCalled();
     });
@@ -837,6 +840,7 @@ describe("InvitationsService", () => {
 
       expect(mockClerkManagement.revokeInvitation).toHaveBeenCalledWith(
         "clerk_inv_x",
+        mockInvitation.organizationId,
       );
       expect(mockPrisma.userInvitation.delete).toHaveBeenCalledWith({
         where: { id: "inv-uuid-1" },

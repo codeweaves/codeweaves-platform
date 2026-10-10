@@ -108,10 +108,12 @@ export class InvitationsService {
 
       await this.sendInvitationEmail(invitation, passwordSetupUrl);
 
-      await this.invitationLogger.logInvitationCreated(invitation.id, {
-        response: invitation,
-        request: dto,
-      });
+      // A platform-staff invite has no organization and is logged without one.
+      await this.invitationLogger.logInvitationCreated(
+        invitation.id,
+        { response: invitation, request: dto },
+        invitation.organizationId,
+      );
       this.log.info("create", "invitation created", {
         invitationId: invitation.id,
       });
@@ -126,9 +128,12 @@ export class InvitationsService {
         );
       }
       this.log.error("create", "invitation creation failed", error);
-      await this.invitationLogger.logInvitationCreationException(email, error, {
-        request: dto,
-      });
+      await this.invitationLogger.logInvitationCreationException(
+        email,
+        error,
+        { request: dto },
+        dto.organizationId,
+      );
       throw error;
     }
   }
@@ -216,9 +221,11 @@ export class InvitationsService {
 
       await this.sendInvitationEmail(updated, passwordSetupUrl);
 
-      await this.invitationLogger.logInvitationResent(updated.id, {
-        response: updated,
-      });
+      await this.invitationLogger.logInvitationResent(
+        updated.id,
+        { response: updated },
+        updated.organizationId,
+      );
       this.log.info("resend", "invitation resent", {
         invitationId: updated.id,
       });
@@ -227,9 +234,12 @@ export class InvitationsService {
       this.log.error("resend", "invitation resend failed", error, {
         invitationId: id,
       });
-      await this.invitationLogger.logInvitationResentException(id, error, {
-        invitationId: id,
-      });
+      await this.invitationLogger.logInvitationResentException(
+        id,
+        error,
+        { invitationId: id },
+        invitation.organizationId,
+      );
       throw error;
     }
   }
@@ -272,9 +282,11 @@ export class InvitationsService {
 
     await this.sendInvitationEmail(updated, passwordSetupUrl);
 
-    await this.invitationLogger.logInvitationReissued(invitation.id, {
-      response: updated,
-    });
+    await this.invitationLogger.logInvitationReissued(
+      invitation.id,
+      { response: updated },
+      invitation.organizationId,
+    );
     this.log.info("reissue", "invitation reissued", {
       invitationId: invitation.id,
       reissueCount: updated.reissueCount,
@@ -335,6 +347,7 @@ export class InvitationsService {
       try {
         await this.clerkManagement.revokeInvitation(
           invitation.clerkInvitationId,
+          invitation.organizationId,
         );
       } catch (error) {
         this.log.error(
@@ -353,18 +366,23 @@ export class InvitationsService {
       const deleted = await this.prisma.userInvitation.delete({
         where: { id },
       });
-      await this.invitationLogger.logInvitationCancelled(id, {
-        response: deleted,
-      });
+      await this.invitationLogger.logInvitationCancelled(
+        id,
+        { response: deleted },
+        invitation.organizationId,
+      );
       this.log.info("cancel", "invitation cancelled", { invitationId: id });
       return deleted;
     } catch (error) {
       this.log.error("cancel", "invitation cancel failed", error, {
         invitationId: id,
       });
-      await this.invitationLogger.logInvitationCancelledException(id, error, {
-        invitationId: id,
-      });
+      await this.invitationLogger.logInvitationCancelledException(
+        id,
+        error,
+        { invitationId: id },
+        invitation.organizationId,
+      );
       throw error;
     }
   }
@@ -380,6 +398,7 @@ export class InvitationsService {
     id: string;
     email: string;
     clerkInvitationId: string | null;
+    organizationId: string | null;
   }): Promise<string | null> {
     try {
       const dashboardUrl = this.configService.get<string>(
@@ -392,6 +411,7 @@ export class InvitationsService {
         try {
           await this.clerkManagement.revokeInvitation(
             invitation.clerkInvitationId,
+            invitation.organizationId,
           );
         } catch (error) {
           this.log.warn(
@@ -406,6 +426,7 @@ export class InvitationsService {
         email: invitation.email,
         redirectUrl: `${dashboardUrl}/sign-up`,
         expiresInDays: INVITATION_EXPIRY_DAYS,
+        organizationId: invitation.organizationId,
       });
 
       await this.prisma.userInvitation.update({
