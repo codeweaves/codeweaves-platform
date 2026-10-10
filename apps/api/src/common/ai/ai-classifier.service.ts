@@ -378,6 +378,12 @@ export class AiClassifierService {
     maxTokens = 64,
   ): Promise<T | null> {
     const eventBase = `OPENAI_${schemaName.toUpperCase()}`;
+    // The conversation's org and agent, so each call is attributable in the
+    // event log. A cron pass covers many orgs; its own run row has none.
+    const scope = {
+      organizationId: meterAs.scope?.organizationId ?? undefined,
+      agentId: meterAs.scope?.agentId ?? undefined,
+    };
     const start = performance.now();
     try {
       const res = await fetch(this.endpoint, {
@@ -424,6 +430,7 @@ export class AiClassifierService {
           eventName: `${eventBase}_FAILED`,
           direction: "OUTBOUND",
           provider: "OPENAI",
+          ...scope,
           requestUrl: this.endpoint,
           requestPayload: { model: this.model, schema: schemaName },
           responseStatus: res.status,
@@ -479,6 +486,7 @@ export class AiClassifierService {
         eventName: `${eventBase}_COMPLETED`,
         direction: "OUTBOUND",
         provider: "OPENAI",
+        ...scope,
         requestUrl: this.endpoint,
         requestPayload: { model: this.model, schema: schemaName },
         responseStatus: res.status,
@@ -504,6 +512,7 @@ export class AiClassifierService {
         eventName: `${eventBase}_FAILED`,
         direction: "OUTBOUND",
         provider: "OPENAI",
+        ...scope,
         requestUrl: this.endpoint,
         requestPayload: { model: this.model, schema: schemaName },
         latencyMs: Math.round(performance.now() - start),

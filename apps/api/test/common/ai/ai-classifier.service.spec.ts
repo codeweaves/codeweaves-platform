@@ -5,6 +5,7 @@ import { ProviderEventLogger } from "../../../src/common/events/provider.logger"
 import { UsageMeterService } from "../../../src/modules/usage/usage-meter.service";
 
 const mockMeter = { record: jest.fn() };
+const mockProviderLog = { log: jest.fn() };
 
 describe("AiClassifierService", () => {
   let originalFetch: typeof fetch;
@@ -23,7 +24,7 @@ describe("AiClassifierService", () => {
             },
           },
         },
-        { provide: ProviderEventLogger, useValue: { log: jest.fn() } },
+        { provide: ProviderEventLogger, useValue: mockProviderLog },
         { provide: UsageMeterService, useValue: mockMeter },
       ],
     })
@@ -151,6 +152,25 @@ describe("AiClassifierService", () => {
       mockRefusal("Refusing for safety reasons.");
       const result = await svc.categorize("hi", ["Pricing"]);
       expect(result).toBeNull();
+    });
+
+    it("puts the conversation's organization and agent on the event log row", async () => {
+      const svc = await makeService("sk-test");
+      mockJsonResponse({ category: "Pricing", confidence: "high" });
+
+      await svc.categorize("hi", ["Pricing"], {
+        organizationId: "org-1",
+        agentId: "agent-1",
+        chatSessionId: "cs-1",
+      });
+
+      expect(mockProviderLog.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          provider: "OPENAI",
+          organizationId: "org-1",
+          agentId: "agent-1",
+        }),
+      );
     });
 
     it("meters the call from the usage OpenAI reports, with the caller scope (ADR-0012)", async () => {
