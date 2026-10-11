@@ -9,6 +9,7 @@ import { DocumentBuilder, SwaggerModule } from "@nestjs/swagger";
 import { AppModule } from "./modules/app.module";
 import { getHelmetOptions } from "./config/security-headers.config";
 import { RedisIoAdapter } from "./common/ws/redis-io.adapter";
+import { trustProxyHops } from "./utils/client-ip";
 
 async function bootstrap() {
   // rawBody: true buffers the unparsed request body onto `req.rawBody`, which the
@@ -22,9 +23,12 @@ async function bootstrap() {
   // need.
   app.enableShutdownHooks();
 
-  // Trust the reverse proxy in front of us (Vercel/Cloudflare/nginx) so
-  // req.ip resolves to the real client IP via X-Forwarded-For.
-  app.getHttpAdapter().getInstance().set("trust proxy", 1);
+  // Trust the reverse proxies in front of us so req.ip resolves to the real
+  // client IP via X-Forwarded-For. Hop count must match the deployment chain.
+  app
+    .getHttpAdapter()
+    .getInstance()
+    .set("trust proxy", trustProxyHops(process.env.TRUST_PROXY_HOPS));
 
   // Security headers — must be first middleware applied (before CORS, prefix, pipes)
   app.use(helmet(getHelmetOptions(process.env.NODE_ENV)));

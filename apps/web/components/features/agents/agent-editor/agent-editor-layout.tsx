@@ -402,19 +402,11 @@ function AgentEditorContent() {
         savedFormData.handoverEmailRecipients,
       );
 
-      // Save agent config, webhook, and theme in parallel. Skip the agent PATCH
+      // Save agent config and theme in parallel. Skip the agent PATCH
       // entirely when only a sub-resource (theme, knowledge, fields) changed.
       const promises: Promise<unknown>[] = [];
       if (Object.keys(payload).length > 0) {
         promises.push(updateAgent.mutateAsync({ id: agent.id, data: payload }));
-      }
-
-      if (formData.webhookUrl !== savedFormData.webhookUrl) {
-        promises.push(
-          api.patch(`/agents/${agent.id}/webhook`, {
-            webhookUrl: formData.webhookUrl || null,
-          }),
-        );
       }
 
       if (hasThemeChanges) {
@@ -512,7 +504,6 @@ function AgentEditorContent() {
 
           return {
             agent: updatedAgent,
-            webhookUrl: formData.webhookUrl || null,
             // Theme envelope: `{ config, version }`. Bump version on any
             // change so consumers that rely on it (widget ETag caching) see
             // the update. If theme didn't change, preserve whatever was
@@ -750,7 +741,6 @@ function AgentEditorContent() {
 // Outer component that sets up the provider
 interface AgentEditorLayoutProps {
   agent: Agent;
-  webhookUrl?: string;
   initialThemeData?: import("@repo/validation").WidgetTheme;
   /**
    * Stored AgentKnowledge (if any) fetched alongside the agent. `null` means
@@ -766,14 +756,12 @@ interface AgentEditorLayoutProps {
 
 export function AgentEditorLayout({
   agent,
-  webhookUrl,
   initialThemeData,
   initialKnowledge,
   initialDataFields,
 }: AgentEditorLayoutProps) {
   const initialFormData: AgentFormData = agentToFormData(
     agent,
-    webhookUrl,
     initialKnowledge ?? null,
     initialDataFields ?? [],
   );

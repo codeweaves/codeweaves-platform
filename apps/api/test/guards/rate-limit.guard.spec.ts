@@ -1,20 +1,20 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { ExecutionContext, HttpException, HttpStatus } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { RateLimitGuard } from '../../src/guards/rate-limit.guard';
-import { RateLimiterService } from '../../src/common/redis/rate-limiter.service';
+import { Test, TestingModule } from "@nestjs/testing";
+import { ExecutionContext, HttpException, HttpStatus } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
+import { RateLimitGuard } from "../../src/guards/rate-limit.guard";
+import { RateLimiterService } from "../../src/common/redis/rate-limiter.service";
 import {
   SKIP_RATE_LIMIT_KEY,
   RATE_LIMIT_KEY,
-} from '../../src/decorators/rate-limit.decorator';
-import { IS_PUBLIC_KEY } from '../../src/decorators/public.decorator';
-import type { RateLimitConfig } from '../../src/common/redis/rate-limiter.types';
+} from "../../src/decorators/rate-limit.decorator";
+import { IS_PUBLIC_KEY } from "../../src/decorators/public.decorator";
+import type { RateLimitConfig } from "../../src/common/redis/rate-limiter.types";
 
 /** Configs a route would declare via @RateLimit(...). */
 const AUTH_CFG: RateLimitConfig = { limit: 100, windowMs: 60000 };
 const PUBLIC_CFG: RateLimitConfig = { limit: 30, windowMs: 60000 };
 
-describe('RateLimitGuard (opt-in)', () => {
+describe("RateLimitGuard (opt-in)", () => {
   let guard: RateLimitGuard;
 
   const mockRateLimiterService = {
@@ -54,10 +54,10 @@ describe('RateLimitGuard (opt-in)', () => {
     } = {},
   ): ExecutionContext {
     const {
-      user = { id: 'user-123' },
-      ip = '127.0.0.1',
-      method = 'GET',
-      routePath = '/api/agents',
+      user = { id: "user-123" },
+      ip = "127.0.0.1",
+      method = "GET",
+      routePath = "/api/agents",
       actualPath,
       noRoute = false,
       headers = {},
@@ -85,9 +85,9 @@ describe('RateLimitGuard (opt-in)', () => {
       getClass: () => jest.fn() as unknown,
       getArgs: () => [],
       getArgByIndex: () => undefined,
-      switchToRpc: () => ({} as never),
-      switchToWs: () => ({} as never),
-      getType: () => 'http' as const,
+      switchToRpc: () => ({}) as never,
+      switchToWs: () => ({}) as never,
+      getType: () => "http" as const,
     } as unknown as ExecutionContext;
   }
 
@@ -104,12 +104,12 @@ describe('RateLimitGuard (opt-in)', () => {
     jest.clearAllMocks();
   });
 
-  it('should be defined', () => {
+  it("should be defined", () => {
     expect(guard).toBeDefined();
   });
 
-  describe('opt-in behaviour', () => {
-    it('returns true WITHOUT touching Redis when no @RateLimit() is declared', async () => {
+  describe("opt-in behaviour", () => {
+    it("returns true WITHOUT touching Redis when no @RateLimit() is declared", async () => {
       setMeta({ config: undefined });
 
       const context = createMockContext();
@@ -120,8 +120,8 @@ describe('RateLimitGuard (opt-in)', () => {
     });
   });
 
-  describe('authenticated request keying', () => {
-    it('uses rate_limit:user:{userId}:{endpoint} when @RateLimit() is set', async () => {
+  describe("authenticated request keying", () => {
+    it("uses rate_limit:user:{userId}:{endpoint} when @RateLimit() is set", async () => {
       setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
@@ -130,19 +130,19 @@ describe('RateLimitGuard (opt-in)', () => {
         resetMs: 60000,
       });
 
-      const context = createMockContext({ user: { id: 'user-456' } });
+      const context = createMockContext({ user: { id: "user-456" } });
       await guard.canActivate(context);
 
       expect(mockRateLimiterService.checkRateLimit).toHaveBeenCalledWith(
-        'user:user-456:GET:/api/agents',
+        "user:user-456:GET:/api/agents",
         100,
         60000,
       );
     });
   });
 
-  describe('public/unauthenticated request keying', () => {
-    it('uses rate_limit:ip:{ip}:{endpoint} for @Public() routes', async () => {
+  describe("public/unauthenticated request keying", () => {
+    it("uses rate_limit:ip:{ip}:{endpoint} for @Public() routes", async () => {
       setMeta({ config: PUBLIC_CFG, isPublic: true });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
@@ -151,19 +151,19 @@ describe('RateLimitGuard (opt-in)', () => {
         resetMs: 60000,
       });
 
-      const context = createMockContext({ ip: '192.168.1.1' });
+      const context = createMockContext({ ip: "192.168.1.1" });
       await guard.canActivate(context);
 
       expect(mockRateLimiterService.checkRateLimit).toHaveBeenCalledWith(
-        'ip:192.168.1.1:GET:/api/agents',
+        "ip:192.168.1.1:GET:/api/agents",
         30,
         60000,
       );
     });
   });
 
-  describe('request within limit', () => {
-    it('returns true and sets response headers when allowed', async () => {
+  describe("request within limit", () => {
+    it("returns true and sets response headers when allowed", async () => {
       setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
@@ -176,14 +176,14 @@ describe('RateLimitGuard (opt-in)', () => {
       const result = await guard.canActivate(context);
 
       expect(result).toBe(true);
-      expect(mockSetHeader).toHaveBeenCalledWith('X-RateLimit-Limit', 100);
-      expect(mockSetHeader).toHaveBeenCalledWith('X-RateLimit-Remaining', 95);
-      expect(mockSetHeader).toHaveBeenCalledWith('X-RateLimit-Reset', 60);
+      expect(mockSetHeader).toHaveBeenCalledWith("X-RateLimit-Limit", 100);
+      expect(mockSetHeader).toHaveBeenCalledWith("X-RateLimit-Remaining", 95);
+      expect(mockSetHeader).toHaveBeenCalledWith("X-RateLimit-Reset", 60);
     });
   });
 
-  describe('request exceeds limit', () => {
-    it('throws 429 and sets Retry-After when over the limit', async () => {
+  describe("request exceeds limit", () => {
+    it("throws 429 and sets Retry-After when over the limit", async () => {
       setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: false,
@@ -205,15 +205,15 @@ describe('RateLimitGuard (opt-in)', () => {
       expect(thrownError!.getStatus()).toBe(HttpStatus.TOO_MANY_REQUESTS);
       const response = thrownError!.getResponse() as Record<string, unknown>;
       expect(response.statusCode).toBe(429);
-      expect(response.message).toBe('Too Many Requests');
+      expect(response.message).toBe("Too Many Requests");
       expect(response.retryAfter).toBe(30);
-      expect(mockSetHeader).toHaveBeenCalledWith('Retry-After', 30);
+      expect(mockSetHeader).toHaveBeenCalledWith("Retry-After", 30);
       expect(mockRateLimiterService.checkRateLimit).toHaveBeenCalledTimes(1);
     });
   });
 
-  describe('@SkipRateLimit() bypass', () => {
-    it('returns true without calling RateLimiterService even when @RateLimit() is set', async () => {
+  describe("@SkipRateLimit() bypass", () => {
+    it("returns true without calling RateLimiterService even when @RateLimit() is set", async () => {
       setMeta({ skip: true, config: AUTH_CFG });
 
       const context = createMockContext();
@@ -224,8 +224,8 @@ describe('RateLimitGuard (opt-in)', () => {
     });
   });
 
-  describe('@RateLimit() custom config', () => {
-    it('uses the declared limit/window', async () => {
+  describe("@RateLimit() custom config", () => {
+    it("uses the declared limit/window", async () => {
       setMeta({ config: { limit: 5, windowMs: 10000 }, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
@@ -238,15 +238,15 @@ describe('RateLimitGuard (opt-in)', () => {
       await guard.canActivate(context);
 
       expect(mockRateLimiterService.checkRateLimit).toHaveBeenCalledWith(
-        'user:user-123:GET:/api/agents',
+        "user:user-123:GET:/api/agents",
         5,
         10000,
       );
     });
   });
 
-  describe('endpoint identifier', () => {
-    it('uses route.path pattern instead of the actual URL to avoid per-ID key explosion', async () => {
+  describe("endpoint identifier", () => {
+    it("uses route.path pattern instead of the actual URL to avoid per-ID key explosion", async () => {
       setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
@@ -256,19 +256,19 @@ describe('RateLimitGuard (opt-in)', () => {
       });
 
       const context = createMockContext({
-        routePath: '/api/agents/:id',
-        actualPath: '/api/agents/abc-123-def',
+        routePath: "/api/agents/:id",
+        actualPath: "/api/agents/abc-123-def",
       });
       await guard.canActivate(context);
 
       expect(mockRateLimiterService.checkRateLimit).toHaveBeenCalledWith(
-        'user:user-123:GET:/api/agents/:id',
+        "user:user-123:GET:/api/agents/:id",
         100,
         60000,
       );
     });
 
-    it('falls back to request.path when route is undefined', async () => {
+    it("falls back to request.path when route is undefined", async () => {
       setMeta({ config: AUTH_CFG, isPublic: false });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
@@ -279,20 +279,20 @@ describe('RateLimitGuard (opt-in)', () => {
 
       const context = createMockContext({
         noRoute: true,
-        actualPath: '/api/agents',
+        actualPath: "/api/agents",
       });
       await guard.canActivate(context);
 
       expect(mockRateLimiterService.checkRateLimit).toHaveBeenCalledWith(
-        'user:user-123:GET:/api/agents',
+        "user:user-123:GET:/api/agents",
         100,
         60000,
       );
     });
   });
 
-  describe('IP extraction', () => {
-    it('uses x-forwarded-for when request.ip is not available', async () => {
+  describe("IP extraction", () => {
+    it("ignores a client-supplied x-forwarded-for and keys on request.ip", async () => {
       setMeta({ config: PUBLIC_CFG, isPublic: true });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
@@ -302,19 +302,19 @@ describe('RateLimitGuard (opt-in)', () => {
       });
 
       const context = createMockContext({
-        ip: undefined as unknown as string,
-        headers: { 'x-forwarded-for': '10.0.0.1, 10.0.0.2' },
+        ip: "198.51.100.7",
+        headers: { "x-forwarded-for": "203.0.113.50, 70.41.3.18" },
       });
       await guard.canActivate(context);
 
       expect(mockRateLimiterService.checkRateLimit).toHaveBeenCalledWith(
-        'ip:10.0.0.1:GET:/api/agents',
+        "ip:198.51.100.7:GET:/api/agents",
         30,
         60000,
       );
     });
 
-    it('uses the first IP from x-forwarded-for when it contains multiple IPs', async () => {
+    it("rotating x-forwarded-for does not mint a fresh bucket", async () => {
       setMeta({ config: PUBLIC_CFG, isPublic: true });
       mockRateLimiterService.checkRateLimit.mockResolvedValue({
         allowed: true,
@@ -323,15 +323,41 @@ describe('RateLimitGuard (opt-in)', () => {
         resetMs: 60000,
       });
 
+      for (const spoofed of ["10.0.0.1", "10.0.0.2", "10.0.0.3"]) {
+        await guard.canActivate(
+          createMockContext({
+            ip: "198.51.100.7",
+            headers: { "x-forwarded-for": spoofed },
+          }),
+        );
+      }
+
+      const keys = mockRateLimiterService.checkRateLimit.mock.calls.map(
+        (c) => c[0],
+      );
+      expect(new Set(keys)).toEqual(
+        new Set(["ip:198.51.100.7:GET:/api/agents"]),
+      );
+    });
+
+    it("falls back to the shared 0.0.0.0 bucket, not the header, when request.ip is absent", async () => {
+      setMeta({ config: PUBLIC_CFG, isPublic: true });
+      mockRateLimiterService.checkRateLimit.mockResolvedValue({
+        allowed: true,
+        remaining: 29,
+        retryAfterMs: 0,
+        resetMs: 60000,
+      });
+
+      // '' rather than undefined: undefined would take the helper's 127.0.0.1 default.
       const context = createMockContext({
-        headers: {
-          'x-forwarded-for': '203.0.113.50, 70.41.3.18, 150.172.238.178',
-        },
+        ip: "",
+        headers: { "x-forwarded-for": "10.0.0.1" },
       });
       await guard.canActivate(context);
 
       expect(mockRateLimiterService.checkRateLimit).toHaveBeenCalledWith(
-        'ip:203.0.113.50:GET:/api/agents',
+        "ip:0.0.0.0:GET:/api/agents",
         30,
         60000,
       );

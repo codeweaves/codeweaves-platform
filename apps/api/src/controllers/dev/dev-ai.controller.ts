@@ -135,7 +135,6 @@ export class DevAiController {
       publicId: string;
       name: string;
       status: string;
-      routingMode: string;
       modelId: string | null;
       organization: { id: string; name: string };
     }>
@@ -164,8 +163,6 @@ export class DevAiController {
         publicId: a.publicId,
         name: a.name,
         status: a.status,
-        routingMode:
-          typeof cfg.routingMode === "string" ? cfg.routingMode : "n8n",
         modelId: typeof cfg.modelId === "string" ? cfg.modelId : null,
         organization: a.organization,
       };

@@ -64,8 +64,6 @@ export interface SendMessageResponse {
   metadata: {
     streamingMode: string;
     backendReceivedAt: string;
-    n8nReceivedAt: string | null;
-    agentRepliedAt: string | null;
     backendRespondedAt: string;
     responseLatencyMs: number;
   };

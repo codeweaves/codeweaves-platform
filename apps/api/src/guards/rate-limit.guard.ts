@@ -4,14 +4,18 @@ import {
   ExecutionContext,
   HttpException,
   HttpStatus,
-} from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { Request, Response } from 'express';
-import { AppLogger } from '../common/logger/app-logger';
-import { RateLimiterService } from '../common/redis/rate-limiter.service';
-import { RateLimitConfig } from '../common/redis/rate-limiter.types';
-import { SKIP_RATE_LIMIT_KEY, RATE_LIMIT_KEY } from '../decorators/rate-limit.decorator';
-import { IS_PUBLIC_KEY } from '../decorators/public.decorator';
+} from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
+import { Request, Response } from "express";
+import { AppLogger } from "../common/logger/app-logger";
+import { RateLimiterService } from "../common/redis/rate-limiter.service";
+import { RateLimitConfig } from "../common/redis/rate-limiter.types";
+import {
+  SKIP_RATE_LIMIT_KEY,
+  RATE_LIMIT_KEY,
+} from "../decorators/rate-limit.decorator";
+import { IS_PUBLIC_KEY } from "../decorators/public.decorator";
+import { clientIp } from "../utils/client-ip";
 
 @Injectable()
 export class RateLimitGuard implements CanActivate {
@@ -74,19 +78,22 @@ export class RateLimitGuard implements CanActivate {
 
     // 7. Set response headers
     const resetSeconds = Math.ceil(result.resetMs / 1000);
-    response.setHeader('X-RateLimit-Limit', config.limit);
-    response.setHeader('X-RateLimit-Remaining', result.remaining);
-    response.setHeader('X-RateLimit-Reset', resetSeconds);
+    response.setHeader("X-RateLimit-Limit", config.limit);
+    response.setHeader("X-RateLimit-Remaining", result.remaining);
+    response.setHeader("X-RateLimit-Reset", resetSeconds);
 
     // 8. If not allowed, throw 429
     if (!result.allowed) {
       const retryAfterSeconds = Math.ceil(result.retryAfterMs / 1000);
-      response.setHeader('Retry-After', retryAfterSeconds);
-      this.log.warn('canActivate', `Rate limit exceeded for key: rate_limit:${key}`);
+      response.setHeader("Retry-After", retryAfterSeconds);
+      this.log.warn(
+        "canActivate",
+        `Rate limit exceeded for key: rate_limit:${key}`,
+      );
       throw new HttpException(
         {
           statusCode: HttpStatus.TOO_MANY_REQUESTS,
-          message: 'Too Many Requests',
+          message: "Too Many Requests",
           retryAfter: retryAfterSeconds,
         },
         HttpStatus.TOO_MANY_REQUESTS,
@@ -97,18 +104,12 @@ export class RateLimitGuard implements CanActivate {
   }
 
   private getClientIp(request: Request): string {
-    const forwarded = request.headers['x-forwarded-for'];
-    if (forwarded) {
-      const first = Array.isArray(forwarded) ? forwarded[0] : forwarded.split(',')[0];
-      const ip = first?.trim() || request.ip;
-      if (ip) return ip;
-    } else if (request.ip) {
-      return request.ip;
-    }
+    const ip = clientIp(request);
+    if (ip) return ip;
     this.log.warn(
-      'getClientIp',
-      'Could not determine client IP — falling back to 0.0.0.0 (shared rate limit bucket)',
+      "getClientIp",
+      "Could not determine client IP — falling back to 0.0.0.0 (shared rate limit bucket)",
     );
-    return '0.0.0.0';
+    return "0.0.0.0";
   }
 }

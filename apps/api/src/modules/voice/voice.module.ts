@@ -1,20 +1,19 @@
-import { Module } from '@nestjs/common';
-import { VoiceController } from './voice.controller';
-import { VoicesController } from './voices.controller';
-import { VoiceService } from './voice.service';
-import { StubProvider } from './providers/stub.provider';
-import { SarvamProvider } from './providers/sarvam.provider';
-import { DeepgramProvider } from './providers/deepgram.provider';
-import { ElevenLabsProvider } from './providers/elevenlabs.provider';
-import { VOICE_PROVIDERS } from './providers/voice-provider.interface';
-import { ChatModule } from '../chat.module';
-import { AgentsModule } from '../agents.module';
-import { MessageRateLimitService } from '../../services/message-rate-limit.service';
-import { PrismaModule } from '../prisma.module';
-import { AiModule } from '../ai/ai.module';
+import { Module } from "@nestjs/common";
+import { VoiceController } from "./voice.controller";
+import { VoicesController } from "./voices.controller";
+import { VoiceService } from "./voice.service";
+import { StubProvider } from "./providers/stub.provider";
+import { SarvamProvider } from "./providers/sarvam.provider";
+import { DeepgramProvider } from "./providers/deepgram.provider";
+import { ElevenLabsProvider } from "./providers/elevenlabs.provider";
+import { VOICE_PROVIDERS } from "./providers/voice-provider.interface";
+import { ChatModule } from "../chat.module";
+import { MessageRateLimitService } from "../../services/message-rate-limit.service";
+import { PrismaModule } from "../prisma.module";
+import { AiModule } from "../ai/ai.module";
 
 @Module({
-  imports: [ChatModule, AgentsModule, PrismaModule, AiModule],
+  imports: [ChatModule, PrismaModule, AiModule],
   controllers: [VoiceController, VoicesController],
   providers: [
     StubProvider,
@@ -29,7 +28,12 @@ import { AiModule } from '../ai/ai.module';
         deepgram: DeepgramProvider,
         elevenlabs: ElevenLabsProvider,
       ) => [stub, sarvam, deepgram, elevenlabs],
-      inject: [StubProvider, SarvamProvider, DeepgramProvider, ElevenLabsProvider],
+      inject: [
+        StubProvider,
+        SarvamProvider,
+        DeepgramProvider,
+        ElevenLabsProvider,
+      ],
     },
     VoiceService,
     MessageRateLimitService,

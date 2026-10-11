@@ -220,7 +220,6 @@ async function main() {
   const other = await upsertOrg(OTHER);
 
   const aiConfig: Prisma.InputJsonValue = {
-    routingMode: "direct",
     modelId: MODEL,
     temperature: 0.4,
     maxTokens: 512,

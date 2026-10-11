@@ -6,7 +6,6 @@ import {
   ForbiddenException,
 } from "@nestjs/common";
 import { createHash } from "node:crypto";
-import { ConfigService } from "@nestjs/config";
 import { PrismaService } from "./prisma.service";
 import { Prisma, Agent } from "@prisma/client";
 import { agentAiConfigUpdateSchema, voiceConfigSchema } from "@repo/validation";
@@ -22,7 +21,6 @@ import { deduplicateDomains, isValidDomain } from "../utils/domain";
 import { AgentLoggerService } from "../common/logger/agent.logger";
 import { AgentCacheService } from "../common/cache/agent-cache.service";
 import { WidgetCorsCacheService } from "../common/cache/widget-cors-cache.service";
-import { CryptoService } from "../common/crypto/crypto.service";
 import { PermissionCatalogService } from "../common/rbac/permission-catalog.service";
 import type { PermissionKey } from "../common/rbac/rbac.types";
 import { AppLogger } from "../common/logger/app-logger";
@@ -35,7 +33,6 @@ import {
 } from "../utils/consent-notice";
 
 const MAX_PUBLIC_ID_RETRIES = 3;
-const WEBHOOK_TEST_TIMEOUT = 10_000;
 
 /**
  * Dedupes a list of category keywords case-insensitively while preserving the
@@ -63,8 +60,6 @@ export class AgentsService {
   constructor(
     private prisma: PrismaService,
     private readonly agentLogger: AgentLoggerService,
-    private readonly cryptoService: CryptoService,
-    private readonly configService: ConfigService,
     private readonly agentCache: AgentCacheService,
     private readonly widgetCorsCache: WidgetCorsCacheService,
     private readonly catalog: PermissionCatalogService,
@@ -264,7 +259,7 @@ export class AgentsService {
     }
 
     // Validate aiConfig (Phase 1: AI orchestration layer). Stored as JSONB,
-    // null clears the override (agent falls back to n8n routing by default).
+    // null clears the override (agent falls back to schema defaults).
     // Merge with existing config so partial PATCH updates don't blow away other fields.
     let aiConfigData: Prisma.InputJsonValue | typeof Prisma.DbNull | undefined;
     if (dto.aiConfig !== undefined) {
@@ -276,6 +271,8 @@ export class AgentsService {
             (existing.aiConfig as Record<string, unknown> | null) ?? {};
           const merged = { ...existingAiConfig, ...dto.aiConfig };
           const parsed = agentAiConfigUpdateSchema.parse(merged);
+          // routingMode is accepted for old payloads but never stored (ADR-0014).
+          delete parsed.routingMode;
           aiConfigData = parsed as Prisma.InputJsonValue;
         } catch (error) {
           if (error instanceof ZodError) {
@@ -389,18 +386,11 @@ export class AgentsService {
         });
       }
 
-      // Audit: AI config changes. Routing mode transitions (n8n↔direct) are
-      // significant enough to warrant a dedicated audit event so a dashboard
-      // timeline can show when an agent switched LLM backends.
+      // Audit: AI config changes get a dedicated event so a dashboard timeline
+      // can show when an agent's model or sampling settings changed.
       if (dto.aiConfig !== undefined) {
-        const oldRoutingMode =
-          (existing.aiConfig as { routingMode?: string } | null)?.routingMode ??
-          "n8n";
-        const newRoutingMode = dto.aiConfig?.routingMode ?? oldRoutingMode;
         await this.agentLogger.logAgentUpdated(updated.id, {
           event: "AGENT_AI_CONFIG_UPDATED",
-          oldRoutingMode,
-          newRoutingMode,
           changedFields: Object.keys(dto.aiConfig ?? {}),
           userId: user.id,
         });
@@ -599,138 +589,6 @@ export class AgentsService {
       supportedLanguages: config.supportedLanguages ?? ["en"],
       autoDetectLanguage: config.autoDetectLanguage ?? true,
     };
-  }
-
-  // ==========================================
-  // Webhook Management
-  // ==========================================
-
-  async setWebhookUrl(
-    agentId: string,
-    webhookUrl: string,
-    user: CurrentUserData,
-  ) {
-    await this.findByIdRaw(agentId, user);
-
-    // Enforce HTTPS in production
-    if (
-      this.configService.get<string>("NODE_ENV") === "production" &&
-      !webhookUrl.startsWith("https://")
-    ) {
-      throw new BadRequestException("Webhook URL must use HTTPS in production");
-    }
-
-    const encrypted = this.cryptoService.encrypt(webhookUrl);
-
-    const existing = await this.prisma.agentSecret.findUnique({
-      where: { agentId },
-    });
-
-    await this.prisma.agentSecret.upsert({
-      where: { agentId },
-      create: { agentId, webhookUrl: encrypted },
-      update: { webhookUrl: encrypted },
-    });
-
-    if (existing) {
-      await this.agentLogger.logSecretUpdated(agentId, user.id);
-    } else {
-      await this.agentLogger.logSecretCreated(agentId, user.id);
-    }
-    await this.agentLogger.logWebhookUpdated(agentId, user.id);
-    this.log.info("setWebhookUrl", "webhook url updated", {
-      agentId,
-      replaced: !!existing,
-    });
-
-    return { message: "Webhook URL updated" };
-  }
-
-  async getWebhookUrl(agentId: string, user: CurrentUserData) {
-    await this.findByIdRaw(agentId, user);
-
-    const secret = await this.prisma.agentSecret.findUnique({
-      where: { agentId },
-    });
-
-    if (secret?.webhookUrl) {
-      return { webhookUrl: this.cryptoService.decrypt(secret.webhookUrl) };
-    }
-
-    const fallback = this.configService.get<string>("DEFAULT_WEBHOOK_URL");
-    if (fallback) {
-      return { webhookUrl: fallback, isFallback: true };
-    }
-
-    return { webhookUrl: null };
-  }
-
-  /**
-   * Get the effective webhook URL for internal use (resolves fallback).
-   */
-  async getEffectiveWebhookUrl(agentId: string): Promise<string> {
-    const secret = await this.prisma.agentSecret.findUnique({
-      where: { agentId },
-    });
-
-    if (secret?.webhookUrl) {
-      return this.cryptoService.decrypt(secret.webhookUrl);
-    }
-
-    const fallback = this.configService.get<string>("DEFAULT_WEBHOOK_URL");
-    if (!fallback) {
-      throw new NotFoundException("No webhook URL configured for this agent");
-    }
-    return fallback;
-  }
-
-  async testWebhook(agentId: string, user: CurrentUserData) {
-    await this.findByIdRaw(agentId, user);
-
-    let url: string;
-    try {
-      url = await this.getEffectiveWebhookUrl(agentId);
-    } catch {
-      throw new NotFoundException("No webhook URL configured for this agent");
-    }
-
-    const payload = {
-      type: "test",
-      agentId,
-      timestamp: new Date().toISOString(),
-    };
-
-    const startTime = Date.now();
-    try {
-      const response = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(payload),
-        signal: AbortSignal.timeout(WEBHOOK_TEST_TIMEOUT),
-      });
-
-      this.log.info("testWebhook", "webhook test completed", {
-        agentId,
-        statusCode: response.status,
-        ok: response.ok,
-        ms: Date.now() - startTime,
-      });
-      return {
-        success: response.ok,
-        statusCode: response.status,
-        responseTime: Date.now() - startTime,
-      };
-    } catch (error) {
-      this.log.warn("testWebhook", `webhook test failed for agent ${agentId}`, {
-        err: error instanceof Error ? error.message : "Unknown error",
-      });
-      return {
-        success: false,
-        statusCode: null,
-        responseTime: Date.now() - startTime,
-        error: error instanceof Error ? error.message : "Unknown error",
-      };
-    }
   }
 
   // ==========================================

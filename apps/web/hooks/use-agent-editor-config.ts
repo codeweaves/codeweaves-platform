@@ -1,22 +1,21 @@
-'use client';
+"use client";
 
-import { useQuery } from '@tanstack/react-query';
-import { useApiClient } from '@/lib/api-client';
-import type { WidgetTheme } from '@repo/validation';
-import type { Agent } from './use-agents';
+import { useQuery } from "@tanstack/react-query";
+import { useApiClient } from "@/lib/api-client";
+import type { WidgetTheme } from "@repo/validation";
+import type { Agent } from "./use-agents";
 import type {
   InitialAgentKnowledge,
   EditorDataField,
-} from '@/components/features/agents/agent-editor/agent-editor-context';
+} from "@/components/features/agents/agent-editor/agent-editor-context";
 
 /**
  * Shape returned by the bundled `GET /agents/:id/editor-config` endpoint.
  * Mirrors the controller's response literal — sub-resources are nullable
- * because brand-new agents have no theme/knowledge/webhook row yet.
+ * because brand-new agents have no theme/knowledge row yet.
  */
 export interface AgentEditorConfigResponse {
   agent: Agent;
-  webhookUrl: string | null;
   /**
    * Theme is wrapped in `{ config, version }` because `AgentThemesService`
    * returns it that way — version powers ETag-based caching on the widget
@@ -24,13 +23,15 @@ export interface AgentEditorConfigResponse {
    * whole shape so downstream code can opt into versioning if useful.
    */
   theme: { config: WidgetTheme; version: number } | null;
-  knowledge: (InitialAgentKnowledge & {
-    id: string;
-    contentTokens: number | null;
-    sourceSizeBytes: number | null;
-    createdAt: string;
-    updatedAt: string;
-  }) | null;
+  knowledge:
+    | (InitialAgentKnowledge & {
+        id: string;
+        contentTokens: number | null;
+        sourceSizeBytes: number | null;
+        createdAt: string;
+        updatedAt: string;
+      })
+    | null;
   /**
    * Data-capture field definitions, ordered. Empty array when the agent
    * collects nothing. The editor strips server-managed fields (id, order,
@@ -45,8 +46,8 @@ export interface AgentEditorConfigResponse {
 }
 
 /**
- * Single fetch that hydrates the entire agent editor page — agent core +
- * webhook + theme + knowledge. Replaces the pre-bundle pattern of firing four
+ * Single fetch that hydrates the entire agent editor page: agent core, theme,
+ * knowledge and data fields. Replaces the pre-bundle pattern of firing several
  * parallel GETs on mount.
  *
  * Query key: `['agent-editor-config', id]`. `handleSave` in the layout writes
@@ -57,7 +58,7 @@ export interface AgentEditorConfigResponse {
  * the query is skipped until an id exists.
  */
 export const agentEditorConfigQueryKey = (id: string | undefined) =>
-  ['agent-editor-config', id ?? '__empty__'] as const;
+  ["agent-editor-config", id ?? "__empty__"] as const;
 
 export function useAgentEditorConfig(id: string | undefined) {
   const api = useApiClient();

@@ -1,10 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { NotFoundException, BadGatewayException } from "@nestjs/common";
+import { NotFoundException } from "@nestjs/common";
 import { ChatService } from "../../../src/services/chat.service";
 import { PrismaService } from "../../../src/services/prisma.service";
-import { AgentsService } from "../../../src/services/agents.service";
-import { HmacService } from "../../../src/common/security/hmac.service";
-import { CryptoService } from "../../../src/common/crypto/crypto.service";
 import { TracerService } from "../../../src/common/tracer/tracer.service";
 import { DirectChatService } from "../../../src/modules/ai/direct-chat.service";
 import { MessageMetricsService } from "../../../src/services/message-metrics.service";
@@ -23,9 +20,7 @@ describe("ChatService", () => {
   const mockPrismaService = {
     agent: {
       findFirst: jest.fn(),
-    },
-    agentSecret: {
-      findUnique: jest.fn(),
+      findUniqueOrThrow: jest.fn(),
     },
     chatSession: {
       create: jest.fn(),
@@ -37,19 +32,6 @@ describe("ChatService", () => {
       delete: jest.fn(),
     },
     $transaction: jest.fn(),
-  };
-
-  const mockAgentsService = {
-    getEffectiveWebhookUrl: jest.fn(),
-  };
-
-  const mockHmacService = {
-    verifySignature: jest.fn(),
-    computeSignature: jest.fn(),
-  };
-
-  const mockCryptoService = {
-    decrypt: jest.fn(),
   };
 
   const mockTracerService = {
@@ -92,7 +74,6 @@ describe("ChatService", () => {
   const MOCK_SESSION_DB_ID = "db-session-uuid-1234";
   const MOCK_USER_MSG_ID = "user-msg-uuid-1234";
   const MOCK_ASSISTANT_MSG_ID = "assistant-msg-uuid-1234";
-  const MOCK_WEBHOOK_URL = "https://n8n.example.com/webhook/test";
 
   const mockSession = {
     id: MOCK_SESSION_DB_ID,
@@ -111,38 +92,27 @@ describe("ChatService", () => {
     agent: { sessionLifetimeHours: 6 },
   };
 
-  const mockN8nResponse = {
-    agentReply: "Hello! How can I help you?",
-    sessionId: MOCK_SESSION_ID,
-    n8nReceivedAt: "2026-03-01T10:00:00.500Z",
-    agentRepliedAt: "2026-03-01T10:00:01.200Z",
+  const MOCK_FULL_AGENT = {
+    id: MOCK_AGENT_ID,
+    organizationId: "org-1",
+    aiConfig: null,
+    fallbackPhrases: [],
+    systemPrompt: "",
   };
 
-  const mockN8nResponseText = JSON.stringify(mockN8nResponse);
-
-  const originalFetch = global.fetch;
-
-  /**
-   * Helper to create a mock fetch Response with text() and headers.
-   */
-  function createMockResponse(
-    body: unknown,
-    options?: {
-      ok?: boolean;
-      status?: number;
-      headers?: Record<string, string>;
-    },
-  ) {
-    const text = typeof body === "string" ? body : JSON.stringify(body);
-    return {
-      ok: options?.ok ?? true,
-      status: options?.status ?? 200,
-      text: () => Promise.resolve(text),
-      headers: {
-        get: (name: string) => options?.headers?.[name.toLowerCase()] ?? null,
-      },
-    };
-  }
+  const MOCK_LLM_RESULT = {
+    text: "Hello! How can I help you?",
+    traceId: "trace-1",
+    usage: { inputTokens: 10, outputTokens: 7, totalTokens: 17 },
+    cost: 0.0001,
+    model: "openai:gpt-4.1-mini",
+    finishReason: "stop",
+    latencyMs: 300,
+    ttftMs: null,
+    historyCount: 0,
+    estimatedInputTokens: 10,
+    historyTruncated: false,
+  };
 
   const mockConsentService = { assertConsented: jest.fn() };
 
@@ -151,9 +121,6 @@ describe("ChatService", () => {
       providers: [
         ChatService,
         { provide: PrismaService, useValue: mockPrismaService },
-        { provide: AgentsService, useValue: mockAgentsService },
-        { provide: HmacService, useValue: mockHmacService },
-        { provide: CryptoService, useValue: mockCryptoService },
         { provide: TracerService, useValue: mockTracerService },
         { provide: DirectChatService, useValue: mockDirectChatService },
         { provide: MessageMetricsService, useValue: mockMessageMetricsService },
@@ -176,14 +143,16 @@ describe("ChatService", () => {
       async (_o: string, _s: string, c: string) => c,
     );
 
-    // Default mocks for a successful flow (hmacEnabled: false by default)
+    // Default mocks for a successful flow.
     mockPrismaService.agent.findFirst.mockResolvedValue({
       id: MOCK_AGENT_ID,
-      hmacEnabled: false,
+      aiConfig: null,
+      organizationId: "org-1",
     });
-    mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue(
-      MOCK_WEBHOOK_URL,
+    mockPrismaService.agent.findUniqueOrThrow.mockResolvedValue(
+      MOCK_FULL_AGENT,
     );
+    mockDirectChatService.send.mockResolvedValue(MOCK_LLM_RESULT);
     mockPrismaService.chatSession.create.mockResolvedValue(mockSession);
     // $transaction returns an array of results: [userMessage, assistantMessage, updatedSession]
     mockPrismaService.$transaction.mockResolvedValue([
@@ -191,14 +160,6 @@ describe("ChatService", () => {
       { id: MOCK_ASSISTANT_MSG_ID },
       mockSession,
     ]);
-
-    global.fetch = jest
-      .fn()
-      .mockResolvedValue(createMockResponse(mockN8nResponse));
-  });
-
-  afterAll(() => {
-    global.fetch = originalFetch;
   });
 
   it("should be defined", () => {
@@ -407,53 +368,56 @@ describe("ChatService", () => {
       agentId: MOCK_AGENT_ID,
     };
 
-    describe("successful message send + n8n call + response storage", () => {
-      it("should send a message, call n8n, and store the response", async () => {
+    describe("successful message send + LLM call + response storage", () => {
+      it("should send a message, call DirectChatService, and store the response", async () => {
         const result = await service.sendMessage(baseDto);
 
         expect(result).toEqual(
           expect.objectContaining({
             sessionId: MOCK_SESSION_ID,
             messageId: MOCK_USER_MSG_ID,
-            reply: mockN8nResponse.agentReply,
+            reply: MOCK_LLM_RESULT.text,
             assistantMessageId: MOCK_ASSISTANT_MSG_ID,
           }),
         );
         expect(result.metadata).toEqual(
           expect.objectContaining({
-            streamingMode: "simulated",
+            streamingMode: "direct",
             backendReceivedAt: expect.any(String),
-            n8nReceivedAt: mockN8nResponse.n8nReceivedAt,
-            agentRepliedAt: mockN8nResponse.agentRepliedAt,
             backendRespondedAt: expect.any(String),
             responseLatencyMs: expect.any(Number),
+            traceId: MOCK_LLM_RESULT.traceId,
+            model: MOCK_LLM_RESULT.model,
+            inputTokens: 10,
           }),
         );
       });
 
-      it("should call n8n webhook with correct payload", async () => {
+      it("should call DirectChatService.send with the full agent and the session", async () => {
         await service.sendMessage(baseDto);
 
-        expect(global.fetch).toHaveBeenCalledWith(
-          MOCK_WEBHOOK_URL,
+        expect(mockDirectChatService.send).toHaveBeenCalledWith(
           expect.objectContaining({
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({
-              chatInput: "Hello, AI!",
-              sessionId: MOCK_SESSION_ID,
-            }),
+            agent: MOCK_FULL_AGENT,
+            chatSessionId: MOCK_SESSION_DB_ID,
+            externalSessionId: MOCK_SESSION_ID,
+            newUserMessage: "Hello, AI!",
+            feature: "chat",
           }),
         );
       });
 
-      it("should call webhook BEFORE storing messages (no orphaned messages on failure)", async () => {
-        await service.sendMessage(baseDto);
+      it("serves an agent with no aiConfig through DirectChatService (no routing switch)", async () => {
+        mockPrismaService.agent.findFirst.mockResolvedValue({
+          id: MOCK_AGENT_ID,
+          aiConfig: null,
+          organizationId: "org-1",
+        });
 
-        // Verify fetch was called
-        expect(global.fetch).toHaveBeenCalledTimes(1);
-        // Verify $transaction was called (messages stored after webhook)
-        expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+        const result = await service.sendMessage(baseDto);
+
+        expect(mockDirectChatService.send).toHaveBeenCalledTimes(1);
+        expect(result.reply).toBe(MOCK_LLM_RESULT.text);
       });
 
       it("should store user and assistant messages in a transaction", async () => {
@@ -465,22 +429,32 @@ describe("ChatService", () => {
         expect(transactionArg).toHaveLength(3);
       });
 
-      it("should not store messages if webhook fails", async () => {
-        (global.fetch as jest.Mock).mockRejectedValue(
-          new TypeError("fetch failed"),
+      it("should not store messages if the LLM call fails", async () => {
+        mockDirectChatService.send.mockRejectedValue(
+          new Error("provider down"),
         );
 
         await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
+          "provider down",
         );
         expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
       });
 
-      it("should update session lastMessageAt", async () => {
-        await service.sendMessage(baseDto);
+      it("returns paused with no AI call while a human holds the chat", async () => {
+        mockPrismaService.chatSession.create.mockResolvedValue({
+          ...mockSession,
+          handoverState: "ACTIVE_HUMAN",
+        });
 
-        // Session update is part of the transaction
-        expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+        const result = await service.sendMessage(baseDto);
+
+        expect(result).toEqual(
+          expect.objectContaining({ paused: true, reply: "" }),
+        );
+        expect(mockDirectChatService.send).not.toHaveBeenCalled();
+        expect(
+          mockHandoverService.onVisitorMessageWhilePaused,
+        ).toHaveBeenCalled();
       });
     });
 
@@ -565,8 +539,8 @@ describe("ChatService", () => {
           where: { id: MOCK_SESSION_DB_ID },
           data: { status: "EXPIRED" },
         });
-        // A brand-new session row was created — note `sessionId` is generated,
-        // so we don't assert the exact value, just that create was called.
+        // A brand-new session row was created — `sessionId` is generated, so
+        // we don't assert the exact value, just that create was called.
         expect(mockPrismaService.chatSession.create).toHaveBeenCalledWith({
           data: expect.objectContaining({
             agentId: MOCK_AGENT_ID,
@@ -574,8 +548,7 @@ describe("ChatService", () => {
             sessionId: expect.any(String),
           }),
         });
-        // The response sessionId is the NEW one (returned by `create`), not
-        // the old client-supplied one.
+        // The response sessionId is the NEW one (returned by `create`).
         expect(result.sessionId).toBe(MOCK_SESSION_ID); // mocked create returns mockSession
       });
 
@@ -588,11 +561,9 @@ describe("ChatService", () => {
 
         await service.sendMessage(dtoWithSession);
 
-        // No EXPIRED flip
         expect(mockPrismaService.chatSession.update).not.toHaveBeenCalledWith(
           expect.objectContaining({ data: { status: "EXPIRED" } }),
         );
-        // No new session created
         expect(mockPrismaService.chatSession.create).not.toHaveBeenCalled();
       });
 
@@ -609,7 +580,6 @@ describe("ChatService", () => {
 
         await service.sendMessage(dtoWithSession);
 
-        // Rotated because createdAt is past the cap.
         expect(mockPrismaService.chatSession.update).toHaveBeenCalledWith({
           where: { id: MOCK_SESSION_DB_ID },
           data: { status: "EXPIRED" },
@@ -618,8 +588,6 @@ describe("ChatService", () => {
       });
 
       it("respects per-agent sessionLifetimeHours: 7h-old session keeps living when agent allows 24h", async () => {
-        // Same age as the rotation test (7h ago), but this agent is
-        // configured for a 24h lifetime — must NOT rotate.
         const sevenHoursAgo = new Date(Date.now() - 7 * 60 * 60 * 1000);
         mockPrismaService.chatSession.findFirst.mockResolvedValue({
           ...mockSession,
@@ -646,6 +614,7 @@ describe("ChatService", () => {
         await expect(service.sendMessage(baseDto)).rejects.toThrow(
           "Agent not found or inactive",
         );
+        expect(mockDirectChatService.send).not.toHaveBeenCalled();
       });
 
       it("should verify agent is ACTIVE and not deleted", async () => {
@@ -655,707 +624,10 @@ describe("ChatService", () => {
           where: { id: MOCK_AGENT_ID, deletedAt: null, status: "ACTIVE" },
           select: {
             id: true,
-            hmacEnabled: true,
             aiConfig: true,
             organizationId: true,
           },
         });
-      });
-    });
-
-    describe("n8n timeout handling", () => {
-      it("should throw BadGatewayException on timeout", async () => {
-        const timeoutError = new DOMException(
-          "The operation was aborted due to timeout",
-          "TimeoutError",
-        );
-        (global.fetch as jest.Mock).mockRejectedValue(timeoutError);
-
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
-        );
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          "Response is taking too long, please try again",
-        );
-      });
-    });
-
-    describe("n8n network error handling", () => {
-      it("should throw BadGatewayException on network error", async () => {
-        (global.fetch as jest.Mock).mockRejectedValue(
-          new TypeError("fetch failed"),
-        );
-
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
-        );
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          "Unable to connect to AI service, please try again",
-        );
-      });
-
-      it("should throw BadGatewayException when n8n returns non-ok status", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse("", { ok: false, status: 500 }),
-        );
-
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
-        );
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          "AI service returned an error, please try again",
-        );
-      });
-    });
-
-    describe("webhook URL fallback", () => {
-      it("should use AgentsService.getEffectiveWebhookUrl for URL resolution", async () => {
-        await service.sendMessage(baseDto);
-
-        expect(mockAgentsService.getEffectiveWebhookUrl).toHaveBeenCalledWith(
-          MOCK_AGENT_ID,
-        );
-      });
-
-      it("should throw when no webhook URL is configured (getEffectiveWebhookUrl throws)", async () => {
-        mockAgentsService.getEffectiveWebhookUrl.mockRejectedValue(
-          new NotFoundException("No webhook URL configured for this agent"),
-        );
-
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          NotFoundException,
-        );
-      });
-    });
-
-    describe("response format parsing", () => {
-      it("should parse object response with agentReply", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse({
-            agentReply: "Object response",
-            n8nReceivedAt: "2026-03-01T10:00:00Z",
-            agentRepliedAt: "2026-03-01T10:00:01Z",
-          }),
-        );
-
-        const result = await service.sendMessage(baseDto);
-        expect(result.reply).toBe("Object response");
-      });
-
-      it("should parse array response with agentReply", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse([
-            {
-              agentReply: "Array response",
-              n8nReceivedAt: "2026-03-01T10:00:00Z",
-              agentRepliedAt: "2026-03-01T10:00:01Z",
-            },
-          ]),
-        );
-
-        const result = await service.sendMessage(baseDto);
-        expect(result.reply).toBe("Array response");
-      });
-
-      it("should fallback to output field when agentReply is missing", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse({ output: "Fallback output response" }),
-        );
-
-        const result = await service.sendMessage(baseDto);
-        expect(result.reply).toBe("Fallback output response");
-      });
-
-      it("should fallback to output field in array format", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse([{ output: "Array fallback output" }]),
-        );
-
-        const result = await service.sendMessage(baseDto);
-        expect(result.reply).toBe("Array fallback output");
-      });
-
-      it("should throw BadGatewayException when response has no agentReply or output", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse({ someOtherField: "unexpected" }),
-        );
-
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
-        );
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          "Unexpected response format from AI service",
-        );
-      });
-
-      it("should throw BadGatewayException when response text is invalid JSON", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue({
-          ok: true,
-          text: () => Promise.resolve("not-valid-json"),
-          headers: { get: () => null },
-        });
-
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
-        );
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          "Unexpected response format from AI service",
-        );
-      });
-
-      it("should handle missing n8nReceivedAt and agentRepliedAt timestamps", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse({ agentReply: "No timestamps" }),
-        );
-
-        const result = await service.sendMessage(baseDto);
-        expect(result.reply).toBe("No timestamps");
-        expect(result.metadata.n8nReceivedAt).toBeNull();
-        expect(result.metadata.agentRepliedAt).toBeNull();
-      });
-    });
-  });
-
-  describe("chunkText", () => {
-    it("should split text into chunks at word boundaries", () => {
-      const chunks = ChatService.chunkText("one two three four five six");
-      expect(chunks).toEqual(["one two three ", "four five six"]);
-    });
-
-    it("should handle default 3 words per chunk", () => {
-      const chunks = ChatService.chunkText("a b c d e f g");
-      expect(chunks).toEqual(["a b c ", "d e f ", "g"]);
-    });
-
-    it("should return empty array for empty string", () => {
-      expect(ChatService.chunkText("")).toEqual([]);
-    });
-
-    it("should return empty array for whitespace-only string", () => {
-      expect(ChatService.chunkText("   \t\n  ")).toEqual([]);
-    });
-
-    it("should return single chunk for short text", () => {
-      const chunks = ChatService.chunkText("hello world");
-      expect(chunks).toEqual(["hello world"]);
-    });
-
-    it("should handle single word", () => {
-      expect(ChatService.chunkText("hello")).toEqual(["hello"]);
-    });
-
-    it("should respect custom chunkSize", () => {
-      const chunks = ChatService.chunkText("a b c d e f", 2);
-      expect(chunks).toEqual(["a b ", "c d ", "e f"]);
-    });
-
-    it("should handle text with multiple whitespace characters", () => {
-      const chunks = ChatService.chunkText(
-        "one   two\tthree\nfour  five   six",
-      );
-      expect(chunks).toEqual(["one two three ", "four five six"]);
-    });
-
-    it("should never split mid-word", () => {
-      const chunks = ChatService.chunkText(
-        "longword anotherlongword thirdword",
-      );
-      for (const chunk of chunks) {
-        const words = chunk.trim().split(" ");
-        for (const word of words) {
-          expect(word).not.toContain(" ");
-          expect(word.length).toBeGreaterThan(0);
-        }
-      }
-    });
-
-    it("should produce chunks within expected size range for typical text", () => {
-      const text =
-        "The quick brown fox jumps over the lazy dog and runs away fast into the forest";
-      const chunks = ChatService.chunkText(text);
-      for (const chunk of chunks) {
-        const wordCount = chunk.trim().split(" ").length;
-        expect(wordCount).toBeLessThanOrEqual(3);
-        expect(wordCount).toBeGreaterThanOrEqual(1);
-      }
-    });
-
-    it("should concatenate chunks back to original text", () => {
-      const text = "The quick brown fox jumps over the lazy dog";
-      const chunks = ChatService.chunkText(text);
-      expect(chunks.join("")).toBe(text);
-    });
-  });
-
-  describe("streamMessage", () => {
-    const baseDto = {
-      chatInput: "Hello, AI!",
-      agentId: MOCK_AGENT_ID,
-    };
-
-    beforeEach(() => {
-      // streamMessage uses direct chatMessage.create (not $transaction)
-      mockPrismaService.chatMessage.create
-        .mockResolvedValueOnce({ id: MOCK_USER_MSG_ID })
-        .mockResolvedValueOnce({ id: MOCK_ASSISTANT_MSG_ID });
-      mockPrismaService.chatSession.update.mockResolvedValue(mockSession);
-    });
-
-    it("should return sessionId, messageId, chunks, and metadata", async () => {
-      const result = await service.streamMessage(baseDto);
-
-      expect(result).toEqual(
-        expect.objectContaining({
-          sessionId: MOCK_SESSION_ID,
-          messageId: MOCK_USER_MSG_ID,
-          assistantMessageId: MOCK_ASSISTANT_MSG_ID,
-        }),
-      );
-      expect(result.chunks).toBeInstanceOf(Array);
-      expect(result.chunks.length).toBeGreaterThan(0);
-      expect(result.metadata).toEqual(
-        expect.objectContaining({
-          backendReceivedAt: expect.any(String),
-          backendRespondedAt: expect.any(String),
-          responseLatencyMs: expect.any(Number),
-        }),
-      );
-    });
-
-    it("should store user message BEFORE calling n8n", async () => {
-      const callOrder: string[] = [];
-
-      mockPrismaService.chatMessage.create.mockReset();
-      mockPrismaService.chatMessage.create.mockImplementation(() => {
-        callOrder.push("chatMessage.create");
-        return Promise.resolve({
-          id: callOrder.length === 1 ? MOCK_USER_MSG_ID : MOCK_ASSISTANT_MSG_ID,
-        });
-      });
-
-      (global.fetch as jest.Mock).mockImplementation(() => {
-        callOrder.push("fetch");
-        return Promise.resolve(createMockResponse(mockN8nResponse));
-      });
-
-      await service.streamMessage(baseDto);
-
-      expect(callOrder[0]).toBe("chatMessage.create"); // user message first
-      expect(callOrder[1]).toBe("fetch"); // then n8n call
-      expect(callOrder[2]).toBe("chatMessage.create"); // then assistant message
-    });
-
-    it("should store AI message AFTER n8n response (before streaming)", async () => {
-      await service.streamMessage(baseDto);
-
-      // chatMessage.create called twice: user message + assistant message
-      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledTimes(2);
-
-      // Second call should store assistant message with n8n reply
-      const secondCall = mockPrismaService.chatMessage.create.mock.calls[1][0];
-      expect(secondCall.data.role).toBe("ASSISTANT");
-      expect(secondCall.data.content).toBe(mockN8nResponse.agentReply);
-    });
-
-    it("should chunk the n8n reply text", async () => {
-      const result = await service.streamMessage(baseDto);
-
-      // Chunks include trailing spaces — concatenation reconstructs original text
-      expect(result.chunks.join("")).toBe(mockN8nResponse.agentReply);
-    });
-
-    it("should create a new session when no sessionId provided", async () => {
-      await service.streamMessage(baseDto);
-
-      expect(mockPrismaService.chatSession.create).toHaveBeenCalledWith({
-        data: {
-          agentId: MOCK_AGENT_ID,
-          sessionId: expect.any(String),
-          source: "DEMO",
-          visitorId: null,
-          ipHash: null,
-          consentId: null,
-        },
-      });
-    });
-
-    it("should reuse existing session when sessionId provided", async () => {
-      mockPrismaService.chatSession.findFirst.mockResolvedValue(mockSession);
-
-      await service.streamMessage({ ...baseDto, sessionId: MOCK_SESSION_ID });
-
-      expect(mockPrismaService.chatSession.findFirst).toHaveBeenCalledWith({
-        where: {
-          sessionId: MOCK_SESSION_ID,
-          agentId: MOCK_AGENT_ID,
-          status: "ACTIVE",
-        },
-        include: { agent: { select: { sessionLifetimeHours: true } } },
-      });
-      expect(mockPrismaService.chatSession.create).not.toHaveBeenCalled();
-    });
-
-    it("should throw NotFoundException when agent not found", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(null);
-
-      await expect(service.streamMessage(baseDto)).rejects.toThrow(
-        NotFoundException,
-      );
-      await expect(service.streamMessage(baseDto)).rejects.toThrow(
-        "Agent not found or inactive",
-      );
-    });
-
-    it("should throw BadGatewayException on n8n timeout", async () => {
-      const timeoutError = new DOMException("Timeout", "TimeoutError");
-      (global.fetch as jest.Mock).mockRejectedValue(timeoutError);
-
-      await expect(service.streamMessage(baseDto)).rejects.toThrow(
-        BadGatewayException,
-      );
-      await expect(service.streamMessage(baseDto)).rejects.toThrow(
-        "Response is taking too long, please try again",
-      );
-    });
-
-    it("should throw BadGatewayException on n8n network error", async () => {
-      (global.fetch as jest.Mock).mockRejectedValue(
-        new TypeError("fetch failed"),
-      );
-
-      await expect(service.streamMessage(baseDto)).rejects.toThrow(
-        BadGatewayException,
-      );
-    });
-
-    it("should update session lastMessageAt", async () => {
-      await service.streamMessage(baseDto);
-
-      expect(mockPrismaService.chatSession.update).toHaveBeenCalledWith({
-        where: { id: MOCK_SESSION_DB_ID },
-        data: { lastMessageAt: expect.any(Date) },
-      });
-    });
-
-    it("should include metadata with timestamps", async () => {
-      const result = await service.streamMessage(baseDto);
-
-      expect(result.metadata.n8nReceivedAt).toBe(mockN8nResponse.n8nReceivedAt);
-      expect(result.metadata.agentRepliedAt).toBe(
-        mockN8nResponse.agentRepliedAt,
-      );
-    });
-
-    it("should include streamingMode=simulated in metadata", async () => {
-      const result = await service.streamMessage(baseDto);
-
-      expect(result.metadata).toHaveProperty("streamingMode", "simulated");
-    });
-
-    it("should not use $transaction (stores messages separately)", async () => {
-      await service.streamMessage(baseDto);
-
-      expect(mockPrismaService.$transaction).not.toHaveBeenCalled();
-    });
-
-    it("should leave orphaned user message when n8n call fails (user msg stored before n8n)", async () => {
-      mockPrismaService.chatMessage.create.mockReset();
-      mockPrismaService.chatMessage.create.mockResolvedValueOnce({
-        id: MOCK_USER_MSG_ID,
-      });
-
-      (global.fetch as jest.Mock).mockRejectedValue(
-        new TypeError("fetch failed"),
-      );
-
-      await expect(service.streamMessage(baseDto)).rejects.toThrow(
-        BadGatewayException,
-      );
-
-      // User message was stored (before n8n call)
-      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledTimes(1);
-      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
-        data: {
-          chatSessionId: MOCK_SESSION_DB_ID,
-          agentId: MOCK_AGENT_ID,
-          sessionSource: "DEMO",
-          role: "USER",
-          content: baseDto.chatInput,
-        },
-      });
-
-      // Assistant message was NOT stored (n8n failed before we got a reply)
-      // Session was NOT updated
-      expect(mockPrismaService.chatSession.update).not.toHaveBeenCalled();
-    });
-  });
-
-  describe("HMAC verification", () => {
-    const baseDto = {
-      chatInput: "Hello, AI!",
-      agentId: MOCK_AGENT_ID,
-    };
-
-    const MOCK_DECRYPTED_SECRET = "decrypted-hmac-secret";
-    const MOCK_VALID_SIGNATURE = "valid-hex-signature";
-    const MOCK_ENCRYPTED_API_KEY = "encrypted:api:key";
-
-    describe("hmacEnabled=true with valid signature", () => {
-      beforeEach(() => {
-        mockPrismaService.agent.findFirst.mockResolvedValue({
-          id: MOCK_AGENT_ID,
-          hmacEnabled: true,
-        });
-        mockPrismaService.agentSecret.findUnique.mockResolvedValue({
-          apiKey: MOCK_ENCRYPTED_API_KEY,
-        });
-        mockCryptoService.decrypt.mockReturnValue(MOCK_DECRYPTED_SECRET);
-        mockHmacService.verifySignature.mockReturnValue(true);
-
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse(mockN8nResponse, {
-            headers: { "x-signature": MOCK_VALID_SIGNATURE },
-          }),
-        );
-      });
-
-      it("should process response normally when signature is valid", async () => {
-        const result = await service.sendMessage(baseDto);
-
-        expect(result.reply).toBe(mockN8nResponse.agentReply);
-        expect(mockHmacService.verifySignature).toHaveBeenCalledWith(
-          mockN8nResponseText,
-          MOCK_VALID_SIGNATURE,
-          MOCK_DECRYPTED_SECRET,
-        );
-      });
-
-      it("should decrypt the agent secret via CryptoService", async () => {
-        await service.sendMessage(baseDto);
-
-        expect(mockCryptoService.decrypt).toHaveBeenCalledWith(
-          MOCK_ENCRYPTED_API_KEY,
-        );
-      });
-
-      it("should fetch agent secret from AgentSecret table", async () => {
-        await service.sendMessage(baseDto);
-
-        expect(mockPrismaService.agentSecret.findUnique).toHaveBeenCalledWith({
-          where: { agentId: MOCK_AGENT_ID },
-          select: { apiKey: true },
-        });
-      });
-
-      it("should not log audit event on successful verification", async () => {
-        await service.sendMessage(baseDto);
-
-        expect(mockTracerService.logAuditEvent).not.toHaveBeenCalled();
-      });
-    });
-
-    describe("hmacEnabled=true with invalid signature", () => {
-      beforeEach(() => {
-        mockPrismaService.agent.findFirst.mockResolvedValue({
-          id: MOCK_AGENT_ID,
-          hmacEnabled: true,
-        });
-        mockPrismaService.agentSecret.findUnique.mockResolvedValue({
-          apiKey: MOCK_ENCRYPTED_API_KEY,
-        });
-        mockCryptoService.decrypt.mockReturnValue(MOCK_DECRYPTED_SECRET);
-        mockHmacService.verifySignature.mockReturnValue(false);
-        mockTracerService.logAuditEvent.mockResolvedValue(undefined);
-      });
-
-      it("should reject and throw BadGatewayException", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse(mockN8nResponse, {
-            headers: { "x-signature": "bad-signature" },
-          }),
-        );
-
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
-        );
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          "Response verification failed",
-        );
-      });
-
-      it("should log HMAC_VERIFICATION_FAILED audit event with invalid_signature reason", async () => {
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse(mockN8nResponse, {
-            headers: { "x-signature": "bad-signature" },
-          }),
-        );
-
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
-        );
-
-        expect(mockTracerService.logAuditEvent).toHaveBeenCalledWith(
-          MOCK_AGENT_ID,
-          "HMAC_VERIFICATION_FAILED",
-          { sessionId: MOCK_SESSION_ID, reason: "invalid_signature" },
-          { agentId: MOCK_AGENT_ID },
-        );
-      });
-    });
-
-    describe("hmacEnabled=true with missing X-Signature header", () => {
-      beforeEach(() => {
-        mockPrismaService.agent.findFirst.mockResolvedValue({
-          id: MOCK_AGENT_ID,
-          hmacEnabled: true,
-        });
-        mockPrismaService.agentSecret.findUnique.mockResolvedValue({
-          apiKey: MOCK_ENCRYPTED_API_KEY,
-        });
-        mockCryptoService.decrypt.mockReturnValue(MOCK_DECRYPTED_SECRET);
-        mockTracerService.logAuditEvent.mockResolvedValue(undefined);
-
-        // No x-signature header
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse(mockN8nResponse),
-        );
-      });
-
-      it("should reject and throw BadGatewayException", async () => {
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
-        );
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          "Response verification failed",
-        );
-      });
-
-      it("should log audit event with missing_signature_header reason", async () => {
-        await expect(service.sendMessage(baseDto)).rejects.toThrow(
-          BadGatewayException,
-        );
-
-        expect(mockTracerService.logAuditEvent).toHaveBeenCalledWith(
-          MOCK_AGENT_ID,
-          "HMAC_VERIFICATION_FAILED",
-          { sessionId: MOCK_SESSION_ID, reason: "missing_signature_header" },
-          { agentId: MOCK_AGENT_ID },
-        );
-      });
-    });
-
-    describe("hmacEnabled=false skips verification", () => {
-      it("should not call HmacService.verifySignature", async () => {
-        mockPrismaService.agent.findFirst.mockResolvedValue({
-          id: MOCK_AGENT_ID,
-          hmacEnabled: false,
-        });
-
-        await service.sendMessage(baseDto);
-
-        expect(mockHmacService.verifySignature).not.toHaveBeenCalled();
-        expect(mockPrismaService.agentSecret.findUnique).not.toHaveBeenCalled();
-        expect(mockCryptoService.decrypt).not.toHaveBeenCalled();
-      });
-
-      it("should process response normally without HMAC check", async () => {
-        mockPrismaService.agent.findFirst.mockResolvedValue({
-          id: MOCK_AGENT_ID,
-          hmacEnabled: false,
-        });
-
-        const result = await service.sendMessage(baseDto);
-        expect(result.reply).toBe(mockN8nResponse.agentReply);
-      });
-    });
-
-    describe("hmacEnabled=true but no secret configured (AC#2: passthrough)", () => {
-      beforeEach(() => {
-        mockPrismaService.agent.findFirst.mockResolvedValue({
-          id: MOCK_AGENT_ID,
-          hmacEnabled: true,
-        });
-      });
-
-      it("should skip verification and process normally when no AgentSecret record exists", async () => {
-        mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse(mockN8nResponse, {
-            headers: { "x-signature": "some-sig" },
-          }),
-        );
-
-        const result = await service.sendMessage(baseDto);
-        expect(result.reply).toBe(mockN8nResponse.agentReply);
-        expect(mockHmacService.verifySignature).not.toHaveBeenCalled();
-      });
-
-      it("should skip verification when apiKey is null", async () => {
-        mockPrismaService.agentSecret.findUnique.mockResolvedValue({
-          apiKey: null,
-        });
-
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse(mockN8nResponse),
-        );
-
-        const result = await service.sendMessage(baseDto);
-        expect(result.reply).toBe(mockN8nResponse.agentReply);
-        expect(mockHmacService.verifySignature).not.toHaveBeenCalled();
-      });
-
-      it("should not log audit event when no secret (passthrough per AC#2)", async () => {
-        mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse(mockN8nResponse),
-        );
-
-        await service.sendMessage(baseDto);
-        expect(mockTracerService.logAuditEvent).not.toHaveBeenCalled();
-      });
-    });
-
-    describe("HMAC verification on streamMessage", () => {
-      beforeEach(() => {
-        mockPrismaService.chatMessage.create
-          .mockResolvedValueOnce({ id: MOCK_USER_MSG_ID })
-          .mockResolvedValueOnce({ id: MOCK_ASSISTANT_MSG_ID });
-        mockPrismaService.chatSession.update.mockResolvedValue(mockSession);
-      });
-
-      it("should verify HMAC when hmacEnabled=true in streamMessage", async () => {
-        mockPrismaService.agent.findFirst.mockResolvedValue({
-          id: MOCK_AGENT_ID,
-          hmacEnabled: true,
-        });
-        mockPrismaService.agentSecret.findUnique.mockResolvedValue({
-          apiKey: MOCK_ENCRYPTED_API_KEY,
-        });
-        mockCryptoService.decrypt.mockReturnValue(MOCK_DECRYPTED_SECRET);
-        mockHmacService.verifySignature.mockReturnValue(true);
-
-        (global.fetch as jest.Mock).mockResolvedValue(
-          createMockResponse(mockN8nResponse, {
-            headers: { "x-signature": MOCK_VALID_SIGNATURE },
-          }),
-        );
-
-        const result = await service.streamMessage(baseDto);
-        expect(result.chunks.join("")).toBe(mockN8nResponse.agentReply);
-        expect(mockHmacService.verifySignature).toHaveBeenCalled();
-      });
-
-      it("should skip HMAC when hmacEnabled=false in streamMessage", async () => {
-        mockPrismaService.agent.findFirst.mockResolvedValue({
-          id: MOCK_AGENT_ID,
-          hmacEnabled: false,
-        });
-
-        const result = await service.streamMessage(baseDto);
-        expect(result.chunks.join("")).toBe(mockN8nResponse.agentReply);
-        expect(mockHmacService.verifySignature).not.toHaveBeenCalled();
       });
     });
   });

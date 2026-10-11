@@ -5,7 +5,7 @@ import {
   BadGatewayException,
 } from "@nestjs/common";
 import { AppLogger } from "../../common/logger/app-logger";
-import type { N8nStreamChunk } from "../../services/n8n-stream.interface";
+import type { TokenStreamChunk } from "./token-stream.interface";
 import type { VoiceStreamChunk } from "./interfaces/voice-stream.interface";
 import { SentenceBuffer } from "./utils/sentence-buffer";
 import { DisplayTextTracker } from "./utils/display-text";
@@ -454,7 +454,7 @@ export class VoiceService {
    * real inference time.
    */
   async *streamingTTS(
-    tokenStream: AsyncGenerator<N8nStreamChunk>,
+    tokenStream: AsyncGenerator<TokenStreamChunk>,
     language: string,
     agentId: string,
     config?: VoiceConfigDto,
@@ -529,7 +529,7 @@ export class VoiceService {
    * the widget already renders as text-only sentences.
    */
   private async *streamTextOnly(
-    tokenStream: AsyncGenerator<N8nStreamChunk>,
+    tokenStream: AsyncGenerator<TokenStreamChunk>,
   ): AsyncGenerator<VoiceStreamChunk> {
     const sentenceBuffer = new SentenceBuffer();
     let fullText = "";
@@ -562,7 +562,7 @@ export class VoiceService {
   }
 
   private async *streamingTTSWithSession(
-    tokenStream: AsyncGenerator<N8nStreamChunk>,
+    tokenStream: AsyncGenerator<TokenStreamChunk>,
     lang: SupportedLanguage,
     agentId: string,
     config: VoiceConfigDto,
@@ -825,7 +825,7 @@ export class VoiceService {
    *   - WS streaming is force-disabled for the provider
    */
   private async *streamingTTSPerSentence(
-    tokenStream: AsyncGenerator<N8nStreamChunk>,
+    tokenStream: AsyncGenerator<TokenStreamChunk>,
     lang: SupportedLanguage,
     agentId: string,
     config: VoiceConfigDto,

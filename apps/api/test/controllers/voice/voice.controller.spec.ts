@@ -6,8 +6,6 @@ import { VoiceController } from "../../../src/modules/voice/voice.controller";
 import { VoiceService } from "../../../src/modules/voice/voice.service";
 import { ChatService } from "../../../src/services/chat.service";
 import { MessageMetricsService } from "../../../src/services/message-metrics.service";
-import { N8nStreamingService } from "../../../src/services/n8n-streaming.service";
-import { AgentsService } from "../../../src/services/agents.service";
 import { PrismaService } from "../../../src/services/prisma.service";
 import { DirectChatService } from "../../../src/modules/ai/direct-chat.service";
 import { MessageRateLimitService } from "../../../src/services/message-rate-limit.service";
@@ -75,13 +73,7 @@ describe("VoiceController", () => {
       .mockReturnValue("Offer a human if needed."),
   };
 
-  const mockN8nStreamingService = {
-    streamFromWebhookUrl: jest.fn(),
-  };
-
-  const mockAgentsService = {
-    getEffectiveWebhookUrl: jest.fn(),
-  };
+  const mockDirectChatService = { send: jest.fn(), stream: jest.fn() };
 
   const mockPrismaService = {
     chatMessage: {
@@ -90,8 +82,7 @@ describe("VoiceController", () => {
     // Voice controller now does `prisma.agent.findUniqueOrThrow({ where: { id }})`
     // to get the full Agent row (with aiConfig) before routing the LLM call —
     // resolveAgent returns a stripped projection that doesn't have aiConfig.
-    // Mock returns a baseline direct-mode agent that all routing tests can use;
-    // individual tests override aiConfig if they need n8n mode.
+    // Mock returns a baseline agent that all tests can use.
     agent: {
       findUniqueOrThrow: jest.fn(),
     },
@@ -168,8 +159,6 @@ describe("VoiceController", () => {
     assistantMessageId: "assistant-msg-uuid",
     metadata: {
       backendReceivedAt: "2026-03-21T10:00:00.000Z",
-      n8nReceivedAt: "2026-03-21T10:00:00.500Z",
-      agentRepliedAt: "2026-03-21T10:00:01.200Z",
       backendRespondedAt: "2026-03-21T10:00:01.300Z",
       responseLatencyMs: 1300,
     },
@@ -196,17 +185,12 @@ describe("VoiceController", () => {
       providers: [
         { provide: VoiceService, useValue: mockVoiceService },
         { provide: ChatService, useValue: mockChatService },
-        { provide: N8nStreamingService, useValue: mockN8nStreamingService },
-        { provide: AgentsService, useValue: mockAgentsService },
         { provide: PrismaService, useValue: mockPrismaService },
         {
           provide: MessageRateLimitService,
           useValue: mockMessageRateLimitService,
         },
-        {
-          provide: DirectChatService,
-          useValue: { send: jest.fn(), stream: jest.fn() },
-        },
+        { provide: DirectChatService, useValue: mockDirectChatService },
         {
           provide: MessageMetricsService,
           useValue: { record: jest.fn(), recordFromMetadata: jest.fn() },
@@ -222,7 +206,6 @@ describe("VoiceController", () => {
     // Default: resolve agent (publicId → UUID)
     mockChatService.resolveAgent.mockResolvedValue({
       id: AGENT_ID,
-      hmacEnabled: false,
       organizationId: "org-id",
     });
 
@@ -235,21 +218,12 @@ describe("VoiceController", () => {
       allowed: true,
     });
 
-    // Default: webhook URL configured (streaming is the only path now).
-    // Tests that need to exercise the "no webhook" 412 branch override per-test.
-    mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue(
-      "https://n8n.example.com/webhook/abc",
-    );
-
     // Default: prisma mocks
     mockPrismaService.chatMessage.update.mockResolvedValue({});
     // Full Agent row used by the voice controller's `findUniqueOrThrow` call.
-    // Defaults to direct-mode (aiConfig.routingMode = 'direct') because that
-    // is the production path; the few legacy n8n-mode tests override per-test.
     mockPrismaService.agent.findUniqueOrThrow.mockResolvedValue({
       id: AGENT_ID,
-      hmacEnabled: false,
-      aiConfig: { routingMode: "direct" },
+      aiConfig: {},
       systemPrompt: "",
       organizationId: "org-id",
     });
@@ -302,43 +276,51 @@ describe("VoiceController", () => {
           channel: "VOICE",
         },
       );
-      expect(
-        mockN8nStreamingService.streamFromWebhookUrl,
-      ).not.toHaveBeenCalled();
+      expect(mockDirectChatService.stream).not.toHaveBeenCalled();
     });
 
-    it("should return 412 if the agent has no webhook URL configured", async () => {
-      // This test exercises the n8n routing path — override the default
-      // direct-mode agent with an n8n one. getEffectiveWebhookUrl is only
-      // consulted in n8n mode.
+    it("serves an agent with no aiConfig through DirectChatService (no routing switch)", async () => {
       mockPrismaService.agent.findUniqueOrThrow.mockResolvedValueOnce({
         id: AGENT_ID,
-        hmacEnabled: false,
-        aiConfig: { routingMode: "n8n" },
+        aiConfig: null,
         systemPrompt: "",
         organizationId: "org-id",
       });
-      mockAgentsService.getEffectiveWebhookUrl.mockRejectedValueOnce(
-        new Error("No webhook URL"),
-      );
       mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
+      mockChatService.resolveOrCreateSession.mockResolvedValue({
+        id: "session-123",
+        sessionId: "ext-session-123",
+        agentId: "agent-1",
+      });
+      mockChatService.saveUserMessage.mockResolvedValue({ id: "user-msg-123" });
+      mockChatService.saveAssistantMessage.mockResolvedValue({ id: "a-1" });
+      mockVoiceService.streamingTTS.mockReturnValue(
+        (async function* () {
+          yield { type: "end" as const, fullText: "Hi", totalSentences: 0 };
+        })(),
+      );
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
-      const res = createMockResponse();
+      const res = {
+        status: jest.fn().mockReturnThis(),
+        setHeader: jest.fn(),
+        write: jest.fn(),
+        end: jest.fn(),
+        on: jest.fn(),
+      } as unknown as Response;
 
-      const result = (await controller.voiceConversation(
-        audioFile,
-        dto,
-        streamingReq(),
-        res,
-      )) as ErrorResult;
+      await controller.voiceConversation(audioFile, dto, streamingReq(), res);
 
-      expect(res.status).toHaveBeenCalledWith(HttpStatus.PRECONDITION_FAILED);
-      expect(result.errorCode).toBe(voiceErrorCodes.PROVIDER_UNAVAILABLE);
-      expect(
-        mockN8nStreamingService.streamFromWebhookUrl,
-      ).not.toHaveBeenCalled();
+      expect(res.status).not.toHaveBeenCalledWith(
+        HttpStatus.PRECONDITION_FAILED,
+      );
+      expect(mockDirectChatService.stream).toHaveBeenCalledWith(
+        expect.objectContaining({
+          newUserMessage: mockSttResult.transcript,
+          feature: "voice",
+        }),
+      );
     });
 
     it("should return RATE_LIMITED before checking streaming requirements", async () => {
@@ -941,10 +923,6 @@ describe("VoiceController", () => {
     const mockUserMessage = { id: "user-msg-123" };
 
     beforeEach(() => {
-      // Enable streaming path
-      mockAgentsService.getEffectiveWebhookUrl.mockResolvedValue(
-        "https://n8n.example.com/webhook/agent-1",
-      );
       mockChatService.resolveOrCreateSession.mockResolvedValue(mockSession);
       mockChatService.saveUserMessage.mockResolvedValue(mockUserMessage);
       mockChatService.saveAssistantMessage.mockResolvedValue({
@@ -952,7 +930,7 @@ describe("VoiceController", () => {
       });
     });
 
-    it("should use streaming path when webhookUrl is available", async () => {
+    it("should stream transcription, audio and end chunks", async () => {
       mockVoiceService.transcribe.mockResolvedValue(mockSttResult);
 
       async function* mockVoiceStream() {
@@ -968,11 +946,6 @@ describe("VoiceController", () => {
         yield { type: "end" as const, fullText: "Hello!", totalSentences: 1 };
       }
       mockVoiceService.streamingTTS.mockReturnValue(mockVoiceStream());
-      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(
-        (async function* () {
-          yield { type: "item", content: "Hello!" };
-        })(),
-      );
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
@@ -1053,11 +1026,6 @@ describe("VoiceController", () => {
           yield { type: "end" as const, fullText: "ok", totalSentences: 0 };
         })(),
       );
-      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(
-        (async function* () {
-          yield { type: "item", content: "ok" };
-        })(),
-      );
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
@@ -1082,11 +1050,6 @@ describe("VoiceController", () => {
         throw new Error("TTS provider crashed");
       }
       mockVoiceService.streamingTTS.mockReturnValue(failingStream());
-      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(
-        (async function* () {
-          yield { type: "item", content: "Hello" };
-        })(),
-      );
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };
@@ -1120,11 +1083,6 @@ describe("VoiceController", () => {
         yield { type: "end" as const, fullText: "Hello!", totalSentences: 1 };
       }
       mockVoiceService.streamingTTS.mockReturnValue(mockVoiceStream());
-      mockN8nStreamingService.streamFromWebhookUrl.mockReturnValue(
-        (async function* () {
-          yield { type: "item", content: "Hello!" };
-        })(),
-      );
 
       const audioFile = createMockAudioFile();
       const dto = { agentId: AGENT_ID, sessionId: SESSION_ID };

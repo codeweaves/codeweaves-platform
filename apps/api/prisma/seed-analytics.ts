@@ -294,8 +294,6 @@ async function seedForAgent(
             content: pickRandom(ASSISTANT_MESSAGES),
             metadata: {
               backendReceivedAt: backendReceivedAt.toISOString(),
-              n8nReceivedAt: null,
-              agentRepliedAt: null,
               backendRespondedAt: backendRespondedAt.toISOString(),
               responseLatencyMs,
             },

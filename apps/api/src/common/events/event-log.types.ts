@@ -1,4 +1,4 @@
-import { EventChannel, EventDirection } from '@prisma/client';
+import { EventChannel, EventDirection } from "@prisma/client";
 
 /**
  * Input to `TracerService.logEvent()`. Everything except `channel` + `eventName`
@@ -11,7 +11,7 @@ export interface EventLogInput {
   eventName: string;
   /** Defaults to INTERNAL. */
   direction?: EventDirection;
-  /** ANTHROPIC | OPENAI | ELEVENLABS | SARVAM | DEEPGRAM | META_WHATSAPP | N8N | RESEND | CLERK | SUPABASE … */
+  /** ANTHROPIC | OPENAI | ELEVENLABS | SARVAM | DEEPGRAM | META_WHATSAPP | RESEND | CLERK | SUPABASE … */
   provider?: string;
 
   // WHO (auto-filled from context when omitted)

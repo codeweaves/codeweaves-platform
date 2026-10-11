@@ -107,7 +107,7 @@ const allCategories: Category[] = [
     id: "integration",
     title: "Integration",
     icon: <Plug className="h-5 w-5" />,
-    description: "Routing: n8n webhook or native AI orchestrator",
+    description: "Allowed domains and the AI model",
     requires: "AgentSecret:Read",
   },
   {

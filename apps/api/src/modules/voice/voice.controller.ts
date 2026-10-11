@@ -8,7 +8,6 @@ import {
   UploadedFile,
   UseInterceptors,
   HttpStatus,
-  NotFoundException,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
@@ -31,15 +30,12 @@ import {
 } from "../../services/web-visitor";
 import { MessageMetricsService } from "../../services/message-metrics.service";
 import { detectFallback } from "../../utils/fallback-detection";
-import { N8nStreamingService } from "../../services/n8n-streaming.service";
-import { AgentsService } from "../../services/agents.service";
 import { PrismaService } from "../../services/prisma.service";
 import { MessageRateLimitService } from "../../services/message-rate-limit.service";
 import { DirectChatService } from "../ai/direct-chat.service";
 import type { DirectChatResult } from "../ai/interfaces/direct-chat.interfaces";
-import { directChatToN8nStream } from "../ai/adapters/voice-token-stream.adapter";
-import { resolveRoutingMode } from "@repo/validation";
-import type { N8nStreamChunk } from "../../services/n8n-stream.interface";
+import { directChatToTokenStream } from "../ai/adapters/voice-token-stream.adapter";
+import type { TokenStreamChunk } from "./token-stream.interface";
 import { ZodValidationPipe } from "../../pipes/zod-validation.pipe";
 import {
   voiceConversationSchema,
@@ -79,8 +75,6 @@ export class VoiceController {
   constructor(
     private readonly voiceService: VoiceService,
     private readonly chatService: ChatService,
-    private readonly n8nStreamingService: N8nStreamingService,
-    private readonly agentsService: AgentsService,
     private readonly prisma: PrismaService,
     private readonly messageRateLimitService: MessageRateLimitService,
     private readonly directChatService: DirectChatService,
@@ -263,9 +257,7 @@ export class VoiceController {
       }
 
       // Streaming-only path. Clients MUST send Accept: application/x-ndjson.
-      // Branches into direct-mode (no webhook needed) or n8n-mode (webhook URL
-      // required) based on the agent's aiConfig.routingMode. Legacy non-streaming
-      // fallback was removed — every voice consumer uses streaming exclusively.
+      // Every voice consumer uses streaming exclusively.
       const clientAcceptsNdjson = req.headers["accept"]?.includes(
         "application/x-ndjson",
       );
@@ -286,52 +278,11 @@ export class VoiceController {
         };
       }
 
-      // Resolve full agent for routing-mode + aiConfig inspection. ChatService.resolveAgent
-      // returns a stripped projection, so we hit the DB again for the full record.
-      // Cheap query (PK lookup) and only runs on the voice endpoint.
+      // ChatService.resolveAgent returns a stripped projection; the orchestrator
+      // needs the full record (systemPrompt, aiConfig). Cheap PK lookup.
       const fullAgent = await this.prisma.agent.findUniqueOrThrow({
         where: { id: resolvedAgentId },
       });
-      const routingMode = resolveRoutingMode(fullAgent.aiConfig);
-      this.log.info("voiceConversation", "routing resolved", {
-        agentId: resolvedAgentId,
-        routingMode,
-      });
-
-      let webhookUrl: string | null = null;
-      if (routingMode === "n8n") {
-        try {
-          webhookUrl =
-            await this.agentsService.getEffectiveWebhookUrl(resolvedAgentId);
-        } catch (error) {
-          if (!(error instanceof NotFoundException)) {
-            this.log.error(
-              "voiceConversation",
-              "failed to fetch webhook URL",
-              error,
-              {
-                agentId: resolvedAgentId,
-              },
-            );
-          }
-        }
-        if (!webhookUrl) {
-          this.log.warn(
-            "voiceConversation",
-            "n8n agent has no webhook URL configured",
-            {
-              agentId: resolvedAgentId,
-            },
-          );
-          res.status(HttpStatus.PRECONDITION_FAILED);
-          return {
-            error: true,
-            errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
-            message:
-              "Agent is not configured for voice conversations (no webhook URL).",
-          };
-        }
-      }
 
       let voiceConfig: VoiceConfigDto;
       try {
@@ -348,57 +299,20 @@ export class VoiceController {
         voiceConfig = { ttsEnabled: true } as VoiceConfigDto;
       }
 
-      // Direct-mode streaming: agent has aiConfig.routingMode = 'direct', so we
-      // bypass n8n entirely and pipe DirectChatService → voice adapter → existing
-      // VoiceService.streamingTTS pipeline. No webhook URL needed.
-      if (routingMode === "direct") {
-        await this.handleStreamingVoice(
-          dto,
-          sttResult,
-          sttLatencyMs,
-          "direct",
-          fullAgent,
-          null,
-          voiceConfig,
-          startTime,
-          res,
-          resolvedAgentId,
-          visitor,
-          recordStt,
-        );
-        return;
-      }
-
-      if (webhookUrl) {
-        await this.handleStreamingVoice(
-          dto,
-          sttResult,
-          sttLatencyMs,
-          "n8n",
-          fullAgent,
-          webhookUrl,
-          voiceConfig,
-          startTime,
-          res,
-          resolvedAgentId,
-          visitor,
-          recordStt,
-        );
-        return;
-      }
-
-      // No valid routing — return error (legacy sequential path removed)
-      this.log.warn(
-        "voiceConversation",
-        "no valid routing configuration for agent",
-        { agentId: resolvedAgentId, routingMode },
+      // DirectChatService → voice adapter → VoiceService.streamingTTS pipeline.
+      await this.handleStreamingVoice(
+        dto,
+        sttResult,
+        sttLatencyMs,
+        fullAgent,
+        voiceConfig,
+        startTime,
+        res,
+        resolvedAgentId,
+        visitor,
+        recordStt,
       );
-      res.status(HttpStatus.PRECONDITION_FAILED);
-      return {
-        error: true,
-        errorCode: voiceErrorCodes.PROVIDER_UNAVAILABLE,
-        message: "Voice conversation requires a routing configuration.",
-      };
+      return;
     } finally {
       recordStt(null);
     }
@@ -614,9 +528,7 @@ export class VoiceController {
     dto: VoiceConversationDto,
     sttResult: STTResponse,
     sttLatencyMs: number,
-    mode: "n8n" | "direct",
     fullAgent: Awaited<ReturnType<PrismaService["agent"]["findUniqueOrThrow"]>>,
-    webhookUrl: string | null,
     voiceConfig: VoiceConfigDto,
     startTime: number,
     res: Response,
@@ -635,7 +547,6 @@ export class VoiceController {
     this.log.debug("handleStreamingVoice", "streaming voice turn starting", {
       agentId: resolvedAgentId,
       sessionId: session.sessionId,
-      mode,
     });
 
     // Set chunked response headers. X-Message-Id is set on the AI path only —
@@ -813,53 +724,34 @@ export class VoiceController {
       clearStreamTimers();
     });
 
-    // Build the token stream from either direct-mode LLM or the legacy n8n
-    // webhook, depending on the agent's routing mode. Both sources yield
-    // chunks in N8nStreamChunk format (the direct-mode path adapts via
-    // directChatToN8nStream) so the downstream voice pipeline is unchanged.
+    // Build the token stream from the LLM. DirectChatService chunks are adapted
+    // to TokenStreamChunk so the downstream voice pipeline is unchanged.
     //
-    // For direct mode, we also capture the LLM's per-turn result (ttftMs,
-    // tokens, cost, model, finishReason) via the adapter's onFinish callback
-    // so we can persist them into the assistant-message metadata below — that
-    // gives analytics a full STT/LLM/TTS breakdown per voice turn instead of
-    // only the aggregate timings.
-    let tokenStream: AsyncGenerator<N8nStreamChunk>;
+    // We also capture the LLM's per-turn result (ttftMs, tokens, cost, model,
+    // finishReason) via the adapter's onFinish callback so we can persist them
+    // into the assistant-message metadata below — that gives analytics a full
+    // STT/LLM/TTS breakdown per voice turn instead of only the aggregate timings.
     let llmResult: DirectChatResult | null = null;
-    if (mode === "direct") {
-      const directStream = this.directChatService.stream({
-        agent: fullAgent,
-        chatSessionId: session.id,
-        externalSessionId: session.sessionId,
-        newUserMessage: sttResult.transcript,
-        feature: "voice",
-        abortSignal: abortController.signal,
-        // Already mid-handover → stall politely; otherwise offer/escalate via tool.
-        extraSystemInstruction: inRequested
-          ? this.chatService.handoverStallInstruction(fullAgent)
-          : offerHumanTools
-            ? this.chatService.humanOfferInstruction()
-            : undefined,
-        tools: offerHumanTools,
-        maxSteps: offerHumanTools ? 3 : undefined,
-      });
-      tokenStream = directChatToN8nStream(directStream, (r) => {
+    const directStream = this.directChatService.stream({
+      agent: fullAgent,
+      chatSessionId: session.id,
+      externalSessionId: session.sessionId,
+      newUserMessage: sttResult.transcript,
+      feature: "voice",
+      abortSignal: abortController.signal,
+      // Already mid-handover → stall politely; otherwise offer/escalate via tool.
+      extraSystemInstruction: inRequested
+        ? this.chatService.handoverStallInstruction(fullAgent)
+        : offerHumanTools
+          ? this.chatService.humanOfferInstruction()
+          : undefined,
+      tools: offerHumanTools,
+      maxSteps: offerHumanTools ? 3 : undefined,
+    });
+    const tokenStream: AsyncGenerator<TokenStreamChunk> =
+      directChatToTokenStream(directStream, (r) => {
         llmResult = r;
       });
-    } else {
-      if (!webhookUrl) {
-        // Should never happen — routing mode was 'n8n' but webhookUrl absent.
-        // Defensive: surface a clear error rather than crashing mid-stream.
-        throw new Error(
-          "handleStreamingVoice called in n8n mode without a webhookUrl",
-        );
-      }
-      tokenStream = this.n8nStreamingService.streamFromWebhookUrl(
-        webhookUrl,
-        sttResult.transcript,
-        session.sessionId,
-        abortController.signal,
-      );
-    }
 
     const ttsLatencies: number[] = [];
     // Track WS-specific metrics across all sentences when streaming was used.
@@ -1017,30 +909,29 @@ export class VoiceController {
           )
         : 0;
 
-    // Pull LLM metrics off the direct-mode result if present. We spread these
+    // Pull LLM metrics off the LLM result if present. We spread these
     // into the metadata at the top level (rather than nesting under `llm:`) so
     // existing analytics queries that look for `model` / `ttftMs` / `cost` on
     // text messages also work for voice messages.
-    const llmMetadata: Record<string, unknown> =
-      mode === "direct" && llmResult
-        ? {
-            model: (llmResult as DirectChatResult).model,
-            llmTtftMs: (llmResult as DirectChatResult).ttftMs,
-            llmLatencyMs: (llmResult as DirectChatResult).latencyMs,
-            inputTokens: (llmResult as DirectChatResult).usage.inputTokens,
-            outputTokens: (llmResult as DirectChatResult).usage.outputTokens,
-            totalTokens: (llmResult as DirectChatResult).usage.totalTokens,
-            cachedInputTokens:
-              (llmResult as DirectChatResult).usage.cachedInputTokens ?? null,
-            reasoningTokens:
-              (llmResult as DirectChatResult).usage.reasoningTokens ?? null,
-            cost: (llmResult as DirectChatResult).cost,
-            finishReason: (llmResult as DirectChatResult).finishReason,
-            traceId: (llmResult as DirectChatResult).traceId,
-            historyCount: (llmResult as DirectChatResult).historyCount,
-            historyTruncated: (llmResult as DirectChatResult).historyTruncated,
-          }
-        : {};
+    const llmMetadata: Record<string, unknown> = llmResult
+      ? {
+          model: (llmResult as DirectChatResult).model,
+          llmTtftMs: (llmResult as DirectChatResult).ttftMs,
+          llmLatencyMs: (llmResult as DirectChatResult).latencyMs,
+          inputTokens: (llmResult as DirectChatResult).usage.inputTokens,
+          outputTokens: (llmResult as DirectChatResult).usage.outputTokens,
+          totalTokens: (llmResult as DirectChatResult).usage.totalTokens,
+          cachedInputTokens:
+            (llmResult as DirectChatResult).usage.cachedInputTokens ?? null,
+          reasoningTokens:
+            (llmResult as DirectChatResult).usage.reasoningTokens ?? null,
+          cost: (llmResult as DirectChatResult).cost,
+          finishReason: (llmResult as DirectChatResult).finishReason,
+          traceId: (llmResult as DirectChatResult).traceId,
+          historyCount: (llmResult as DirectChatResult).historyCount,
+          historyTruncated: (llmResult as DirectChatResult).historyTruncated,
+        }
+      : {};
 
     // Aggregate WS-specific metrics across all sentences. Mixed-transport
     // turns (some sentences streamed, some fell back to batch) are reported
@@ -1075,7 +966,6 @@ export class VoiceController {
     const metadata = {
       inputType: "voice" as const,
       streaming: true,
-      routingMode: mode,
       detectedLanguage: sttResult.detectedLanguage,
       languageConfidence: sttResult.confidence,
       sttProvider: sttResult.provider ?? null,
@@ -1139,7 +1029,6 @@ export class VoiceController {
         visitorId: visitor.visitorId,
         latencyMs: metadata.totalLatencyMs,
         metadata: {
-          routingMode: mode,
           sttProvider: metadata.sttProvider,
           ttsProvider: metadata.ttsProvider,
           ttsProtocol: metadata.ttsProtocol,

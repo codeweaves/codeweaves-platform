@@ -1,7 +1,8 @@
-import { Injectable } from '@nestjs/common';
-import { RateLimiterService } from '../common/redis/rate-limiter.service';
-import { AppLogger } from '../common/logger/app-logger';
-import type { Request } from 'express';
+import { Injectable } from "@nestjs/common";
+import { RateLimiterService } from "../common/redis/rate-limiter.service";
+import { AppLogger } from "../common/logger/app-logger";
+import type { Request } from "express";
+import { clientIp } from "../utils/client-ip";
 
 export interface MessageRateLimitResult {
   allowed: boolean;
@@ -51,7 +52,7 @@ export class MessageRateLimitService {
     // device header per request cannot mint fresh buckets to bypass the limit.
     // Checked before the device buckets, and from the higher (hour) threshold
     // down, so a phantom ZADD from a passing check lands in a tolerant bucket.
-    if (clientIp && clientIp !== 'unknown') {
+    if (clientIp && clientIp !== "unknown") {
       const ipHourKey = `msg_rate_ip:${clientIp}:${agentPublicId}:hour`;
       const ipHourResult = await this.rateLimiterService.checkRateLimit(
         ipHourKey,
@@ -60,7 +61,7 @@ export class MessageRateLimitService {
       );
       if (!ipHourResult.allowed) {
         this.log.warn(
-          'checkMessageRateLimit',
+          "checkMessageRateLimit",
           `per-IP hour rate limit exceeded for ip=${clientIp} agent=${agentPublicId}`,
         );
         return {
@@ -78,7 +79,7 @@ export class MessageRateLimitService {
       );
       if (!ipMinuteResult.allowed) {
         this.log.warn(
-          'checkMessageRateLimit',
+          "checkMessageRateLimit",
           `per-IP minute rate limit exceeded for ip=${clientIp} agent=${agentPublicId}`,
         );
         return {
@@ -100,7 +101,7 @@ export class MessageRateLimitService {
 
     if (!hourResult.allowed) {
       this.log.warn(
-        'checkMessageRateLimit',
+        "checkMessageRateLimit",
         `hour rate limit exceeded for device=${deviceId} agent=${agentPublicId}`,
       );
       return {
@@ -119,7 +120,7 @@ export class MessageRateLimitService {
 
     if (!minuteResult.allowed) {
       this.log.warn(
-        'checkMessageRateLimit',
+        "checkMessageRateLimit",
         `minute rate limit exceeded for device=${deviceId} agent=${agentPublicId}`,
       );
       return {
@@ -133,22 +134,14 @@ export class MessageRateLimitService {
   }
 
   getDeviceIdentifier(request: Request): string {
-    const deviceIdHeader = request.headers['x-device-id'];
+    const deviceIdHeader = request.headers["x-device-id"];
     if (deviceIdHeader) {
-      return Array.isArray(deviceIdHeader) ? deviceIdHeader[0]! : deviceIdHeader;
+      return Array.isArray(deviceIdHeader)
+        ? deviceIdHeader[0]!
+        : deviceIdHeader;
     }
 
-    if (request.ip) {
-      return request.ip;
-    }
-
-    const forwarded = request.headers['x-forwarded-for'];
-    if (forwarded) {
-      const first = Array.isArray(forwarded) ? forwarded[0]! : forwarded.split(',')[0]!;
-      return first.trim();
-    }
-
-    return 'unknown';
+    return clientIp(request) ?? "unknown";
   }
 
   /**
@@ -168,6 +161,6 @@ export class MessageRateLimitService {
    * are env-tunable for exactly this reason.
    */
   getClientIp(request: Request): string {
-    return request.ip ?? 'unknown';
+    return clientIp(request) ?? "unknown";
   }
 }

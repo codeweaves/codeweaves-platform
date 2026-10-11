@@ -1154,7 +1154,7 @@ textarea.cw-input::-webkit-scrollbar {
 
 /* ── Mobile fullscreen (≤ 480px) ──────────────────────────────────── */
 /*
- * Pure-CSS approach (Path A — matches Chatwoot/Typebot/n8n/Papercups OSS pattern):
+ * Pure-CSS approach (Path A — matches Chatwoot/Typebot/Papercups OSS pattern):
  *   - height: 100dvh — dynamic viewport, shrinks when iOS Safari keyboard opens
  *     (iOS Safari 16.4+, Android Chrome 108+). svh / vh are fallbacks.
  *   - padding-bottom: env(keyboard-inset-height) — on Chromium browsers where

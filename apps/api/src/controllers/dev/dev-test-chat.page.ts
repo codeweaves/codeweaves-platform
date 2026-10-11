@@ -648,7 +648,7 @@ export const devTestChatHtml = /* html */ `<!DOCTYPE html>
           const opt = document.createElement('option');
           opt.value = a.id;
           const model = a.modelId ? a.modelId.split('/').pop() : 'default';
-          opt.textContent = \`\${a.name} — \${a.routingMode}/\${model}\`;
+          opt.textContent = \`\${a.name} · \${model}\`;
           agentSelect.appendChild(opt);
         }
         agentSelect.disabled = false;

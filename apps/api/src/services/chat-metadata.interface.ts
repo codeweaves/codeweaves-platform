@@ -1,20 +1,17 @@
 /**
- * Unified metadata stored on every assistant ChatMessage, regardless of which
- * routing mode (n8n / direct) produced the reply. One shape everywhere means
- * analytics queries stay simple — no `CASE WHEN streamingMode = 'direct' THEN`
- * branching — and the eventual removal of n8n won't require schema surgery.
+ * Unified metadata stored on every assistant ChatMessage. One shape everywhere
+ * means analytics queries stay simple.
  *
  * Field-level rules:
- *   - Fields populated in BOTH modes (baseline): streamingMode, responseLatencyMs,
- *     backendReceivedAt, backendRespondedAt.
- *   - Fields populated in REAL/DIRECT streaming: timeToFirstToken, timeToLastToken,
- *     streamDurationMs, totalChunks. Always `null` on the simulated-sync path.
- *   - Fields populated ONLY in n8n modes: n8nReceivedAt, agentRepliedAt. Marked
- *     deprecated — populated while n8n exists, will be removed after n8n goes away.
- *   - Fields populated ONLY in direct mode: traceId, model, cost, inputTokens,
- *     outputTokens, totalTokens, cachedInputTokens, reasoningTokens, finishReason,
- *     historyCount, historyTruncated. These will become the baseline once n8n
- *     is retired — they're the richer, native observability surface.
+ *   - Baseline, always set: streamingMode, responseLatencyMs, backendReceivedAt,
+ *     backendRespondedAt.
+ *   - Streaming timings: timeToFirstToken, timeToLastToken, streamDurationMs,
+ *     totalChunks. `null` on the non-streaming sync path.
+ *   - Native observability: traceId, model, cost, inputTokens, outputTokens,
+ *     totalTokens, cachedInputTokens, reasoningTokens, finishReason,
+ *     historyCount, historyTruncated.
+ *   - Older rows written by the retired n8n path (ADR-0014) may also carry
+ *     n8nReceivedAt and agentRepliedAt. Nothing writes or reads them now.
  *
  * Index signature: Prisma's `InputJsonValue` is strict about what types can sit
  * in a JSON column. Allowing `string | number | boolean | null` on any key keeps
@@ -37,17 +34,11 @@ export interface ChatMessageMetadata {
   timeToLastToken?: number | null;
   /** Count of chunks received during streaming (for UI + debugging). */
   totalChunks?: number | null;
-  /** Milliseconds between upstream begin and end markers (n8n path only). */
+  /** Milliseconds between the stream's first and last token. */
   streamDurationMs?: number | null;
 
-  // ---- n8n-only (deprecated; populated while n8n routing mode exists) -----
-  /** @deprecated Set only in n8n routing modes. Remove once n8n is retired. */
-  n8nReceivedAt?: string | null;
-  /** @deprecated Set only in n8n routing modes. Remove once n8n is retired. */
-  agentRepliedAt?: string | null;
-
-  // ---- Direct-mode native observability (future baseline) -----------------
-  /** Trace ID linking to ChatTrace + log files. Populated only in direct mode. */
+  // ---- Native observability ------------------------------------------------
+  /** Trace ID linking to ChatTrace + log files. */
   traceId?: string | null;
   /** Actual model that served this reply (e.g. 'openai:gpt-4.1-mini'). */
   model?: string | null;
