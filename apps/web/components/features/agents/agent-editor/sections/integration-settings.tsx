@@ -4,7 +4,6 @@ import { useState } from "react";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { Button } from "@/components/ui/button";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import {
   Select,
   SelectContent,
@@ -19,7 +18,7 @@ import {
   AccordionItem,
   AccordionTrigger,
 } from "@/components/ui/accordion";
-import { X, Plus, Zap, Webhook } from "lucide-react";
+import { X, Plus } from "lucide-react";
 import { InfoTooltip } from "@/components/ui/info-tooltip";
 import { useAgentEditor } from "../agent-editor-context";
 import { usePermissions } from "@/hooks/use-permissions";
@@ -97,13 +96,11 @@ export function IntegrationSettings() {
   const isAdmin = can("AgentSecret:Read");
   if (!isAdmin) return null;
 
-  const routingMode = aiConfig.routingMode ?? "n8n";
-
   const patchAiConfig = (patch: Partial<AgentAiConfigDto>) => {
     updateFormData("aiConfig", { ...aiConfig, ...patch });
   };
 
-  // ---- n8n webhook handlers (unchanged behaviour) -----------------------
+  // ---- Allowed domains --------------------------------------------------
   const domains = formData.allowedDomains;
   const addDomains = (input: string) => {
     const parts = input
@@ -143,23 +140,20 @@ export function IntegrationSettings() {
             label="Integration"
             content={
               <p>
-                Choose how this agent handles chat: the legacy n8n webhook, or
-                our native AI orchestrator with built-in streaming, caching and
-                observability.
+                Where this agent&apos;s widget may load, and which AI model
+                answers its visitors.
               </p>
             }
           />
         </div>
         <p className="text-sm text-muted-foreground">
-          How this agent handles chat.
+          Allowed domains and the AI model.
         </p>
       </div>
 
-      {/* Allowed Domains — applies to BOTH routing modes. The widget runs on
-          customer sites and the API's WidgetCorsMiddleware checks every public
-          request against this list regardless of whether the LLM serves via
-          n8n or direct. Placed ABOVE the routing radio so the UX makes clear
-          it isn't gated by that choice. Empty list = no CORS restrictions. */}
+      {/* Allowed Domains. The widget runs on customer sites and the API's
+          WidgetCorsMiddleware checks every public request against this list.
+          Empty list = no CORS restrictions. */}
       <div className="space-y-2 rounded-lg border bg-muted/20 p-4">
         <div className="flex items-center gap-1.5">
           <Label className="text-sm font-medium">Allowed Domains</Label>
@@ -171,10 +165,6 @@ export function IntegrationSettings() {
                   Whitelist of domains where this agent&apos;s widget is allowed
                   to load. Leave empty to allow any origin, which is useful
                   while developing.
-                </p>
-                <p>
-                  Applies to both n8n and direct routing modes. It is not gated
-                  by that choice.
                 </p>
                 <p>
                   Press Enter or comma after each domain. Ports are supported,
@@ -225,90 +215,20 @@ export function IntegrationSettings() {
         )}
       </div>
 
-      {/* Routing mode radio ------------------------------------------------ */}
-      <RadioGroup
-        value={routingMode}
-        onValueChange={(v) =>
-          patchAiConfig({ routingMode: v as "n8n" | "direct" })
-        }
-        className="grid grid-cols-1 gap-3 sm:grid-cols-2"
-      >
-        <label
-          htmlFor="routing-n8n"
-          className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors ${
-            routingMode === "n8n"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:bg-muted/40"
-          }`}
-        >
-          <RadioGroupItem value="n8n" id="routing-n8n" className="mt-1" />
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Webhook className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">n8n Webhook</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Forward every message to an n8n workflow you manage. Use for
-              existing automations.
-            </p>
-          </div>
-        </label>
-
-        <label
-          htmlFor="routing-direct"
-          className={`flex cursor-pointer items-start gap-3 rounded-lg border p-4 transition-colors ${
-            routingMode === "direct"
-              ? "border-primary bg-primary/5"
-              : "border-border hover:bg-muted/40"
-          }`}
-        >
-          <RadioGroupItem value="direct" id="routing-direct" className="mt-1" />
-          <div className="space-y-1">
-            <div className="flex items-center gap-2">
-              <Zap className="h-4 w-4 text-muted-foreground" />
-              <span className="text-sm font-medium">AI Orchestrator</span>
-            </div>
-            <p className="text-xs text-muted-foreground">
-              Native LLM calls with streaming, prompt caching, and per-turn
-              analytics. Recommended for new agents.
-            </p>
-          </div>
-        </label>
-      </RadioGroup>
-
-      {/* Conditional LLM config panel ------------------------------------- */}
-      {routingMode === "n8n" ? (
-        <div className="space-y-4 rounded-lg border bg-muted/20 p-4">
-          <div className="space-y-2">
-            <Label className="text-sm font-medium">Webhook URL</Label>
-            <Input
-              value={formData.webhookUrl}
-              onChange={(e) => updateFormData("webhookUrl", e.target.value)}
-              placeholder="https://your-api.com/webhook"
-            />
-            <p className="text-xs text-muted-foreground">
-              This URL will receive POST requests when users send messages.
-            </p>
-          </div>
-        </div>
-      ) : (
-        <DirectModeConfig
-          aiConfig={aiConfig}
-          patch={patchAiConfig}
-          modelSelectValue={modelSelectValue}
-        />
-      )}
+      <ModelConfig
+        aiConfig={aiConfig}
+        patch={patchAiConfig}
+        modelSelectValue={modelSelectValue}
+      />
     </div>
   );
 }
 
 /**
- * Direct-mode AI config panel. Only fields here — no routing mode radio (that
- * lives in the parent so both modes share it). Kept as a nested component
- * because the field set is large enough that inlining it would make
- * IntegrationSettings hard to read.
+ * AI model config panel. Kept as a nested component because the field set is
+ * large enough that inlining it would make IntegrationSettings hard to read.
  */
-function DirectModeConfig({
+function ModelConfig({
   aiConfig,
   patch,
   modelSelectValue,

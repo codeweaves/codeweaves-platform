@@ -1,14 +1,6 @@
-import {
-  Injectable,
-  NotFoundException,
-  BadGatewayException,
-} from "@nestjs/common";
+import { Injectable, NotFoundException } from "@nestjs/common";
 import { PrismaService } from "./prisma.service";
-import { AgentsService } from "./agents.service";
-import { HmacService } from "../common/security/hmac.service";
-import { CryptoService } from "../common/crypto/crypto.service";
 import { TracerService } from "../common/tracer/tracer.service";
-import { maskSessionId } from "../common/events/redaction.util";
 import { WidgetEventLogger } from "../common/events/widget.logger";
 import { AppLogger } from "../common/logger/app-logger";
 import { DirectChatService } from "../modules/ai/direct-chat.service";
@@ -18,15 +10,12 @@ import { HandoverService } from "./handover.service";
 import { ConsentService } from "./consent.service";
 import type { VisitorIdentity } from "./web-visitor";
 import type { SendMessageDto } from "@repo/validation";
-import { resolveRoutingMode } from "@repo/validation";
 import type { ChatSession, Prisma, HandoverReason } from "@prisma/client";
 import type { ChatMessageMetadata } from "./chat-metadata.interface";
 import { MessageMetricsService } from "./message-metrics.service";
 import { detectFallback } from "../utils/fallback-detection";
 import { randomUUID } from "crypto";
-
-const N8N_TIMEOUT_MS = 10_000;
-const MAX_LOG_RESPONSE_LENGTH = 500;
+import { clientIp } from "../utils/client-ip";
 
 /** The session a message is written to. Its agent and channel are copied onto the message (ADR-0007). */
 export type MessageSession = Pick<ChatSession, "id" | "agentId" | "source">;
@@ -40,9 +29,6 @@ export class ChatService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly agentsService: AgentsService,
-    private readonly hmacService: HmacService,
-    private readonly cryptoService: CryptoService,
     private readonly tracerService: TracerService,
     private readonly directChatService: DirectChatService,
     private readonly messageMetricsService: MessageMetricsService,
@@ -171,29 +157,6 @@ export class ChatService {
     return this.handoverService.offerInstruction();
   }
 
-  private buildMetadata(
-    backendReceivedAt: Date,
-    backendRespondedAt: Date,
-    n8nResponse: { n8nReceivedAt?: string; agentRepliedAt?: string },
-  ): ChatMessageMetadata {
-    return {
-      streamingMode: "simulated",
-      backendReceivedAt: backendReceivedAt.toISOString(),
-      n8nReceivedAt: n8nResponse.n8nReceivedAt ?? null,
-      agentRepliedAt: n8nResponse.agentRepliedAt ?? null,
-      backendRespondedAt: backendRespondedAt.toISOString(),
-      responseLatencyMs:
-        backendRespondedAt.getTime() - backendReceivedAt.getTime(),
-      // Streaming fields are null on the simulated-sync path — analytics can
-      // `COALESCE(timeToFirstToken, responseLatencyMs)` if it wants a unified
-      // "time-to-usable-output" metric across modes.
-      timeToFirstToken: null,
-      timeToLastToken: null,
-      totalChunks: null,
-      streamDurationMs: null,
-    };
-  }
-
   async resolveAgent(agentId: string) {
     // Support both internal UUID and public short ID (widget sends publicId)
     const isUuid =
@@ -208,7 +171,6 @@ export class ChatService {
       },
       select: {
         id: true,
-        hmacEnabled: true,
         aiConfig: true,
         organizationId: true,
       },
@@ -391,20 +353,12 @@ export class ChatService {
     });
   }
 
-  /** Extract client IP from an Express request (req.ip → X-Forwarded-For). */
+  /** Client IP from the proxy-derived req.ip only (see utils/client-ip). */
   static extractVisitorIp(request: {
     headers: Record<string, string | string[] | undefined>;
     ip?: string;
   }): string | undefined {
-    if (request.ip) return request.ip;
-    const forwarded = request.headers["x-forwarded-for"];
-    if (forwarded) {
-      const first = Array.isArray(forwarded)
-        ? forwarded[0]!
-        : String(forwarded).split(",")[0]!;
-      return first.trim() || undefined;
-    }
-    return undefined;
+    return clientIp(request);
   }
 
   /**
@@ -585,40 +539,18 @@ export class ChatService {
   }
 
   /**
-   * Fetch the agent's decrypted HMAC secret from AgentSecret.
-   * Returns null if no secret exists.
-   */
-  private async getAgentHmacSecret(agentId: string): Promise<string | null> {
-    const agentSecret = await this.prisma.agentSecret.findUnique({
-      where: { agentId },
-      select: { apiKey: true },
-    });
-    if (!agentSecret?.apiKey) return null;
-    return this.cryptoService.decrypt(agentSecret.apiKey);
-  }
-
-  /**
-   * Send a message to an agent and get an AI response. Routes to either the
-   * n8n webhook or our native DirectChatService depending on `aiConfig.routingMode`.
-   *
-   * Both paths persist messages with the unified `ChatMessageMetadata` shape so
-   * analytics (`responseLatencyMs`, `timeToFirstToken`, `streamingMode`) work
-   * identically regardless of which engine served the reply.
+   * Send a message to an agent and get an AI response through DirectChatService.
+   * Persists with the unified `ChatMessageMetadata` shape so analytics
+   * (`responseLatencyMs`, `timeToFirstToken`, `streamingMode`) read one format.
    */
   async sendMessage(dto: SendMessageDto, visitor: VisitorIdentity = {}) {
     const agent = await this.resolveAgent(dto.agentId);
-    const routingMode = resolveRoutingMode(agent.aiConfig);
-
-    if (routingMode === "direct") {
-      return this.sendDirectMessage(dto, agent.id, visitor);
-    }
-    return this.sendN8nMessage(dto, agent, visitor);
+    return this.sendDirectMessage(dto, agent.id, visitor);
   }
 
   /**
-   * Direct-mode sync send. Delegates to DirectChatService.send() and persists
-   * the resulting message with metadata that mirrors the n8n shape plus our
-   * richer native fields (cachedInputTokens, traceId, cost, etc.).
+   * Sync send. Delegates to DirectChatService.send() and persists the message
+   * with the unified metadata plus native fields (cachedInputTokens, traceId, cost).
    */
   private async sendDirectMessage(
     dto: SendMessageDto,
@@ -688,7 +620,6 @@ export class ChatService {
       timeToLastToken: null,
       totalChunks: null,
       streamDurationMs: null,
-      // n8n-only fields intentionally omitted (undefined → absent in JSONB).
       // Native direct-mode fields:
       traceId: result.traceId,
       model: result.model,
@@ -749,330 +680,5 @@ export class ChatService {
       assistantMessageId: assistantMessage.id,
       metadata,
     };
-  }
-
-  /**
-   * Legacy n8n-mode sync send. Original behaviour — calls the configured
-   * webhook, HMAC-verifies if enabled, persists with simulated-streaming
-   * metadata. Will be removed once n8n is retired.
-   */
-  private async sendN8nMessage(
-    dto: SendMessageDto,
-    agent: { id: string; hmacEnabled: boolean },
-    visitor: VisitorIdentity,
-  ) {
-    const backendReceivedAt = new Date();
-    const session = await this.resolveOrCreateSession(
-      agent.id,
-      dto.sessionId,
-      dto.source ?? "DEMO",
-      visitor,
-    );
-
-    // Call n8n webhook BEFORE storing messages to avoid orphaned user messages on failure
-    const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(
-      agent.id,
-    );
-    const n8nResponse = await this.callN8nWebhook(
-      webhookUrl,
-      dto.chatInput,
-      session.sessionId,
-      agent.id,
-      agent.hmacEnabled,
-    );
-
-    const backendRespondedAt = new Date();
-    const metadata = this.buildMetadata(
-      backendReceivedAt,
-      backendRespondedAt,
-      n8nResponse,
-    );
-
-    // n8n is retired; no org threaded here, so VAULT-tier is masked (never raw).
-    const storedUserContent = await this.redactUserContent(
-      dto.chatInput,
-      session.id,
-    );
-    // Store user message + AI response + update session atomically
-    const [userMessage, assistantMessage] = await this.prisma.$transaction([
-      this.prisma.chatMessage.create({
-        data: {
-          chatSessionId: session.id,
-          agentId: session.agentId,
-          sessionSource: session.source,
-          role: "USER",
-          content: storedUserContent,
-        },
-      }),
-      this.prisma.chatMessage.create({
-        data: {
-          chatSessionId: session.id,
-          agentId: session.agentId,
-          sessionSource: session.source,
-          role: "ASSISTANT",
-          content: n8nResponse.agentReply,
-          metadata,
-        },
-      }),
-      this.prisma.chatSession.update({
-        where: { id: session.id },
-        data: { lastMessageAt: backendRespondedAt },
-      }),
-    ]);
-
-    return {
-      sessionId: session.sessionId,
-      messageId: userMessage.id,
-      reply: n8nResponse.agentReply,
-      assistantMessageId: assistantMessage.id,
-      metadata,
-    };
-  }
-
-  /**
-   * Split text into chunks at word boundaries.
-   * Default: ~3 words per chunk for natural typing feel.
-   */
-  static chunkText(text: string, chunkSize = 3): string[] {
-    const words = text.split(/\s+/).filter(Boolean);
-    if (words.length === 0) return [];
-
-    const chunks: string[] = [];
-    for (let i = 0; i < words.length; i += chunkSize) {
-      const chunk = words.slice(i, i + chunkSize).join(" ");
-      // Add trailing space between chunks so they concatenate correctly
-      chunks.push(i + chunkSize < words.length ? chunk + " " : chunk);
-    }
-
-    return chunks;
-  }
-
-  /**
-   * Stream a message response via SSE.
-   * Stores user message before calling n8n, stores AI message after response.
-   * Returns data for SSE streaming by the controller.
-   */
-  async streamMessage(dto: SendMessageDto, visitor: VisitorIdentity = {}) {
-    const backendReceivedAt = new Date();
-
-    const agent = await this.resolveAgent(dto.agentId);
-    const session = await this.resolveOrCreateSession(
-      agent.id,
-      dto.sessionId,
-      dto.source ?? "DEMO",
-      visitor,
-    );
-
-    // Store user message BEFORE calling n8n (n8n retired; no org → VAULT masked).
-    const userMessage = await this.prisma.chatMessage.create({
-      data: {
-        chatSessionId: session.id,
-        agentId: session.agentId,
-        sessionSource: session.source,
-        role: "USER",
-        content: await this.redactUserContent(dto.chatInput, session.id),
-      },
-    });
-
-    // Call n8n webhook to get full response
-    const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(
-      dto.agentId,
-    );
-    const n8nResponse = await this.callN8nWebhook(
-      webhookUrl,
-      dto.chatInput,
-      session.sessionId,
-      dto.agentId,
-      agent.hmacEnabled,
-    );
-
-    const backendRespondedAt = new Date();
-    const metadata = this.buildMetadata(
-      backendReceivedAt,
-      backendRespondedAt,
-      n8nResponse,
-    );
-
-    // Store AI message AFTER full response received (before streaming starts)
-    const assistantMessage = await this.prisma.chatMessage.create({
-      data: {
-        chatSessionId: session.id,
-        agentId: session.agentId,
-        sessionSource: session.source,
-        role: "ASSISTANT",
-        content: n8nResponse.agentReply,
-        metadata,
-      },
-    });
-
-    await this.prisma.chatSession.update({
-      where: { id: session.id },
-      data: { lastMessageAt: backendRespondedAt },
-    });
-
-    const chunks = ChatService.chunkText(n8nResponse.agentReply);
-
-    return {
-      sessionId: session.sessionId,
-      messageId: userMessage.id,
-      assistantMessageId: assistantMessage.id,
-      chunks,
-      metadata,
-    };
-  }
-
-  /**
-   * Verify the HMAC signature on an n8n webhook response.
-   * Skips verification if no secret is configured (AC#2: no secret → passthrough).
-   * Logs audit event and throws BadGatewayException on failure.
-   */
-  private async verifyHmacSignature(
-    responseText: string,
-    signature: string | null,
-    agentId: string,
-    sessionId: string,
-  ): Promise<void> {
-    const secret = await this.getAgentHmacSecret(agentId);
-    if (!secret) {
-      this.log.warn(
-        "verifyHmacSignature",
-        `HMAC enabled but no secret found for agent ${agentId}, skipping verification`,
-        { agentId, sessionId },
-      );
-      return;
-    }
-
-    if (!signature) {
-      await this.tracerService.logAuditEvent(
-        agentId,
-        "HMAC_VERIFICATION_FAILED",
-        { sessionId, reason: "missing_signature_header" },
-        { agentId },
-      );
-      throw new BadGatewayException("Response verification failed");
-    }
-
-    if (!this.hmacService.verifySignature(responseText, signature, secret)) {
-      await this.tracerService.logAuditEvent(
-        agentId,
-        "HMAC_VERIFICATION_FAILED",
-        { sessionId, reason: "invalid_signature" },
-        { agentId },
-      );
-      throw new BadGatewayException("Response verification failed");
-    }
-  }
-
-  /**
-   * Call n8n webhook with chat input and session ID.
-   * Handles timeout, network errors, HMAC verification, and response parsing.
-   */
-  private async callN8nWebhook(
-    webhookUrl: string,
-    chatInput: string,
-    sessionId: string,
-    agentId: string,
-    hmacEnabled: boolean,
-  ): Promise<{
-    agentReply: string;
-    n8nReceivedAt?: string;
-    agentRepliedAt?: string;
-  }> {
-    let response: Response;
-    try {
-      response = await fetch(webhookUrl, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ chatInput, sessionId }),
-        signal: AbortSignal.timeout(N8N_TIMEOUT_MS),
-      });
-    } catch (error) {
-      if (error instanceof DOMException && error.name === "TimeoutError") {
-        this.log.warn(
-          "callN8nWebhook",
-          `n8n webhook timeout for session ${maskSessionId(sessionId)}`,
-          { sessionId },
-        );
-        throw new BadGatewayException(
-          "Response is taking too long, please try again",
-        );
-      }
-      this.log.error(
-        "callN8nWebhook",
-        `n8n webhook network error for session ${maskSessionId(sessionId)}`,
-        error,
-        { sessionId },
-      );
-      throw new BadGatewayException(
-        "Unable to connect to AI service, please try again",
-      );
-    }
-
-    if (!response.ok) {
-      this.log.error(
-        "callN8nWebhook",
-        `n8n webhook returned ${response.status} for session ${maskSessionId(sessionId)}`,
-        undefined,
-        { sessionId, status: response.status },
-      );
-      throw new BadGatewayException(
-        "AI service returned an error, please try again",
-      );
-    }
-
-    try {
-      // Read response as text first for HMAC verification
-      const responseText = await response.text();
-
-      // Verify HMAC signature if enabled for this agent
-      if (hmacEnabled) {
-        const signature = response.headers.get("x-signature");
-        await this.verifyHmacSignature(
-          responseText,
-          signature,
-          agentId,
-          sessionId,
-        );
-      }
-
-      const data = JSON.parse(responseText);
-
-      // Handle both object and array response formats
-      const payload = Array.isArray(data) ? data[0] : data;
-
-      const agentReply = payload?.agentReply ?? payload?.output;
-      if (!agentReply || typeof agentReply !== "string") {
-        const truncated = JSON.stringify(data).slice(
-          0,
-          MAX_LOG_RESPONSE_LENGTH,
-        );
-        this.log.error(
-          "callN8nWebhook",
-          `unexpected n8n response format for session ${maskSessionId(sessionId)}`,
-          undefined,
-          { sessionId, preview: truncated },
-        );
-        throw new BadGatewayException(
-          "Unexpected response format from AI service",
-        );
-      }
-
-      return {
-        agentReply,
-        n8nReceivedAt: payload?.n8nReceivedAt,
-        agentRepliedAt: payload?.agentRepliedAt,
-      };
-    } catch (error) {
-      if (error instanceof BadGatewayException) throw error;
-      this.log.error(
-        "callN8nWebhook",
-        `failed to parse n8n response for session ${maskSessionId(sessionId)}`,
-        error,
-        { sessionId },
-      );
-      throw new BadGatewayException(
-        "Unexpected response format from AI service",
-      );
-    }
   }
 }

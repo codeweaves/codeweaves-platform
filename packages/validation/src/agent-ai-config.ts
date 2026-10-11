@@ -1,26 +1,13 @@
 /**
  * Agent AI configuration schemas
- * Per-agent settings for the AI orchestration layer: routing mode (n8n vs
- * native direct LLM calls), model selection, sampling parameters, context
- * strategy, RAG behaviour.
+ * Per-agent settings for the AI orchestration layer: model selection, sampling
+ * parameters, context strategy, RAG behaviour. Every agent is served by the
+ * native direct LLM path (ADR-0014 retired n8n routing).
  *
  * Stored as a JSONB column on the `agents` table (`Agent.aiConfig`). Null/absent
- * = defaults to `routingMode: 'n8n'` so existing agents are unaffected.
+ * = schema defaults.
  */
 import { z } from "zod";
-
-// ============================================
-// Routing Mode
-// ============================================
-
-/**
- * 'n8n'    — legacy: chat messages proxied to the agent's n8n webhook URL
- *            (existing behaviour, default for all agents pre-Phase 1).
- * 'direct' — native: NestJS calls the model provider directly with the
- *            configured model. Unlocks streaming, tool use, per-message tracing.
- */
-export const aiRoutingModeEnum = z.enum(["n8n", "direct"]);
-export type AiRoutingMode = z.infer<typeof aiRoutingModeEnum>;
 
 // ============================================
 // Context Strategy
@@ -70,8 +57,12 @@ const modelIdSchema = z
 
 export const agentAiConfigSchema = z
   .object({
-    // ----- Routing -----
-    routingMode: aiRoutingModeEnum.default("n8n"),
+    /**
+     * DEPRECATED and ignored (ADR-0014): n8n routing is retired and every agent
+     * uses the direct path. Still accepted so stored configs that carry the key
+     * keep validating under .strict().
+     */
+    routingMode: z.enum(["n8n", "direct"]).optional(),
 
     // ----- Model selection -----
     /** Override per agent; falls back to `DEFAULT_AI_MODEL` env var if absent. */
@@ -170,19 +161,3 @@ export type AgentAiConfigDto = z.infer<typeof agentAiConfigSchema>;
  */
 export const agentAiConfigUpdateSchema = agentAiConfigSchema.partial();
 export type AgentAiConfigUpdateDto = z.infer<typeof agentAiConfigUpdateSchema>;
-
-/**
- * Resolve the effective routing mode for an agent, given possibly-null config.
- * Centralises the 'unset means n8n' rule so every caller agrees.
- */
-export function resolveRoutingMode(aiConfig: unknown): AiRoutingMode {
-  if (
-    aiConfig &&
-    typeof aiConfig === "object" &&
-    "routingMode" in aiConfig &&
-    (aiConfig as { routingMode: unknown }).routingMode === "direct"
-  ) {
-    return "direct";
-  }
-  return "n8n";
-}

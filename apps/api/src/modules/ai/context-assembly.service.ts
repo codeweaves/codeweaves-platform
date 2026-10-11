@@ -1,14 +1,14 @@
-import { Injectable } from '@nestjs/common';
-import type { MessageRole } from '@prisma/client';
-import type { ModelMessage } from 'ai';
+import { Injectable } from "@nestjs/common";
+import type { MessageRole } from "@prisma/client";
+import type { ModelMessage } from "ai";
 
-import { AppLogger } from '../../common/logger/app-logger';
-import { PrismaService } from '../../services/prisma.service';
+import { AppLogger } from "../../common/logger/app-logger";
+import { PrismaService } from "../../services/prisma.service";
 
 import type {
   AssembleContextParams,
   AssembledContext,
-} from './interfaces/context.interfaces';
+} from "./interfaces/context.interfaces";
 
 /** Hard cap on message rows loaded from DB, regardless of agent config. */
 const MAX_HISTORY_HARD_CAP = 100;
@@ -22,7 +22,7 @@ const DEFAULT_MAX_INPUT_TOKENS = 8000;
  * this is how the model tells "a human wrote this" from "I wrote this". Keep in
  * sync with the widget's recentHistory builder (apps/widget useChat.ts).
  */
-const HUMAN_AGENT_LABEL = '[Human teammate]: ';
+const HUMAN_AGENT_LABEL = "[Human teammate]: ";
 
 /**
  * Inline label for handover status lines (SYSTEM rows: "a teammate took over",
@@ -31,7 +31,7 @@ const HUMAN_AGENT_LABEL = '[Human teammate]: ';
  * narrative — connected → what the human did → handed back. Keep in sync with
  * the widget's recentHistory builder (apps/widget useChat.ts).
  */
-const SYSTEM_LABEL = '[System]: ';
+const SYSTEM_LABEL = "[System]: ";
 
 /**
  * Floor on how many recent messages we keep even if the token budget would
@@ -47,9 +47,8 @@ const MIN_MESSAGES_TO_KEEP = 2;
  * database, format them for the AI SDK, fit them into a token budget, and
  * append the new user turn.
  *
- * This is the service that REPLACES n8n's `memoryBufferWindow`. Instead of
- * n8n remembering conversations behind the scenes, we reconstruct from our
- * own persistent ChatMessage records on every call. Upsides:
+ * Conversation memory is reconstructed from our own persistent ChatMessage
+ * records on every call. Upsides:
  *
  *   - Memory survives restarts (Postgres is source of truth)
  *   - Conversations auditable / exportable / analytic-ready
@@ -83,7 +82,7 @@ export class ContextAssemblyService {
     );
     const tokenBudget = params.maxInputTokens ?? DEFAULT_MAX_INPUT_TOKENS;
 
-    this.log.debug('assemble', 'assembling context', {
+    this.log.debug("assemble", "assembling context", {
       chatSessionId: params.chatSessionId,
       messageCap,
       budget: tokenBudget,
@@ -120,7 +119,7 @@ export class ContextAssemblyService {
       // the chat was handed back — without mistaking any of it for its own words.
       const recent = await this.prisma.chatMessage.findMany({
         where: { chatSessionId: params.chatSessionId },
-        orderBy: { createdAt: 'desc' },
+        orderBy: { createdAt: "desc" },
         take: messageCap,
         select: { role: true, content: true },
       });
@@ -143,7 +142,7 @@ export class ContextAssemblyService {
     // Build the NEW user turn (never dropped — it's why the call is happening).
     const newTurn: ModelMessage | null =
       params.newUserMessage.length > 0
-        ? { role: 'user', content: params.newUserMessage }
+        ? { role: "user", content: params.newUserMessage }
         : null;
 
     // --- PERFORMANCE PATH ---
@@ -167,7 +166,9 @@ export class ContextAssemblyService {
     //      estimated cheaply). The "estimatedTokens" in the trace remains
     //      meaningful for monitoring.
     const systemPromptTokens = charEstimate(params.systemPrompt);
-    const newTurnTokens = newTurn ? charEstimate(asText(newTurn.content)) + CHAT_FRAMING_OVERHEAD : 0;
+    const newTurnTokens = newTurn
+      ? charEstimate(asText(newTurn.content)) + CHAT_FRAMING_OVERHEAD
+      : 0;
     const fixedTokens = systemPromptTokens + newTurnTokens;
     const historyBudget = Math.max(tokenBudget - fixedTokens, 0);
 
@@ -179,7 +180,8 @@ export class ContextAssemblyService {
     let tokenDropped = 0;
     for (let i = fullHistory.length - 1; i >= 0; i--) {
       const msg = fullHistory[i]!;
-      const msgTokens = charEstimate(asText(msg.content)) + CHAT_FRAMING_OVERHEAD;
+      const msgTokens =
+        charEstimate(asText(msg.content)) + CHAT_FRAMING_OVERHEAD;
       if (
         keptTokens + msgTokens <= historyBudget ||
         // Even if over budget, keep at least MIN_MESSAGES_TO_KEEP most recent
@@ -197,8 +199,7 @@ export class ContextAssemblyService {
     const messages = [...kept];
     if (newTurn) messages.push(newTurn);
 
-    const totalDropped =
-      (olderMessagesExist ? loadedCount : 0) + tokenDropped;
+    const totalDropped = (olderMessagesExist ? loadedCount : 0) + tokenDropped;
     const truncated =
       tokenDropped > 0 || (olderMessagesExist && loadedCount > 0);
 
@@ -210,12 +211,13 @@ export class ContextAssemblyService {
     const estimatedTokens =
       systemPromptTokens +
       messages.reduce(
-        (sum, m) => sum + charEstimate(asText(m.content)) + CHAT_FRAMING_OVERHEAD,
+        (sum, m) =>
+          sum + charEstimate(asText(m.content)) + CHAT_FRAMING_OVERHEAD,
         0,
       );
 
     if (truncated) {
-      this.log.debug('assemble', 'history truncated to fit budget', {
+      this.log.debug("assemble", "history truncated to fit budget", {
         chatSessionId: params.chatSessionId,
         kept: kept.length,
         droppedCount: totalDropped,
@@ -255,8 +257,8 @@ const CHARS_PER_TOKEN = 4;
  * the handover status lines belong to the non-user side; they're labelled by
  * {@link labelHistoryContent} so the model can still tell them apart.
  */
-function roleToAiSdk(role: MessageRole): 'user' | 'assistant' {
-  return role === 'USER' ? 'user' : 'assistant';
+function roleToAiSdk(role: MessageRole): "user" | "assistant" {
+  return role === "USER" ? "user" : "assistant";
 }
 
 /**
@@ -265,29 +267,29 @@ function roleToAiSdk(role: MessageRole): 'user' | 'assistant' {
  * (all three ride the 'assistant' role). USER / ASSISTANT pass through unchanged.
  */
 function labelHistoryContent(role: MessageRole, content: string): string {
-  if (role === 'HUMAN_AGENT') return `${HUMAN_AGENT_LABEL}${content}`;
-  if (role === 'SYSTEM') return `${SYSTEM_LABEL}${content}`;
+  if (role === "HUMAN_AGENT") return `${HUMAN_AGENT_LABEL}${content}`;
+  if (role === "SYSTEM") return `${SYSTEM_LABEL}${content}`;
   return content;
 }
 
 /** Extract text length from a message content that may be string | Array. */
 function asText(content: unknown): string {
-  if (typeof content === 'string') return content;
+  if (typeof content === "string") return content;
   if (Array.isArray(content)) {
-    let buf = '';
+    let buf = "";
     for (const part of content) {
       if (
         part &&
-        typeof part === 'object' &&
-        'text' in part &&
-        typeof (part as { text: unknown }).text === 'string'
+        typeof part === "object" &&
+        "text" in part &&
+        typeof (part as { text: unknown }).text === "string"
       ) {
         buf += (part as { text: string }).text;
       }
     }
     return buf;
   }
-  return '';
+  return "";
 }
 
 /** Fast char-based token estimate. O(1), no tokenizer loaded. */

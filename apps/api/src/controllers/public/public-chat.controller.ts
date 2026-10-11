@@ -18,8 +18,6 @@ import { z } from "zod";
 import { Public } from "../../decorators/public.decorator";
 import { ChatService } from "../../services/chat.service";
 import { PrismaService } from "../../services/prisma.service";
-import { AgentsService } from "../../services/agents.service";
-import { N8nStreamingService } from "../../services/n8n-streaming.service";
 import { MessageRateLimitService } from "../../services/message-rate-limit.service";
 import { DirectChatService } from "../../modules/ai/direct-chat.service";
 import { HandoverService } from "../../services/handover.service";
@@ -30,11 +28,7 @@ import {
 } from "../../services/web-visitor";
 import { ConsentRequiredException } from "../../services/consent.service";
 import { ZodValidationPipe } from "../../pipes/zod-validation.pipe";
-import {
-  sendMessageSchema,
-  type SendMessageDto,
-  resolveRoutingMode,
-} from "@repo/validation";
+import { sendMessageSchema, type SendMessageDto } from "@repo/validation";
 import type { ChatMessageMetadata } from "../../services/chat-metadata.interface";
 import { detectFallback } from "../../utils/fallback-detection";
 
@@ -55,8 +49,6 @@ export class PublicChatController {
 
   constructor(
     private readonly chatService: ChatService,
-    private readonly agentsService: AgentsService,
-    private readonly n8nStreamingService: N8nStreamingService,
     private readonly messageRateLimitService: MessageRateLimitService,
     private readonly directChatService: DirectChatService,
     private readonly handoverService: HandoverService,
@@ -278,46 +270,23 @@ export class PublicChatController {
       const agent = await this.chatService.resolveAgent(dto.agentId);
       resolvedAgentId = agent.id;
       const visitor = this.visitorFrom(req);
-      const routingMode = resolveRoutingMode(agent.aiConfig);
-
-      // IG1: Warn when HMAC is enabled — streaming responses cannot be HMAC-verified.
-      // Direct mode has no webhook so HMAC is moot; only warn for n8n mode.
-      if (agent.hmacEnabled && routingMode === "n8n") {
-        this.log.warn(
-          "stream",
-          `agent ${agent.id} has HMAC enabled but streaming responses cannot be verified (applies to sendMessage path only)`,
-        );
-      }
-
       // Parallelize the two remaining DB hits — they don't depend on each
       // other (both only need agent.id). Running them concurrently saves one
-      // Supabase round-trip (~250-450ms) on every turn. fullAgent is only
-      // needed in direct mode, but we optimistically fetch it in parallel:
-      // n8n mode discards it (cheap). Direct mode is the common case in prod.
-      const sessionPromise = this.chatService.resolveOrCreateSession(
-        agent.id,
-        dto.sessionId,
-        dto.source ?? "WIDGET",
-        visitor,
-      );
-      const fullAgentPromise =
-        routingMode === "direct"
-          ? this.prisma.agent.findUniqueOrThrow({ where: { id: agent.id } })
-          : Promise.resolve(null);
-
-      const [session, fullAgentResult] = await Promise.all([
-        sessionPromise,
-        fullAgentPromise,
+      // Supabase round-trip (~250-450ms) on every turn.
+      const [session, fullAgent] = await Promise.all([
+        this.chatService.resolveOrCreateSession(
+          agent.id,
+          dto.sessionId,
+          dto.source ?? "WIDGET",
+          visitor,
+        ),
+        this.prisma.agent.findUniqueOrThrow({ where: { id: agent.id } }),
       ]);
 
-      this.log.info(
-        "stream",
-        `message received agent=${agent.id} mode=${routingMode}`,
-        {
-          sessionId: session.sessionId,
-          chars: dto.chatInput.length,
-        },
-      );
+      this.log.info("stream", `message received agent=${agent.id}`, {
+        sessionId: session.sessionId,
+        chars: dto.chatInput.length,
+      });
       this.widgetLog.logMessageReceived({
         agentId: agent.id,
         sessionId: session.sessionId,
@@ -325,7 +294,6 @@ export class PublicChatController {
         payload: {
           chars: dto.chatInput.length,
           source: dto.source ?? "WIDGET",
-          routingMode,
         },
       });
 
@@ -343,16 +311,14 @@ export class PublicChatController {
       // A teammate is actively handling this chat → do NOT call the LLM.
       // Persist the visitor's message + push it to the dashboard; the widget
       // receives the human's replies over its realtime subscription, not here.
-      // (fullAgentResult is only fetched in direct mode, the chat path; n8n —
-      // legacy, not used for chat — falls through to its normal reply.)
-      if (session.handoverState === "ACTIVE_HUMAN" && fullAgentResult) {
+      if (session.handoverState === "ACTIVE_HUMAN") {
         void this.handoverService.onVisitorMessageWhilePaused(
           {
             sessionDbId: session.id,
             publicSessionId: session.sessionId,
             agentId: session.agentId,
             source: session.source,
-            organizationId: fullAgentResult.organizationId,
+            organizationId: fullAgent.organizationId,
           },
           dto.chatInput,
         );
@@ -363,7 +329,7 @@ export class PublicChatController {
               reason: "human",
               handoverState: "ACTIVE_HUMAN",
               message:
-                fullAgentResult.humanConnectedLabel ??
+                fullAgent.humanConnectedLabel ??
                 "A member of our team is with you.",
             })}\n\n`,
           );
@@ -375,8 +341,8 @@ export class PublicChatController {
       }
 
       // Handover state to report to the widget on `done` so it knows whether to
-      // start polling for a human (REQUESTED/ACTIVE_HUMAN) or stop (NONE). The
-      // direct branch refines this once it knows if THIS turn raised the flag.
+      // start polling for a human (REQUESTED/ACTIVE_HUMAN) or stop (NONE).
+      // Refined below once we know if THIS turn raised the flag.
       let clientHandoverState: string = session.handoverState;
 
       // Fire-and-forget: persisting the user message must not block the LLM
@@ -401,260 +367,185 @@ export class PublicChatController {
           );
         });
 
-      // ----- Routing fork ---------------------------------------------------
-      // Both branches eventually write `metadata: ChatMessageMetadata` with the
-      // same key names so analytics queries don't need to know which engine
-      // served the reply. The direct branch populates the richer native fields
-      // (traceId, cost, cachedInputTokens, ...) in addition.
+      // ----- Reply ----------------------------------------------------------
+      // Written as `metadata: ChatMessageMetadata` (unified key names) plus the
+      // native fields (traceId, cost, cachedInputTokens, ...).
       let fullResponse = "";
-      let metadata: ChatMessageMetadata;
 
-      if (routingMode === "direct") {
-        const fullAgent = fullAgentResult!;
+      // ----- Human handover: trigger + stall ----------------------------
+      // Synchronous, zero-LLM keyword check so the bot can stall on THIS
+      // turn (no added latency — see handover plan §3a). The DB flip +
+      // realtime publish are fire-and-forget; the prompt hint is applied now.
+      const handoverCtx = {
+        sessionDbId: session.id,
+        publicSessionId: session.sessionId,
+        agentId: session.agentId,
+        source: session.source,
+        organizationId: fullAgent.organizationId,
+      };
+      // Demo/preview chats never trigger handover.
+      const handoverAllowed =
+        fullAgent.humanTakeoverEnabled && session.source !== "DEMO";
+      const justRequested =
+        handoverAllowed &&
+        session.handoverState === "NONE" &&
+        this.handoverService.detectKeyword(dto.chatInput);
+      const inRequested =
+        session.handoverState === "REQUESTED" || justRequested;
+      if (justRequested) {
+        void this.handoverService.raiseRequested(handoverCtx, "USER_REQUESTED");
+      }
+      clientHandoverState = inRequested ? "REQUESTED" : "NONE";
 
-        // ----- Human handover: trigger + stall ----------------------------
-        // Synchronous, zero-LLM keyword check so the bot can stall on THIS
-        // turn (no added latency — see handover plan §3a). The DB flip +
-        // realtime publish are fire-and-forget; the prompt hint is applied now.
-        const handoverCtx = {
-          sessionDbId: session.id,
-          publicSessionId: session.sessionId,
-          agentId: session.agentId,
-          source: session.source,
-          organizationId: fullAgent.organizationId,
-        };
-        // Demo/preview chats never trigger handover.
-        const handoverAllowed =
-          fullAgent.humanTakeoverEnabled && session.source !== "DEMO";
-        const justRequested =
-          handoverAllowed &&
-          session.handoverState === "NONE" &&
-          this.handoverService.detectKeyword(dto.chatInput);
-        const inRequested =
-          session.handoverState === "REQUESTED" || justRequested;
-        if (justRequested) {
-          void this.handoverService.raiseRequested(
-            handoverCtx,
-            "USER_REQUESTED",
+      // On bot-handled turns (takeover on, not already escalated) hand the
+      // model the connect_to_human tool + an instruction to offer/escalate.
+      // The model judges frustration and plain-language consent ("yes please")
+      // that the inline keyword check can't; calling the tool flips the
+      // session server-side. `toolEscalated` flips when that happens so we can
+      // tell the widget to start polling on this same turn.
+      let toolEscalated = false;
+      const offerHumanTools =
+        handoverAllowed && !inRequested
+          ? {
+              connect_to_human: this.handoverService.buildConnectTool(
+                handoverCtx,
+                () => {
+                  toolEscalated = true;
+                },
+              ),
+            }
+          : undefined;
+
+      let firstTokenTime: number | null = null;
+      let lastTokenTime: number | null = null;
+      let chunkCount = 0;
+      let finishPayload: {
+        traceId: string;
+        model: string | null;
+        cost: number | null;
+        inputTokens: number;
+        outputTokens: number;
+        totalTokens: number;
+        cachedInputTokens: number | null;
+        reasoningTokens: number | null;
+        finishReason: string | null;
+        historyCount: number;
+        historyTruncated: boolean;
+      } | null = null;
+
+      const directStream = this.directChatService.stream({
+        agent: fullAgent,
+        chatSessionId: session.id,
+        externalSessionId: session.sessionId,
+        newUserMessage: dto.chatInput,
+        // When the caller (widget / demo / any API consumer) sends history
+        // in the body, ContextAssemblyService uses it directly and skips
+        // the DB query — saves ~150-450ms per turn. Backend still trims
+        // to `aiConfig.maxContextMessages` and fits into `maxInputTokens`.
+        recentHistory: dto.recentHistory,
+        abortSignal: abortController.signal,
+        feature: "chat-stream",
+        // While a human is being connected (REQUESTED) the bot keeps replying
+        // but is told to stall politely. On bot-handled turns it instead gets
+        // the offer/escalate instruction that pairs with connect_to_human.
+        extraSystemInstruction: inRequested
+          ? this.handoverService.stallInstruction(fullAgent.humanConnectedLabel)
+          : offerHumanTools
+            ? this.handoverService.offerInstruction()
+            : undefined,
+        tools: offerHumanTools,
+        maxSteps: offerHumanTools ? 3 : undefined,
+      });
+
+      for await (const chunk of directStream) {
+        if (closed) break;
+        if (chunk.type === "text-delta" && chunk.content) {
+          const now = Date.now();
+          if (firstTokenTime === null) firstTokenTime = now;
+          lastTokenTime = now;
+          chunkCount++;
+          fullResponse += chunk.content;
+          res.write(
+            `data: ${JSON.stringify({ type: "chunk", content: chunk.content })}\n\n`,
+          );
+        } else if (chunk.type === "finish") {
+          finishPayload = {
+            traceId: chunk.result.traceId,
+            model: chunk.result.model,
+            cost: chunk.result.cost,
+            inputTokens: chunk.result.usage.inputTokens,
+            outputTokens: chunk.result.usage.outputTokens,
+            totalTokens: chunk.result.usage.totalTokens,
+            cachedInputTokens: chunk.result.usage.cachedInputTokens ?? null,
+            reasoningTokens: chunk.result.usage.reasoningTokens ?? null,
+            finishReason: chunk.result.finishReason,
+            historyCount: chunk.result.historyCount,
+            historyTruncated: chunk.result.historyTruncated,
+          };
+        } else if (chunk.type === "error") {
+          // DirectChatService already logged + ended the trace. Keep the raw
+          // upstream provider error server-side only (it reveals model/provider
+          // identity and routing internals) and surface a generic message to
+          // the unauthenticated widget via the outer catch.
+          this.log.error(
+            "stream",
+            `direct chat provider error agent=${agent.id}`,
+            { providerError: chunk.error },
+          );
+          throw new HttpException(
+            "The assistant is temporarily unavailable. Please try again.",
+            502,
           );
         }
-        clientHandoverState = inRequested ? "REQUESTED" : "NONE";
+        // 'trace' chunks are orchestration metadata — not forwarded to widgets.
+      }
 
-        // On bot-handled turns (takeover on, not already escalated) hand the
-        // model the connect_to_human tool + an instruction to offer/escalate.
-        // The model judges frustration and plain-language consent ("yes please")
-        // that the inline keyword check can't; calling the tool flips the
-        // session server-side. `toolEscalated` flips when that happens so we can
-        // tell the widget to start polling on this same turn.
-        let toolEscalated = false;
-        const offerHumanTools =
-          handoverAllowed && !inRequested
-            ? {
-                connect_to_human: this.handoverService.buildConnectTool(
-                  handoverCtx,
-                  () => {
-                    toolEscalated = true;
-                  },
-                ),
-              }
-            : undefined;
+      // The model called connect_to_human mid-stream → session is now
+      // REQUESTED. Reflect it so the `done`/`paused` event tells the widget to
+      // start polling for the human's replies.
+      if (toolEscalated) clientHandoverState = "REQUESTED";
 
-        let firstTokenTime: number | null = null;
-        let lastTokenTime: number | null = null;
-        let chunkCount = 0;
-        let finishPayload: {
-          traceId: string;
-          model: string | null;
-          cost: number | null;
-          inputTokens: number;
-          outputTokens: number;
-          totalTokens: number;
-          cachedInputTokens: number | null;
-          reasoningTokens: number | null;
-          finishReason: string | null;
-          historyCount: number;
-          historyTruncated: boolean;
-        } | null = null;
-
-        const directStream = this.directChatService.stream({
-          agent: fullAgent,
-          chatSessionId: session.id,
-          externalSessionId: session.sessionId,
-          newUserMessage: dto.chatInput,
-          // When the caller (widget / demo / any API consumer) sends history
-          // in the body, ContextAssemblyService uses it directly and skips
-          // the DB query — saves ~150-450ms per turn. Backend still trims
-          // to `aiConfig.maxContextMessages` and fits into `maxInputTokens`.
-          recentHistory: dto.recentHistory,
-          abortSignal: abortController.signal,
-          feature: "chat-stream",
-          // While a human is being connected (REQUESTED) the bot keeps replying
-          // but is told to stall politely. On bot-handled turns it instead gets
-          // the offer/escalate instruction that pairs with connect_to_human.
-          extraSystemInstruction: inRequested
-            ? this.handoverService.stallInstruction(
-                fullAgent.humanConnectedLabel,
-              )
-            : offerHumanTools
-              ? this.handoverService.offerInstruction()
-              : undefined,
-          tools: offerHumanTools,
-          maxSteps: offerHumanTools ? 3 : undefined,
-        });
-
-        for await (const chunk of directStream) {
-          if (closed) break;
-          if (chunk.type === "text-delta" && chunk.content) {
-            const now = Date.now();
-            if (firstTokenTime === null) firstTokenTime = now;
-            lastTokenTime = now;
-            chunkCount++;
-            fullResponse += chunk.content;
-            res.write(
-              `data: ${JSON.stringify({ type: "chunk", content: chunk.content })}\n\n`,
-            );
-          } else if (chunk.type === "finish") {
-            finishPayload = {
-              traceId: chunk.result.traceId,
-              model: chunk.result.model,
-              cost: chunk.result.cost,
-              inputTokens: chunk.result.usage.inputTokens,
-              outputTokens: chunk.result.usage.outputTokens,
-              totalTokens: chunk.result.usage.totalTokens,
-              cachedInputTokens: chunk.result.usage.cachedInputTokens ?? null,
-              reasoningTokens: chunk.result.usage.reasoningTokens ?? null,
-              finishReason: chunk.result.finishReason,
-              historyCount: chunk.result.historyCount,
-              historyTruncated: chunk.result.historyTruncated,
-            };
-          } else if (chunk.type === "error") {
-            // DirectChatService already logged + ended the trace. Keep the raw
-            // upstream provider error server-side only (it reveals model/provider
-            // identity and routing internals) and surface a generic message to
-            // the unauthenticated widget via the outer catch.
-            this.log.error(
-              "stream",
-              `direct chat provider error agent=${agent.id}`,
-              { providerError: chunk.error },
-            );
-            throw new HttpException(
-              "The assistant is temporarily unavailable. Please try again.",
-              502,
-            );
-          }
-          // 'trace' chunks are orchestration metadata — not forwarded to widgets.
-        }
-
-        // The model called connect_to_human mid-stream → session is now
-        // REQUESTED. Reflect it so the `done`/`paused` event tells the widget to
-        // start polling for the human's replies.
-        if (toolEscalated) clientHandoverState = "REQUESTED";
-
-        const fallback = detectFallback(
-          fullResponse,
-          fullAgent.fallbackPhrases,
-        );
-        metadata = {
-          streamingMode: "direct",
-          backendReceivedAt: backendReceivedAt.toISOString(),
-          backendRespondedAt: new Date().toISOString(),
-          responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
-          timeToFirstToken: firstTokenTime
-            ? firstTokenTime - backendReceivedAt.getTime()
+      const fallback = detectFallback(fullResponse, fullAgent.fallbackPhrases);
+      const metadata: ChatMessageMetadata = {
+        streamingMode: "direct",
+        backendReceivedAt: backendReceivedAt.toISOString(),
+        backendRespondedAt: new Date().toISOString(),
+        responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
+        timeToFirstToken: firstTokenTime
+          ? firstTokenTime - backendReceivedAt.getTime()
+          : null,
+        timeToLastToken: lastTokenTime
+          ? lastTokenTime - backendReceivedAt.getTime()
+          : null,
+        totalChunks: chunkCount,
+        streamDurationMs:
+          firstTokenTime && lastTokenTime
+            ? lastTokenTime - firstTokenTime
             : null,
-          timeToLastToken: lastTokenTime
-            ? lastTokenTime - backendReceivedAt.getTime()
-            : null,
-          totalChunks: chunkCount,
-          streamDurationMs:
-            firstTokenTime && lastTokenTime
-              ? lastTokenTime - firstTokenTime
-              : null,
-          // Direct-native richer fields (null-safe if `finish` never arrived
-          // because of early abort).
-          traceId: finishPayload?.traceId ?? null,
-          model: finishPayload?.model ?? null,
-          cost: finishPayload?.cost ?? null,
-          inputTokens: finishPayload?.inputTokens ?? null,
-          outputTokens: finishPayload?.outputTokens ?? null,
-          totalTokens: finishPayload?.totalTokens ?? null,
-          cachedInputTokens: finishPayload?.cachedInputTokens ?? null,
-          reasoningTokens: finishPayload?.reasoningTokens ?? null,
-          finishReason: finishPayload?.finishReason ?? null,
-          historyCount: finishPayload?.historyCount ?? null,
-          historyTruncated: finishPayload?.historyTruncated ?? null,
-          ...fallback,
-        };
+        // Direct-native richer fields (null-safe if `finish` never arrived
+        // because of early abort).
+        traceId: finishPayload?.traceId ?? null,
+        model: finishPayload?.model ?? null,
+        cost: finishPayload?.cost ?? null,
+        inputTokens: finishPayload?.inputTokens ?? null,
+        outputTokens: finishPayload?.outputTokens ?? null,
+        totalTokens: finishPayload?.totalTokens ?? null,
+        cachedInputTokens: finishPayload?.cachedInputTokens ?? null,
+        reasoningTokens: finishPayload?.reasoningTokens ?? null,
+        finishReason: finishPayload?.finishReason ?? null,
+        historyCount: finishPayload?.historyCount ?? null,
+        historyTruncated: finishPayload?.historyTruncated ?? null,
+        ...fallback,
+      };
 
-        // ----- Human handover: post-turn hooks ----------------------------
-        // Ping the dashboard so a watching teammate sees the live exchange (it
-        // re-fetches the thread) while a human is being connected — whether the
-        // chat was already REQUESTED or the model just escalated via the tool.
-        // (No automatic couldn't-answer escalation: a human is summoned only
-        // when the VISITOR wants one — explicit ask, button, or tool consent.)
-        if (inRequested || toolEscalated) {
-          void this.handoverService.publishBotTurn(handoverCtx);
-        }
-      } else {
-        // n8n streaming path — unchanged behaviour, unified metadata shape.
-        const webhookUrl = await this.agentsService.getEffectiveWebhookUrl(
-          agent.id,
-        );
-
-        let n8nReceivedAt: number | null = null;
-        let agentRepliedAt: number | null = null;
-        let firstTokenTime: number | null = null;
-        let lastTokenTime: number | null = null;
-        let chunkCount = 0;
-
-        const generator = this.n8nStreamingService.streamFromWebhookUrl(
-          webhookUrl,
-          dto.chatInput,
-          session.sessionId,
-          abortController.signal,
-        );
-
-        for await (const chunk of generator) {
-          if (closed) break;
-          if (chunk.type === "begin") {
-            n8nReceivedAt = chunk.metadata?.timestamp ?? null;
-          } else if (chunk.type === "item" && chunk.content) {
-            const now = Date.now();
-            if (firstTokenTime === null) firstTokenTime = now;
-            lastTokenTime = now;
-            chunkCount++;
-            fullResponse += chunk.content;
-            res.write(
-              `data: ${JSON.stringify({ type: "chunk", content: chunk.content })}\n\n`,
-            );
-          } else if (chunk.type === "end") {
-            agentRepliedAt = chunk.metadata?.timestamp ?? null;
-          }
-        }
-
-        metadata = {
-          streamingMode: "real",
-          backendReceivedAt: backendReceivedAt.toISOString(),
-          n8nReceivedAt: n8nReceivedAt
-            ? new Date(n8nReceivedAt).toISOString()
-            : null,
-          agentRepliedAt: agentRepliedAt
-            ? new Date(agentRepliedAt).toISOString()
-            : null,
-          backendRespondedAt: new Date().toISOString(),
-          responseLatencyMs: Date.now() - backendReceivedAt.getTime(),
-          timeToFirstToken: firstTokenTime
-            ? firstTokenTime - backendReceivedAt.getTime()
-            : null,
-          timeToLastToken: lastTokenTime
-            ? lastTokenTime - backendReceivedAt.getTime()
-            : null,
-          totalChunks: chunkCount,
-          streamDurationMs:
-            agentRepliedAt && n8nReceivedAt
-              ? agentRepliedAt - n8nReceivedAt
-              : null,
-        };
+      // ----- Human handover: post-turn hooks ----------------------------
+      // Ping the dashboard so a watching teammate sees the live exchange (it
+      // re-fetches the thread) while a human is being connected — whether the
+      // chat was already REQUESTED or the model just escalated via the tool.
+      // (No automatic couldn't-answer escalation: a human is summoned only
+      // when the VISITOR wants one — explicit ask, button, or tool consent.)
+      if (inRequested || toolEscalated) {
+        void this.handoverService.publishBotTurn(handoverCtx);
       }
 
       // P2: Send done event even when fullResponse is empty.

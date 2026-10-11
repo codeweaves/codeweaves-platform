@@ -5,22 +5,22 @@ import {
   ForbiddenException,
   NotFoundException,
   ServiceUnavailableException,
-} from '@nestjs/common';
-import { Prisma, type WhatsappChannel } from '@prisma/client';
+} from "@nestjs/common";
+import { Prisma, type WhatsappChannel } from "@prisma/client";
 
-import { CryptoService } from '../../common/crypto/crypto.service';
-import { TracerService } from '../../common/tracer/tracer.service';
-import { CurrentUserData } from '../../decorators/current-user.decorator';
-import { AgentsService } from '../../services/agents.service';
-import { PrismaService } from '../../services/prisma.service';
+import { CryptoService } from "../../common/crypto/crypto.service";
+import { TracerService } from "../../common/tracer/tracer.service";
+import { CurrentUserData } from "../../decorators/current-user.decorator";
+import { AgentsService } from "../../services/agents.service";
+import { PrismaService } from "../../services/prisma.service";
 
-import { WhatsappConfigService } from './whatsapp-config.service';
+import { WhatsappConfigService } from "./whatsapp-config.service";
 
 import {
   ConnectWhatsappChannelDto,
   UpdateWhatsappChannelDto,
   WhatsappChannelView,
-} from './whatsapp-channel.dto';
+} from "./whatsapp-channel.dto";
 
 /**
  * Dashboard-facing CRUD for an agent's WhatsApp channel. Authorization is
@@ -28,7 +28,7 @@ import {
  * only touch channels for agents they own.
  *
  * The Graph API access token is encrypted at rest with CryptoService (AES-256-GCM),
- * the same mechanism AgentSecret uses for webhook URLs. The plaintext token never
+ * like every stored credential. The plaintext token never
  * leaves this service except into CryptoService — views never include it.
  */
 @Injectable()
@@ -82,7 +82,7 @@ export class WhatsappChannelService {
       verifiedName: dto.verifiedName ?? null,
       accessTokenEnc,
       tokenExpiresAt,
-      status: 'CONNECTED' as const,
+      status: "CONNECTED" as const,
       ...(dto.voiceReplyEnabled !== undefined
         ? { voiceReplyEnabled: dto.voiceReplyEnabled }
         : {}),
@@ -101,7 +101,7 @@ export class WhatsappChannelService {
       // binds a phone number — a security-relevant action. Never log the token.
       await this.tracer.logAuditEvent(
         agentId,
-        'WHATSAPP_CHANNEL_CONNECTED',
+        "WHATSAPP_CHANNEL_CONNECTED",
         {
           response: {
             wabaId: dto.wabaId,
@@ -118,10 +118,10 @@ export class WhatsappChannelService {
       // already owns this number.
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2002'
+        err.code === "P2002"
       ) {
         throw new ConflictException(
-          'This WhatsApp number is already connected to another agent.',
+          "This WhatsApp number is already connected to another agent.",
         );
       }
       throw err;
@@ -137,7 +137,7 @@ export class WhatsappChannelService {
     this.logger.log(`WhatsApp channel disconnected for agent ${agentId}`);
     await this.tracer.logAuditEvent(
       agentId,
-      'WHATSAPP_CHANNEL_DISCONNECTED',
+      "WHATSAPP_CHANNEL_DISCONNECTED",
       { response: { userId: user.id } },
       { agentId },
     );
@@ -158,18 +158,23 @@ export class WhatsappChannelService {
       });
       await this.tracer.logAuditEvent(
         agentId,
-        'WHATSAPP_CHANNEL_UPDATED',
-        { response: { voiceReplyEnabled: dto.voiceReplyEnabled, userId: user.id } },
+        "WHATSAPP_CHANNEL_UPDATED",
+        {
+          response: {
+            voiceReplyEnabled: dto.voiceReplyEnabled,
+            userId: user.id,
+          },
+        },
         { agentId },
       );
       return this.toView(channel);
     } catch (err) {
       if (
         err instanceof Prisma.PrismaClientKnownRequestError &&
-        err.code === 'P2025'
+        err.code === "P2025"
       ) {
         throw new NotFoundException(
-          'No WhatsApp channel connected for this agent.',
+          "No WhatsApp channel connected for this agent.",
         );
       }
       throw err;
@@ -203,11 +208,11 @@ export class WhatsappChannelService {
     } catch (err) {
       this.logger.warn(
         `WhatsApp phone-number ownership check could not reach Meta for phoneNumberId=${phoneNumberId}: ${
-          err instanceof Error ? err.message : 'unknown'
+          err instanceof Error ? err.message : "unknown"
         }`,
       );
       throw new ServiceUnavailableException(
-        'Could not verify this WhatsApp number with Meta. Please try again.',
+        "Could not verify this WhatsApp number with Meta. Please try again.",
       );
     }
 
@@ -218,13 +223,13 @@ export class WhatsappChannelService {
         `WhatsApp phone-number ownership check got HTTP ${res.status} from Meta for phoneNumberId=${phoneNumberId}`,
       );
       throw new ServiceUnavailableException(
-        'Could not verify this WhatsApp number with Meta. Please try again.',
+        "Could not verify this WhatsApp number with Meta. Please try again.",
       );
     }
 
     if (!res.ok) {
       throw new ForbiddenException(
-        'The provided access token does not have permission to manage this WhatsApp number.',
+        "The provided access token does not have permission to manage this WhatsApp number.",
       );
     }
 
@@ -232,16 +237,15 @@ export class WhatsappChannelService {
     // not caller misuse — also retryable. A well-formed body with a mismatched id
     // IS a real authorization failure.
     const body = (await res.json().catch(() => undefined)) as
-      | { id?: string }
-      | undefined;
+      { id?: string } | undefined;
     if (body === undefined) {
       throw new ServiceUnavailableException(
-        'Could not verify this WhatsApp number with Meta. Please try again.',
+        "Could not verify this WhatsApp number with Meta. Please try again.",
       );
     }
     if (!body || body.id !== phoneNumberId) {
       throw new ForbiddenException(
-        'The provided access token does not match this WhatsApp number.',
+        "The provided access token does not match this WhatsApp number.",
       );
     }
   }

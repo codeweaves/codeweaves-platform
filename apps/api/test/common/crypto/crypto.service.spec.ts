@@ -97,7 +97,7 @@ describe("CryptoService", () => {
 
   describe("decrypt", () => {
     it("should decrypt to the original plaintext", () => {
-      const plaintext = "https://n8n.example.com/webhook/abc123";
+      const plaintext = "https://hooks.example.com/abc123";
       const encrypted = service.encrypt(plaintext);
       const decrypted = service.decrypt(encrypted);
       expect(decrypted).toBe(plaintext);
@@ -169,7 +169,7 @@ describe("CryptoService", () => {
 
   describe("encrypt/decrypt roundtrip", () => {
     const testCases = [
-      "https://n8n.example.com/webhook/abc123",
+      "https://hooks.example.com/abc123",
       "http://localhost:5678/webhook/test",
       "sk-abc123def456",
       "",

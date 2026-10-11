@@ -64,8 +64,6 @@ const PROVIDER_OPTIONS = [
   "RESEND",
   "CLERK",
   "SUPABASE",
-  "N8N",
-  "AGENT_WEBHOOK",
   "FRANKFURTER",
 ].map((p) => ({ label: p, value: p }));
 

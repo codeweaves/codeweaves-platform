@@ -5,7 +5,7 @@ import type { EventLogInput } from "./event-log.types";
 
 /**
  * Convenience wrapper for THIRD-PARTY outbound calls (LLM, STT/TTS, WhatsApp Graph,
- * n8n, Resend, Clerk, Supabase). Pre-binds the TracerService so call sites don't
+ * Resend, Clerk, Supabase). Pre-binds the TracerService so call sites don't
  * pass it around. Provider name constants live in PROVIDERS below.
  *
  * Usage:
@@ -43,11 +43,9 @@ export const PROVIDERS = {
   SARVAM: "SARVAM",
   DEEPGRAM: "DEEPGRAM",
   META_WHATSAPP: "META_WHATSAPP",
-  N8N: "N8N",
   RESEND: "RESEND",
   CLERK: "CLERK",
   SUPABASE: "SUPABASE",
-  AGENT_WEBHOOK: "AGENT_WEBHOOK",
   FRANKFURTER: "FRANKFURTER",
   SLACK: "SLACK",
   BETTER_STACK: "BETTER_STACK",

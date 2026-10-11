@@ -98,7 +98,7 @@ async function seed() {
           organizationId: org.id,
           status: "ACTIVE",
           allowedDomains: [],
-          aiConfig: { routingMode: "direct", modelId: "openai:gpt-4.1-mini" },
+          aiConfig: { modelId: "openai:gpt-4.1-mini" },
         },
       });
       agentIds.push(agent.id);

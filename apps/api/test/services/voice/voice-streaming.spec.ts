@@ -10,7 +10,7 @@ import {
 import { PrismaService } from "../../../src/services/prisma.service";
 import { UsageMeterService } from "../../../src/modules/usage/usage-meter.service";
 import { voiceConfigSchema } from "@repo/validation";
-import type { N8nStreamChunk } from "../../../src/services/n8n-stream.interface";
+import type { TokenStreamChunk } from "../../../src/modules/voice/token-stream.interface";
 import type { VoiceStreamChunk } from "../../../src/modules/voice/interfaces/voice-stream.interface";
 
 function createMockProvider(
@@ -46,7 +46,7 @@ function createMockProvider(
 
 async function* createTokenStream(
   tokens: string[],
-): AsyncGenerator<N8nStreamChunk> {
+): AsyncGenerator<TokenStreamChunk> {
   yield { type: "begin", metadata: { timestamp: Date.now() } };
   for (const token of tokens) {
     yield { type: "item", content: token };

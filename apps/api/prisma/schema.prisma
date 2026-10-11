@@ -254,12 +254,10 @@ model Agent {
   organizationId          String
   organization            Organization       @relation(fields: [organizationId], references: [id])
   allowedDomains          String[]
-  hmacEnabled             Boolean            @default(false)
   voiceEnabled            Boolean            @default(false)
   voiceConfig             Json?              @db.JsonB
-  // Per-agent AI orchestration config: routing mode (n8n | direct), model,
-  // temperature, context strategy, fallback models, RAG settings.
-  // Null/absent = defaults to 'n8n' routing for backwards compatibility.
+  // Per-agent AI orchestration config: model, temperature, context strategy,
+  // fallback models, RAG settings. Null/absent = schema defaults.
   aiConfig                Json?              @db.JsonB
   // Category names this agent's conversations get classified into by the
   // post-session AI classifier (e.g. ["Pricing", "Support", "Refunds"]).
@@ -298,7 +296,6 @@ model Agent {
   handoverEmailRecipients String[]           @default([])
   systemPrompt            String?            @db.Text
   welcomeMessage          String?
-  secret                  AgentSecret?
   theme                   AgentTheme?
   knowledge               AgentKnowledge?
   whatsappChannel         WhatsappChannel?
@@ -317,19 +314,6 @@ model Agent {
   @@index([organizationId])
   @@index([status])
   @@map("agents")
-}
-
-model AgentSecret {
-  id         String   @id @default(uuid())
-  agentId    String   @unique
-  agent      Agent    @relation(fields: [agentId], references: [id], onDelete: Cascade)
-  webhookUrl String?  @db.Text
-  apiKey     String?  @db.Text
-  createdAt  DateTime @default(now())
-  updatedAt  DateTime @updatedAt
-
-  @@index([agentId])
-  @@map("agent_secrets")
 }
 
 model AgentTheme {
@@ -477,8 +461,8 @@ model WhatsappChannel {
   /// Business display name Meta shows to end users (verified name). Optional.
   verifiedName String?
 
-  /// Graph API access token, encrypted at rest via CryptoService (AES-256-GCM) — the
-  /// same mechanism AgentSecret uses for webhook URLs. NEVER store or log plaintext.
+  /// Graph API access token, encrypted at rest via CryptoService (AES-256-GCM),
+  /// like every stored credential. NEVER store or log plaintext.
   accessTokenEnc String @db.Text
 
   /// When the access token expires (Embedded Signup tokens are typically 60-day).
@@ -834,7 +818,7 @@ enum EventDirection {
 /// outlive what it references; fire-and-forget writes must never fail on a mid-delete
 /// race — same pattern as AuditLog / ChatTrace / LlmUsage). Holds curated business
 /// events, the HTTP envelope of mutating requests, and every third-party call
-/// (LLM / STT / TTS / WhatsApp / n8n / email / clerk / storage). See observability plan.
+/// (LLM / STT / TTS / WhatsApp / email / clerk / storage). See observability plan.
 model EventLog {
   id        String   @id @default(uuid())
   createdAt DateTime @default(now())
@@ -842,7 +826,7 @@ model EventLog {
   channel   EventChannel
   eventName String // SCREAMING_SNAKE_CASE, e.g. WIDGET_MESSAGE_RECEIVED
   direction EventDirection @default(INTERNAL)
-  provider  String? // ANTHROPIC | OPENAI | ELEVENLABS | SARVAM | DEEPGRAM | META_WHATSAPP | N8N | RESEND | CLERK | SUPABASE ; null for our own events
+  provider  String? // ANTHROPIC | OPENAI | ELEVENLABS | SARVAM | DEEPGRAM | META_WHATSAPP | RESEND | CLERK | SUPABASE ; null for our own events
 
   // WHO
   actorUserId String? // internal users.id (dashboard actor); null for visitors

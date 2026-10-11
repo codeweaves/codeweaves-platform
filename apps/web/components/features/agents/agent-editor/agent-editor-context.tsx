@@ -36,11 +36,10 @@ export interface AgentFormData {
   systemPrompt: string;
   welcomeMessage: string;
   allowedDomains: string[];
-  webhookUrl: string;
   voiceEnabled: boolean;
   voiceConfig: VoiceConfigDto | null;
   /**
-   * AI orchestration config — routingMode (n8n/direct), model, temperature,
+   * AI orchestration config: model, temperature,
    * etc. Seeded from `agent.aiConfig` OR from Zod defaults if the agent has
    * never been configured. Always a full object in-memory so sections can
    * read fields without null-checking every access; only DIRTY fields get
@@ -218,7 +217,6 @@ function deepMergeTheme<T>(base: T, override: unknown): T {
 export interface PreviewFormData {
   name: string;
   greetingMessage: string;
-  webhookUrl: string;
   domains: string[];
   // Appearance
   iconBg: string;
@@ -322,7 +320,6 @@ export function toPreviewFormData(
     name: formData.name,
     greetingMessage:
       formData.welcomeMessage || "Hello! How can I help you today?",
-    webhookUrl: formData.webhookUrl,
     domains: formData.allowedDomains,
     // Icon
     iconBg: themeData.icon.backgroundColor,
@@ -433,7 +430,6 @@ export function toPreviewFormData(
  * defaults change.
  */
 const DEFAULT_AI_CONFIG: import("@repo/validation").AgentAiConfigDto = {
-  routingMode: "n8n",
   temperature: 0.7,
   maxTokens: 4096,
   maxContextMessages: 20,
@@ -464,7 +460,6 @@ export interface InitialAgentKnowledge {
 
 export function agentToFormData(
   agent: Agent,
-  webhookUrl = "",
   initialKnowledge: InitialAgentKnowledge | null = null,
   initialDataFields: EditorDataField[] = [],
 ): AgentFormData {
@@ -473,7 +468,6 @@ export function agentToFormData(
     systemPrompt: agent.systemPrompt ?? "",
     welcomeMessage: agent.welcomeMessage ?? "",
     allowedDomains: agent.allowedDomains ?? [],
-    webhookUrl,
     voiceEnabled: agent.voiceEnabled ?? false,
     voiceConfig: agent.voiceConfig ?? null,
     // Merge stored aiConfig over defaults so every field has a value —

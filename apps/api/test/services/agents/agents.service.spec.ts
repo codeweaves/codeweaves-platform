@@ -5,12 +5,10 @@ import {
   ConflictException,
   BadRequestException,
 } from "@nestjs/common";
-import { ConfigService } from "@nestjs/config";
 import { AgentsService } from "../../../src/services/agents.service";
 import { PermissionCatalogService } from "../../../src/common/rbac/permission-catalog.service";
 import { PrismaService } from "../../../src/services/prisma.service";
 import { AgentLoggerService } from "../../../src/common/logger/agent.logger";
-import { CryptoService } from "../../../src/common/crypto/crypto.service";
 import { AgentCacheService } from "../../../src/common/cache/agent-cache.service";
 import { WidgetCorsCacheService } from "../../../src/common/cache/widget-cors-cache.service";
 import { Prisma, Role, AccessScope } from "@prisma/client";
@@ -31,10 +29,6 @@ describe("AgentsService", () => {
     organization: {
       findUnique: jest.fn(),
     },
-    agentSecret: {
-      findUnique: jest.fn(),
-      upsert: jest.fn(),
-    },
     agentTheme: {
       findUnique: jest.fn(),
     },
@@ -48,14 +42,6 @@ describe("AgentsService", () => {
     logAgentDeleted: jest.fn(),
     logDomainsUpdated: jest.fn(),
     logStatusChanged: jest.fn(),
-    logSecretCreated: jest.fn(),
-    logSecretUpdated: jest.fn(),
-    logWebhookUpdated: jest.fn(),
-  };
-
-  const mockCryptoService = {
-    encrypt: jest.fn((val: string) => `encrypted:${val}`),
-    decrypt: jest.fn((val: string) => val.replace("encrypted:", "")),
   };
 
   const mockAgentCacheService = {
@@ -70,14 +56,6 @@ describe("AgentsService", () => {
     clearAll: jest.fn(),
   };
 
-  const mockConfigService = {
-    get: jest.fn((key: string): string | undefined => {
-      if (key === "NODE_ENV") return "development";
-      if (key === "DEFAULT_WEBHOOK_URL") return undefined;
-      return undefined;
-    }),
-  };
-
   const orgId = "123e4567-e89b-12d3-a456-426614174000";
   const otherOrgId = "223e4567-e89b-12d3-a456-426614174000";
   const agentId = "333e4567-e89b-12d3-a456-426614174000";
@@ -89,7 +67,6 @@ describe("AgentsService", () => {
     status: "ACTIVE",
     organizationId: orgId,
     allowedDomains: [],
-    hmacEnabled: false,
     voiceEnabled: false,
     voiceConfig: null,
     systemPrompt: null,
@@ -192,8 +169,6 @@ describe("AgentsService", () => {
         },
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: AgentLoggerService, useValue: mockAgentLogger },
-        { provide: CryptoService, useValue: mockCryptoService },
-        { provide: ConfigService, useValue: mockConfigService },
         { provide: AgentCacheService, useValue: mockAgentCacheService },
         {
           provide: WidgetCorsCacheService,
@@ -205,19 +180,6 @@ describe("AgentsService", () => {
     service = module.get<AgentsService>(AgentsService);
     jest.clearAllMocks();
     jest.spyOn(publicIdUtils, "generatePublicId").mockReturnValue("AbCd1234");
-
-    // Restore mock implementations after clearAllMocks
-    mockCryptoService.encrypt.mockImplementation(
-      (val: string) => `encrypted:${val}`,
-    );
-    mockCryptoService.decrypt.mockImplementation((val: string) =>
-      val.replace("encrypted:", ""),
-    );
-    mockConfigService.get.mockImplementation((key: string) => {
-      if (key === "NODE_ENV") return "development";
-      if (key === "DEFAULT_WEBHOOK_URL") return undefined;
-      return undefined;
-    });
   });
 
   it("should be defined", () => {
@@ -547,6 +509,24 @@ describe("AgentsService", () => {
   });
 
   describe("update", () => {
+    it("never stores the retired routingMode key, even when a PATCH sends it (ADR-0014)", async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue({
+        ...mockAgent,
+        aiConfig: { temperature: 0.7 },
+      });
+      mockPrismaService.agent.update.mockResolvedValue(mockAgent);
+
+      await service.update(
+        agentId,
+        { aiConfig: { routingMode: "n8n", temperature: 0.4 } },
+        adminUser,
+      );
+
+      const data = mockPrismaService.agent.update.mock.calls[0][0].data;
+      expect(data.aiConfig).toMatchObject({ temperature: 0.4 });
+      expect(data.aiConfig).not.toHaveProperty("routingMode");
+    });
+
     it("should update agent name", async () => {
       const updated = { ...mockAgent, name: "New Name" };
       mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
@@ -925,251 +905,6 @@ describe("AgentsService", () => {
       const result = await service.checkAgentActive(agentId);
 
       expect(result).toBe(false);
-    });
-  });
-
-  // ==========================================
-  // Webhook Management Tests (Story 3-6)
-  // ==========================================
-
-  describe("setWebhookUrl", () => {
-    const webhookUrl = "https://n8n.example.com/webhook/abc123";
-
-    it("should encrypt and store webhook URL", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-      mockPrismaService.agentSecret.upsert.mockResolvedValue({});
-
-      const result = await service.setWebhookUrl(
-        agentId,
-        webhookUrl,
-        adminUser,
-      );
-
-      expect(result).toEqual({ message: "Webhook URL updated" });
-      expect(mockCryptoService.encrypt).toHaveBeenCalledWith(webhookUrl);
-      expect(mockPrismaService.agentSecret.upsert).toHaveBeenCalledWith(
-        expect.objectContaining({
-          where: { agentId },
-          create: expect.objectContaining({ agentId }),
-          update: expect.objectContaining({ webhookUrl: expect.any(String) }),
-        }),
-      );
-    });
-
-    it("should log AGENT_SECRET_CREATED when no previous secret exists", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-      mockPrismaService.agentSecret.upsert.mockResolvedValue({});
-
-      await service.setWebhookUrl(agentId, webhookUrl, adminUser);
-
-      expect(mockAgentLogger.logSecretCreated).toHaveBeenCalledWith(
-        agentId,
-        adminUser.id,
-      );
-      expect(mockAgentLogger.logSecretUpdated).not.toHaveBeenCalled();
-    });
-
-    it("should log AGENT_SECRET_UPDATED when secret already exists", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue({
-        agentId,
-        webhookUrl: "old",
-      });
-      mockPrismaService.agentSecret.upsert.mockResolvedValue({});
-
-      await service.setWebhookUrl(agentId, webhookUrl, adminUser);
-
-      expect(mockAgentLogger.logSecretUpdated).toHaveBeenCalledWith(
-        agentId,
-        adminUser.id,
-      );
-      expect(mockAgentLogger.logSecretCreated).not.toHaveBeenCalled();
-    });
-
-    it("should always log AGENT_WEBHOOK_UPDATED", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-      mockPrismaService.agentSecret.upsert.mockResolvedValue({});
-
-      await service.setWebhookUrl(agentId, webhookUrl, adminUser);
-
-      expect(mockAgentLogger.logWebhookUpdated).toHaveBeenCalledWith(
-        agentId,
-        adminUser.id,
-      );
-    });
-
-    it("should allow HTTP URLs in development mode", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-      mockPrismaService.agentSecret.upsert.mockResolvedValue({});
-
-      const result = await service.setWebhookUrl(
-        agentId,
-        "http://localhost:5678/webhook/test",
-        adminUser,
-      );
-
-      expect(result).toEqual({ message: "Webhook URL updated" });
-    });
-
-    it("should reject HTTP URLs in production mode", async () => {
-      mockConfigService.get.mockImplementation((key: string) => {
-        if (key === "NODE_ENV") return "production";
-        return undefined;
-      });
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-
-      await expect(
-        service.setWebhookUrl(agentId, "http://example.com/webhook", adminUser),
-      ).rejects.toThrow(BadRequestException);
-      await expect(
-        service.setWebhookUrl(agentId, "http://example.com/webhook", adminUser),
-      ).rejects.toThrow("Webhook URL must use HTTPS in production");
-    });
-
-    it("should allow HTTPS URLs in production mode", async () => {
-      mockConfigService.get.mockImplementation((key: string) => {
-        if (key === "NODE_ENV") return "production";
-        return undefined;
-      });
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-      mockPrismaService.agentSecret.upsert.mockResolvedValue({});
-
-      const result = await service.setWebhookUrl(
-        agentId,
-        webhookUrl,
-        adminUser,
-      );
-
-      expect(result).toEqual({ message: "Webhook URL updated" });
-    });
-
-    it("should throw NotFoundException for nonexistent agent", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(null);
-
-      await expect(
-        service.setWebhookUrl(agentId, webhookUrl, adminUser),
-      ).rejects.toThrow(NotFoundException);
-    });
-  });
-
-  describe("getWebhookUrl", () => {
-    it("should return decrypted webhook URL", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue({
-        agentId,
-        webhookUrl: "encrypted:https://example.com/webhook",
-      });
-
-      const result = await service.getWebhookUrl(agentId, adminUser);
-
-      expect(result).toEqual({ webhookUrl: "https://example.com/webhook" });
-      expect(mockCryptoService.decrypt).toHaveBeenCalledWith(
-        "encrypted:https://example.com/webhook",
-      );
-    });
-
-    it("should return fallback URL when no agent-specific webhook exists", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-      mockConfigService.get.mockImplementation((key: string) => {
-        if (key === "DEFAULT_WEBHOOK_URL")
-          return "https://default.example.com/webhook";
-        return "development";
-      });
-
-      const result = await service.getWebhookUrl(agentId, adminUser);
-
-      expect(result).toEqual({
-        webhookUrl: "https://default.example.com/webhook",
-        isFallback: true,
-      });
-    });
-
-    it("should return null when no webhook and no fallback configured", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-
-      const result = await service.getWebhookUrl(agentId, adminUser);
-
-      expect(result).toEqual({ webhookUrl: null });
-    });
-
-    it("should return null when secret exists but webhookUrl is null", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue({
-        agentId,
-        webhookUrl: null,
-      });
-
-      const result = await service.getWebhookUrl(agentId, adminUser);
-
-      expect(result).toEqual({ webhookUrl: null });
-    });
-
-    it("should throw NotFoundException for nonexistent agent", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(null);
-
-      await expect(service.getWebhookUrl(agentId, adminUser)).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
-  describe("getEffectiveWebhookUrl", () => {
-    it("should return decrypted agent-specific URL", async () => {
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue({
-        agentId,
-        webhookUrl: "encrypted:https://example.com/webhook",
-      });
-
-      const result = await service.getEffectiveWebhookUrl(agentId);
-
-      expect(result).toBe("https://example.com/webhook");
-    });
-
-    it("should return fallback URL when no agent-specific webhook", async () => {
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-      mockConfigService.get.mockImplementation((key: string) => {
-        if (key === "DEFAULT_WEBHOOK_URL")
-          return "https://default.example.com/webhook";
-        return "development";
-      });
-
-      const result = await service.getEffectiveWebhookUrl(agentId);
-
-      expect(result).toBe("https://default.example.com/webhook");
-    });
-
-    it("should throw NotFoundException when no webhook and no fallback", async () => {
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-
-      await expect(service.getEffectiveWebhookUrl(agentId)).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-  });
-
-  describe("testWebhook", () => {
-    it("should throw NotFoundException when no webhook configured", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
-      mockPrismaService.agentSecret.findUnique.mockResolvedValue(null);
-
-      await expect(service.testWebhook(agentId, adminUser)).rejects.toThrow(
-        NotFoundException,
-      );
-    });
-
-    it("should throw NotFoundException for nonexistent agent", async () => {
-      mockPrismaService.agent.findFirst.mockResolvedValue(null);
-
-      await expect(service.testWebhook(agentId, adminUser)).rejects.toThrow(
-        NotFoundException,
-      );
     });
   });
 

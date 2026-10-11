@@ -85,33 +85,6 @@ export class AgentLoggerService {
     );
   }
 
-  async logSecretCreated(agentId: string, userId: string) {
-    await this.tracer.logAuditEvent(
-      agentId,
-      "AGENT_SECRET_CREATED",
-      this.tracer.mergeJsonResponse({ response: { userId } }),
-      { agentId },
-    );
-  }
-
-  async logSecretUpdated(agentId: string, userId: string) {
-    await this.tracer.logAuditEvent(
-      agentId,
-      "AGENT_SECRET_UPDATED",
-      this.tracer.mergeJsonResponse({ response: { userId } }),
-      { agentId },
-    );
-  }
-
-  async logWebhookUpdated(agentId: string, userId: string) {
-    await this.tracer.logAuditEvent(
-      agentId,
-      "AGENT_WEBHOOK_UPDATED",
-      this.tracer.mergeJsonResponse({ response: { userId } }),
-      { agentId },
-    );
-  }
-
   async logThemeUpdated(agentId: string, userId: string) {
     await this.tracer.logAuditEvent(
       agentId,

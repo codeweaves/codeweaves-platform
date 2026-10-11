@@ -57,8 +57,7 @@ const CAPTURE_ELIGIBLE_FEATURES = new Set<string>([
 ]);
 
 /**
- * DirectChatService: the orchestrator for direct-mode AI calls. This is what
- * replaces the "POST to n8n webhook" call in n8n mode. It composes:
+ * DirectChatService: the orchestrator for every AI reply. It composes:
  *
  *   1. ContextAssemblyService  → load message history from DB
  *   2. (Phase 3: RAG retrieval → inject into system prompt)
@@ -91,7 +90,6 @@ const CAPTURE_ELIGIBLE_FEATURES = new Set<string>([
  * NOT responsible for:
  *   - Persisting the user/assistant message                  → ChatService
  *   - Updating ChatSession.lastMessageAt                     → ChatService
- *   - Routing between n8n and direct                         → ChatService
  *   - Rate limiting, permissions                             → Controllers + guards
  *   - Recording usage + cost                                 → LlmService meters every call (ADR-0012)
  */

@@ -307,7 +307,6 @@ function makeAiConfig(
   extra: Record<string, unknown> = {},
 ): Prisma.InputJsonValue {
   return {
-    routingMode: "direct",
     modelId,
     temperature: 0.7,
     maxTokens: 2048,
