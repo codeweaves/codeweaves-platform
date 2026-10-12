@@ -1,0 +1,15 @@
+**/node_modules
+**/dist
+**/.next
+**/coverage
+**/logs
+**/.turbo
+**/.env
+**/.env.*
+.git
+references
+docs
+graphify-out
+security-scan-results
+apps/api/test
+apps/api/eval
