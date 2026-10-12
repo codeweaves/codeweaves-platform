@@ -45,5 +45,7 @@ COPY --from=build /app/packages/validation/dist packages/validation/dist
 COPY --from=build /app/apps/api/package.json apps/api/package.json
 COPY --from=build /app/apps/api/dist apps/api/dist
 WORKDIR /app/apps/api
+# The distroless nonroot user, declared explicitly.
+USER 65532:65532
 EXPOSE 8080
 CMD ["dist/main.js"]
