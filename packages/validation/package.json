@@ -2,7 +2,7 @@
   "name": "@repo/validation",
   "version": "0.0.0",
   "private": true,
-  "type":"module",
+  "type": "module",
   "main": "./dist/index.js",
   "types": "./dist/index.d.ts",
   "exports": {
@@ -24,12 +24,12 @@
     "lint": "eslint . --max-warnings 0"
   },
   "dependencies": {
-    "zod": "^3.24.0"
+    "zod": "3.25.76"
   },
   "devDependencies": {
     "@repo/eslint-config": "workspace:*",
     "@repo/typescript-config": "workspace:*",
-    "tsup": "^8.5.0",
-    "typescript": "^5.9.2"
+    "tsup": "8.5.1",
+    "typescript": "5.9.3"
   }
 }
