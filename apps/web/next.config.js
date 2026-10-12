@@ -95,6 +95,11 @@ const contentSecurityPolicy = Object.entries(csp)
 // frame-ancestors/SAMEORIGIN still allow the dashboard's own srcdoc previews.
 // microphone=(self) keeps the voice preview working.
 const securityHeaders = [
+  // Set explicitly: not every edge server added HSTS on its own.
+  {
+    key: "Strict-Transport-Security",
+    value: "max-age=63072000; includeSubDomains",
+  },
   { key: "X-Frame-Options", value: "SAMEORIGIN" },
   { key: "Content-Security-Policy", value: contentSecurityPolicy },
   { key: "X-Content-Type-Options", value: "nosniff" },

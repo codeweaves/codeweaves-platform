@@ -23,10 +23,10 @@
   },
   "devDependencies": {
     "eslint": "^9.39.5",
-    "lefthook": "^2.1.12",
-    "playwright-core": "^1.63.0",
-    "prettier": "^3.9.6",
-    "turbo": "^2.10.6",
+    "lefthook": "^2.2.1",
+    "playwright-core": "^1.64.0",
+    "prettier": "^3.9.10",
+    "turbo": "^2.11.7",
     "typescript": "5.9.2"
   },
   "packageManager": "bun@1.3.8",
@@ -35,6 +35,10 @@
   },
   "overrides": {
     "multer": "2.3.0",
-    "socket.io-parser": "4.2.7"
+    "socket.io-parser": "4.2.7",
+    "proxy-addr": "2.0.8",
+    "engine.io": "6.6.11",
+    "@xmldom/xmldom": "0.8.15",
+    "sharp": "0.35.5"
   }
 }

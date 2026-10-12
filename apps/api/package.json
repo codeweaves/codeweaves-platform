@@ -68,7 +68,7 @@
     "rxjs": "^7.8.1",
     "sarvamai": "^1.1.6",
     "socket.io": "^4",
-    "undici": "^8.9.0",
+    "undici": "^8.11.2",
     "zod": "^3.24.0"
   },
   "devDependencies": {
