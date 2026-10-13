@@ -1,5 +1,7 @@
-# API image for Google Cloud Run. Build from the repository root:
-#   docker build -f apps/api/Dockerfile -t klivo-api .
+# API image for Google Cloud Run. Kept at the repository root because the
+# build needs the whole monorepo as context, and Cloud Run builds from the
+# directory that holds the Dockerfile.
+#   docker build -t klivo-api .
 # Migrations are not run here; CI applies them before the deploy.
 
 ARG NODE_IMAGE=node:24.21.0-trixie-slim
