@@ -1,5 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
-import { HttpStatus } from "@nestjs/common";
+import { ForbiddenException, HttpStatus } from "@nestjs/common";
 import type { Request, Response } from "express";
 import * as Sentry from "@sentry/nestjs";
 import { VoiceController } from "../../../src/modules/voice/voice.controller";
@@ -568,6 +568,51 @@ describe("VoiceController", () => {
   // ============================
   // POST /voice/synthesize
   // ============================
+  describe("query agentId must match the body (CORS-checked agent)", () => {
+    const dto = { text: "Hi", language: "en" as const, agentId: AGENT_ID };
+
+    it("rejects a body agent that differs from the CORS-checked ?agentId", async () => {
+      const req = {
+        ...createMockRequest(),
+        query: { agentId: "some-other-agent" },
+      } as unknown as Request;
+      await expect(
+        controller.synthesize(dto, req, createMockResponse()),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mockChatService.resolveAgent).not.toHaveBeenCalled();
+      expect(mockVoiceService.synthesize).not.toHaveBeenCalled();
+    });
+
+    it("rejects a mismatched voice conversation before any provider call", async () => {
+      const req = {
+        ...createMockRequest(),
+        query: { agentId: "some-other-agent" },
+      } as unknown as Request;
+      await expect(
+        controller.voiceConversation(
+          {
+            buffer: Buffer.from("x"),
+            mimetype: "audio/webm",
+          } as Express.Multer.File,
+          { agentId: AGENT_ID } as never,
+          req,
+          createMockResponse(),
+        ),
+      ).rejects.toBeInstanceOf(ForbiddenException);
+      expect(mockChatService.resolveAgent).not.toHaveBeenCalled();
+    });
+
+    it("accepts a matching ?agentId", async () => {
+      mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);
+      const req = {
+        ...createMockRequest(),
+        query: { agentId: AGENT_ID },
+      } as unknown as Request;
+      await controller.synthesize(dto, req, createMockResponse());
+      expect(mockVoiceService.synthesize).toHaveBeenCalled();
+    });
+  });
+
   describe("synthesize", () => {
     it("should return TTS result with base64 audio", async () => {
       mockVoiceService.synthesize.mockResolvedValue(mockTtsResult);

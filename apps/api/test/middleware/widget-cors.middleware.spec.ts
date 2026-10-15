@@ -1,3 +1,4 @@
+import { ForbiddenException } from "@nestjs/common";
 import { Request, Response } from "express";
 import { WidgetCorsMiddleware } from "../../src/middleware/widget-cors.middleware";
 import { PrismaService } from "../../src/services/prisma.service";
@@ -87,16 +88,39 @@ describe("WidgetCorsMiddleware", () => {
   });
 
   // Regression: this used to be treated as a preflight and got ACAO for ANY origin,
-  // which bypassed allowedDomains on every voice route.
-  it("sets NO CORS headers on a voice POST that omits agentId from a foreign origin", async () => {
+  // and later still reached the controller, which read the agent from the
+  // multipart body and ran the call on the agent's credits.
+  it("rejects a voice POST that omits agentId from a foreign origin", async () => {
+    await expect(
+      run({
+        method: "POST",
+        url: "/api/klivo/v1/public/voice/conversation",
+        origin: "https://attacker.example",
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
+    expect(prisma.agent.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("lets a foreign GET that names no agent through to the controller", async () => {
     const { headers, next } = await run({
-      method: "POST",
-      url: "/api/klivo/v1/public/voice/conversation",
+      method: "GET",
+      url: "/api/klivo/v1/public/voice/providers",
       origin: "https://attacker.example",
     });
     expect(headers["Access-Control-Allow-Origin"]).toBeUndefined();
     expect(next).toHaveBeenCalled();
-    expect(prisma.agent.findFirst).not.toHaveBeenCalled();
+  });
+
+  it("answers a blocked origin's preflight without CORS headers", async () => {
+    const { headers, next, status } = await run({
+      method: "OPTIONS",
+      url: `/api/klivo/v1/public/voice/conversation?agentId=${AGENT.id}`,
+      origin: "https://attacker.example",
+      query: { agentId: AGENT.id },
+    });
+    expect(headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    expect(status).toHaveBeenCalledWith(204);
+    expect(next).not.toHaveBeenCalled();
   });
 
   it("still lets a voice OPTIONS preflight through when the agent is unknown", async () => {
@@ -113,15 +137,15 @@ describe("WidgetCorsMiddleware", () => {
     expect(next).not.toHaveBeenCalled();
   });
 
-  it("blocks a chat POST whose origin is not in allowedDomains", async () => {
-    const { headers, next } = await run({
-      method: "POST",
-      url: "/api/klivo/v1/public/chat/message",
-      origin: "https://attacker.example",
-      body: { agentId: AGENT.id },
-    });
-    expect(headers["Access-Control-Allow-Origin"]).toBeUndefined();
-    expect(next).toHaveBeenCalled();
+  it("rejects a chat POST whose origin is not in allowedDomains", async () => {
+    await expect(
+      run({
+        method: "POST",
+        url: "/api/klivo/v1/public/chat/message",
+        origin: "https://attacker.example",
+        body: { agentId: AGENT.id },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("matches a wildcard entry against subdomains", async () => {
@@ -140,26 +164,27 @@ describe("WidgetCorsMiddleware", () => {
     );
   });
 
-  it("blocks every origin when the agent has no allowed domains", async () => {
+  it("rejects every origin when the agent has no allowed domains", async () => {
     prisma.agent.findFirst.mockResolvedValue({ ...AGENT, allowedDomains: [] });
-    const { headers, next } = await run({
-      method: "POST",
-      url: "/api/klivo/v1/public/chat/message",
-      origin: "https://anyone.example",
-      body: { agentId: AGENT.id },
-    });
-    expect(headers["Access-Control-Allow-Origin"]).toBeUndefined();
-    expect(next).toHaveBeenCalled();
+    await expect(
+      run({
+        method: "POST",
+        url: "/api/klivo/v1/public/chat/message",
+        origin: "https://anyone.example",
+        body: { agentId: AGENT.id },
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
-  it("blocks the config endpoint for an agent with no allowed domains", async () => {
+  it("rejects the config endpoint for an agent with no allowed domains", async () => {
     prisma.agent.findFirst.mockResolvedValue({ ...AGENT, allowedDomains: [] });
-    const { headers } = await run({
-      method: "GET",
-      url: `/api/klivo/v1/public/agents/${AGENT.publicId}/config`,
-      origin: "https://anyone.example",
-    });
-    expect(headers["Access-Control-Allow-Origin"]).toBeUndefined();
+    await expect(
+      run({
+        method: "GET",
+        url: `/api/klivo/v1/public/agents/${AGENT.publicId}/config`,
+        origin: "https://anyone.example",
+      }),
+    ).rejects.toBeInstanceOf(ForbiddenException);
   });
 
   it("still allows the dashboard origin for an agent with no allowed domains", async () => {
@@ -198,13 +223,14 @@ describe("WidgetCorsMiddleware", () => {
 
     it("blocks localhost in production unless it is in allowed domains", async () => {
       process.env.NODE_ENV = "production";
-      const { headers } = await run({
-        method: "POST",
-        url: "/api/klivo/v1/public/chat/message",
-        origin: "http://localhost:5173",
-        body: { agentId: AGENT.id },
-      });
-      expect(headers["Access-Control-Allow-Origin"]).toBeUndefined();
+      await expect(
+        run({
+          method: "POST",
+          url: "/api/klivo/v1/public/chat/message",
+          origin: "http://localhost:5173",
+          body: { agentId: AGENT.id },
+        }),
+      ).rejects.toBeInstanceOf(ForbiddenException);
     });
   });
 
