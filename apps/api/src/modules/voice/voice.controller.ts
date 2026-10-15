@@ -8,6 +8,7 @@ import {
   UploadedFile,
   UseInterceptors,
   HttpStatus,
+  ForbiddenException,
 } from "@nestjs/common";
 import { FileInterceptor } from "@nestjs/platform-express";
 import { ApiTags, ApiOperation, ApiResponse } from "@nestjs/swagger";
@@ -110,6 +111,7 @@ export class VoiceController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    this.assertCheckedAgent(req, dto.agentId);
     const audioValidationError = this.validateAudioFile(audioFile);
     if (audioValidationError) {
       res.status(HttpStatus.BAD_REQUEST);
@@ -338,6 +340,7 @@ export class VoiceController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    this.assertCheckedAgent(req, dto.agentId);
     const audioValidationError = this.validateAudioFile(audioFile);
     if (audioValidationError) {
       res.status(HttpStatus.BAD_REQUEST);
@@ -441,6 +444,7 @@ export class VoiceController {
     @Req() req: Request,
     @Res({ passthrough: true }) res: Response,
   ) {
+    this.assertCheckedAgent(req, dto.agentId);
     const agent = await this.chatService.resolveAgent(dto.agentId);
     const resolvedAgentId = agent.id;
 
@@ -1125,6 +1129,20 @@ export class VoiceController {
           ? { notice: body.notice, noticeHash: body.noticeHash }
           : {}),
       };
+    }
+  }
+
+  /**
+   * The widget CORS middleware checks the agent named in `?agentId` (it cannot
+   * read a multipart body). The body must name that same agent, or a site
+   * allowed for its own agent could spend another agent's credits.
+   */
+  private assertCheckedAgent(req: Request, bodyAgentId: string): void {
+    const checked = req.query?.agentId;
+    if (typeof checked === "string" && checked.trim() !== bodyAgentId) {
+      throw new ForbiddenException(
+        "agentId in the query and the body must match.",
+      );
     }
   }
 

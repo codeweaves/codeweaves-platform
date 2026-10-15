@@ -1,4 +1,4 @@
-import { Injectable, NestMiddleware } from "@nestjs/common";
+import { ForbiddenException, Injectable, NestMiddleware } from "@nestjs/common";
 import { Request, Response, NextFunction } from "express";
 import { PrismaService } from "../services/prisma.service";
 import { WidgetCorsCacheService } from "../common/cache/widget-cors-cache.service";
@@ -21,6 +21,11 @@ const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
  * - Empty allowedDomains → blocked everywhere. An agent loads on a website only
  *   once that domain is added, so an unconfigured agent cannot be embedded on
  *   any site (and spend its credits) by default.
+ *
+ * A blocked origin gets a 403 and never reaches the controller. Withholding the
+ * CORS headers alone only hides the reply: the browser still sends the request
+ * (a multipart voice POST needs no preflight), so the chat or voice call would
+ * still run and spend the agent's credits.
  */
 @Injectable()
 export class WidgetCorsMiddleware implements NestMiddleware {
@@ -58,7 +63,9 @@ export class WidgetCorsMiddleware implements NestMiddleware {
     }
 
     if (!agentId) {
-      // Can't determine agent — block cross-origin request
+      // A cross-origin write that names no agent has no allowlist to pass, e.g.
+      // a voice POST that drops ?agentId and carries the agent in its multipart body.
+      if (req.method === "POST") this.reject(origin, "named no agent");
       if (req.method === "OPTIONS") return res.status(204).end();
       return next();
     }
@@ -79,13 +86,15 @@ export class WidgetCorsMiddleware implements NestMiddleware {
       return next();
     }
 
-    // Origin not allowed — respond without CORS headers (browser will block)
-    this.log.warn(
-      "use",
-      `CORS blocked: origin "${origin}" not in allowedDomains for agent "${agentId}"`,
-    );
     if (req.method === "OPTIONS") return res.status(204).end();
-    return next();
+    this.reject(origin, `is not in allowedDomains for agent "${agentId}"`);
+  }
+
+  private reject(origin: string, reason: string): never {
+    this.log.warn("use", `CORS blocked: origin "${origin}" ${reason}`);
+    throw new ForbiddenException(
+      "This website is not allowed to use this agent.",
+    );
   }
 
   private setCorsHeaders(

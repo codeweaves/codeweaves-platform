@@ -55,6 +55,8 @@ if (!isDev) {
   for (const [name, origin] of [
     ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", clerk],
     ["NEXT_PUBLIC_API_URL", process.env.NEXT_PUBLIC_API_URL ? apiOrigin : null],
+    // Uploaded agent images (logos, avatars) are served from storage.
+    ["NEXT_PUBLIC_SUPABASE_URL", supabase],
   ]) {
     if (!origin)
       console.warn(
