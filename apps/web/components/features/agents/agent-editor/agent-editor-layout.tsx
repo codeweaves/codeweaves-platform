@@ -194,7 +194,10 @@ function AgentEditorContent() {
           <ExternalLink className="h-4 w-4" />
           Demo
         </Button>
-        <EmbedCodeDialog publicId={agent.publicId} />
+        <EmbedCodeDialog
+          publicId={agent.publicId}
+          allowedDomains={agent.allowedDomains}
+        />
       </div>,
     );
     return cleanup;
@@ -204,6 +207,7 @@ function AgentEditorContent() {
     pendingDirection,
     agent.publicId,
     agent.id,
+    agent.allowedDomains,
     setActions,
   ]);
 

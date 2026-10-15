@@ -362,6 +362,7 @@ export function AgentsDataTable({ emptyAction }: AgentsDataTableProps) {
       {embedAgent && (
         <EmbedCodeDialog
           publicId={embedAgent.publicId}
+          allowedDomains={embedAgent.allowedDomains}
           open={!!embedAgent}
           onOpenChange={(open) => {
             if (!open) setEmbedAgent(null);

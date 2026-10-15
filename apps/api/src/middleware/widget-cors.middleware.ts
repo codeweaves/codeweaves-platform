@@ -1,9 +1,11 @@
-import { Injectable, NestMiddleware } from '@nestjs/common';
-import { Request, Response, NextFunction } from 'express';
-import { PrismaService } from '../services/prisma.service';
-import { WidgetCorsCacheService } from '../common/cache/widget-cors-cache.service';
-import { AppLogger } from '../common/logger/app-logger';
-import { normalizeDomain } from '../utils/domain';
+import { Injectable, NestMiddleware } from "@nestjs/common";
+import { Request, Response, NextFunction } from "express";
+import { PrismaService } from "../services/prisma.service";
+import { WidgetCorsCacheService } from "../common/cache/widget-cors-cache.service";
+import { AppLogger } from "../common/logger/app-logger";
+import { normalizeDomain } from "../utils/domain";
+
+const DEV_HOSTS = new Set(["localhost", "127.0.0.1", "0.0.0.0", "[::1]"]);
 
 /**
  * Dynamic CORS middleware for public widget endpoints.
@@ -14,8 +16,11 @@ import { normalizeDomain } from '../utils/domain';
  *
  * - Dashboard origin (CORS_ORIGIN env) → always allowed
  * - No Origin header (server-to-server, curl) → allowed (no CORS headers needed)
+ * - Preflight with no agent identifier → allowed; the real request is checked
  * - Widget origins → checked against agent's allowedDomains
- * - Empty allowedDomains → allow all origins (no restrictions configured)
+ * - Empty allowedDomains → blocked everywhere. An agent loads on a website only
+ *   once that domain is added, so an unconfigured agent cannot be embedded on
+ *   any site (and spend its credits) by default.
  */
 @Injectable()
 export class WidgetCorsMiddleware implements NestMiddleware {
@@ -26,7 +31,7 @@ export class WidgetCorsMiddleware implements NestMiddleware {
     private readonly prisma: PrismaService,
     private readonly cache: WidgetCorsCacheService,
   ) {
-    this.dashboardOrigin = process.env.CORS_ORIGIN || 'http://localhost:3000';
+    this.dashboardOrigin = process.env.CORS_ORIGIN || "http://localhost:3000";
   }
 
   async use(req: Request, res: Response, next: NextFunction) {
@@ -38,15 +43,23 @@ export class WidgetCorsMiddleware implements NestMiddleware {
     // Dashboard origin — always allowed with credentials
     if (origin === this.dashboardOrigin) {
       this.setCorsHeaders(res, origin, true);
-      if (req.method === 'OPTIONS') return res.status(204).end();
+      if (req.method === "OPTIONS") return res.status(204).end();
       return next();
     }
 
     // Extract agent identifier from the request
     const agentId = this.extractAgentId(req);
+
+    // A preflight carries no body, so the agent is unknown here. Let it through;
+    // the real request that follows is checked against the agent's allowlist.
+    if (agentId === "__preflight__") {
+      this.setCorsHeaders(res, origin, false);
+      return res.status(204).end();
+    }
+
     if (!agentId) {
       // Can't determine agent — block cross-origin request
-      if (req.method === 'OPTIONS') return res.status(204).end();
+      if (req.method === "OPTIONS") return res.status(204).end();
       return next();
     }
 
@@ -54,7 +67,7 @@ export class WidgetCorsMiddleware implements NestMiddleware {
     const allowedDomains = await this.getAllowedDomains(agentId);
     if (allowedDomains === null) {
       // Agent not found — let the controller handle 404
-      if (req.method === 'OPTIONS') return res.status(204).end();
+      if (req.method === "OPTIONS") return res.status(204).end();
       return next();
     }
 
@@ -62,31 +75,35 @@ export class WidgetCorsMiddleware implements NestMiddleware {
     const originHostname = this.extractHostname(origin);
     if (this.isOriginAllowed(originHostname, allowedDomains)) {
       this.setCorsHeaders(res, origin, false);
-      if (req.method === 'OPTIONS') return res.status(204).end();
+      if (req.method === "OPTIONS") return res.status(204).end();
       return next();
     }
 
     // Origin not allowed — respond without CORS headers (browser will block)
     this.log.warn(
-      'use',
+      "use",
       `CORS blocked: origin "${origin}" not in allowedDomains for agent "${agentId}"`,
     );
-    if (req.method === 'OPTIONS') return res.status(204).end();
+    if (req.method === "OPTIONS") return res.status(204).end();
     return next();
   }
 
-  private setCorsHeaders(res: Response, origin: string, credentials: boolean): void {
-    res.setHeader('Access-Control-Allow-Origin', origin);
-    res.setHeader('Vary', 'Origin');
-    res.setHeader('Access-Control-Allow-Methods', 'GET, POST, OPTIONS');
+  private setCorsHeaders(
+    res: Response,
+    origin: string,
+    credentials: boolean,
+  ): void {
+    res.setHeader("Access-Control-Allow-Origin", origin);
+    res.setHeader("Vary", "Origin");
+    res.setHeader("Access-Control-Allow-Methods", "GET, POST, OPTIONS");
     res.setHeader(
-      'Access-Control-Allow-Headers',
-      'Content-Type, Authorization, If-None-Match, X-Device-Id, X-Session-Id, X-Correlation-Id',
+      "Access-Control-Allow-Headers",
+      "Content-Type, Authorization, If-None-Match, X-Device-Id, X-Session-Id, X-Correlation-Id",
     );
-    res.setHeader('Access-Control-Expose-Headers', 'ETag, X-Correlation-Id');
-    res.setHeader('Access-Control-Max-Age', '600');
+    res.setHeader("Access-Control-Expose-Headers", "ETag, X-Correlation-Id");
+    res.setHeader("Access-Control-Max-Age", "600");
     if (credentials) {
-      res.setHeader('Access-Control-Allow-Credentials', 'true');
+      res.setHeader("Access-Control-Allow-Credentials", "true");
     }
   }
 
@@ -108,7 +125,7 @@ export class WidgetCorsMiddleware implements NestMiddleware {
 
     // Chat/Voice POST endpoints: agentId in request body (JSON only — multipart bodies
     // are parsed later by multer/FileInterceptor, not available in middleware)
-    if (req.method === 'POST' && req.body?.agentId) {
+    if (req.method === "POST" && req.body?.agentId) {
       return String(req.body.agentId);
     }
 
@@ -123,15 +140,15 @@ export class WidgetCorsMiddleware implements NestMiddleware {
     // Access-Control-Allow-Origin to any origin that simply omitted the param and
     // so bypassed the per-agent domain allowlist on every voice route.
     const queryAgentId = req.query?.agentId;
-    if (typeof queryAgentId === 'string' && queryAgentId.trim()) {
+    if (typeof queryAgentId === "string" && queryAgentId.trim()) {
       return queryAgentId.trim();
     }
 
     // Preflight OPTIONS requests carry no body — try Referer or fall back
     // For OPTIONS, we need the agentId from somewhere. The actual POST will
     // be validated, so we allow OPTIONS through if we can't determine the agent.
-    if (req.method === 'OPTIONS') {
-      return '__preflight__';
+    if (req.method === "OPTIONS") {
+      return "__preflight__";
     }
 
     return null;
@@ -139,13 +156,9 @@ export class WidgetCorsMiddleware implements NestMiddleware {
 
   /**
    * Look up allowedDomains for an agent. Handles both publicId and UUID lookups.
-   * Returns null if agent not found, empty array if no restrictions.
+   * Returns null if agent not found. An empty array means no site is allowed.
    */
   private async getAllowedDomains(agentId: string): Promise<string[] | null> {
-    // Preflight — we can't know the agent, allow it through
-    // The actual request will be validated
-    if (agentId === '__preflight__') return [];
-
     // Check cache (keyed by whichever identifier the wire sent — publicId or UUID).
     const cached = this.cache.get(agentId);
     if (cached !== null) return cached;
@@ -160,11 +173,8 @@ export class WidgetCorsMiddleware implements NestMiddleware {
       const agent = await this.prisma.agent.findFirst({
         where: {
           deletedAt: null,
-          status: 'ACTIVE',
-          OR: [
-            { publicId: agentId },
-            { id: agentId },
-          ],
+          status: "ACTIVE",
+          OR: [{ publicId: agentId }, { id: agentId }],
         },
         select: { id: true, publicId: true, allowedDomains: true },
       });
@@ -179,7 +189,7 @@ export class WidgetCorsMiddleware implements NestMiddleware {
       return domains;
     } catch (error) {
       this.log.error(
-        'getAllowedDomains',
+        "getAllowedDomains",
         `Failed to look up allowedDomains for agent "${agentId}"`,
         error,
       );
@@ -199,18 +209,24 @@ export class WidgetCorsMiddleware implements NestMiddleware {
 
   /** Check if a hostname matches the allowed domains list */
   private isOriginAllowed(hostname: string, allowedDomains: string[]): boolean {
-    // No restrictions configured — allow all
-    if (allowedDomains.length === 0) return true;
-
     const host = normalizeDomain(hostname);
+
+    // Local development pages, outside production only (the widget's own check
+    // allows the same hosts).
+    if (
+      process.env.NODE_ENV !== "production" &&
+      DEV_HOSTS.has(host.replace(/:\d+$/, ""))
+    ) {
+      return true;
+    }
 
     for (const pattern of allowedDomains) {
       const p = normalizeDomain(pattern);
       if (!p) continue;
 
-      if (p.startsWith('*.')) {
+      if (p.startsWith("*.")) {
         const base = p.slice(2);
-        if (host === base || host.endsWith('.' + base)) return true;
+        if (host === base || host.endsWith("." + base)) return true;
       } else {
         if (host === p) return true;
       }
