@@ -86,6 +86,42 @@ describe("AllExceptionsFilter", () => {
     );
   });
 
+  it("keeps body-parser's 413 for an oversized body instead of a 500", () => {
+    const { host, status, json } = createMockHost();
+    const tooLarge = Object.assign(new Error("request entity too large"), {
+      status: 413,
+      statusCode: 413,
+      expose: true,
+      type: "entity.too.large",
+    });
+
+    filter.catch(tooLarge, host);
+
+    expect(status).toHaveBeenCalledWith(413);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({
+        statusCode: 413,
+        message: "request entity too large",
+      }),
+    );
+    expect(mockSentryService.captureException).not.toHaveBeenCalled();
+  });
+
+  it("still returns 500 for an error whose status is not marked safe to show", () => {
+    const { host, status, json } = createMockHost();
+    const internal = Object.assign(new Error("db password in here"), {
+      status: 400,
+      expose: false,
+    });
+
+    filter.catch(internal, host);
+
+    expect(status).toHaveBeenCalledWith(500);
+    expect(json).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "Internal server error" }),
+    );
+  });
+
   it("should return 500 with generic message for unknown errors", () => {
     const { host, status, json } = createMockHost();
 
