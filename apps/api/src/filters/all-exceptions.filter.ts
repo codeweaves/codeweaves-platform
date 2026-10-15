@@ -21,6 +21,29 @@ import { maskSessionInUrl } from "../common/events/redaction.util";
 
 const MUTATING = new Set(["POST", "PUT", "PATCH", "DELETE"]);
 
+/**
+ * Errors raised before Nest's pipeline (body-parser's 413 for an oversized body)
+ * are http-errors, not HttpException. They carry their own 4xx status and mark
+ * the message safe to show with `expose`. Treating them as 500 turned junk
+ * input into server errors in Sentry and event_logs.
+ */
+function exposedClientError(
+  exception: unknown,
+): { status: number; message: string } | null {
+  const e = exception as {
+    status?: unknown;
+    expose?: unknown;
+    message?: unknown;
+  };
+  return typeof e?.status === "number" &&
+    e.status >= 400 &&
+    e.status < 500 &&
+    e.expose === true &&
+    typeof e.message === "string"
+    ? { status: e.status, message: e.message }
+    : null;
+}
+
 @Injectable()
 @Catch()
 export class AllExceptionsFilter implements ExceptionFilter {
@@ -38,8 +61,11 @@ export class AllExceptionsFilter implements ExceptionFilter {
     const request = ctx.getRequest<Request>();
     const context = getRequestContext();
 
+    const clientError = exposedClientError(exception);
     const status =
-      exception instanceof HttpException ? exception.getStatus() : 500;
+      exception instanceof HttpException
+        ? exception.getStatus()
+        : (clientError?.status ?? 500);
 
     if (status >= 500) {
       // Console output (Render logs) is a log too: an error can echo the input.
@@ -127,7 +153,7 @@ export class AllExceptionsFilter implements ExceptionFilter {
         : typeof exceptionResponse === "object" && exceptionResponse !== null
           ? ((exceptionResponse as Record<string, unknown>)["message"] ??
             "Internal server error")
-          : "Internal server error";
+          : (clientError?.message ?? "Internal server error");
 
     const body: Record<string, unknown> = {
       statusCode: status,
