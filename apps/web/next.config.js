@@ -37,6 +37,17 @@ const sentry = originOf(process.env.NEXT_PUBLIC_SENTRY_DSN);
 const supabase = originOf(process.env.NEXT_PUBLIC_SUPABASE_URL);
 const widget = originOf(process.env.NEXT_PUBLIC_WIDGET_URL);
 const apiSocket = apiOrigin?.replace(/^http/, "ws");
+const clerkImages = "https://img.clerk.com"; // user avatars
+// This deployment's own origin. Vercel otherwise sends
+// `Access-Control-Allow-Origin: *` on cached pages, inviting any site to read them.
+const selfOrigin = originOf(
+  process.env.VERCEL_ENV === "production" &&
+    process.env.VERCEL_PROJECT_PRODUCTION_URL
+    ? `https://${process.env.VERCEL_PROJECT_PRODUCTION_URL}`
+    : process.env.VERCEL_URL
+      ? `https://${process.env.VERCEL_URL}`
+      : null,
+);
 
 // The CSP is fixed at build time. A missing origin is silently left out and the
 // browser then blocks that service, so say so loudly in a production build.
@@ -66,7 +77,8 @@ const csp = {
   ],
   "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
   "font-src": ["'self'", "data:", "https://fonts.gstatic.com"],
-  "img-src": ["'self'", "data:", "blob:", "https:"],
+  // Images: our own files and uploads (storage), plus Clerk avatars and widgets.
+  "img-src": ["'self'", "data:", "blob:", supabase, clerk, clerkImages],
   "connect-src": [
     "'self'",
     apiOrigin,
@@ -109,6 +121,9 @@ const securityHeaders = [
     value: "camera=(), microphone=(self), geolocation=(), payment=(), usb=()",
   },
   { key: "Cross-Origin-Opener-Policy", value: "same-origin-allow-popups" },
+  ...(selfOrigin
+    ? [{ key: "Access-Control-Allow-Origin", value: selfOrigin }]
+    : []),
 ];
 
 /** @type {import('next').NextConfig} */
