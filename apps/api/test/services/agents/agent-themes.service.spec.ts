@@ -30,6 +30,7 @@ describe("AgentThemesService", () => {
       upsert: jest.fn(),
     },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
 
   const mockAgentLogger = {
@@ -534,6 +535,112 @@ describe("AgentThemesService", () => {
       expect(saved.consent.enabled).toBe(true);
     });
 
+    it("a partial handover PATCH keeps the stored handover wording", async () => {
+      const stored = {
+        ...customTheme,
+        handover: {
+          ...defaultWidgetTheme.handover,
+          requestedLabel: "One of our advisers will join shortly.",
+          endedLabel: "Back with the assistant.",
+        },
+      };
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        agentId,
+        config: stored,
+        version: 4,
+      });
+      mockPrismaService.agentTheme.upsert.mockImplementation(
+        (args: { update: { config: unknown } }) =>
+          Promise.resolve({ agentId, config: args.update.config, version: 5 }),
+      );
+
+      const body = partialWidgetThemeSchema.parse({
+        handover: { buttonLabel: "Talk to an adviser" },
+      });
+      await service.patchTheme(agentId, body, adminUser);
+
+      const saved = mockPrismaService.agentTheme.upsert.mock.calls[0][0].update
+        .config as WidgetTheme;
+      expect(saved.handover).toEqual({
+        ...stored.handover,
+        buttonLabel: "Talk to an adviser",
+      });
+    });
+
+    it("a handover PATCH on a theme stored before handover existed stores a complete section", async () => {
+      const stored: Record<string, unknown> = { ...customTheme };
+      delete stored.handover;
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        agentId,
+        config: stored,
+        version: 4,
+      });
+      mockPrismaService.agentTheme.upsert.mockImplementation(
+        (args: { update: { config: unknown } }) =>
+          Promise.resolve({ agentId, config: args.update.config, version: 5 }),
+      );
+
+      const body = partialWidgetThemeSchema.parse({
+        handover: { buttonLabel: "Talk to an adviser" },
+      });
+      await service.patchTheme(agentId, body, adminUser);
+
+      const saved = mockPrismaService.agentTheme.upsert.mock.calls[0][0].update
+        .config as WidgetTheme;
+      expect(saved.handover).toEqual({
+        ...defaultWidgetTheme.handover,
+        buttonLabel: "Talk to an adviser",
+      });
+    });
+
+    it("a handover PATCH on a partly stored handover fills the missing fields", async () => {
+      const stored = {
+        ...customTheme,
+        handover: {
+          buttonLabel: "Talk to us",
+          buttonBackgroundColor: "#000000",
+          buttonTextColor: "#ffffff",
+          connectedLineColor: "#10b981",
+        },
+      };
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        agentId,
+        config: stored,
+        version: 4,
+      });
+      mockPrismaService.agentTheme.upsert.mockImplementation(
+        (args: { update: { config: unknown } }) =>
+          Promise.resolve({ agentId, config: args.update.config, version: 5 }),
+      );
+
+      const body = partialWidgetThemeSchema.parse({
+        handover: { buttonLabel: "Talk to an adviser" },
+      });
+      await service.patchTheme(agentId, body, adminUser);
+
+      const saved = mockPrismaService.agentTheme.upsert.mock.calls[0][0].update
+        .config as WidgetTheme;
+      expect(saved.handover).toEqual({
+        ...defaultWidgetTheme.handover,
+        ...stored.handover,
+        buttonLabel: "Talk to an adviser",
+      });
+    });
+
+    it("rejects a starter without a message", () => {
+      expect(
+        partialWidgetThemeSchema.safeParse({ starters: [{}] }).success,
+      ).toBe(false);
+      expect(
+        partialWidgetThemeSchema.safeParse({ starters: [{ message: "   " }] })
+          .success,
+      ).toBe(false);
+      expect(
+        partialWidgetThemeSchema.safeParse({ starters: [{ message: "Hi" }] })
+          .success,
+      ).toBe(true);
+    });
+
     it("audits a notice change with the before and after wording", async () => {
       mockPrismaService.agentTheme.findUnique.mockResolvedValue({
         config: defaultWidgetTheme,
@@ -742,6 +849,55 @@ describe("AgentThemesService", () => {
         NotFoundException,
       );
     });
+  });
+
+  describe("concurrent writes", () => {
+    const lockSql = () =>
+      (mockPrismaService.$queryRaw.mock.calls[0][0] as string[]).join("?");
+
+    beforeEach(() => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        agentId,
+        config: defaultWidgetTheme,
+        version: 1,
+      });
+      mockPrismaService.agentTheme.upsert.mockResolvedValue({
+        agentId,
+        config: defaultWidgetTheme,
+        version: 2,
+      });
+    });
+
+    it.each([
+      [
+        "updateTheme",
+        () => service.updateTheme(agentId, defaultWidgetTheme, adminUser),
+      ],
+      [
+        "patchTheme",
+        () =>
+          service.patchTheme(agentId, { header: { title: "T" } }, adminUser),
+      ],
+      ["resetTheme", () => service.resetTheme(agentId, adminUser)],
+    ])(
+      "%s locks the agent row in a transaction before reading the theme",
+      async (_name, write) => {
+        await write();
+
+        expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+        // NO KEY UPDATE: excludes other theme writers, not FK inserts.
+        expect(lockSql()).toMatch(
+          /FROM agents WHERE id = \? FOR NO KEY UPDATE/,
+        );
+        expect(mockPrismaService.$queryRaw.mock.calls[0][1]).toBe(agentId);
+        const lockedAt =
+          mockPrismaService.$queryRaw.mock.invocationCallOrder[0];
+        const readAt =
+          mockPrismaService.agentTheme.findUnique.mock.invocationCallOrder[0];
+        expect(Number(lockedAt)).toBeLessThan(Number(readAt));
+      },
+    );
   });
 
   describe("ensureAgentAccess (via CLIENT scoping)", () => {

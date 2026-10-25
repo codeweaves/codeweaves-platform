@@ -24,6 +24,11 @@ import {
 
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+// Theme writes queue on the agent row lock, and the wait counts against the
+// transaction timeout. Prisma's 5s default is short when several writes to
+// one agent arrive together over a slow database link.
+const THEME_WRITE_TRANSACTION = { maxWait: 5_000, timeout: 15_000 };
+
 function toJsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
@@ -83,34 +88,43 @@ export class AgentThemesService {
   ) {
     const agent = await this.ensureAgentAccess(agentId, user);
 
-    const existing = await this.prisma.agentTheme.findUnique({
-      where: { agentId },
-      select: { config: true },
-    });
-    this.assertConsentUnchangedUnlessPermitted(config, existing?.config, user);
-    const safeConfig = this.preserveConsentUnlessPermitted(
-      this.preserveBrandingUnlessPermitted(config, existing?.config, user),
-      existing?.config,
-      user,
-    );
-    // Judge what will actually be stored: a caller without the consent
-    // permission cannot change the notice, so their copy of it is irrelevant.
-    this.assertConsentValid(safeConfig);
-    // Store the consent section fully defaulted, so the stored wording is
-    // exactly what the widget shows and the consent rows snapshot.
-    const jsonConfig = toJsonValue(withNormalizedConsent(safeConfig));
+    const { theme, previousConfig, safeConfig } =
+      await this.prisma.$transaction(async (tx) => {
+        await this.lockAgentForThemeWrite(tx, agentId);
+        const existing = await tx.agentTheme.findUnique({
+          where: { agentId },
+          select: { config: true },
+        });
+        this.assertConsentUnchangedUnlessPermitted(
+          config,
+          existing?.config,
+          user,
+        );
+        const safeConfig = this.preserveConsentUnlessPermitted(
+          this.preserveBrandingUnlessPermitted(config, existing?.config, user),
+          existing?.config,
+          user,
+        );
+        // Judge what will actually be stored: a caller without the consent
+        // permission cannot change the notice, so their copy of it is irrelevant.
+        this.assertConsentValid(safeConfig);
+        // Store the consent section fully defaulted, so the stored wording is
+        // exactly what the widget shows and the consent rows snapshot.
+        const jsonConfig = toJsonValue(withNormalizedConsent(safeConfig));
 
-    const theme = await this.prisma.agentTheme.upsert({
-      where: { agentId },
-      create: { agentId, config: jsonConfig, version: 1 },
-      update: { config: jsonConfig, version: { increment: 1 } },
-    });
+        const theme = await tx.agentTheme.upsert({
+          where: { agentId },
+          create: { agentId, config: jsonConfig, version: 1 },
+          update: { config: jsonConfig, version: { increment: 1 } },
+        });
+        return { theme, previousConfig: existing?.config, safeConfig };
+      }, THEME_WRITE_TRANSACTION);
 
     await this.agentLogger.logThemeUpdated(agentId, user.id);
     await this.logConsentChange(
       agentId,
       user.id,
-      existing?.config,
+      previousConfig,
       safeConfig,
       agent.organizationId,
     );
@@ -131,6 +145,7 @@ export class AgentThemesService {
 
     let previousConfig: unknown;
     const theme = await this.prisma.$transaction(async (tx) => {
+      await this.lockAgentForThemeWrite(tx, agentId);
       const existing = await tx.agentTheme.findUnique({
         where: { agentId },
       });
@@ -140,7 +155,24 @@ export class AgentThemesService {
         ? (existing.config as WidgetTheme)
         : defaultWidgetTheme;
 
-      const merged = deepMerge(currentConfig, partialConfig) as WidgetTheme;
+      // A section the PATCH touches starts from its defaults with the stored
+      // values on top, so a theme saved before a section or field existed
+      // (e.g. handover) still stores a complete section.
+      const base: Record<string, unknown> = { ...currentConfig };
+      for (const key of Object.keys(partialConfig)) {
+        const defaults: unknown = defaultWidgetTheme[key as keyof WidgetTheme];
+        if (
+          defaults &&
+          typeof defaults === "object" &&
+          !Array.isArray(defaults)
+        ) {
+          base[key] = deepMerge(
+            defaults as Record<string, unknown>,
+            (base[key] as Record<string, unknown> | undefined) ?? {},
+          );
+        }
+      }
+      const merged = deepMerge(base, partialConfig) as WidgetTheme;
       // Branding is granted deliberately. See preserveBrandingUnlessPermitted.
       if (!this.canEditBranding(user)) {
         merged.branding = currentConfig.branding ?? defaultWidgetTheme.branding;
@@ -164,7 +196,7 @@ export class AgentThemesService {
         create: { agentId, config: jsonConfig, version: 1 },
         update: { config: jsonConfig, version: { increment: 1 } },
       });
-    });
+    }, THEME_WRITE_TRANSACTION);
 
     await this.agentLogger.logThemeUpdated(agentId, user.id);
     await this.logConsentChange(
@@ -185,32 +217,37 @@ export class AgentThemesService {
   async resetTheme(agentId: string, user: CurrentUserData) {
     const agent = await this.ensureAgentAccess(agentId, user);
 
-    const existing = await this.prisma.agentTheme.findUnique({
-      where: { agentId },
-      select: { config: true },
-    });
-    // A reset must not become a back door: without the consent permission it
-    // resets everything EXCEPT the privacy notice, which would otherwise be
-    // switched off by one click on "Reset theme".
-    const resetConfig = this.preserveConsentUnlessPermitted(
-      defaultWidgetTheme,
-      existing?.config,
-      user,
-    );
-    const jsonConfig = toJsonValue(resetConfig);
+    const { theme, previousConfig, resetConfig } =
+      await this.prisma.$transaction(async (tx) => {
+        await this.lockAgentForThemeWrite(tx, agentId);
+        const existing = await tx.agentTheme.findUnique({
+          where: { agentId },
+          select: { config: true },
+        });
+        // A reset must not become a back door: without the consent permission
+        // it resets everything EXCEPT the privacy notice, which would otherwise
+        // be switched off by one click on "Reset theme".
+        const resetConfig = this.preserveConsentUnlessPermitted(
+          defaultWidgetTheme,
+          existing?.config,
+          user,
+        );
+        const jsonConfig = toJsonValue(resetConfig);
 
-    const theme = await this.prisma.agentTheme.upsert({
-      where: { agentId },
-      create: { agentId, config: jsonConfig, version: 1 },
-      update: { config: jsonConfig, version: { increment: 1 } },
-    });
+        const theme = await tx.agentTheme.upsert({
+          where: { agentId },
+          create: { agentId, config: jsonConfig, version: 1 },
+          update: { config: jsonConfig, version: { increment: 1 } },
+        });
+        return { theme, previousConfig: existing?.config, resetConfig };
+      }, THEME_WRITE_TRANSACTION);
 
     await this.agentLogger.logThemeReset(agentId, user.id);
     // A permitted reset turns the notice off; record it like any other change.
     await this.logConsentChange(
       agentId,
       user.id,
-      existing?.config,
+      previousConfig,
       resetConfig,
       agent.organizationId,
     );
@@ -220,6 +257,24 @@ export class AgentThemesService {
     });
 
     return { config: theme.config as WidgetTheme, version: theme.version };
+  }
+
+  /**
+   * Serialise writes to one agent's theme. Every write reads the stored theme
+   * and writes back a result built from it (a merge, or the branding and
+   * notice the caller may not change). Without the lock, two concurrent writes
+   * read the same version and the later one silently drops the other's change.
+   * The agent row is locked, not the theme row, so the first write, before a
+   * theme row exists, is covered too. `FOR NO KEY UPDATE`, not `FOR UPDATE`:
+   * it still excludes the next theme writer, but not the `FOR KEY SHARE` that
+   * a foreign-key check takes, so new chat sessions (and other rows that
+   * reference the agent) are not held up while a theme saves.
+   */
+  private async lockAgentForThemeWrite(
+    tx: Prisma.TransactionClient,
+    agentId: string,
+  ): Promise<void> {
+    await tx.$queryRaw`SELECT 1 FROM agents WHERE id = ${agentId} FOR NO KEY UPDATE`;
   }
 
   /** Does this caller hold the privacy-notice permission? */

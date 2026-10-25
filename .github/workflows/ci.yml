@@ -120,6 +120,12 @@ jobs:
           DATABASE_URL: postgresql://test:test@localhost:5432/test
           REDIS_URL: redis://localhost:6379
 
+      # Real Postgres in a throwaway container (testcontainers), migrated from
+      # scratch: covers behaviour mocks cannot, such as row locking.
+      - name: Run e2e tests
+        working-directory: apps/api
+        run: bun run test:e2e
+
       - name: Upload coverage
         uses: codecov/codecov-action@v4
         with:

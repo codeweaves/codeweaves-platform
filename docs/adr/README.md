@@ -6,22 +6,23 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 
 ## Index
 
-| #                                                            | Title                                         | Status   | Date       |
-| ------------------------------------------------------------ | --------------------------------------------- | -------- | ---------- |
-| [0001](0001-environments-and-deploy-pipeline.md)             | Environments and deploy pipeline              | Accepted | 2026-09-16 |
-| [0002](0002-production-hosting-and-region.md)                | Production hosting and region                 | Accepted | 2026-09-16 |
-| [0003](0003-widget-shadow-dom-open-mode.md)                  | Widget Shadow DOM open mode                   | Accepted | 2026-09-24 |
-| [0004](0004-web-visitor-identity-and-consent-records.md)     | Web visitor identity and consent records      | Accepted | 2026-09-25 |
-| [0005](0005-pii-masked-logs-no-app-level-chat-encryption.md) | PII-masked logs, no app-level chat encryption | Accepted | 2026-09-25 |
-| [0006](0006-agent-verification-skill.md)                     | Agent verification skill                      | Accepted | 2026-09-26 |
-| [0007](0007-tenant-key-on-message-rows.md)                   | Tenant key on message rows                    | Accepted | 2026-09-28 |
-| [0008](0008-clerk-session-token-for-the-api.md)              | Clerk session token for the API               | Accepted | 2026-09-29 |
-| [0010](0010-integration-addon-owns-allowed-domains.md)       | Integration add-on owns allowed domains       | Accepted | 2026-10-09 |
-| [0011](0011-llm-provider-set.md)                             | LLM providers are OpenAI, Gemini and Sarvam   | Accepted | 2026-10-10 |
-| [0012](0012-usage-ledger-and-price-list.md)                  | Usage ledger and price list                   | Accepted | 2026-10-10 |
-| [0013](0013-external-monitoring-and-alerting.md)             | External monitoring and alerting              | Accepted | 2026-10-10 |
-| [0014](0014-retire-n8n-chat-routing.md)                      | Retire n8n chat routing                       | Accepted | 2026-10-11 |
-| [0015](0015-zod-4-with-zod-3-patch-semantics.md)             | Zod 4, with Zod 3 PATCH semantics kept        | Accepted | 2026-10-26 |
+| #                                                            | Title                                             | Status   | Date       |
+| ------------------------------------------------------------ | ------------------------------------------------- | -------- | ---------- |
+| [0001](0001-environments-and-deploy-pipeline.md)             | Environments and deploy pipeline                  | Accepted | 2026-09-16 |
+| [0002](0002-production-hosting-and-region.md)                | Production hosting and region                     | Accepted | 2026-09-16 |
+| [0003](0003-widget-shadow-dom-open-mode.md)                  | Widget Shadow DOM open mode                       | Accepted | 2026-09-24 |
+| [0004](0004-web-visitor-identity-and-consent-records.md)     | Web visitor identity and consent records          | Accepted | 2026-09-25 |
+| [0005](0005-pii-masked-logs-no-app-level-chat-encryption.md) | PII-masked logs, no app-level chat encryption     | Accepted | 2026-09-25 |
+| [0006](0006-agent-verification-skill.md)                     | Agent verification skill                          | Accepted | 2026-09-26 |
+| [0007](0007-tenant-key-on-message-rows.md)                   | Tenant key on message rows                        | Accepted | 2026-09-28 |
+| [0008](0008-clerk-session-token-for-the-api.md)              | Clerk session token for the API                   | Accepted | 2026-09-29 |
+| [0010](0010-integration-addon-owns-allowed-domains.md)       | Integration add-on owns allowed domains           | Accepted | 2026-10-09 |
+| [0011](0011-llm-provider-set.md)                             | LLM providers are OpenAI, Gemini and Sarvam       | Accepted | 2026-10-10 |
+| [0012](0012-usage-ledger-and-price-list.md)                  | Usage ledger and price list                       | Accepted | 2026-10-10 |
+| [0013](0013-external-monitoring-and-alerting.md)             | External monitoring and alerting                  | Accepted | 2026-10-10 |
+| [0014](0014-retire-n8n-chat-routing.md)                      | Retire n8n chat routing                           | Accepted | 2026-10-11 |
+| [0015](0015-zod-4-with-zod-3-patch-semantics.md)             | Zod 4, with Zod 3 PATCH semantics kept            | Accepted | 2026-10-26 |
+| [0016](0016-theme-patch-field-by-field.md)                   | Theme writes: field-by-field PATCH, one at a time | Accepted | 2026-10-26 |
 
 ## When to write one
 
