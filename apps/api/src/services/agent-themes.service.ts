@@ -24,6 +24,11 @@ import {
 
 const UNSAFE_KEYS = new Set(["__proto__", "constructor", "prototype"]);
 
+// Theme writes queue on the agent row lock, and the wait counts against the
+// transaction timeout. Prisma's 5s default is short when several writes to
+// one agent arrive together over a slow database link.
+const THEME_WRITE_TRANSACTION = { maxWait: 5_000, timeout: 15_000 };
+
 function toJsonValue(value: unknown): Prisma.InputJsonValue {
   return JSON.parse(JSON.stringify(value)) as Prisma.InputJsonValue;
 }
@@ -113,7 +118,7 @@ export class AgentThemesService {
           update: { config: jsonConfig, version: { increment: 1 } },
         });
         return { theme, previousConfig: existing?.config, safeConfig };
-      });
+      }, THEME_WRITE_TRANSACTION);
 
     await this.agentLogger.logThemeUpdated(agentId, user.id);
     await this.logConsentChange(
@@ -156,13 +161,16 @@ export class AgentThemesService {
       const base: Record<string, unknown> = { ...currentConfig };
       for (const key of Object.keys(partialConfig)) {
         const defaults: unknown = defaultWidgetTheme[key as keyof WidgetTheme];
-        base[key] =
-          defaults && typeof defaults === "object" && !Array.isArray(defaults)
-            ? deepMerge(
-                defaults as Record<string, unknown>,
-                (base[key] as Record<string, unknown> | undefined) ?? {},
-              )
-            : (base[key] ?? defaults);
+        if (
+          defaults &&
+          typeof defaults === "object" &&
+          !Array.isArray(defaults)
+        ) {
+          base[key] = deepMerge(
+            defaults as Record<string, unknown>,
+            (base[key] as Record<string, unknown> | undefined) ?? {},
+          );
+        }
       }
       const merged = deepMerge(base, partialConfig) as WidgetTheme;
       // Branding is granted deliberately. See preserveBrandingUnlessPermitted.
@@ -188,7 +196,7 @@ export class AgentThemesService {
         create: { agentId, config: jsonConfig, version: 1 },
         update: { config: jsonConfig, version: { increment: 1 } },
       });
-    });
+    }, THEME_WRITE_TRANSACTION);
 
     await this.agentLogger.logThemeUpdated(agentId, user.id);
     await this.logConsentChange(
@@ -232,7 +240,7 @@ export class AgentThemesService {
           update: { config: jsonConfig, version: { increment: 1 } },
         });
         return { theme, previousConfig: existing?.config, resetConfig };
-      });
+      }, THEME_WRITE_TRANSACTION);
 
     await this.agentLogger.logThemeReset(agentId, user.id);
     // A permitted reset turns the notice off; record it like any other change.
@@ -257,13 +265,16 @@ export class AgentThemesService {
    * notice the caller may not change). Without the lock, two concurrent writes
    * read the same version and the later one silently drops the other's change.
    * The agent row is locked, not the theme row, so the first write, before a
-   * theme row exists, is covered too.
+   * theme row exists, is covered too. `FOR NO KEY UPDATE`, not `FOR UPDATE`:
+   * it still excludes the next theme writer, but not the `FOR KEY SHARE` that
+   * a foreign-key check takes, so new chat sessions (and other rows that
+   * reference the agent) are not held up while a theme saves.
    */
   private async lockAgentForThemeWrite(
     tx: Prisma.TransactionClient,
     agentId: string,
   ): Promise<void> {
-    await tx.$queryRaw`SELECT 1 FROM agents WHERE id = ${agentId} FOR UPDATE`;
+    await tx.$queryRaw`SELECT 1 FROM agents WHERE id = ${agentId} FOR NO KEY UPDATE`;
   }
 
   /** Does this caller hold the privacy-notice permission? */

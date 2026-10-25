@@ -73,6 +73,36 @@ describe("AgentThemesService concurrent writes (Postgres)", () => {
     service = new AgentThemesService(prisma, logger, catalog);
   });
 
+  it("does not hold up rows that reference the agent while a theme write is locked", async () => {
+    const other = await prisma.agent.create({
+      data: {
+        name: "FK Agent",
+        publicId: "CONC0002",
+        organizationId: user.organizationId!,
+      },
+    });
+    let insertedWhileLocked = false;
+
+    await prisma.$transaction(
+      async (tx) => {
+        await service["lockAgentForThemeWrite"](tx, other.id);
+        // Another connection inserts a row with a foreign key to the locked
+        // agent, as a new chat session does. It must not wait for the lock.
+        await Promise.race([
+          prisma.agentTheme
+            .create({ data: { agentId: other.id, config: {}, version: 1 } })
+            .then(() => {
+              insertedWhileLocked = true;
+            }),
+          new Promise((resolve) => setTimeout(resolve, 3_000)),
+        ]);
+      },
+      { timeout: 10_000 },
+    );
+
+    expect(insertedWhileLocked).toBe(true);
+  });
+
   afterAll(async () => {
     await prisma?.$disconnect();
   });

@@ -886,7 +886,10 @@ describe("AgentThemesService", () => {
         await write();
 
         expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
-        expect(lockSql()).toMatch(/FROM agents WHERE id = \? FOR UPDATE/);
+        // NO KEY UPDATE: excludes other theme writers, not FK inserts.
+        expect(lockSql()).toMatch(
+          /FROM agents WHERE id = \? FOR NO KEY UPDATE/,
+        );
         expect(mockPrismaService.$queryRaw.mock.calls[0][1]).toBe(agentId);
         const lockedAt =
           mockPrismaService.$queryRaw.mock.invocationCallOrder[0];

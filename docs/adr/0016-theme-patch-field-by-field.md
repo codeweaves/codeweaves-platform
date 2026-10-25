@@ -1,4 +1,4 @@
-# ADR-0016: Theme PATCH merges field by field; arrays are replaced whole
+# ADR-0016: Theme writes: PATCH merges field by field, arrays whole, one write at a time
 
 - **Status:** Accepted
 - **Date:** 2026-10-26
@@ -17,7 +17,7 @@ Most stored themes have no `handover` key, and some have one without its newer f
 
 ## The four questions
 
-- **Blast radius:** `PATCH /agents/:id/theme` callers. The dashboard editor saves with PUT, the whole theme, and is not affected.
+- **Blast radius:** the PATCH rules affect `PATCH /agents/:id/theme` callers only; the dashboard editor saves with PUT, the whole theme. The write lock affects every theme write (PUT, PATCH, reset): writes to one agent now wait for each other.
 - **One-way or two-way door:** two-way. The change is one helper and one merge step.
 - **Couples us to:** nothing new.
 - **Cost of waiting:** saved handover wording can be overwritten by any partial PATCH.
@@ -50,5 +50,29 @@ Most stored themes have no `handover` key, and some have one without its newer f
 
 - Partial handover and consent PATCHes keep the client's saved wording.
 - A PATCH client that sent partial starter objects now gets a 400 and must send each starter whole.
-- Stored starters are trimmed when read through the schema.
-- `patchTheme` still reads, merges and writes without a row lock, so two concurrent PATCHes to one theme can overwrite each other. That is unchanged by this ADR.
+- Starter messages are trimmed when a theme is written.
+- Theme writes to one agent run one at a time (see "Concurrent writes" below). Each write holds the agent row lock for one short transaction, with a 15 s timeout instead of Prisma's 5 s, because writes queue on the lock.
+- Still open: two people editing the same theme in the dashboard. The editor saves with PUT, the whole theme, so the second save writes its stale copy over the first person's change even with the lock. That needs a version check (the client sends the version it edited, the API answers 409 if it changed) and a "reload" message in the editor.
+
+## Concurrent writes
+
+`patchTheme`, `updateTheme` and `resetTheme` each read the stored theme and write back a result built from it (a merge, or the branding and privacy notice the caller may not change). Two concurrent writes read the same version, and the later one dropped the other's change.
+
+Each write now runs in a transaction that first takes `SELECT ... FOR NO KEY UPDATE` on the agent row, then reads and writes the theme.
+
+- The **agent** row, not the theme row, because the first write happens before a theme row exists.
+- **`FOR NO KEY UPDATE`**, not `FOR UPDATE`, because a foreign-key check takes `FOR KEY SHARE` on the agent row. `FOR UPDATE` would block every new chat session for the agent while a theme saves; `FOR NO KEY UPDATE` does not. An e2e test on real Postgres checks both: concurrent PATCHes all land, and a row referencing the locked agent inserts without waiting (with `FOR UPDATE` it blocks).
+
+### Rejected: optimistic version check with retry
+
+**Good:** no lock is held, so nothing ever waits, and the same `version` check is what the dashboard case above needs.
+
+**Rejected because:** under contention each write retries until it wins, so the server needs a retry loop with a cap, and a capped loop can still fail a write. The lock is simpler and certain for the server-side merge.
+
+**Revisit if:** the dashboard version check is built. Server-side writes could then use the same check.
+
+### Rejected: advisory lock on the agent id
+
+**Good:** touches no table row, so it cannot interact with foreign-key locks at all.
+
+**Rejected because:** it needs an id-to-integer mapping and is invisible in the schema; `FOR NO KEY UPDATE` already avoids the foreign-key conflict.
