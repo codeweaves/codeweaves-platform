@@ -3,7 +3,7 @@
  * Defines the complete theme configuration for the embeddable chat widget.
  */
 import { z } from "zod";
-import { deepPatchOf, patchOf } from "./patch.js";
+import { deepPatchOf } from "./patch.js";
 
 // ============================================
 // Shared Validators
@@ -244,13 +244,10 @@ export const widgetThemeSchema = z.object({
 export type WidgetTheme = z.infer<typeof widgetThemeSchema>;
 
 /** Deep-partial schema for PATCH/update operations (all fields optional) */
-// A section sent whole is parsed whole, so consent is made partial field by
-// field: a PATCH of `{ consent: { enabled: true } }` must not fill every other
-// consent field with its default, or the merge would overwrite the client's
-// saved wording. A PATCH carries only the keys it sent.
-export const partialWidgetThemeSchema = deepPatchOf(
-  widgetThemeSchema.extend({ consent: patchOf(consentConfigSchema) }),
-);
+// A PATCH carries only the keys it sent: `{ consent: { enabled: true } }` must
+// not fill the other consent (or handover) fields with defaults, or the merge
+// would overwrite the client's saved wording.
+export const partialWidgetThemeSchema = deepPatchOf(widgetThemeSchema);
 export type PartialWidgetTheme = z.infer<typeof partialWidgetThemeSchema>;
 
 // ============================================

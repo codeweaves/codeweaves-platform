@@ -534,6 +534,74 @@ describe("AgentThemesService", () => {
       expect(saved.consent.enabled).toBe(true);
     });
 
+    it("a partial handover PATCH keeps the stored handover wording", async () => {
+      const stored = {
+        ...customTheme,
+        handover: {
+          ...defaultWidgetTheme.handover,
+          requestedLabel: "One of our advisers will join shortly.",
+          endedLabel: "Back with the assistant.",
+        },
+      };
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        agentId,
+        config: stored,
+        version: 4,
+      });
+      mockPrismaService.agentTheme.upsert.mockImplementation(
+        (args: { update: { config: unknown } }) =>
+          Promise.resolve({ agentId, config: args.update.config, version: 5 }),
+      );
+
+      const body = partialWidgetThemeSchema.parse({
+        handover: { buttonLabel: "Talk to an adviser" },
+      });
+      await service.patchTheme(agentId, body, adminUser);
+
+      const saved = mockPrismaService.agentTheme.upsert.mock.calls[0][0].update
+        .config as WidgetTheme;
+      expect(saved.handover).toEqual({
+        ...stored.handover,
+        buttonLabel: "Talk to an adviser",
+      });
+    });
+
+    it("a handover PATCH on a theme stored before handover existed stores a complete section", async () => {
+      const stored: Record<string, unknown> = { ...customTheme };
+      delete stored.handover;
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        agentId,
+        config: stored,
+        version: 4,
+      });
+      mockPrismaService.agentTheme.upsert.mockImplementation(
+        (args: { update: { config: unknown } }) =>
+          Promise.resolve({ agentId, config: args.update.config, version: 5 }),
+      );
+
+      const body = partialWidgetThemeSchema.parse({
+        handover: { buttonLabel: "Talk to an adviser" },
+      });
+      await service.patchTheme(agentId, body, adminUser);
+
+      const saved = mockPrismaService.agentTheme.upsert.mock.calls[0][0].update
+        .config as WidgetTheme;
+      expect(saved.handover).toEqual({
+        ...defaultWidgetTheme.handover,
+        buttonLabel: "Talk to an adviser",
+      });
+    });
+
+    it("rejects a starter without a message", () => {
+      expect(
+        partialWidgetThemeSchema.safeParse({ starters: [{}] }).success,
+      ).toBe(false);
+      expect(
+        partialWidgetThemeSchema.safeParse({ starters: [{ message: "Hi" }] })
+          .success,
+      ).toBe(true);
+    });
+
     it("audits a notice change with the before and after wording", async () => {
       mockPrismaService.agentTheme.findUnique.mockResolvedValue({
         config: defaultWidgetTheme,

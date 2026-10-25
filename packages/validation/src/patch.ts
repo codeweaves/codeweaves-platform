@@ -51,13 +51,15 @@ export function patchOf<
 }
 
 /**
- * Recursive, like Zod 3's `.deepPartial()`: nested objects and array elements
- * become partial too. A section with its own `.default()` loses only that
- * default; when the client sends it, it is parsed whole, as before.
+ * Recursive: every nested object field becomes optional, defaults included,
+ * so a PATCH of one field in a section (even a defaulted one such as theme
+ * `handover`) carries only that field and the merge keeps the rest. Arrays
+ * are not made partial: the merge replaces an array whole, so each element
+ * must be valid on its own.
  */
 function deepPatch(schema: AnySchema): AnySchema {
   if (schema instanceof z.ZodDefault || schema instanceof z.ZodPrefault) {
-    return withoutDefault(schema);
+    return deepPatch(withoutDefault(schema));
   }
   if (schema instanceof z.ZodObject) {
     const shape: Record<string, AnySchema> = {};
@@ -65,12 +67,6 @@ function deepPatch(schema: AnySchema): AnySchema {
       shape[key] = deepPatch(field as AnySchema).optional();
     }
     return schema.extend(shape);
-  }
-  if (schema instanceof z.ZodArray) {
-    return schema.clone({
-      ...schema._zod.def,
-      element: deepPatch(schema.element as AnySchema),
-    });
   }
   if (schema instanceof z.ZodOptional) {
     return deepPatch(schema.unwrap() as AnySchema).optional();
@@ -81,8 +77,8 @@ function deepPatch(schema: AnySchema): AnySchema {
   return schema;
 }
 
-export type DeepPatch<T> = T extends readonly (infer E)[]
-  ? DeepPatch<E>[]
+export type DeepPatch<T> = T extends readonly unknown[]
+  ? T
   : T extends object
     ? { [K in keyof T]?: DeepPatch<T[K]> }
     : T;

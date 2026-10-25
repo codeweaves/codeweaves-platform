@@ -140,7 +140,13 @@ export class AgentThemesService {
         ? (existing.config as WidgetTheme)
         : defaultWidgetTheme;
 
-      const merged = deepMerge(currentConfig, partialConfig) as WidgetTheme;
+      // A section the stored theme predates (e.g. handover) starts from its
+      // defaults, so a PATCH of one field in it stores a complete section.
+      const base: Record<string, unknown> = { ...currentConfig };
+      for (const key of Object.keys(partialConfig)) {
+        base[key] ??= defaultWidgetTheme[key as keyof WidgetTheme];
+      }
+      const merged = deepMerge(base, partialConfig) as WidgetTheme;
       // Branding is granted deliberately. See preserveBrandingUnlessPermitted.
       if (!this.canEditBranding(user)) {
         merged.branding = currentConfig.branding ?? defaultWidgetTheme.branding;
