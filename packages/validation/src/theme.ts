@@ -123,7 +123,7 @@ export const timestampsConfigSchema = z.object({
 export type TimestampsConfig = z.infer<typeof timestampsConfigSchema>;
 
 export const starterSchema = z.object({
-  message: z.string().min(1).max(80),
+  message: z.string().trim().min(1).max(80),
 });
 export type Starter = z.infer<typeof starterSchema>;
 

@@ -592,9 +592,47 @@ describe("AgentThemesService", () => {
       });
     });
 
+    it("a handover PATCH on a partly stored handover fills the missing fields", async () => {
+      const stored = {
+        ...customTheme,
+        handover: {
+          buttonLabel: "Talk to us",
+          buttonBackgroundColor: "#000000",
+          buttonTextColor: "#ffffff",
+          connectedLineColor: "#10b981",
+        },
+      };
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        agentId,
+        config: stored,
+        version: 4,
+      });
+      mockPrismaService.agentTheme.upsert.mockImplementation(
+        (args: { update: { config: unknown } }) =>
+          Promise.resolve({ agentId, config: args.update.config, version: 5 }),
+      );
+
+      const body = partialWidgetThemeSchema.parse({
+        handover: { buttonLabel: "Talk to an adviser" },
+      });
+      await service.patchTheme(agentId, body, adminUser);
+
+      const saved = mockPrismaService.agentTheme.upsert.mock.calls[0][0].update
+        .config as WidgetTheme;
+      expect(saved.handover).toEqual({
+        ...defaultWidgetTheme.handover,
+        ...stored.handover,
+        buttonLabel: "Talk to an adviser",
+      });
+    });
+
     it("rejects a starter without a message", () => {
       expect(
         partialWidgetThemeSchema.safeParse({ starters: [{}] }).success,
+      ).toBe(false);
+      expect(
+        partialWidgetThemeSchema.safeParse({ starters: [{ message: "   " }] })
+          .success,
       ).toBe(false);
       expect(
         partialWidgetThemeSchema.safeParse({ starters: [{ message: "Hi" }] })

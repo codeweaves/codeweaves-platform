@@ -1,6 +1,6 @@
 # ADR-0015: Zod 4, with Zod 3 PATCH semantics kept
 
-- **Status:** Accepted
+- **Status:** Accepted (`deepPatchOf()` semantics amended by ADR-0016)
 - **Date:** 2026-10-26
 - **Deciders:** Dhruv Khator
 

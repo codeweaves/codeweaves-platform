@@ -140,11 +140,19 @@ export class AgentThemesService {
         ? (existing.config as WidgetTheme)
         : defaultWidgetTheme;
 
-      // A section the stored theme predates (e.g. handover) starts from its
-      // defaults, so a PATCH of one field in it stores a complete section.
+      // A section the PATCH touches starts from its defaults with the stored
+      // values on top, so a theme saved before a section or field existed
+      // (e.g. handover) still stores a complete section.
       const base: Record<string, unknown> = { ...currentConfig };
       for (const key of Object.keys(partialConfig)) {
-        base[key] ??= defaultWidgetTheme[key as keyof WidgetTheme];
+        const defaults: unknown = defaultWidgetTheme[key as keyof WidgetTheme];
+        base[key] =
+          defaults && typeof defaults === "object" && !Array.isArray(defaults)
+            ? deepMerge(
+                defaults as Record<string, unknown>,
+                (base[key] as Record<string, unknown> | undefined) ?? {},
+              )
+            : (base[key] ?? defaults);
       }
       const merged = deepMerge(base, partialConfig) as WidgetTheme;
       // Branding is granted deliberately. See preserveBrandingUnlessPermitted.
