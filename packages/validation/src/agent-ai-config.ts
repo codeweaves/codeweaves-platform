@@ -8,6 +8,7 @@
  * = schema defaults.
  */
 import { z } from "zod";
+import { patchOf } from "./patch.js";
 
 // ============================================
 // Context Strategy
@@ -157,7 +158,8 @@ export type AgentAiConfigDto = z.infer<typeof agentAiConfigSchema>;
 
 /**
  * Partial variant for PATCH updates. All fields optional, validation on
- * supplied fields still enforced.
+ * supplied fields still enforced, and an omitted field stays omitted (it is
+ * not reset to its default; see patch.ts).
  */
-export const agentAiConfigUpdateSchema = agentAiConfigSchema.partial();
+export const agentAiConfigUpdateSchema = patchOf(agentAiConfigSchema);
 export type AgentAiConfigUpdateDto = z.infer<typeof agentAiConfigUpdateSchema>;

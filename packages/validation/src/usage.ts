@@ -108,8 +108,8 @@ export function resolveUsageRange(
 const usageFilterShape = {
   from: isoDateOrDateTime,
   to: isoDateOrDateTime,
-  organizationId: z.string().uuid().optional(),
-  agentId: z.string().uuid().optional(),
+  organizationId: z.guid().optional(),
+  agentId: z.guid().optional(),
   provider: z.string().trim().toLowerCase().min(1).max(40).optional(),
   feature: z.enum(USAGE_FEATURES).optional(),
   channel: z.enum(USAGE_CHANNELS).optional(),
@@ -189,12 +189,20 @@ export const createProviderPriceSchema = z.object({
   unit: z.enum(PRICE_UNITS),
   /** Amount charged for `per` units, in `currency`. */
   price: z
-    .number({ invalid_type_error: "Enter the price as a number" })
+    .number({
+      error: (iss) =>
+        iss.input === undefined ? undefined : "Enter the price as a number",
+    })
     .finite()
     .min(0)
     .max(1_000_000_000),
   per: z
-    .number({ invalid_type_error: "Enter how many units the price covers" })
+    .number({
+      error: (iss) =>
+        iss.input === undefined
+          ? undefined
+          : "Enter how many units the price covers",
+    })
     .int()
     .min(1)
     .max(1_000_000_000),

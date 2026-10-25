@@ -3,7 +3,7 @@
  * into the system prompt on every chat, no RAG). See `AgentKnowledge` in the
  * Prisma schema for the persisted shape.
  */
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================
 // Limits
@@ -47,42 +47,43 @@ export const KNOWLEDGE_SIZE_WARNING_TOKENS = 50_000;
  *   - text/html — would need sanitiser; paste text directly instead.
  */
 export const KNOWLEDGE_UPLOAD_MIME_TYPES = [
-  'application/pdf',
-  'application/vnd.openxmlformats-officedocument.wordprocessingml.document', // .docx
-  'text/plain',
-  'text/markdown',
-  'text/x-markdown',
+  "application/pdf",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document", // .docx
+  "text/plain",
+  "text/markdown",
+  "text/x-markdown",
   // Browsers sometimes send these for .docx/.txt/.md depending on the OS
   // MIME registry state; the extractor falls back to filename extension.
-  'application/octet-stream',
-  'application/zip', // .docx is technically a zip
+  "application/octet-stream",
+  "application/zip", // .docx is technically a zip
 ] as const;
 
-export type KnowledgeUploadMimeType = (typeof KNOWLEDGE_UPLOAD_MIME_TYPES)[number];
+export type KnowledgeUploadMimeType =
+  (typeof KNOWLEDGE_UPLOAD_MIME_TYPES)[number];
 
 export function isAllowedKnowledgeMimeType(
   mime: string | undefined | null,
 ): mime is KnowledgeUploadMimeType {
   return (
-    typeof mime === 'string' &&
+    typeof mime === "string" &&
     (KNOWLEDGE_UPLOAD_MIME_TYPES as readonly string[]).includes(mime)
   );
 }
 
 /** File extensions we can extract text from (lowercased, with leading dot). */
 export const KNOWLEDGE_UPLOAD_EXTENSIONS = [
-  '.pdf',
-  '.docx',
-  '.txt',
-  '.md',
-  '.markdown',
+  ".pdf",
+  ".docx",
+  ".txt",
+  ".md",
+  ".markdown",
 ] as const;
 
 /** Extract lowercased extension from a filename, or empty string. */
 export function getFileExtension(filename: string | undefined): string {
-  if (!filename) return '';
-  const idx = filename.lastIndexOf('.');
-  return idx >= 0 ? filename.slice(idx).toLowerCase() : '';
+  if (!filename) return "";
+  const idx = filename.lastIndexOf(".");
+  return idx >= 0 ? filename.slice(idx).toLowerCase() : "";
 }
 
 // ============================================
@@ -97,7 +98,7 @@ export const updateKnowledgeSchema = z.object({
   /** The knowledge text. Stored verbatim; appended to system prompt at chat time. */
   content: z
     .string()
-    .min(1, 'Knowledge content cannot be empty. Use DELETE to clear.')
+    .min(1, "Knowledge content cannot be empty. Use DELETE to clear.")
     .max(
       MAX_KNOWLEDGE_TEXT_BYTES,
       `Knowledge content exceeds ${MAX_KNOWLEDGE_TEXT_BYTES} bytes. Consider splitting across multiple documents or using RAG (Phase 3).`,
@@ -120,8 +121,8 @@ export type UpdateKnowledgeDto = z.infer<typeof updateKnowledgeSchema>;
 // ============================================
 
 export const knowledgeResponseSchema = z.object({
-  id: z.string().uuid(),
-  agentId: z.string().uuid(),
+  id: z.guid(),
+  agentId: z.guid(),
   content: z.string(),
   contentTokens: z.number().int().nullable(),
   sourceFileName: z.string().nullable(),

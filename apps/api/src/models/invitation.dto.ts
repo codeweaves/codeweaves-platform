@@ -1,6 +1,6 @@
-import { z } from 'zod';
-import { InvitationStatus, Role } from '@prisma/client';
-import { paginationSchema } from '@repo/validation';
+import { z } from "zod";
+import { InvitationStatus, Role } from "@prisma/client";
+import { paginationSchema } from "@repo/validation";
 
 /**
  * Invitations carry the role set the account starts with, chosen when the invite
@@ -19,41 +19,45 @@ export const createInvitationSchema = z
     role: z.nativeEnum(Role).optional(),
     roleKeys: z
       .array(z.string().min(1).max(60))
-      .min(1, 'Select at least one role')
+      .min(1, "Select at least one role")
       .max(20)
       .transform((keys) => [...new Set(keys)]),
-    organizationId: z.string().uuid().optional(),
+    organizationId: z.guid().optional(),
   })
   .refine(
-    (data) => data.roleKeys.every((k) => k.startsWith('org.')) || !data.organizationId,
+    (data) =>
+      data.roleKeys.every((k) => k.startsWith("org.")) || !data.organizationId,
     {
-      message: 'Organization must not be provided when inviting to a platform role',
-      path: ['organizationId'],
+      message:
+        "Organization must not be provided when inviting to a platform role",
+      path: ["organizationId"],
     },
   )
   .refine(
-    (data) => !data.roleKeys.every((k) => k.startsWith('org.')) || !!data.organizationId,
+    (data) =>
+      !data.roleKeys.every((k) => k.startsWith("org.")) ||
+      !!data.organizationId,
     {
-      message: 'Organization is required when inviting to an organization role',
-      path: ['organizationId'],
+      message: "Organization is required when inviting to an organization role",
+      path: ["organizationId"],
     },
   )
   .refine(
     // Mixing scopes would leave the account impossible to scope coherently: an
     // ORG user cannot hold a platform role, and the assignment trigger rejects it.
     (data) =>
-      data.roleKeys.every((k) => k.startsWith('org.')) ||
-      data.roleKeys.every((k) => !k.startsWith('org.')),
+      data.roleKeys.every((k) => k.startsWith("org.")) ||
+      data.roleKeys.every((k) => !k.startsWith("org.")),
     {
-      message: 'An invitation cannot mix organization and platform roles',
-      path: ['roleKeys'],
+      message: "An invitation cannot mix organization and platform roles",
+      path: ["roleKeys"],
     },
   );
 
 export type CreateInvitationDto = z.infer<typeof createInvitationSchema>;
 
 export const reissueInvitationSchema = z.object({
-  reissueToken: z.string().uuid(),
+  reissueToken: z.guid(),
 });
 
 export type ReissueInvitationDto = z.infer<typeof reissueInvitationSchema>;
@@ -66,10 +70,12 @@ export const invitationListQuerySchema = paginationSchema.extend({
   statuses: z
     .string()
     .optional()
-    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
+    .transform((v) => (v ? v.split(",").filter(Boolean) : undefined))
     .pipe(z.array(z.nativeEnum(InvitationStatus)).optional()),
-  sortBy: z.enum(['email', 'status', 'createdAt', 'expiresAt']).default('createdAt'),
-  sortOrder: z.enum(['asc', 'desc']).default('desc'),
+  sortBy: z
+    .enum(["email", "status", "createdAt", "expiresAt"])
+    .default("createdAt"),
+  sortOrder: z.enum(["asc", "desc"]).default("desc"),
 });
 
 export type InvitationListQuery = z.infer<typeof invitationListQuerySchema>;

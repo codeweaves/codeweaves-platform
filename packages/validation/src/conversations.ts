@@ -25,13 +25,13 @@ export const conversationsListQuerySchema = z
     page: z.coerce.number().int().positive().default(1),
     limit: z.coerce.number().int().positive().max(100).default(20),
     search: z.string().trim().max(200).optional(),
-    agentId: z.string().uuid().optional(),
+    agentId: z.guid().optional(),
     agentIds: z
       .string()
       .optional()
       .transform((v) => (v ? v.split(",").filter(Boolean) : undefined))
-      .pipe(z.array(z.string().uuid()).optional()),
-    orgId: z.string().uuid().optional(),
+      .pipe(z.array(z.guid()).optional()),
+    orgId: z.guid().optional(),
     source: sourceEnum.optional(),
     sources: z
       .string()

@@ -1,4 +1,4 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================
 // Analytics Query Schemas
@@ -6,7 +6,7 @@ import { z } from 'zod';
 
 const dateString = z
   .string()
-  .regex(/^\d{4}-\d{2}-\d{2}$/, 'Date must be in YYYY-MM-DD format');
+  .regex(/^\d{4}-\d{2}-\d{2}$/, "Date must be in YYYY-MM-DD format");
 
 /**
  * IANA timezone validation. We only check that the string is well-formed
@@ -18,7 +18,7 @@ const dateString = z
 const timezone = z
   .string()
   .min(1)
-  .default('UTC')
+  .default("UTC")
   .refine(
     (tz) => {
       try {
@@ -28,7 +28,7 @@ const timezone = z
         return false;
       }
     },
-    { message: 'Invalid timezone' },
+    { message: "Invalid timezone" },
   );
 
 const baseAnalyticsFilters = {
@@ -36,31 +36,31 @@ const baseAnalyticsFilters = {
   endDate: dateString,
   /** IANA timezone for interpreting the date range (e.g. `Asia/Kolkata`). */
   timezone,
-  agentId: z.string().uuid().optional(),
+  agentId: z.guid().optional(),
   agentIds: z
     .string()
     .optional()
-    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
-    .pipe(z.array(z.string().uuid()).optional()),
-  orgId: z.string().uuid().optional(),
+    .transform((v) => (v ? v.split(",").filter(Boolean) : undefined))
+    .pipe(z.array(z.guid()).optional()),
+  orgId: z.guid().optional(),
   orgIds: z
     .string()
     .optional()
-    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
-    .pipe(z.array(z.string().uuid()).optional()),
-  source: z.enum(['WIDGET', 'WHATSAPP', 'DEMO']).optional(),
+    .transform((v) => (v ? v.split(",").filter(Boolean) : undefined))
+    .pipe(z.array(z.guid()).optional()),
+  source: z.enum(["WIDGET", "WHATSAPP", "DEMO"]).optional(),
   sources: z
     .string()
     .optional()
-    .transform((v) => (v ? v.split(',').filter(Boolean) : undefined))
-    .pipe(z.array(z.enum(['WIDGET', 'WHATSAPP', 'DEMO'])).optional()),
+    .transform((v) => (v ? v.split(",").filter(Boolean) : undefined))
+    .pipe(z.array(z.enum(["WIDGET", "WHATSAPP", "DEMO"])).optional()),
 };
 
 export const analyticsQuerySchema = z
   .object(baseAnalyticsFilters)
   .refine((d) => d.startDate <= d.endDate, {
-    message: 'startDate must be before or equal to endDate',
-    path: ['startDate'],
+    message: "startDate must be before or equal to endDate",
+    path: ["startDate"],
   });
 
 export type AnalyticsQuery = z.infer<typeof analyticsQuerySchema>;
@@ -71,19 +71,25 @@ export const agentAnalyticsQuerySchema = z
     limit: z.coerce.number().int().positive().max(100).default(20),
     ...baseAnalyticsFilters,
     sortBy: z
-      .enum(['conversations', 'messages', 'avgResponseTimeMs', 'queriesRaised', 'agentName'])
-      .default('conversations'),
-    sortOrder: z.enum(['asc', 'desc']).default('desc'),
+      .enum([
+        "conversations",
+        "messages",
+        "avgResponseTimeMs",
+        "queriesRaised",
+        "agentName",
+      ])
+      .default("conversations"),
+    sortOrder: z.enum(["asc", "desc"]).default("desc"),
   })
   .refine((d) => d.startDate <= d.endDate, {
-    message: 'startDate must be before or equal to endDate',
-    path: ['startDate'],
+    message: "startDate must be before or equal to endDate",
+    path: ["startDate"],
   });
 
 export type AgentAnalyticsQuery = z.infer<typeof agentAnalyticsQuerySchema>;
 
 export const exportLogBodySchema = z.object({
-  format: z.enum(['csv', 'json']),
+  format: z.enum(["csv", "json"]),
   startDate: z.string().min(1),
   endDate: z.string().min(1),
 });

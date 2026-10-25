@@ -48,7 +48,7 @@ export * from "./admin-logs.js";
 
 export const emailSchema = z.string().email("Invalid email address");
 
-export const uuidSchema = z.string().uuid("Invalid UUID");
+export const uuidSchema = z.guid("Invalid UUID");
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -120,7 +120,7 @@ export const updateUserProfileSchema = z.object({
 export type UpdateUserProfileDto = z.infer<typeof updateUserProfileSchema>;
 
 export const organizationSummarySchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   name: z.string(),
   slug: z.string(),
 });
@@ -131,7 +131,7 @@ export const accessScopeEnum = z.enum(["PLATFORM", "ORG"]);
 export type AccessScope = z.infer<typeof accessScopeEnum>;
 
 export const userProfileResponseSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   email: z.string().email(),
   name: z.string().nullable(),
   role: roleEnum,
@@ -231,7 +231,7 @@ export const createAgentSchema = z.object({
     .string()
     .min(2, "Name must be at least 2 characters")
     .max(100, "Name must be at most 100 characters"),
-  organizationId: z.string().uuid("Invalid organization ID"),
+  organizationId: z.guid("Invalid organization ID"),
 });
 
 export type CreateAgentDto = z.infer<typeof createAgentSchema>;
@@ -340,7 +340,7 @@ export const updateAgentSchema = z
       .max(100, "Name must be at most 100 characters")
       .optional(),
     status: agentStatusEnum.optional(),
-    allowedDomains: allowedDomainsSchema.optional(),
+    allowedDomains: allowedDomainsSchema.removeDefault().optional(),
     voiceEnabled: z.boolean().optional(),
     voiceConfig: voiceConfigSchema.nullable().optional(),
     welcomeMessage: z.string().max(500).nullable().optional(),
@@ -349,10 +349,10 @@ export const updateAgentSchema = z
     // ~125K tokens) and let the chat pipeline append it at assembly time.
     systemPrompt: z.string().max(50000).nullable().optional(),
     aiConfig: agentAiConfigUpdateSchema.nullable().optional(),
-    categoryKeywords: categoryKeywordsSchema.optional(),
-    supportedLanguages: supportedLanguagesSchema.optional(),
+    categoryKeywords: categoryKeywordsSchema.removeDefault().optional(),
+    supportedLanguages: supportedLanguagesSchema.removeDefault().optional(),
     sessionLifetimeHours: sessionLifetimeHoursSchema.optional(),
-    fallbackPhrases: fallbackPhrasesSchema.optional(),
+    fallbackPhrases: fallbackPhrasesSchema.removeDefault().optional(),
     // --- Human handover (live agent takeover) ---
     humanTakeoverEnabled: z.boolean().optional(),
     showTalkToHumanButton: z.boolean().optional(),
@@ -386,7 +386,7 @@ export type UpdateAgentDto = z.infer<typeof updateAgentSchema>;
 
 export const agentListQuerySchema = paginationSchema.extend({
   search: z.string().optional(),
-  organizationId: z.string().uuid().optional(),
+  organizationId: z.guid().optional(),
   status: agentStatusEnum.optional(),
   sortBy: z.enum(["name", "createdAt", "updatedAt"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
@@ -414,6 +414,6 @@ export function validate<T extends z.ZodTypeAny>(
 export function safeValidate<T extends z.ZodTypeAny>(
   schema: T,
   data: unknown,
-): z.SafeParseReturnType<unknown, z.infer<T>> {
+): z.ZodSafeParseResult<z.infer<T>> {
   return schema.safeParse(data);
 }
