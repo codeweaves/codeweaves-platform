@@ -30,6 +30,7 @@ describe("AgentThemesService", () => {
       upsert: jest.fn(),
     },
     $transaction: jest.fn(),
+    $queryRaw: jest.fn().mockResolvedValue([]),
   };
 
   const mockAgentLogger = {
@@ -848,6 +849,52 @@ describe("AgentThemesService", () => {
         NotFoundException,
       );
     });
+  });
+
+  describe("concurrent writes", () => {
+    const lockSql = () =>
+      (mockPrismaService.$queryRaw.mock.calls[0][0] as string[]).join("?");
+
+    beforeEach(() => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        agentId,
+        config: defaultWidgetTheme,
+        version: 1,
+      });
+      mockPrismaService.agentTheme.upsert.mockResolvedValue({
+        agentId,
+        config: defaultWidgetTheme,
+        version: 2,
+      });
+    });
+
+    it.each([
+      [
+        "updateTheme",
+        () => service.updateTheme(agentId, defaultWidgetTheme, adminUser),
+      ],
+      [
+        "patchTheme",
+        () =>
+          service.patchTheme(agentId, { header: { title: "T" } }, adminUser),
+      ],
+      ["resetTheme", () => service.resetTheme(agentId, adminUser)],
+    ])(
+      "%s locks the agent row in a transaction before reading the theme",
+      async (_name, write) => {
+        await write();
+
+        expect(mockPrismaService.$transaction).toHaveBeenCalledTimes(1);
+        expect(lockSql()).toMatch(/FROM agents WHERE id = \? FOR UPDATE/);
+        expect(mockPrismaService.$queryRaw.mock.calls[0][1]).toBe(agentId);
+        const lockedAt =
+          mockPrismaService.$queryRaw.mock.invocationCallOrder[0];
+        const readAt =
+          mockPrismaService.agentTheme.findUnique.mock.invocationCallOrder[0];
+        expect(Number(lockedAt)).toBeLessThan(Number(readAt));
+      },
+    );
   });
 
   describe("ensureAgentAccess (via CLIENT scoping)", () => {
