@@ -1,4 +1,4 @@
-# Codeweaves verification map
+# Klivo verification map
 
 Behavior-level inventory of the Klivo dashboard and the embeddable chat widget. Agents use this map to decide what to drive and what evidence counts. Humans use it as the regression checklist.
 

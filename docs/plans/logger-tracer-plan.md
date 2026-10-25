@@ -35,6 +35,7 @@ apps/api/src/
 **File:** `apps/api/prisma/schema.prisma`
 
 Add model:
+
 ```prisma
 model AuditLog {
   id            String   @id @default(uuid())
@@ -61,13 +62,16 @@ Run migration: `bunx prisma migrate dev --name add-audit-logs`
 ## Phase 2: Core Tracer Infrastructure (3 files)
 
 ### 2a. `apps/api/src/common/tracer/correlation.storage.ts`
+
 - Export `AsyncLocalStorage<RequestContext>` singleton
 - `RequestContext`: `{ correlationId: string; userId?: string; auth0Id?: string; method?: string; url?: string }`
 - `userId` = internal DB UUID from `request.user.id` (set by `UserSyncGuard`)
 - `auth0Id` = Auth0's `sub` claim from `request.user.auth0Id` (available immediately from JWT)
 
 ### 2b. `apps/api/src/common/tracer/tracer.service.ts`
+
 Core service (equivalent to office `TracerService`):
+
 - Inject `PrismaService`
 - `logAuditEvent(contextId: string, event: string, data: Record<string, unknown>): Promise<void>`
   - Reads `correlationId`, `userId`, and `auth0Id` from `AsyncLocalStorage`
@@ -78,6 +82,7 @@ Core service (equivalent to office `TracerService`):
   - Deep-merges multiple objects (same pattern as office: `{ response }, { request }, { error }, { previous }, { updated }`)
 
 ### 2c. `apps/api/src/common/tracer/tracer.module.ts`
+
 - `@Global()` module
 - Imports `PrismaModule`
 - Provides and exports `TracerService`
@@ -87,7 +92,9 @@ Core service (equivalent to office `TracerService`):
 Each follows the office pattern: `@Injectable()`, injects `TracerService`, typed methods for success/failed/exception per operation.
 
 ### 3a. `apps/api/src/common/logger/organization.logger.ts`
+
 Events:
+
 - `logOrganizationCreated(data)` → `ORGANIZATION_CREATED`
 - `logOrganizationCreationFailed(data)` → `ORGANIZATION_CREATION_FAILED`
 - `logOrganizationCreationException(data)` → `ORGANIZATION_CREATION_EXCEPTION`
@@ -95,7 +102,9 @@ Events:
 - `logOrganizationUpdateException(data)` → `ORGANIZATION_UPDATE_EXCEPTION`
 
 ### 3b. `apps/api/src/common/logger/invitation.logger.ts`
+
 Events:
+
 - `logInvitationCreated(data)` → `INVITATION_CREATED`
 - `logInvitationCreationFailed(data)` → `INVITATION_CREATION_FAILED`
 - `logInvitationCreationException(data)` → `INVITATION_CREATION_EXCEPTION`
@@ -109,7 +118,9 @@ Events:
 - `logInvitationExpired(data)` → `INVITATION_EXPIRED`
 
 ### 3c. `apps/api/src/common/logger/user.logger.ts`
+
 Events:
+
 - `logUserCreatedFromAuth0(data)` → `USER_CREATED_FROM_AUTH0`
 - `logUserCreatedFromInvitation(data)` → `USER_CREATED_FROM_INVITATION`
 - `logUserCreationException(data)` → `USER_CREATION_EXCEPTION`
@@ -120,7 +131,9 @@ Events:
 - `logMemberRemoved(data)` → `MEMBER_REMOVED_FROM_ORGANIZATION`
 
 ### 3d. `apps/api/src/common/logger/auth0.logger.ts`
+
 Events:
+
 - `logAuth0UserCreated(data)` → `AUTH0_USER_CREATED`
 - `logAuth0UserCreationFailed(data)` → `AUTH0_USER_CREATION_FAILED`
 - `logAuth0UserDeleted(data)` → `AUTH0_USER_DELETED`
@@ -130,12 +143,15 @@ Events:
 - `logAuth0TokenRefreshed()` → `AUTH0_TOKEN_REFRESHED`
 
 ### 3e. `apps/api/src/common/logger/email.logger.ts`
+
 Events:
+
 - `logEmailSent(data)` → `EMAIL_SENT`
 - `logEmailFailed(data)` → `EMAIL_SEND_FAILED`
 - `logEmailException(data)` → `EMAIL_SEND_EXCEPTION`
 
 ### 3f. `apps/api/src/common/logger/logger.module.ts`
+
 - Imports `TracerModule`
 - Provides and exports all 5 entity logger services
 - Each entity module imports this single aggregated module
@@ -143,19 +159,22 @@ Events:
 ## Phase 4: HTTP Infrastructure (3 files)
 
 ### 4a. `apps/api/src/middleware/correlation-id.middleware.ts`
+
 - Read `x-correlation-id` header or generate UUID
 - Store in `AsyncLocalStorage` via `requestContextStorage.run()`
 - Set `x-correlation-id` on response header
-- Log incoming request: `→ GET /api/codeweaves/v1/organizations`
+- Log incoming request: `→ GET /api/klivo/v1/organizations`
 
 ### 4b. `apps/api/src/interceptors/logging.interceptor.ts`
+
 - Record start time
 - Enrich `requestContextStorage` with `userId` from `request.user.id` (internal DB UUID) and `auth0Id` from `request.user.auth0Id`
   - These are populated by `UserSyncGuard` which runs before interceptors
   - For unauthenticated routes, both will be `undefined` — the audit log still captures the correlationId
-- On response: log `← GET /api/codeweaves/v1/organizations 200 45ms`
+- On response: log `← GET /api/klivo/v1/organizations 200 45ms`
 
 ### 4c. `apps/api/src/filters/all-exceptions.filter.ts`
+
 - Catch all unhandled exceptions
 - Log with correlationId, userId, method, url, statusCode, stack (for 5xx only)
 - Return `{ statusCode, message, correlationId, timestamp }` in response body
@@ -163,28 +182,33 @@ Events:
 ## Phase 5: Wire Together (2 files modified)
 
 ### 5a. `apps/api/src/modules/app.module.ts`
+
 - Import `TracerModule` and `LoggerModule`
 - Implement `NestModule` → apply `CorrelationIdMiddleware` for all routes
 - Register `LoggingInterceptor` as `APP_INTERCEPTOR`
 - Register `AllExceptionsFilter` as `APP_FILTER`
 
 ### 5b. `apps/api/src/main.ts`
+
 - Add `bufferLogs: true` to `NestFactory.create()`
 - Replace `console.log` startup messages with NestJS `Logger`
 
 ## Phase 6: Integrate Loggers into Services (6 files modified)
 
 ### 6a. `apps/api/src/services/organizations.service.ts`
+
 - Inject `OrganizationLoggerService`
 - `create()`: call `logOrganizationCreated` on success, `logOrganizationCreationException` in catch
 - `update()`: call `logOrganizationUpdated` on success, exception in catch
 
 ### 6b. `apps/api/src/services/organization-members.service.ts`
+
 - Inject `UserLoggerService`
 - `assignMember()`: call `logMemberAssigned`
 - `removeMember()`: call `logMemberRemoved`
 
 ### 6c. `apps/api/src/services/users.service.ts`
+
 - Inject `UserLoggerService`
 - `createFromAuth0()`: call `logUserCreatedFromAuth0`
 - `syncOrCreateUser()`: call `logUserFirstLogin` on first login
@@ -192,6 +216,7 @@ Events:
 - `updateProfile()`: call `logUserProfileUpdated`
 
 ### 6d. `apps/api/src/services/invitations.service.ts`
+
 - Inject `InvitationLoggerService`
 - `create()`: call `logInvitationCreated` / `logInvitationCreationException`
 - `resend()`: call `logInvitationResent`
@@ -200,10 +225,12 @@ Events:
 - `validate()`: call `logInvitationValidated` / `logInvitationExpired`
 
 ### 6e. `apps/api/src/services/email.service.ts`
+
 - Inject `EmailLoggerService`
 - `send()`: call `logEmailSent` on success, `logEmailFailed` on API error, `logEmailException` on exception
 
 ### 6f. `apps/api/src/services/auth0-management.service.ts`
+
 - Inject `Auth0LoggerService`
 - `createUser()`: call `logAuth0UserCreated` / `logAuth0UserCreationFailed`
 - `deleteUser()`: call `logAuth0UserDeleted` / `logAuth0UserDeletionFailed`
@@ -219,33 +246,33 @@ Events:
 
 ## File Summary
 
-| Action | File | Purpose |
-|--------|------|---------|
-| MODIFY | `prisma/schema.prisma` | Add `AuditLog` model |
-| CREATE | `src/common/tracer/correlation.storage.ts` | AsyncLocalStorage singleton |
-| CREATE | `src/common/tracer/tracer.service.ts` | Core: writes to audit_logs table |
-| CREATE | `src/common/tracer/tracer.module.ts` | Global module |
-| CREATE | `src/common/logger/organization.logger.ts` | Org entity logger |
-| CREATE | `src/common/logger/invitation.logger.ts` | Invitation entity logger |
-| CREATE | `src/common/logger/user.logger.ts` | User entity logger |
-| CREATE | `src/common/logger/auth0.logger.ts` | Auth0 entity logger |
-| CREATE | `src/common/logger/email.logger.ts` | Email entity logger |
-| CREATE | `src/common/logger/logger.module.ts` | Aggregates all entity loggers |
-| CREATE | `src/middleware/correlation-id.middleware.ts` | Correlation ID middleware |
-| CREATE | `src/interceptors/logging.interceptor.ts` | HTTP response logging |
-| CREATE | `src/filters/all-exceptions.filter.ts` | Global exception filter |
-| MODIFY | `src/modules/app.module.ts` | Wire middleware/interceptor/filter |
-| MODIFY | `src/main.ts` | Buffer logs, replace console.log |
-| MODIFY | `src/services/organizations.service.ts` | Add logger calls |
-| MODIFY | `src/services/organization-members.service.ts` | Add logger calls |
-| MODIFY | `src/services/users.service.ts` | Add logger calls |
-| MODIFY | `src/services/invitations.service.ts` | Add logger calls |
-| MODIFY | `src/services/email.service.ts` | Add logger calls |
-| MODIFY | `src/services/auth0-management.service.ts` | Add logger calls |
-| CREATE | `test/common/tracer/tracer.service.spec.ts` | Tests |
-| CREATE | `test/middleware/correlation-id.middleware.spec.ts` | Tests |
-| CREATE | `test/interceptors/logging.interceptor.spec.ts` | Tests |
-| CREATE | `test/filters/all-exceptions.filter.spec.ts` | Tests |
+| Action | File                                                | Purpose                            |
+| ------ | --------------------------------------------------- | ---------------------------------- |
+| MODIFY | `prisma/schema.prisma`                              | Add `AuditLog` model               |
+| CREATE | `src/common/tracer/correlation.storage.ts`          | AsyncLocalStorage singleton        |
+| CREATE | `src/common/tracer/tracer.service.ts`               | Core: writes to audit_logs table   |
+| CREATE | `src/common/tracer/tracer.module.ts`                | Global module                      |
+| CREATE | `src/common/logger/organization.logger.ts`          | Org entity logger                  |
+| CREATE | `src/common/logger/invitation.logger.ts`            | Invitation entity logger           |
+| CREATE | `src/common/logger/user.logger.ts`                  | User entity logger                 |
+| CREATE | `src/common/logger/auth0.logger.ts`                 | Auth0 entity logger                |
+| CREATE | `src/common/logger/email.logger.ts`                 | Email entity logger                |
+| CREATE | `src/common/logger/logger.module.ts`                | Aggregates all entity loggers      |
+| CREATE | `src/middleware/correlation-id.middleware.ts`       | Correlation ID middleware          |
+| CREATE | `src/interceptors/logging.interceptor.ts`           | HTTP response logging              |
+| CREATE | `src/filters/all-exceptions.filter.ts`              | Global exception filter            |
+| MODIFY | `src/modules/app.module.ts`                         | Wire middleware/interceptor/filter |
+| MODIFY | `src/main.ts`                                       | Buffer logs, replace console.log   |
+| MODIFY | `src/services/organizations.service.ts`             | Add logger calls                   |
+| MODIFY | `src/services/organization-members.service.ts`      | Add logger calls                   |
+| MODIFY | `src/services/users.service.ts`                     | Add logger calls                   |
+| MODIFY | `src/services/invitations.service.ts`               | Add logger calls                   |
+| MODIFY | `src/services/email.service.ts`                     | Add logger calls                   |
+| MODIFY | `src/services/auth0-management.service.ts`          | Add logger calls                   |
+| CREATE | `test/common/tracer/tracer.service.spec.ts`         | Tests                              |
+| CREATE | `test/middleware/correlation-id.middleware.spec.ts` | Tests                              |
+| CREATE | `test/interceptors/logging.interceptor.spec.ts`     | Tests                              |
+| CREATE | `test/filters/all-exceptions.filter.spec.ts`        | Tests                              |
 
 **Total: 14 new files, 8 modified files, 0 new dependencies**
 

@@ -1,12 +1,12 @@
-# Open-Source Alternatives Research for CodeWeaves Platform
+# Open-Source Alternatives Research for Klivo Platform
 
 **Date:** 2026-03-20
 **Author:** Research Agent
-**Purpose:** Identify open-source repos that can replace or accelerate CodeWeaves development
+**Purpose:** Identify open-source repos that can replace or accelerate Klivo development
 
 ---
 
-## What CodeWeaves Is Building (Summary)
+## What Klivo Is Building (Summary)
 
 A **multi-tenant B2B SaaS platform** for deploying customizable AI chat widgets on customer websites. Key components:
 
@@ -19,33 +19,36 @@ A **multi-tenant B2B SaaS platform** for deploying customizable AI chat widgets 
 
 ## Top Open-Source Alternatives
 
-### Tier 1: STRONGEST MATCHES (Can replace 70%+ of CodeWeaves)
+### Tier 1: STRONGEST MATCHES (Can replace 70%+ of Klivo)
 
 ---
 
 ### 1. Typebot
-| | |
-|---|---|
-| **GitHub** | https://github.com/baptisteArno/typebot.io |
-| **Stars** | ~30,000+ |
-| **License** | Functional Source License (Fair Source) |
+
+|                |                                                       |
+| -------------- | ----------------------------------------------------- |
+| **GitHub**     | https://github.com/baptisteArno/typebot.io            |
+| **Stars**      | ~30,000+                                              |
+| **License**    | Functional Source License (Fair Source)               |
 | **Tech Stack** | TypeScript, Next.js, Prisma, PostgreSQL, Tailwind CSS |
-| **Status** | Actively maintained (2026) |
+| **Status**     | Actively maintained (2026)                            |
 
 **What it does:** Visual drag-and-drop chatbot builder with embeddable widget. Self-hostable.
 
-**Feature Match with CodeWeaves:**
+**Feature Match with Klivo:**
+
 - ✅ Embeddable chat widget (script tag, JS injection into DOM)
 - ✅ Visual bot builder with 45+ building blocks
 - ✅ Theme customization (colors, branding, avatars)
 - ✅ OpenAI integration built-in
-- ✅ Prisma + PostgreSQL (same as CodeWeaves)
+- ✅ Prisma + PostgreSQL (same as Klivo)
 - ✅ Next.js monorepo (similar architecture)
 - ✅ Analytics (basic conversation tracking)
 - ✅ Self-hostable with Docker
 - ✅ Webhooks & Zapier/Make integrations
 
 **What's Missing:**
+
 - ❌ No multi-tenant/multi-organization architecture (single-user oriented)
 - ❌ No RBAC (Super Admin / Admin / Client hierarchy)
 - ❌ No NestJS backend (uses Next.js API routes)
@@ -58,8 +61,9 @@ A **multi-tenant B2B SaaS platform** for deploying customizable AI chat widgets 
 - ❌ No Auth0 (uses custom auth)
 - ❌ Fair Source license — **NOT fully open source** (limits commercial use at scale)
 
-**How to Adapt for CodeWeaves:**
+**How to Adapt for Klivo:**
 Typebot's biggest value is its **visual flow builder UI** and **embeddable widget**. You could:
+
 1. Fork the widget component and add Shadow DOM, voice, multi-language
 2. Replace the backend entirely with your NestJS API
 3. Add multi-tenancy layer on top
@@ -70,17 +74,19 @@ Typebot's biggest value is its **visual flow builder UI** and **embeddable widge
 ---
 
 ### 2. Dify
-| | |
-|---|---|
-| **GitHub** | https://github.com/langgenius/dify |
-| **Stars** | 100,000+ |
-| **License** | Apache 2.0 (with commercial add-ons) |
+
+|                |                                                  |
+| -------------- | ------------------------------------------------ |
+| **GitHub**     | https://github.com/langgenius/dify               |
+| **Stars**      | 100,000+                                         |
+| **License**    | Apache 2.0 (with commercial add-ons)             |
 | **Tech Stack** | Python (Flask), React, PostgreSQL, Redis, Celery |
-| **Status** | Very actively maintained, backed by VC funding |
+| **Status**     | Very actively maintained, backed by VC funding   |
 
 **What it does:** Full LLM application development platform with visual workflow builder, RAG, agent capabilities, and API-as-a-service.
 
-**Feature Match with CodeWeaves:**
+**Feature Match with Klivo:**
+
 - ✅ Multi-model support (OpenAI, Anthropic, local LLMs — 50+ providers)
 - ✅ AI provider abstraction layer (swap providers easily)
 - ✅ Visual workflow builder (similar to n8n concept)
@@ -93,6 +99,7 @@ Typebot's biggest value is its **visual flow builder UI** and **embeddable widge
 - ✅ Conversation management
 
 **What's Missing:**
+
 - ❌ No embeddable widget (it's a full app, not a widget platform)
 - ❌ Python backend (not Node.js/NestJS)
 - ❌ No multi-tenant B2B SaaS architecture
@@ -103,8 +110,9 @@ Typebot's biggest value is its **visual flow builder UI** and **embeddable widge
 - ❌ No n8n webhook integration (has its own workflow engine)
 - ❌ No 14-KPI analytics dashboard (has different metrics)
 
-**How to Adapt for CodeWeaves:**
+**How to Adapt for Klivo:**
 Use Dify as the **AI backend/orchestration layer** instead of building your own AI abstraction:
+
 1. Deploy Dify as the AI engine behind your NestJS API
 2. Use Dify's API to send messages and get responses
 3. Build your own widget, dashboard, and multi-tenant layer on top
@@ -115,20 +123,22 @@ Use Dify as the **AI backend/orchestration layer** instead of building your own 
 ---
 
 ### 3. Flowise
-| | |
-|---|---|
-| **GitHub** | https://github.com/FlowiseAI/Flowise |
-| **Stars** | 36,000+ |
-| **License** | Apache 2.0 |
+
+|                |                                       |
+| -------------- | ------------------------------------- |
+| **GitHub**     | https://github.com/FlowiseAI/Flowise  |
+| **Stars**      | 36,000+                               |
+| **License**    | Apache 2.0                            |
 | **Tech Stack** | TypeScript, Node.js, React, LangChain |
-| **Status** | Actively maintained (2026) |
+| **Status**     | Actively maintained (2026)            |
 
 **What it does:** Visual drag-and-drop AI agent/chatbot builder with embeddable widget.
 
-**Feature Match with CodeWeaves:**
+**Feature Match with Klivo:**
+
 - ✅ **Embeddable chat widget** (script tag, React component, iframe)
 - ✅ Widget theme customization (colors, button, icon, position)
-- ✅ Node.js/TypeScript backend (closer to CodeWeaves stack)
+- ✅ Node.js/TypeScript backend (closer to Klivo stack)
 - ✅ Multi-model support (OpenAI, Anthropic, Ollama, local models)
 - ✅ RAG support with vector databases
 - ✅ Streaming responses
@@ -139,6 +149,7 @@ Use Dify as the **AI backend/orchestration layer** instead of building your own 
 - ✅ Apache 2.0 license
 
 **What's Missing:**
+
 - ❌ No multi-tenant architecture
 - ❌ No RBAC hierarchy (basic auth only)
 - ❌ No analytics dashboard (14 KPIs)
@@ -150,8 +161,9 @@ Use Dify as the **AI backend/orchestration layer** instead of building your own 
 - ❌ No Prisma (uses TypeORM)
 - ❌ No n8n-style webhook routing
 
-**How to Adapt for CodeWeaves:**
+**How to Adapt for Klivo:**
 Flowise's **embed widget (FlowiseChatEmbed)** is the most directly reusable component:
+
 1. Fork `FlowiseChatEmbed` as your widget base — add Shadow DOM, voice, multi-language
 2. Use Flowise as the AI orchestration backend (replace n8n)
 3. Build your NestJS multi-tenant API as a proxy layer in front of Flowise
@@ -162,17 +174,19 @@ Flowise's **embed widget (FlowiseChatEmbed)** is the most directly reusable comp
 ---
 
 ### 4. Tiledesk (Best Multi-Tenant Match)
-| | |
-|---|---|
-| **GitHub** | https://github.com/Tiledesk (organization with multiple repos) |
-| **Stars** | ~3,000+ |
-| **License** | MIT |
-| **Tech Stack** | Node.js, Express, Angular, MongoDB, RabbitMQ/MQTT, Redis, Qdrant |
-| **Status** | Active (2025-2026), Won Golden Kitty Awards 2023: Open Source Product of the Year |
+
+|                |                                                                                   |
+| -------------- | --------------------------------------------------------------------------------- |
+| **GitHub**     | https://github.com/Tiledesk (organization with multiple repos)                    |
+| **Stars**      | ~3,000+                                                                           |
+| **License**    | MIT                                                                               |
+| **Tech Stack** | Node.js, Express, Angular, MongoDB, RabbitMQ/MQTT, Redis, Qdrant                  |
+| **Status**     | Active (2025-2026), Won Golden Kitty Awards 2023: Open Source Product of the Year |
 
 **What it does:** Multi-tenant live chat + AI chatbot platform with embeddable widget, visual flow builder, and multi-channel support.
 
-**Feature Match with CodeWeaves:**
+**Feature Match with Klivo:**
+
 - ✅ **Natively multi-tenant** — each project is an isolated sandbox
 - ✅ Embeddable chat widget (`chat21-web-widget`)
 - ✅ LLM-agnostic (Claude, OpenAI, Gemini, Llama, Mistral)
@@ -183,6 +197,7 @@ Flowise's **embed widget (FlowiseChatEmbed)** is the most directly reusable comp
 - ✅ MIT License
 
 **What's Missing:**
+
 - ❌ Widget is Angular-based (not Preact/Shadow DOM)
 - ❌ No SSE streaming (uses WebSocket/MQTT)
 - ❌ No 14-KPI analytics dashboard
@@ -191,8 +206,9 @@ Flowise's **embed widget (FlowiseChatEmbed)** is the most directly reusable comp
 - ❌ MongoDB (not PostgreSQL/Prisma)
 - ❌ Complex deployment (Kubernetes/Docker Compose with many services)
 
-**How to Adapt for CodeWeaves:**
-Tiledesk is the **closest existing platform to CodeWeaves' multi-tenant architecture**:
+**How to Adapt for Klivo:**
+Tiledesk is the **closest existing platform to Klivo' multi-tenant architecture**:
+
 1. Fork and replace Angular widget with Preact/Shadow DOM widget
 2. Add analytics KPI layer
 3. Integrate voice providers (Sarvam AI, Deepgram, ElevenLabs)
@@ -203,18 +219,20 @@ Tiledesk is the **closest existing platform to CodeWeaves' multi-tenant architec
 ---
 
 ### 5. Hexabot (Best Stack Match — NestJS + Shadow DOM)
-| | |
-|---|---|
-| **GitHub** | https://github.com/Hexastack/Hexabot |
-| **Stars** | ~873 |
-| **License** | AGPLv3 (⚠️ restrictive for SaaS) |
+
+|                |                                                                   |
+| -------------- | ----------------------------------------------------------------- |
+| **GitHub**     | https://github.com/Hexastack/Hexabot                              |
+| **Stars**      | ~873                                                              |
+| **License**    | AGPLv3 (⚠️ restrictive for SaaS)                                  |
 | **Tech Stack** | **TypeScript, NestJS** (backend), React (admin), Angular (widget) |
-| **Status** | Active (2025-2026) |
+| **Status**     | Active (2025-2026)                                                |
 
 **What it does:** Open-source AI chatbot builder with visual flow editor, plugin system, and embeddable widget.
 
-**Feature Match with CodeWeaves:**
-- ✅ **NestJS backend** — SAME framework as CodeWeaves!
+**Feature Match with Klivo:**
+
+- ✅ **NestJS backend** — SAME framework as Klivo!
 - ✅ **Shadow DOM isolation** in live chat widget (explicitly documented)
 - ✅ **Multi-language/multilingual** chatbot support with language detection
 - ✅ Theme customization via SCSS and admin UI
@@ -225,6 +243,7 @@ Tiledesk is the **closest existing platform to CodeWeaves' multi-tenant architec
 - ✅ Plugin-extensible architecture
 
 **What's Missing:**
+
 - ❌ **AGPLv3 license** — must open-source all modifications (problematic for commercial SaaS)
 - ❌ No multi-tenant/multi-organization SaaS model
 - ❌ No 14-KPI analytics dashboard
@@ -232,8 +251,9 @@ Tiledesk is the **closest existing platform to CodeWeaves' multi-tenant architec
 - ❌ No SSE streaming
 - ❌ Smaller community (873 stars)
 
-**How to Adapt for CodeWeaves:**
+**How to Adapt for Klivo:**
 Hexabot is **architecturally the closest match** (NestJS + Shadow DOM + multilingual). However:
+
 1. **AGPLv3 blocks commercial SaaS** — cannot fork without open-sourcing your entire platform
 2. Use as **reference only** — study NestJS module patterns, Shadow DOM implementation, plugin system
 3. Re-implement the patterns in your own codebase (clean-room approach)
@@ -247,17 +267,19 @@ Hexabot is **architecturally the closest match** (NestJS + Shadow DOM + multilin
 ---
 
 ### 6. Chatwoot
-| | |
-|---|---|
-| **GitHub** | https://github.com/chatwoot/chatwoot |
-| **Stars** | 27,900+ |
-| **License** | MIT |
+
+|                |                                          |
+| -------------- | ---------------------------------------- |
+| **GitHub**     | https://github.com/chatwoot/chatwoot     |
+| **Stars**      | 27,900+                                  |
+| **License**    | MIT                                      |
 | **Tech Stack** | Ruby on Rails, Vue.js, PostgreSQL, Redis |
-| **Status** | Actively maintained (March 2026) |
+| **Status**     | Actively maintained (March 2026)         |
 
 **What it does:** Open-source customer support platform with live chat widget, omnichannel inbox, and AI agent ("Captain").
 
-**Feature Match with CodeWeaves:**
+**Feature Match with Klivo:**
+
 - ✅ **Embeddable website chat widget** (mature, battle-tested)
 - ✅ Multi-tenant / multi-organization
 - ✅ RBAC (Agent, Admin, Super Admin roles)
@@ -270,6 +292,7 @@ Hexabot is **architecturally the closest match** (NestJS + Shadow DOM + multilin
 - ✅ Webhook integrations
 
 **What's Missing:**
+
 - ❌ Ruby on Rails backend (not Node.js/NestJS)
 - ❌ Not designed for AI-first chatbots (it's a support tool)
 - ❌ No AI provider abstraction / LLM swapping
@@ -281,8 +304,9 @@ Hexabot is **architecturally the closest match** (NestJS + Shadow DOM + multilin
 - ❌ No n8n integration
 - ❌ No 14-KPI analytics (has support-oriented metrics)
 
-**How to Adapt for CodeWeaves:**
+**How to Adapt for Klivo:**
 Best used as **inspiration for the multi-tenant architecture and widget**:
+
 1. Study Chatwoot's multi-tenant data isolation patterns
 2. Reference their RBAC implementation
 3. Learn from their widget embed approach
@@ -293,19 +317,21 @@ Best used as **inspiration for the multi-tenant architecture and widget**:
 ---
 
 ### 7. LibreChat
-| | |
-|---|---|
-| **GitHub** | https://github.com/danny-avila/LibreChat |
-| **Stars** | 34,800+ |
-| **License** | MIT |
-| **Tech Stack** | Node.js (Express), React, MongoDB |
-| **Status** | Very actively maintained (acquired by ClickHouse) |
+
+|                |                                                   |
+| -------------- | ------------------------------------------------- |
+| **GitHub**     | https://github.com/danny-avila/LibreChat          |
+| **Stars**      | 34,800+                                           |
+| **License**    | MIT                                               |
+| **Tech Stack** | Node.js (Express), React, MongoDB                 |
+| **Status**     | Very actively maintained (acquired by ClickHouse) |
 
 **What it does:** Enhanced ChatGPT clone with multi-provider support, agents, MCP, code interpreter.
 
-**Feature Match with CodeWeaves:**
+**Feature Match with Klivo:**
+
 - ✅ Multi-provider AI support (OpenAI, Anthropic, Google, Azure, etc.)
-- ✅ AI provider switching (exactly what CodeWeaves needs)
+- ✅ AI provider switching (exactly what Klivo needs)
 - ✅ Streaming responses
 - ✅ Multi-user with SSO (OAuth, SAML, LDAP)
 - ✅ RBAC & admin controls
@@ -316,6 +342,7 @@ Best used as **inspiration for the multi-tenant architecture and widget**:
 - ✅ MCP support, agents, code interpreter
 
 **What's Missing:**
+
 - ❌ No embeddable widget (it's a full web app)
 - ❌ No multi-tenant B2B SaaS model
 - ❌ MongoDB (not PostgreSQL/Prisma)
@@ -326,8 +353,9 @@ Best used as **inspiration for the multi-tenant architecture and widget**:
 - ❌ No n8n integration
 - ❌ No Indian language focus
 
-**How to Adapt for CodeWeaves:**
+**How to Adapt for Klivo:**
 Best used for the **AI provider abstraction pattern**:
+
 1. Study how LibreChat handles multi-provider routing
 2. Reference their streaming implementation
 3. Look at their admin panel roadmap (2026)
@@ -338,17 +366,19 @@ Best used for the **AI provider abstraction pattern**:
 ---
 
 ### 8. Open WebUI
-| | |
-|---|---|
-| **GitHub** | https://github.com/open-webui/open-webui |
-| **Stars** | 124,000+ |
-| **License** | MIT |
+
+|                |                                                |
+| -------------- | ---------------------------------------------- |
+| **GitHub**     | https://github.com/open-webui/open-webui       |
+| **Stars**      | 124,000+                                       |
+| **License**    | MIT                                            |
 | **Tech Stack** | Python (FastAPI), SvelteKit, SQLite/PostgreSQL |
-| **Status** | Most popular open-source AI chat UI (2026) |
+| **Status**     | Most popular open-source AI chat UI (2026)     |
 
 **What it does:** Self-hosted ChatGPT alternative with RAG, voice, pipelines, and model management.
 
-**Feature Match with CodeWeaves:**
+**Feature Match with Klivo:**
+
 - ✅ Multi-model support (Ollama, OpenAI-compatible APIs)
 - ✅ Voice support (STT/TTS built-in!)
 - ✅ RAG pipeline
@@ -359,6 +389,7 @@ Best used for the **AI provider abstraction pattern**:
 - ✅ Community marketplace
 
 **What's Missing:**
+
 - ❌ No embeddable widget (full app, not widget — though feature requested)
 - ❌ Python/SvelteKit (not Node.js/NestJS/React)
 - ❌ No multi-tenant B2B model
@@ -366,7 +397,8 @@ Best used for the **AI provider abstraction pattern**:
 - ❌ No analytics dashboard
 - ❌ No n8n integration
 
-**How to Adapt for CodeWeaves:**
+**How to Adapt for Klivo:**
+
 1. Study their voice (STT/TTS) implementation — most mature in OSS
 2. Reference their pipeline/workflow concept
 3. There's a community embed widget: https://github.com/taylorwilsdon/open-webui-embeddable-widget
@@ -376,17 +408,19 @@ Best used for the **AI provider abstraction pattern**:
 ---
 
 ### 9. AnythingLLM
-| | |
-|---|---|
-| **GitHub** | https://github.com/Mintplex-Labs/anything-llm |
-| **Stars** | 35,000+ |
-| **License** | MIT |
-| **Tech Stack** | Node.js, React, SQLite, various vector DBs |
-| **Status** | Actively maintained (2026) |
+
+|                |                                               |
+| -------------- | --------------------------------------------- |
+| **GitHub**     | https://github.com/Mintplex-Labs/anything-llm |
+| **Stars**      | 35,000+                                       |
+| **License**    | MIT                                           |
+| **Tech Stack** | Node.js, React, SQLite, various vector DBs    |
+| **Status**     | Actively maintained (2026)                    |
 
 **What it does:** All-in-one AI app with document chat, RAG, multi-user, and **embeddable chat widget**.
 
-**Feature Match with CodeWeaves:**
+**Feature Match with Klivo:**
+
 - ✅ **Embeddable chat widget** (dedicated submodule: `anythingllm-embed`)
 - ✅ Widget customization (colors, icons, button style, language)
 - ✅ Domain filtering on widget (allowed domains list)
@@ -399,6 +433,7 @@ Best used for the **AI provider abstraction pattern**:
 - ✅ Dynamic model override per widget
 
 **What's Missing:**
+
 - ❌ No multi-tenant B2B architecture
 - ❌ No NestJS (uses Express)
 - ❌ No Prisma/PostgreSQL (uses SQLite)
@@ -410,8 +445,9 @@ Best used for the **AI provider abstraction pattern**:
 - ❌ No RBAC hierarchy (basic roles only)
 - ❌ No n8n integration
 
-**How to Adapt for CodeWeaves:**
+**How to Adapt for Klivo:**
 The **anythingllm-embed** widget is a solid starting point:
+
 1. Fork `anythingllm-embed` for widget base
 2. Add Shadow DOM, voice buttons, multi-language
 3. Point it at your NestJS backend instead of AnythingLLM
@@ -422,17 +458,19 @@ The **anythingllm-embed** widget is a solid starting point:
 ---
 
 ### 10. Langflow
-| | |
-|---|---|
-| **GitHub** | https://github.com/langflow-ai/langflow |
-| **Stars** | 50,000+ |
-| **License** | MIT |
-| **Tech Stack** | Python, React, LangChain |
-| **Status** | Actively maintained (2026) |
+
+|                |                                         |
+| -------------- | --------------------------------------- |
+| **GitHub**     | https://github.com/langflow-ai/langflow |
+| **Stars**      | 50,000+                                 |
+| **License**    | MIT                                     |
+| **Tech Stack** | Python, React, LangChain                |
+| **Status**     | Actively maintained (2026)              |
 
 **What it does:** Low-code AI app builder with visual flow editor, multi-agent orchestration, and embeddable chat.
 
-**Feature Match with CodeWeaves:**
+**Feature Match with Klivo:**
+
 - ✅ **Embeddable chat web component** (`langflow-embedded-chat`)
 - ✅ Visual flow builder (like n8n for AI)
 - ✅ Multi-model support
@@ -441,6 +479,7 @@ The **anythingllm-embed** widget is a solid starting point:
 - ✅ MIT License
 
 **What's Missing:**
+
 - ❌ Python backend (not Node.js)
 - ❌ No multi-tenant
 - ❌ No RBAC
@@ -456,20 +495,22 @@ The **anythingllm-embed** widget is a solid starting point:
 ---
 
 ### 11. ConvoStack
-| | |
-|---|---|
-| **GitHub** | https://github.com/ConvoStack/convostack |
-| **License** | MIT |
-| **Tech Stack** | TypeScript, React, Node.js, GraphQL |
 
-Plug-and-play embeddable AI chatbot widget + backend framework. Closest architecture to CodeWeaves but **appears unmaintained** (low activity). Good for code reference.
+|                |                                          |
+| -------------- | ---------------------------------------- |
+| **GitHub**     | https://github.com/ConvoStack/convostack |
+| **License**    | MIT                                      |
+| **Tech Stack** | TypeScript, React, Node.js, GraphQL      |
+
+Plug-and-play embeddable AI chatbot widget + backend framework. Closest architecture to Klivo but **appears unmaintained** (low activity). Good for code reference.
 
 ### 12. Botpress
-| | |
-|---|---|
-| **GitHub** | https://github.com/botpress/botpress |
-| **Stars** | 13,000+ |
-| **License** | MIT (v13+) / AGPL (v12) |
+
+|             |                                      |
+| ----------- | ------------------------------------ |
+| **GitHub**  | https://github.com/botpress/botpress |
+| **Stars**   | 13,000+                              |
+| **License** | MIT (v13+) / AGPL (v12)              |
 
 Full chatbot platform with visual flow builder, multi-channel, agent routing. Cloud-first now — OSS version is limited. Good for reference on agent routing patterns.
 
@@ -477,21 +518,21 @@ Full chatbot platform with visual flow builder, multi-channel, agent routing. Cl
 
 ## Recommendation Matrix
 
-| Requirement | Best OSS Match |
-|---|---|
-| **Embeddable Widget** | Flowise (FlowiseChatEmbed) or AnythingLLM (anythingllm-embed) |
-| **AI Provider Abstraction** | Dify (50+ providers) or LibreChat |
-| **Visual Flow Builder** | Flowise, Dify, or Langflow |
-| **Multi-Tenant Architecture** | **Tiledesk** (natively multi-tenant, MIT) or Chatwoot |
-| **NestJS Backend Patterns** | **Hexabot** (same framework — study only, AGPLv3) |
-| **RBAC** | Chatwoot or LibreChat |
-| **Voice (STT/TTS)** | Open WebUI (most mature) |
-| **Analytics Dashboard** | Chatwoot (support metrics) — none match 14 KPIs |
-| **Streaming (SSE)** | LibreChat, Flowise |
-| **Shadow DOM Widget** | **Hexabot** (study patterns, AGPLv3) — rebuild in Preact |
-| **Multi-Language Detection** | **Hexabot** (multilingual with detection) |
-| **Indian Language Support** | None — must build custom with Sarvam AI |
-| **n8n Integration** | None direct — Typebot has Zapier/Make |
+| Requirement                   | Best OSS Match                                                |
+| ----------------------------- | ------------------------------------------------------------- |
+| **Embeddable Widget**         | Flowise (FlowiseChatEmbed) or AnythingLLM (anythingllm-embed) |
+| **AI Provider Abstraction**   | Dify (50+ providers) or LibreChat                             |
+| **Visual Flow Builder**       | Flowise, Dify, or Langflow                                    |
+| **Multi-Tenant Architecture** | **Tiledesk** (natively multi-tenant, MIT) or Chatwoot         |
+| **NestJS Backend Patterns**   | **Hexabot** (same framework — study only, AGPLv3)             |
+| **RBAC**                      | Chatwoot or LibreChat                                         |
+| **Voice (STT/TTS)**           | Open WebUI (most mature)                                      |
+| **Analytics Dashboard**       | Chatwoot (support metrics) — none match 14 KPIs               |
+| **Streaming (SSE)**           | LibreChat, Flowise                                            |
+| **Shadow DOM Widget**         | **Hexabot** (study patterns, AGPLv3) — rebuild in Preact      |
+| **Multi-Language Detection**  | **Hexabot** (multilingual with detection)                     |
+| **Indian Language Support**   | None — must build custom with Sarvam AI                       |
+| **n8n Integration**           | None direct — Typebot has Zapier/Make                         |
 
 ---
 
@@ -564,9 +605,10 @@ Custom Widget (Preact):
 
 ### Option C: "Build It All, Reference OSS" (Current Path)
 
-**Continue building CodeWeaves as designed, use OSS projects as reference.**
+**Continue building Klivo as designed, use OSS projects as reference.**
 
 Borrow patterns from:
+
 - **Flowise/AnythingLLM** → Widget embed architecture
 - **LibreChat** → AI provider abstraction & streaming
 - **Chatwoot** → Multi-tenant patterns & RBAC
@@ -609,19 +651,19 @@ Your **unique value** is the **multi-tenant B2B SaaS layer + Indian language voi
 
 ## License Summary
 
-| Project | License | Safe for Commercial SaaS? |
-|---|---|---|
-| Dify | Apache 2.0 | ✅ Yes |
-| Flowise | Apache 2.0 | ✅ Yes |
-| Tiledesk | MIT | ✅ Yes |
-| AnythingLLM | MIT | ✅ Yes |
-| LibreChat | MIT | ✅ Yes |
-| Chatwoot | MIT | ✅ Yes |
-| Open WebUI | MIT | ✅ Yes |
-| Langflow | MIT | ✅ Yes |
-| LiteLLM | MIT | ✅ Yes |
-| Langfuse | MIT | ✅ Yes |
-| Hexabot | AGPLv3 | ⚠️ Copyleft (must open-source all modifications) |
-| Typebot | Functional Source | ⚠️ Restricted (limits commercial hosting) |
-| Botpress v12 | AGPL | ⚠️ Copyleft (must open-source derivatives) |
-| FastGPT | Apache 2.0 + SaaS restriction | ⚠️ Requires commercial authorization for SaaS |
+| Project      | License                       | Safe for Commercial SaaS?                        |
+| ------------ | ----------------------------- | ------------------------------------------------ |
+| Dify         | Apache 2.0                    | ✅ Yes                                           |
+| Flowise      | Apache 2.0                    | ✅ Yes                                           |
+| Tiledesk     | MIT                           | ✅ Yes                                           |
+| AnythingLLM  | MIT                           | ✅ Yes                                           |
+| LibreChat    | MIT                           | ✅ Yes                                           |
+| Chatwoot     | MIT                           | ✅ Yes                                           |
+| Open WebUI   | MIT                           | ✅ Yes                                           |
+| Langflow     | MIT                           | ✅ Yes                                           |
+| LiteLLM      | MIT                           | ✅ Yes                                           |
+| Langfuse     | MIT                           | ✅ Yes                                           |
+| Hexabot      | AGPLv3                        | ⚠️ Copyleft (must open-source all modifications) |
+| Typebot      | Functional Source             | ⚠️ Restricted (limits commercial hosting)        |
+| Botpress v12 | AGPL                          | ⚠️ Copyleft (must open-source derivatives)       |
+| FastGPT      | Apache 2.0 + SaaS restriction | ⚠️ Requires commercial authorization for SaaS    |

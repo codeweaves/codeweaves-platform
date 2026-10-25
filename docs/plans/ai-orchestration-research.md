@@ -13,7 +13,7 @@ Research compiled from real production systems, official documentation, and engi
 5. [Architecture Patterns for AI Orchestration](#5-architecture-patterns)
 6. [Scalability & Production Concerns](#6-scalability--production)
 7. [Vercel AI SDK](#7-vercel-ai-sdk)
-8. [Recommended Architecture for CodeWeaves](#8-recommended-architecture)
+8. [Recommended Architecture for Klivo](#8-recommended-architecture)
 
 ---
 
@@ -32,15 +32,15 @@ OpenRouter is a managed, multi-LLM gateway providing a single OpenAI-compatible 
 
 ```typescript
 // Basic request
-fetch('https://openrouter.ai/api/v1/chat/completions', {
-  method: 'POST',
+fetch("https://openrouter.ai/api/v1/chat/completions", {
+  method: "POST",
   headers: {
-    'Authorization': 'Bearer <OPENROUTER_API_KEY>',
-    'Content-Type': 'application/json',
+    Authorization: "Bearer <OPENROUTER_API_KEY>",
+    "Content-Type": "application/json",
   },
   body: JSON.stringify({
-    model: 'anthropic/claude-4-sonnet',
-    messages: [{ role: 'user', content: 'Hello' }],
+    model: "anthropic/claude-4-sonnet",
+    messages: [{ role: "user", content: "Hello" }],
     stream: true,
   }),
 });
@@ -72,17 +72,17 @@ Server-Sent Events (SSE) via `stream: true`. The TypeScript SDK supports text st
 
 ### OpenRouter vs LiteLLM
 
-| Aspect | OpenRouter | LiteLLM |
-|--------|-----------|---------|
-| Deployment | Managed SaaS | Self-hosted (open source) |
-| Models | 300+ | 100+ |
-| Routing | Built-in intelligent routing | Latency/cost/usage-based routing |
-| Overhead | Zero ops | Requires infrastructure |
-| Enterprise users | 2M+ users | Netflix, Lemonade, RocketMoney |
-| Cost control | Dashboard + per-key caps | Policy-as-code, team management |
-| Best for | Zero-maintenance multi-provider | Self-hosted control, observability |
+| Aspect           | OpenRouter                      | LiteLLM                            |
+| ---------------- | ------------------------------- | ---------------------------------- |
+| Deployment       | Managed SaaS                    | Self-hosted (open source)          |
+| Models           | 300+                            | 100+                               |
+| Routing          | Built-in intelligent routing    | Latency/cost/usage-based routing   |
+| Overhead         | Zero ops                        | Requires infrastructure            |
+| Enterprise users | 2M+ users                       | Netflix, Lemonade, RocketMoney     |
+| Cost control     | Dashboard + per-key caps        | Policy-as-code, team management    |
+| Best for         | Zero-maintenance multi-provider | Self-hosted control, observability |
 
-**Recommendation for CodeWeaves**: Start with OpenRouter (zero ops overhead). If you need self-hosted control later for compliance, migrate to LiteLLM — the API is compatible.
+**Recommendation for Klivo**: Start with OpenRouter (zero ops overhead). If you need self-hosted control later for compliance, migrate to LiteLLM — the API is compatible.
 
 ### Key Packages
 
@@ -99,16 +99,17 @@ Server-Sent Events (SSE) via `stream: true`. The TypeScript SDK supports text st
 
 ### pgvector vs Dedicated Vector DBs
 
-| Criteria | pgvector | Pinecone | Qdrant |
-|----------|----------|----------|--------|
-| Latency (<10M vectors) | 5-20ms (HNSW) | 5-20ms | 5-15ms |
-| Latency (>50M vectors) | Degrades | Consistent | Consistent |
-| Horizontal scaling | No native sharding | Auto-scaling serverless | Distributed |
-| Cost (<10M vectors) | PostgreSQL hosting | $64-85/mo | Self-host or cloud |
-| ACID compliance | Full | No | No |
-| Relational joins | Native | Requires separate DB | Requires separate DB |
+| Criteria               | pgvector           | Pinecone                | Qdrant               |
+| ---------------------- | ------------------ | ----------------------- | -------------------- |
+| Latency (<10M vectors) | 5-20ms (HNSW)      | 5-20ms                  | 5-15ms               |
+| Latency (>50M vectors) | Degrades           | Consistent              | Consistent           |
+| Horizontal scaling     | No native sharding | Auto-scaling serverless | Distributed          |
+| Cost (<10M vectors)    | PostgreSQL hosting | $64-85/mo               | Self-host or cloud   |
+| ACID compliance        | Full               | No                      | No                   |
+| Relational joins       | Native             | Requires separate DB    | Requires separate DB |
 
-**Decision for CodeWeaves**: Use **pgvector**. You already run PostgreSQL/Prisma. For a SaaS platform, you will likely stay under 10M vectors per tenant for a long time. Benefits:
+**Decision for Klivo**: Use **pgvector**. You already run PostgreSQL/Prisma. For a SaaS platform, you will likely stay under 10M vectors per tenant for a long time. Benefits:
+
 - No additional database to manage
 - Transactional consistency between vectors and relational data (documents, users, tenants)
 - Metadata stored alongside vectors (no 40KB limit like Pinecone)
@@ -118,24 +119,24 @@ Server-Sent Events (SSE) via `stream: true`. The TypeScript SDK supports text st
 
 ### Embedding Models (2026 Rankings)
 
-| Model | MTEB Score | Dimensions | Cost | Context |
-|-------|-----------|------------|------|---------|
-| Voyage-3-large | Best | 1,024 | $0.06/1M tokens | 32K |
-| OpenAI text-embedding-3-large | Strong | 3,072 | $0.13/1M tokens | 8K |
-| OpenAI text-embedding-3-small | Good | 1,536 | $0.02/1M tokens | 8K |
-| BGE-M3 (self-hosted) | Strong | 1,024 | Infra only | 8K |
-| Qwen3-Embedding-8B | Best open-source | Varies | Infra only | Varies |
+| Model                         | MTEB Score       | Dimensions | Cost            | Context |
+| ----------------------------- | ---------------- | ---------- | --------------- | ------- |
+| Voyage-3-large                | Best             | 1,024      | $0.06/1M tokens | 32K     |
+| OpenAI text-embedding-3-large | Strong           | 3,072      | $0.13/1M tokens | 8K      |
+| OpenAI text-embedding-3-small | Good             | 1,536      | $0.02/1M tokens | 8K      |
+| BGE-M3 (self-hosted)          | Strong           | 1,024      | Infra only      | 8K      |
+| Qwen3-Embedding-8B            | Best open-source | Varies     | Infra only      | Varies  |
 
 **Recommendation**: Start with `text-embedding-3-small` via OpenRouter ($0.02/1M tokens, good enough for MVP). Upgrade to `text-embedding-3-large` or Voyage-3 when quality matters. Use `embedMany()` from Vercel AI SDK for batch processing.
 
 ### Chunking Strategies
 
-| Strategy | Size | Overlap | Accuracy | Best For |
-|----------|------|---------|----------|----------|
-| Recursive (default) | 512 tokens | 50 tokens (10%) | 69% | Technical docs, mixed content |
-| Fixed-size | 400-512 tokens | 10-20% | Baseline | Homogeneous content (FAQs) |
-| Semantic | Dynamic | Threshold-based | 79-82% | High-value docs (legal, medical) |
-| Hierarchical (parent-child) | 200 tokens retrieve / 2000 tokens return | N/A | Best precision | Complex docs needing context |
+| Strategy                    | Size                                     | Overlap         | Accuracy       | Best For                         |
+| --------------------------- | ---------------------------------------- | --------------- | -------------- | -------------------------------- |
+| Recursive (default)         | 512 tokens                               | 50 tokens (10%) | 69%            | Technical docs, mixed content    |
+| Fixed-size                  | 400-512 tokens                           | 10-20%          | Baseline       | Homogeneous content (FAQs)       |
+| Semantic                    | Dynamic                                  | Threshold-based | 79-82%         | High-value docs (legal, medical) |
+| Hierarchical (parent-child) | 200 tokens retrieve / 2000 tokens return | N/A             | Best precision | Complex docs needing context     |
 
 **Production default**: Recursive chunking, 512 tokens, 50-token overlap. This covers 80% of use cases.
 
@@ -153,6 +154,7 @@ Hybrid search consistently outperforms either method alone. The architecture:
 **Recommended weights**: 60% dense / 40% sparse (adjust per query type).
 
 **PostgreSQL implementation options**:
+
 - `pg_textsearch` (by TimescaleDB) — native BM25 in PostgreSQL, pairs with pgvector
 - ParadeDB — BM25 + vector search in PostgreSQL
 - PostgreSQL native `tsvector` + `ts_rank` — decent but not true BM25
@@ -169,6 +171,7 @@ Document Upload → Queue (BullMQ) → Parse (PDF/DOCX/etc) → Chunk → Embed 
 ```
 
 **Production pipeline requirements**:
+
 - Queue-based processing (BullMQ) — never block the API on document ingestion
 - Change detection via content hashing — only re-embed changed chunks
 - Batch embedding — process chunks in batches of 100-500
@@ -188,12 +191,14 @@ User Query → Embed Query (20-50ms) → Parallel: [Vector Search (5-30ms) + BM2
 ### Evaluation & Monitoring
 
 **Key metrics (RAGAS-based)**:
+
 - Context Precision: fraction of retrieved chunks actually relevant
 - Context Recall: did we find all needed information?
 - Faithfulness: claims supported by context (hallucination detector)
 - Answer Relevance: response addresses the question
 
 **Alert thresholds**:
+
 - Retrieval p99 > 200ms (warning), > 500ms (critical)
 - Zero-result rate > 5% (warning), > 15% (critical)
 - Faithfulness < 0.80 (warning), < 0.70 (critical)
@@ -204,11 +209,11 @@ User Query → Embed Query (20-50ms) → Parallel: [Vector Search (5-30ms) + BM2
 
 ### Architecture Approaches (2026)
 
-| Approach | Latency | Flexibility | Maturity |
-|----------|---------|-------------|----------|
-| Cascading Pipeline (STT→LLM→TTS) | 800-2000ms | Maximum | Production-ready |
-| Streaming Pipeline | 400-700ms | High | Production-ready |
-| Speech-to-Speech (e2e models) | 200-500ms | Limited | Emerging |
+| Approach                         | Latency    | Flexibility | Maturity         |
+| -------------------------------- | ---------- | ----------- | ---------------- |
+| Cascading Pipeline (STT→LLM→TTS) | 800-2000ms | Maximum     | Production-ready |
+| Streaming Pipeline               | 400-700ms  | High        | Production-ready |
+| Speech-to-Speech (e2e models)    | 200-500ms  | Limited     | Emerging         |
 
 ### How Sub-500ms Latency Is Achieved
 
@@ -217,11 +222,13 @@ Real production system by Nick Tikhonov (open source: github.com/NickTikhonov/sh
 **Architecture**: Twilio → Deepgram Flux (STT) → Groq LLM → ElevenLabs (TTS) → Twilio
 
 **Latency breakdown**:
+
 - LLM TTFT: ~80ms (Groq, vs 200-400ms OpenAI)
 - Total end-to-end: ~400ms (vs Vapi's ~840ms)
 - 2x faster than Vapi through architecture and model selection
 
 **Critical optimizations**:
+
 1. **Pre-warmed WebSocket connections to TTS** — saves ~300ms per turn. Keep a pool of pre-connected sockets alive
 2. **Streaming between ALL components** — LLM tokens flow directly to TTS, audio frames flow directly to output
 3. **Geographic deployment** — deploy close to provider endpoints (EU region cut latency from 1.6s to 690ms)
@@ -232,6 +239,7 @@ Real production system by Nick Tikhonov (open source: github.com/NickTikhonov/sh
 ### How Vapi Works
 
 Vapi is an orchestration layer over three swappable modules: Transcriber, Model, Voice. It:
+
 - Optimizes latency and manages scaling/streaming
 - Supports WebSocket transport for direct audio streaming (PCM 16-bit or Mu-Law)
 - Production latency: 550-800ms
@@ -239,26 +247,27 @@ Vapi is an orchestration layer over three swappable modules: Transcriber, Model,
 
 ### STT Providers (2026)
 
-| Provider | Latency | WER | Price | Streaming |
-|----------|---------|-----|-------|-----------|
-| Deepgram Nova-3 | ~150ms | <5% | $0.0043/min | Yes, WebSocket |
-| AssemblyAI Universal | ~300ms | <5% | $0.15/hr | Yes |
-| OpenAI Whisper | ~500ms | ~5% | $0.006/min | No (batch) |
-| Google Cloud STT | ~200ms | ~6% | $0.006/min | Yes |
+| Provider             | Latency | WER | Price       | Streaming      |
+| -------------------- | ------- | --- | ----------- | -------------- |
+| Deepgram Nova-3      | ~150ms  | <5% | $0.0043/min | Yes, WebSocket |
+| AssemblyAI Universal | ~300ms  | <5% | $0.15/hr    | Yes            |
+| OpenAI Whisper       | ~500ms  | ~5% | $0.006/min  | No (batch)     |
+| Google Cloud STT     | ~200ms  | ~6% | $0.006/min  | Yes            |
 
 ### TTS Providers (2026)
 
-| Provider | TTFB | Quality (ELO) | Price | Streaming |
-|----------|------|---------------|-------|-----------|
-| Cartesia Sonic-3 | 40-90ms | Good | Low | WebSocket |
-| ElevenLabs Flash v2.5 | ~75ms | High (1108) | $11/1M chars | WebSocket |
-| Deepgram Aura-2 | ~90ms | Good | $0.0075/1K chars | Yes |
-| OpenAI TTS | ~200ms | Good (1095) | $15/1M chars | Yes |
-| Kokoro (open-weight) | Varies | Good | $0.70/1M chars | Self-host |
+| Provider              | TTFB    | Quality (ELO) | Price            | Streaming |
+| --------------------- | ------- | ------------- | ---------------- | --------- |
+| Cartesia Sonic-3      | 40-90ms | Good          | Low              | WebSocket |
+| ElevenLabs Flash v2.5 | ~75ms   | High (1108)   | $11/1M chars     | WebSocket |
+| Deepgram Aura-2       | ~90ms   | Good          | $0.0075/1K chars | Yes       |
+| OpenAI TTS            | ~200ms  | Good (1095)   | $15/1M chars     | Yes       |
+| Kokoro (open-weight)  | Varies  | Good          | $0.70/1M chars   | Self-host |
 
 ### Voice Activity Detection (VAD)
 
 **Production options**:
+
 - `@ricky0123/vad-web` — browser-based VAD using Silero model, MIT license
 - Silero VAD — deep learning model, high accuracy
 - Cobra VAD (Picovoice) — production-ready, lightweight
@@ -269,6 +278,7 @@ Vapi is an orchestration layer over three swappable modules: Transcriber, Model,
 ### Protocol: WebSocket vs HTTP
 
 **WebSocket** is the standard for production voice systems:
+
 - Bidirectional, persistent connection
 - Minimal overhead per audio frame
 - Required for real-time STT streaming and TTS output
@@ -276,7 +286,7 @@ Vapi is an orchestration layer over three swappable modules: Transcriber, Model,
 
 **HTTP** only for batch/async processing (e.g., processing recorded voice messages from WhatsApp).
 
-### Recommended Voice Stack for CodeWeaves
+### Recommended Voice Stack for Klivo
 
 ```
 Browser/Phone → WebSocket → NestJS Gateway
@@ -376,12 +386,12 @@ User sends voice note → Webhook receives Media ID
 
 ### Framework Comparison (2026)
 
-| Framework | Language | Best For | Production Users |
-|-----------|----------|----------|-----------------|
-| **Mastra** | TypeScript | Full agent framework | Replit, PayPal, Adobe |
-| **Vercel AI SDK** | TypeScript | Streaming UI + backend | Vercel ecosystem |
-| **LangChain/LangGraph** | Python/TS | Complex chains, legacy | Widespread |
-| **Custom orchestration** | Any | Simple pipelines | Many startups |
+| Framework                | Language   | Best For               | Production Users      |
+| ------------------------ | ---------- | ---------------------- | --------------------- |
+| **Mastra**               | TypeScript | Full agent framework   | Replit, PayPal, Adobe |
+| **Vercel AI SDK**        | TypeScript | Streaming UI + backend | Vercel ecosystem      |
+| **LangChain/LangGraph**  | Python/TS  | Complex chains, legacy | Widespread            |
+| **Custom orchestration** | Any        | Simple pipelines       | Many startups         |
 
 ### Why NOT LangChain
 
@@ -392,6 +402,7 @@ LangChain's heavy abstraction, complex debugging, and difficulty with real-world
 Mastra is the TypeScript-native AI framework built for production (from the Gatsby team, YC-backed, $13M seed).
 
 **Core primitives**:
+
 - **Agents**: LLM reasoning + tool execution loops
 - **Tools**: Executable functions extending agent capabilities
 - **Workflows**: Graph-based orchestration with `.then()`, `.branch()`, `.parallel()`
@@ -402,6 +413,7 @@ Mastra is the TypeScript-native AI framework built for production (from the Gats
 **Built on Vercel AI SDK** — inherits all provider support and streaming.
 
 **Vector store packages**:
+
 - `@mastra/pg` (pgvector)
 - `@mastra/pinecone`
 - `@mastra/qdrant`
@@ -415,6 +427,7 @@ Mastra is the TypeScript-native AI framework built for production (from the Gats
 ### Vercel AI SDK as Foundation
 
 The better approach for NestJS: use **Vercel AI SDK Core** (`ai` package) directly in NestJS services. It provides:
+
 - `generateText()` / `streamText()` — works in any Node.js environment
 - `generateObject()` / `streamObject()` — structured outputs
 - `embed()` / `embedMany()` — embeddings
@@ -431,7 +444,7 @@ The better approach for NestJS: use **Vercel AI SDK Core** (`ai` package) direct
 export class AgentService {
   async runAgent(messages: Message[], tools: Tool[]) {
     const result = await streamText({
-      model: openrouter('anthropic/claude-4-sonnet'),
+      model: openrouter("anthropic/claude-4-sonnet"),
       messages,
       tools,
       maxSteps: 10, // tool loop iterations
@@ -450,7 +463,7 @@ The Vercel AI SDK normalizes tool calling across all providers. Define tools onc
 
 ```typescript
 const weatherTool = tool({
-  description: 'Get weather for a location',
+  description: "Get weather for a location",
   parameters: z.object({ city: z.string() }),
   execute: async ({ city }) => getWeather(city),
 });
@@ -495,6 +508,7 @@ Works identically whether the model is OpenAI, Anthropic, or Google (via OpenRou
 ### Queue-Based Processing
 
 Use **BullMQ** (already common in NestJS ecosystem) for:
+
 - Document ingestion (parse → chunk → embed → store)
 - Batch embedding generation
 - Voice message processing (download → STT → process → TTS → upload)
@@ -540,19 +554,23 @@ OpenRouter returns `cost` in every response. Aggregate per tenant for billing, a
 ### Error Handling & Resilience
 
 **Retry strategy** (exponential backoff with jitter):
+
 - Retry on: 429, 500, 502, 503, 504
 - Do NOT retry on: 400, 401, 403, 404
 - Max 3 retries with exponential backoff (1s, 2s, 4s) + random jitter
 
 **Fallback chain**:
+
 ```
 Primary: anthropic/claude-4-sonnet (via OpenRouter)
 Fallback 1: openai/gpt-4o (via OpenRouter)
 Fallback 2: google/gemini-2.5-flash (via OpenRouter)
 ```
+
 OpenRouter handles this natively with the `models` array and `route: "fallback"` parameter.
 
 **Circuit breaker pattern**:
+
 - Track failure rate per provider over rolling window
 - Open circuit after N consecutive failures or >50% failure rate
 - Half-open after timeout — test with single request
@@ -580,32 +598,33 @@ The Vercel AI SDK (`ai` npm package, currently v6) is the most mature TypeScript
 
 ### Core Packages
 
-| Package | Purpose |
-|---------|---------|
-| `ai` | Core SDK — generateText, streamText, embed, rerank, tools, agents |
-| `@ai-sdk/openai` | OpenAI provider |
-| `@ai-sdk/anthropic` | Anthropic provider |
-| `@ai-sdk/google` | Google AI provider |
-| `@openrouter/ai-sdk-provider` | OpenRouter provider (300+ models) |
-| `@ai-sdk/mcp` | Model Context Protocol client |
+| Package                       | Purpose                                                           |
+| ----------------------------- | ----------------------------------------------------------------- |
+| `ai`                          | Core SDK — generateText, streamText, embed, rerank, tools, agents |
+| `@ai-sdk/openai`              | OpenAI provider                                                   |
+| `@ai-sdk/anthropic`           | Anthropic provider                                                |
+| `@ai-sdk/google`              | Google AI provider                                                |
+| `@openrouter/ai-sdk-provider` | OpenRouter provider (300+ models)                                 |
+| `@ai-sdk/mcp`                 | Model Context Protocol client                                     |
 
 ### OpenRouter Integration
 
 ```typescript
-import { createOpenRouter } from '@openrouter/ai-sdk-provider';
-import { streamText } from 'ai';
+import { createOpenRouter } from "@openrouter/ai-sdk-provider";
+import { streamText } from "ai";
 
 const openrouter = createOpenRouter({
   apiKey: process.env.OPENROUTER_API_KEY,
 });
 
 const result = await streamText({
-  model: openrouter('anthropic/claude-4-sonnet'),
-  messages: [{ role: 'user', content: 'Hello' }],
+  model: openrouter("anthropic/claude-4-sonnet"),
+  messages: [{ role: "user", content: "Hello" }],
 });
 ```
 
 **Supported features via OpenRouter provider**:
+
 - Streaming (streamText, streamObject)
 - Tool calling (on supported models)
 - Structured outputs (generateObject, streamObject)
@@ -632,7 +651,7 @@ The AI SDK Core functions (`generateText`, `streamText`, `embed`, etc.) work in 
 @Injectable()
 export class AiService {
   private openrouter = createOpenRouter({
-    apiKey: this.configService.get('OPENROUTER_API_KEY'),
+    apiKey: this.configService.get("OPENROUTER_API_KEY"),
   });
 
   constructor(private configService: ConfigService) {}
@@ -641,14 +660,16 @@ export class AiService {
     return streamText({
       model: this.openrouter(modelId),
       messages,
-      tools: { /* your tools */ },
+      tools: {/* your tools */},
       maxSteps: 10,
     });
   }
 
   async embed(texts: string[]) {
     const { embeddings } = await embedMany({
-      model: this.openrouter.textEmbeddingModel('openai/text-embedding-3-small'),
+      model: this.openrouter.textEmbeddingModel(
+        "openai/text-embedding-3-small",
+      ),
       values: texts,
     });
     return embeddings;
@@ -658,20 +679,20 @@ export class AiService {
 
 ### AI SDK vs Building From Scratch
 
-| Aspect | AI SDK | From Scratch |
-|--------|--------|-------------|
-| Provider switching | One-line change | Rewrite API integration |
-| Streaming | Built-in SSE handling | Manual chunking |
-| Tool calling | Normalized across providers | Provider-specific implementations |
-| Structured output | Schema validation built-in | Manual JSON parsing |
-| Type safety | Full TypeScript types | Manual typing |
-| Maintenance | Community-maintained providers | You maintain everything |
+| Aspect             | AI SDK                         | From Scratch                      |
+| ------------------ | ------------------------------ | --------------------------------- |
+| Provider switching | One-line change                | Rewrite API integration           |
+| Streaming          | Built-in SSE handling          | Manual chunking                   |
+| Tool calling       | Normalized across providers    | Provider-specific implementations |
+| Structured output  | Schema validation built-in     | Manual JSON parsing               |
+| Type safety        | Full TypeScript types          | Manual typing                     |
+| Maintenance        | Community-maintained providers | You maintain everything           |
 
 **Verdict**: Use AI SDK. The abstraction cost is minimal, and the benefit of provider-agnostic code is massive for a multi-tenant SaaS where different customers might use different models.
 
 ---
 
-## 8. Recommended Architecture for CodeWeaves
+## 8. Recommended Architecture for Klivo
 
 ### Technology Stack
 
@@ -840,6 +861,7 @@ model ConversationMessage {
 ## Sources
 
 ### OpenRouter
+
 - [OpenRouter API Reference](https://openrouter.ai/docs/api/reference/overview)
 - [OpenRouter Streaming Docs](https://openrouter.ai/docs/sdks/typescript/call-model/streaming)
 - [OpenRouter TypeScript SDK](https://openrouter.ai/docs/sdks/typescript/call-model/overview)
@@ -850,6 +872,7 @@ model ConversationMessage {
 - [LiteLLM vs OpenRouter Comparison](https://www.truefoundry.com/blog/litellm-vs-openrouter)
 
 ### RAG Architecture
+
 - [Why Confident AI Replaced Pinecone with pgvector](https://www.confident-ai.com/blog/why-we-replaced-pinecone-with-pgvector)
 - [pgvector vs Pinecone 2026](https://encore.dev/articles/pgvector-vs-pinecone)
 - [Production RAG Architecture 2026 Guide](https://blog.premai.io/building-production-rag-architecture-chunking-evaluation-monitoring-2026-guide/)
@@ -860,6 +883,7 @@ model ConversationMessage {
 - [Best Open-Source Embedding Models 2026](https://www.bentoml.com/blog/a-guide-to-open-source-embedding-models)
 
 ### Voice Pipeline
+
 - [Voice AI Stack 2026 (AssemblyAI)](https://www.assemblyai.com/blog/the-voice-ai-stack-for-building-agents)
 - [Sub-500ms Voice Agent from Scratch](https://www.ntik.me/posts/voice-agent)
 - [Open Source: github.com/NickTikhonov/shuo](https://github.com/NickTikhonov/shuo)
@@ -870,6 +894,7 @@ model ConversationMessage {
 - [ricky0123/vad (Browser VAD)](https://github.com/ricky0123/vad)
 
 ### WhatsApp
+
 - [WhatsApp Official Node.js SDK](https://github.com/WhatsApp/WhatsApp-Nodejs-SDK)
 - [WhatsApp Business API Bot Architecture](https://dev.to/achiya-automation/building-whatsapp-business-bots-with-the-official-api-architecture-webhooks-and-automation-1ce4)
 - [WhatsApp API Rate Limits](https://www.wati.io/en/blog/whatsapp-business-api/whatsapp-api-rate-limits/)
@@ -877,6 +902,7 @@ model ConversationMessage {
 - [Scalable Webhook Architecture for WhatsApp](https://www.chatarchitect.com/news/building-a-scalable-webhook-architecture-for-custom-whatsapp-solutions)
 
 ### AI Orchestration Patterns
+
 - [Mastra AI Framework](https://mastra.ai/)
 - [Mastra GitHub](https://github.com/mastra-ai/mastra)
 - [LangChain Alternatives 2026](https://vellum.ai/blog/top-langchain-alternatives)
@@ -885,6 +911,7 @@ model ConversationMessage {
 - [Design Patterns for Long-Term Memory](https://serokell.io/blog/design-patterns-for-long-term-memory-in-llm-powered-architectures)
 
 ### Scalability & Production
+
 - [Retries, Fallbacks, Circuit Breakers in LLM Apps](https://www.getmaxim.ai/articles/retries-fallbacks-and-circuit-breakers-in-llm-apps-a-production-guide/)
 - [Top 5 LLM Gateways 2025](https://www.getmaxim.ai/articles/top-5-llm-gateways-in-2025-the-definitive-guide-for-production-ai-applications/)
 - [Semantic Caching for LLMs](https://blog.premai.io/semantic-caching-for-llms-how-to-cut-api-bills-by-60-without-hurting-quality/)
@@ -892,6 +919,7 @@ model ConversationMessage {
 - [Complete Guide to LLM Observability 2026](https://portkey.ai/blog/the-complete-guide-to-llm-observability/)
 
 ### Vercel AI SDK
+
 - [AI SDK Introduction](https://ai-sdk.dev/docs/introduction)
 - [AI SDK 6 Release Blog](https://vercel.com/blog/ai-sdk-6)
 - [AI SDK OpenRouter Provider](https://ai-sdk.dev/providers/community-providers/openrouter)

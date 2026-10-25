@@ -20,7 +20,7 @@ set -euo pipefail
 REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 API_ENV="$REPO_ROOT/apps/api/.env"
 
-TARGET="${TARGET_DATABASE_URL:-postgresql://postgres:postgres@localhost:5433/codeweaves}"
+TARGET="${TARGET_DATABASE_URL:-postgresql://postgres:postgres@localhost:5433/klivo}"
 
 # Source is DEVELOP_DIRECT_URL from apps/api/.env. Deliberately a separate
 # variable from DIRECT_URL: DIRECT_URL is your LOCAL database now, and the two

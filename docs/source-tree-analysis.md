@@ -1,4 +1,4 @@
-# Source Tree Analysis - CodeWeaves Platform
+# Source Tree Analysis - Klivo Platform
 
 > Generated: 2026-02-14 | Scan Level: Quick | Mode: Initial Scan
 
@@ -123,27 +123,27 @@ codeweaves-platform/
 
 ## Critical Folders
 
-| Folder | Purpose | Part |
-|--------|---------|------|
-| `apps/api/src/controllers/` | HTTP endpoint handlers | api |
-| `apps/api/src/services/` | Business logic | api |
-| `apps/api/src/modules/` | NestJS DI modules | api |
-| `apps/api/src/guards/` | Authentication guards | api |
-| `apps/api/prisma/` | Database schema & migrations | api |
-| `apps/web/app/` | Next.js pages & routes | web |
-| `apps/web/components/` | React UI components | web |
-| `apps/web/providers/` | Context providers | web |
-| `apps/web/lib/` | API client & utilities | web |
-| `apps/widget/src/` | Widget source | widget |
-| `packages/validation/` | Shared Zod schemas | shared |
+| Folder                      | Purpose                      | Part   |
+| --------------------------- | ---------------------------- | ------ |
+| `apps/api/src/controllers/` | HTTP endpoint handlers       | api    |
+| `apps/api/src/services/`    | Business logic               | api    |
+| `apps/api/src/modules/`     | NestJS DI modules            | api    |
+| `apps/api/src/guards/`      | Authentication guards        | api    |
+| `apps/api/prisma/`          | Database schema & migrations | api    |
+| `apps/web/app/`             | Next.js pages & routes       | web    |
+| `apps/web/components/`      | React UI components          | web    |
+| `apps/web/providers/`       | Context providers            | web    |
+| `apps/web/lib/`             | API client & utilities       | web    |
+| `apps/widget/src/`          | Widget source                | widget |
+| `packages/validation/`      | Shared Zod schemas           | shared |
 
 ## Entry Points
 
-| Part | File | Description |
-|------|------|-------------|
-| api | `apps/api/src/main.ts` | NestJS application bootstrap |
-| web | `apps/web/app/layout.tsx` | Next.js root layout (App Router) |
-| widget | `apps/widget/src/main.tsx` | Preact widget mount point |
+| Part   | File                       | Description                      |
+| ------ | -------------------------- | -------------------------------- |
+| api    | `apps/api/src/main.ts`     | NestJS application bootstrap     |
+| web    | `apps/web/app/layout.tsx`  | Next.js root layout (App Router) |
+| widget | `apps/widget/src/main.tsx` | Preact widget mount point        |
 
 ## Integration Paths
 

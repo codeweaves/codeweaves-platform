@@ -1,29 +1,29 @@
-import { Test, TestingModule } from '@nestjs/testing';
-import { ExecutionContext } from '@nestjs/common';
-import { Reflector } from '@nestjs/core';
-import { UserSyncGuard } from '../../src/guards/user-sync.guard';
-import { UsersService } from '../../src/services/users.service';
-import { Role, AccessScope } from '@prisma/client';
+import { Test, TestingModule } from "@nestjs/testing";
+import { ExecutionContext } from "@nestjs/common";
+import { Reflector } from "@nestjs/core";
+import { UserSyncGuard } from "../../src/guards/user-sync.guard";
+import { UsersService } from "../../src/services/users.service";
+import { Role, AccessScope } from "@prisma/client";
 
-describe('UserSyncGuard', () => {
+describe("UserSyncGuard", () => {
   let guard: UserSyncGuard;
 
   const mockOrganization = {
-    id: 'org-uuid-1',
-    name: 'Test Org',
-    slug: 'test-org',
+    id: "org-uuid-1",
+    name: "Test Org",
+    slug: "test-org",
     createdAt: new Date(),
     updatedAt: new Date(),
   };
 
   const mockSyncedUser = {
-    id: 'user-uuid-1',
-    email: 'test@example.com',
+    id: "user-uuid-1",
+    email: "test@example.com",
     name: null,
     role: Role.CLIENT,
     accessScope: AccessScope.ORG,
-    roleAssignments: ['org.owner'].map((roleKey) => ({ roleKey })),
-    clerkId: 'user_123456',
+    roleAssignments: ["org.owner"].map((roleKey) => ({ roleKey })),
+    clerkId: "user_123456",
     organizationId: mockOrganization.id,
     organization: mockOrganization,
     createdAt: new Date(),
@@ -53,9 +53,9 @@ describe('UserSyncGuard', () => {
       getClass: () => jest.fn() as unknown,
       getArgs: () => [],
       getArgByIndex: () => undefined,
-      switchToRpc: () => ({} as never),
-      switchToWs: () => ({} as never),
-      getType: () => 'http' as const,
+      switchToRpc: () => ({}) as never,
+      switchToWs: () => ({}) as never,
+      getType: () => "http" as const,
     } as unknown as ExecutionContext;
     return { context, request };
   }
@@ -75,12 +75,12 @@ describe('UserSyncGuard', () => {
     mockReflector.getAllAndOverride.mockReturnValue(false);
   });
 
-  it('should be defined', () => {
+  it("should be defined", () => {
     expect(guard).toBeDefined();
   });
 
-  describe('public routes', () => {
-    it('should allow access for public routes without sync', async () => {
+  describe("public routes", () => {
+    it("should allow access for public routes without sync", async () => {
       mockReflector.getAllAndOverride.mockReturnValue(true);
       const { context } = createMockContext(null);
 
@@ -91,8 +91,8 @@ describe('UserSyncGuard', () => {
     });
   });
 
-  describe('no user on request', () => {
-    it('should allow access when no user is present', async () => {
+  describe("no user on request", () => {
+    it("should allow access when no user is present", async () => {
       const { context } = createMockContext(null);
 
       const result = await guard.canActivate(context);
@@ -101,7 +101,7 @@ describe('UserSyncGuard', () => {
       expect(mockUsersService.syncOrCreateUser).not.toHaveBeenCalled();
     });
 
-    it('should allow access when user is undefined', async () => {
+    it("should allow access when user is undefined", async () => {
       const { context } = createMockContext(undefined);
 
       const result = await guard.canActivate(context);
@@ -111,11 +111,11 @@ describe('UserSyncGuard', () => {
     });
   });
 
-  describe('user sync via service', () => {
-    it('should delegate to UsersService.syncOrCreateUser', async () => {
+  describe("user sync via service", () => {
+    it("should delegate to UsersService.syncOrCreateUser", async () => {
       const jwtUser = {
-        clerkId: 'user_123456',
-        email: 'test@example.com',
+        clerkId: "user_123456",
+        email: "test@example.com",
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(mockSyncedUser);
 
@@ -125,10 +125,10 @@ describe('UserSyncGuard', () => {
       expect(mockUsersService.syncOrCreateUser).toHaveBeenCalledWith(jwtUser);
     });
 
-    it('should attach synced user data to request', async () => {
+    it("should attach synced user data to request", async () => {
       const jwtUser = {
-        clerkId: 'user_123456',
-        email: 'test@example.com',
+        clerkId: "user_123456",
+        email: "test@example.com",
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(mockSyncedUser);
 
@@ -146,19 +146,21 @@ describe('UserSyncGuard', () => {
       });
     });
 
-    it('should attach null organization for SUPER_ADMIN users', async () => {
+    it("should attach null organization for SUPER_ADMIN users", async () => {
       const jwtUser = {
-        clerkId: 'user_superadmin',
-        email: 'admin@codeweaves.com',
+        clerkId: "user_superadmin",
+        email: "admin@getklivo.com",
       };
       const mockSuperAdminUser = {
-        id: 'superadmin-uuid-1',
-        email: 'admin@codeweaves.com',
-        name: 'Super Admin',
+        id: "superadmin-uuid-1",
+        email: "admin@getklivo.com",
+        name: "Super Admin",
         role: Role.SUPER_ADMIN,
         accessScope: AccessScope.PLATFORM,
-        roleAssignments: ['platform.super_admin'].map((roleKey) => ({ roleKey })),
-        clerkId: 'user_superadmin',
+        roleAssignments: ["platform.super_admin"].map((roleKey) => ({
+          roleKey,
+        })),
+        clerkId: "user_superadmin",
         organizationId: null,
         organization: null,
         createdAt: new Date(),
@@ -180,10 +182,10 @@ describe('UserSyncGuard', () => {
       });
     });
 
-    it('should return true after sync', async () => {
+    it("should return true after sync", async () => {
       const jwtUser = {
-        clerkId: 'user_123456',
-        email: 'test@example.com',
+        clerkId: "user_123456",
+        email: "test@example.com",
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(mockSyncedUser);
 
@@ -194,16 +196,16 @@ describe('UserSyncGuard', () => {
     });
   });
 
-  describe('caching', () => {
-    it('should use cached user on second request (no extra DB call)', async () => {
+  describe("caching", () => {
+    it("should use cached user on second request (no extra DB call)", async () => {
       const jwtUser = {
-        clerkId: 'user_cached',
-        email: 'cached@example.com',
+        clerkId: "user_cached",
+        email: "cached@example.com",
       };
       const user = {
         ...mockSyncedUser,
-        clerkId: 'user_cached',
-        email: 'cached@example.com',
+        clerkId: "user_cached",
+        email: "cached@example.com",
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(user);
 
@@ -225,20 +227,20 @@ describe('UserSyncGuard', () => {
       });
     });
 
-    it('should refetch after cache TTL expires', async () => {
+    it("should refetch after cache TTL expires", async () => {
       const jwtUser = {
-        clerkId: 'user_ttl-test',
-        email: 'ttl@example.com',
+        clerkId: "user_ttl-test",
+        email: "ttl@example.com",
       };
       const user = {
         ...mockSyncedUser,
-        clerkId: 'user_ttl-test',
-        email: 'ttl@example.com',
+        clerkId: "user_ttl-test",
+        email: "ttl@example.com",
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(user);
 
       const now = Date.now();
-      jest.spyOn(Date, 'now').mockReturnValue(now);
+      jest.spyOn(Date, "now").mockReturnValue(now);
 
       // First request
       const { context: ctx1 } = createMockContext(jwtUser);
@@ -246,7 +248,7 @@ describe('UserSyncGuard', () => {
       expect(mockUsersService.syncOrCreateUser).toHaveBeenCalledTimes(1);
 
       // Advance past TTL (60s + 1s)
-      jest.spyOn(Date, 'now').mockReturnValue(now + 61_000);
+      jest.spyOn(Date, "now").mockReturnValue(now + 61_000);
 
       // Second request — cache expired
       const { context: ctx2 } = createMockContext(jwtUser);
@@ -256,18 +258,18 @@ describe('UserSyncGuard', () => {
       jest.restoreAllMocks();
     });
 
-    it('should not share cache between different users', async () => {
+    it("should not share cache between different users", async () => {
       const user1 = {
-        clerkId: 'user_user1',
-        email: 'user1@example.com',
+        clerkId: "user_user1",
+        email: "user1@example.com",
       };
       const user2 = {
-        clerkId: 'user_user2',
-        email: 'user2@example.com',
+        clerkId: "user_user2",
+        email: "user2@example.com",
       };
 
-      const synced1 = { ...mockSyncedUser, id: 'uid-1', clerkId: 'user_user1' };
-      const synced2 = { ...mockSyncedUser, id: 'uid-2', clerkId: 'user_user2' };
+      const synced1 = { ...mockSyncedUser, id: "uid-1", clerkId: "user_user1" };
+      const synced2 = { ...mockSyncedUser, id: "uid-2", clerkId: "user_user2" };
 
       mockUsersService.syncOrCreateUser
         .mockResolvedValueOnce(synced1)
@@ -280,29 +282,29 @@ describe('UserSyncGuard', () => {
       await guard.canActivate(ctx2);
 
       expect(mockUsersService.syncOrCreateUser).toHaveBeenCalledTimes(2);
-      expect(req2.user).toMatchObject({ id: 'uid-2' });
+      expect(req2.user).toMatchObject({ id: "uid-2" });
     });
 
-    it('should serve within TTL without service call', async () => {
+    it("should serve within TTL without service call", async () => {
       const jwtUser = {
-        clerkId: 'user_within-ttl',
-        email: 'ttl@example.com',
+        clerkId: "user_within-ttl",
+        email: "ttl@example.com",
       };
       const user = {
         ...mockSyncedUser,
-        clerkId: 'user_within-ttl',
-        email: 'ttl@example.com',
+        clerkId: "user_within-ttl",
+        email: "ttl@example.com",
       };
       mockUsersService.syncOrCreateUser.mockResolvedValue(user);
 
       const now = Date.now();
-      jest.spyOn(Date, 'now').mockReturnValue(now);
+      jest.spyOn(Date, "now").mockReturnValue(now);
 
       const { context: ctx1 } = createMockContext(jwtUser);
       await guard.canActivate(ctx1);
 
       // 30s later — still within TTL
-      jest.spyOn(Date, 'now').mockReturnValue(now + 30_000);
+      jest.spyOn(Date, "now").mockReturnValue(now + 30_000);
 
       const { context: ctx2 } = createMockContext(jwtUser);
       await guard.canActivate(ctx2);

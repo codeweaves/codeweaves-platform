@@ -1,11 +1,11 @@
-# Cross-Tenant IDOR / Object-Level Authorization Audit — Klivo / CodeWeaves Platform
+# Cross-Tenant IDOR / Object-Level Authorization Audit — Klivo / Klivo Platform
 
 **Date:** 2026-07-12
 **Scope:** `apps/api` (NestJS) — every HTTP controller + the Socket.io gateway, traced controller → service → Prisma/SQL query.
 **Focus:** Broken object-level authorization (BOLA/IDOR) — can a caller reach another tenant's data by supplying an id they don't own? Plus adjacent privilege-escalation and missing-auth on sensitive endpoints.
 **Method:** Five parallel review passes by domain (agents/sub-resources; conversations/analytics; orgs/members/invitations; handover/chat/realtime/WebSocket; integrations/RAG/WhatsApp/voice/internal). Every Critical/High finding independently re-verified by reading the cited source directly.
 
-> **Relationship to the [2026-05-31 audit](./security-compliance-audit-2026-05-31.md).** That audit's **F1** (cross-tenant IDOR on agent-knowledge endpoints) is now **fixed** — the `assertAgentAccessible()` helper is applied consistently across agent sub-resources. This pass re-verified that fix held *and* went deeper on the full object surface. The findings below are **new** and not covered by the earlier report.
+> **Relationship to the [2026-05-31 audit](./security-compliance-audit-2026-05-31.md).** That audit's **F1** (cross-tenant IDOR on agent-knowledge endpoints) is now **fixed** — the `assertAgentAccessible()` helper is applied consistently across agent sub-resources. This pass re-verified that fix held _and_ went deeper on the full object surface. The findings below are **new** and not covered by the earlier report.
 
 > **Confidence.** Findings marked ✅ **VERIFIED** were confirmed by reading the cited source directly. All Critical/High items here are VERIFIED.
 
@@ -16,7 +16,7 @@
 Understanding this is prerequisite to reading the findings:
 
 - **Global guards** (in order): `JwtAuthGuard` (rejects unauthenticated requests unless the route/controller has `@Public()`) → `UserSyncGuard` (attaches `request.user = { id, role, organizationId, clerkId }`) → `RateLimitGuard`.
-- **`RolesGuard` is per-controller** (`@UseGuards(RolesGuard)`), and it **only checks *role*** via `@Roles(...)` / `@RequirePermission(...)`. It does **not** enforce tenant ownership. A route with neither decorator allows any authenticated user.
+- **`RolesGuard` is per-controller** (`@UseGuards(RolesGuard)`), and it **only checks _role_** via `@Roles(...)` / `@RequirePermission(...)`. It does **not** enforce tenant ownership. A route with neither decorator allows any authenticated user.
 - **Tenancy is enforced in the service/query layer**, via `buildTenantFilter(user)` (list queries) or `assertAgentAccessible(prisma, agentId, user)` (`:agentId` sub-resources). Both scope `CLIENT` to their own `organizationId` and let `ADMIN`/`SUPER_ADMIN` (platform staff) go cross-org by design.
 - **Public endpoints** (widget/chat) have no user; their model is **"the unguessable `sessionId`/`publicId` is the bearer token."**
 
@@ -26,17 +26,17 @@ Understanding this is prerequisite to reading the findings:
 
 ## 2. Executive summary
 
-| # | Severity | Finding | Location |
-|---|----------|---------|----------|
-| I1 | 🔴 CRITICAL | **WebSocket gateway has no authentication** — rooms joined from unauthenticated handshake `orgId`/`platform` flags ✅ VERIFIED | `gateways/handover.gateway.ts:52-74` |
-| I2 | 🔴 CRITICAL | **`FilesService.deleteFile` doesn't scope the `fileId`** — cross-tenant file deletion ✅ VERIFIED | `services/files.service.ts:114-116` |
-| I3 | 🟠 HIGH (conditional) | **Invitation acceptance trusts the email claim** — no `email_verified` check, no token binding → org/role escalation ✅ VERIFIED | `strategies/jwt.strategy.ts:39-44`, `services/users.service.ts:167-197` |
-| I4 | 🟡 MED (HIGH if misconfigured) | **Dev-AI controller gated only by `NODE_ENV === 'production'` string** — public cross-org conversation read if env misset ✅ VERIFIED | `controllers/dev/dev-ai.controller.ts:413-418` |
-| I5 | 🟡 MED | **`AgentDataFieldsController` missing `@UseGuards(RolesGuard)`** — admin-only `@Roles` are dead decorators ✅ VERIFIED | `controllers/agents/agent-data-fields.controller.ts:33-35` |
-| I6 | 🟡 MED | **`POST /invitations/reissue` is public** — gated only by reissue token + count cap (matches parked backlog item) | `controllers/invitations/invitations.controller.ts:111` |
-| I7 | 🔵 LOW | `GET /invitations/validate/:token` echoes `organizationId` + `role` pre-auth | `services/invitations.service.ts:226` |
-| I8 | 🔵 LOW | `POST /invitations` body skips `ZodValidationPipe` — schema refinements unenforced | `controllers/invitations/invitations.controller.ts:42` |
-| I9 | 🟡 MED (availability) | **`GET /agents/:id/editor-config` gated to ADMIN/SUPER_ADMIN as a whole** — a CLIENT can't load their own agent editor ("Agent not found"); it was over-gated to avoid leaking `webhookUrl`/`dataFields` in the bundle. Found live 2026-07-20 (pre-existing). | `controllers/agents/agents.controller.ts:117-118` |
+| #   | Severity                       | Finding                                                                                                                                                                                                                                                       | Location                                                                |
+| --- | ------------------------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------- |
+| I1  | 🔴 CRITICAL                    | **WebSocket gateway has no authentication** — rooms joined from unauthenticated handshake `orgId`/`platform` flags ✅ VERIFIED                                                                                                                                | `gateways/handover.gateway.ts:52-74`                                    |
+| I2  | 🔴 CRITICAL                    | **`FilesService.deleteFile` doesn't scope the `fileId`** — cross-tenant file deletion ✅ VERIFIED                                                                                                                                                             | `services/files.service.ts:114-116`                                     |
+| I3  | 🟠 HIGH (conditional)          | **Invitation acceptance trusts the email claim** — no `email_verified` check, no token binding → org/role escalation ✅ VERIFIED                                                                                                                              | `strategies/jwt.strategy.ts:39-44`, `services/users.service.ts:167-197` |
+| I4  | 🟡 MED (HIGH if misconfigured) | **Dev-AI controller gated only by `NODE_ENV === 'production'` string** — public cross-org conversation read if env misset ✅ VERIFIED                                                                                                                         | `controllers/dev/dev-ai.controller.ts:413-418`                          |
+| I5  | 🟡 MED                         | **`AgentDataFieldsController` missing `@UseGuards(RolesGuard)`** — admin-only `@Roles` are dead decorators ✅ VERIFIED                                                                                                                                        | `controllers/agents/agent-data-fields.controller.ts:33-35`              |
+| I6  | 🟡 MED                         | **`POST /invitations/reissue` is public** — gated only by reissue token + count cap (matches parked backlog item)                                                                                                                                             | `controllers/invitations/invitations.controller.ts:111`                 |
+| I7  | 🔵 LOW                         | `GET /invitations/validate/:token` echoes `organizationId` + `role` pre-auth                                                                                                                                                                                  | `services/invitations.service.ts:226`                                   |
+| I8  | 🔵 LOW                         | `POST /invitations` body skips `ZodValidationPipe` — schema refinements unenforced                                                                                                                                                                            | `controllers/invitations/invitations.controller.ts:42`                  |
+| I9  | 🟡 MED (availability)          | **`GET /agents/:id/editor-config` gated to ADMIN/SUPER_ADMIN as a whole** — a CLIENT can't load their own agent editor ("Agent not found"); it was over-gated to avoid leaking `webhookUrl`/`dataFields` in the bundle. Found live 2026-07-20 (pre-existing). | `controllers/agents/agents.controller.ts:117-118`                       |
 
 ---
 
@@ -50,20 +50,27 @@ Understanding this is prerequisite to reading the findings:
 
 ```ts
 const orgId = pickStr(h.auth?.orgId) ?? pickStr(h.query?.orgId);
-const platform = h.auth?.platform === true || h.query?.platform === 'true';
-if (orgId)   { client.data.orgId = orgId; void client.join(orgRoom(orgId)); }
-if (platform){ client.data.platform = true; void client.join(PLATFORM_ROOM); }
+const platform = h.auth?.platform === true || h.query?.platform === "true";
+if (orgId) {
+  client.data.orgId = orgId;
+  void client.join(orgRoom(orgId));
+}
+if (platform) {
+  client.data.platform = true;
+  void client.join(PLATFORM_ROOM);
+}
 ```
 
 There is **no socket authentication anywhere**: `RedisIoAdapter` (`common/ws/redis-io.adapter.ts`) only wires Redis fan-out and overrides no `allowRequest`; the global `JwtAuthGuard` is HTTP-only. The gateway's own class doc concedes org↔identity validation is a not-yet-built "Phase 3."
 
 **Exploit chain (→ I-poll):**
+
 1. Attacker connects with `auth: { platform: true }` → joins `PLATFORM_ROOM`. **No knowledge of any org required.**
 2. Every `emitMessage` / `emitHandover` broadcast to that room carries the public `sessionId` (`gateway.ts:141-145`), for **every org on the platform**.
 3. Attacker feeds each harvested `sessionId` to the public `GET /public/chat/:sessionId/poll` endpoint (`public-chat.controller.ts:153`), which treats `sessionId` as a bearer token and returns that session's full message content.
 4. Result: **unauthenticated read of every conversation (visitor + human-agent messages) across all tenants.** The `auth: { orgId: '<victim-uuid>' }` variant targets a single org.
 
-> Note: the public `/poll` endpoint is *safe in isolation* — `sessionId` is an unguessable `randomUUID()`. It becomes catastrophic only because I1 leaks those sessionIds to the wrong tenant. The fix is to close I1, not to change `/poll`.
+> Note: the public `/poll` endpoint is _safe in isolation_ — `sessionId` is an unguessable `randomUUID()`. It becomes catastrophic only because I1 leaks those sessionIds to the wrong tenant. The fix is to close I1, not to change `/poll`.
 
 **Fix:** Authenticate the Socket.io handshake — verify the Clerk JWT (custom `IoAdapter.allowRequest`, or in `handleConnection`), derive `orgId`/`role` from the **verified** token, and **ignore any client-supplied `orgId`/`platform`**. Reject joining any `org:`/`platform`/`session:` room the authenticated principal doesn't own; only `ADMIN`/`SUPER_ADMIN` may join `PLATFORM_ROOM`. The widget's session-scoped path (join `session:<unguessable-sessionId>`) is acceptable under the bearer model and can remain.
 
@@ -85,16 +92,17 @@ async deleteFile(fileId: string, agentId: string, user: CurrentUserData) {
 }
 ```
 
-`ensureAgentAccess(agentId)` only proves the caller owns *an* agent in their own org. The `fileId` is then resolved with an **unscoped `findUnique`** — no `organizationId`, no correlation to `agentId`. Route is CLIENT-reachable (`agent-files.controller.ts`, `@Roles(...CLIENT)`).
+`ensureAgentAccess(agentId)` only proves the caller owns _an_ agent in their own org. The `fileId` is then resolved with an **unscoped `findUnique`** — no `organizationId`, no correlation to `agentId`. Route is CLIENT-reachable (`agent-files.controller.ts`, `@Roles(...CLIENT)`).
 
 **Exploit:** A CLIENT in org A passes their own valid `agentId` (passes the access check) + a leaked/guessed `fileId` from org B → the service deletes org B's file from **both** storage and the DB. Cross-tenant destructive write.
 
 **Fix:** Tie the file to the verified agent:
+
 ```ts
 const file = await this.prisma.file.findFirst({
-  where: { id: fileId, entityId: agentId },   // (or organizationId from the verified agent)
+  where: { id: fileId, entityId: agentId }, // (or organizationId from the verified agent)
 });
-if (!file) throw new NotFoundException('File not found');
+if (!file) throw new NotFoundException("File not found");
 ```
 
 ---
@@ -121,7 +129,7 @@ No invitation token/id is validated at acceptance — binding is purely the emai
 
 **Exploit (conditional):** If a Clerk account can obtain a session token carrying an `email` claim matching a pending invite **without that email being verified**, first login auto-provisions the attacker into that invite's org **and role** — including an `ADMIN`/`SUPER_ADMIN` invite (platform-wide escalation) or a `CLIENT` invite (join an arbitrary target org).
 
-**Exploitability** hinges on whether the Clerk instance can mint a token for an unverified email. Clerk verifies email on signup by default, so this is likely not exploitable *today* — but the API must not rely on an external provider's config for a tenant boundary.
+**Exploitability** hinges on whether the Clerk instance can mint a token for an unverified email. Clerk verifies email on signup by default, so this is likely not exploitable _today_ — but the API must not rely on an external provider's config for a tenant boundary.
 
 **Fix:** (1) Add `email_verified` to `JwtPayload` and reject tokens without `email_verified === true` in `jwt.strategy.validate()`. (2) Bind acceptance to the invitation `token` / `clerkInvitationId` (match on the Clerk invitation, not raw email). (3) Confirm the Clerk instance requires email verification.
 
@@ -150,9 +158,9 @@ The controller is `@Public()` and reads **any org's** sessions/messages/traces/a
 
 **Location:** `apps/api/src/controllers/agents/agent-data-fields.controller.ts:33-35`
 
-The controller class has **no `@UseGuards(RolesGuard)`** (unlike every sibling controller — `RolesGuard` isn't even imported). Because `RolesGuard` is per-controller, the `@Roles(ADMIN, SUPER_ADMIN)` decorators on `list` / `replace` are **not enforced** — any authenticated CLIENT can reach the admin-only data-capture *definition* endpoints.
+The controller class has **no `@UseGuards(RolesGuard)`** (unlike every sibling controller — `RolesGuard` isn't even imported). Because `RolesGuard` is per-controller, the `@Roles(ADMIN, SUPER_ADMIN)` decorators on `list` / `replace` are **not enforced** — any authenticated CLIENT can reach the admin-only data-capture _definition_ endpoints.
 
-**Not cross-tenant:** the service still calls `assertAgentAccess`, which org-scopes CLIENT, so a CLIENT can only touch their *own* org's agents. Impact is a within-tenant role bypass — clients reading/editing PII-capture field definitions meant to be platform-staff-only.
+**Not cross-tenant:** the service still calls `assertAgentAccess`, which org-scopes CLIENT, so a CLIENT can only touch their _own_ org's agents. Impact is a within-tenant role bypass — clients reading/editing PII-capture field definitions meant to be platform-staff-only.
 
 **Fix:** Add `@UseGuards(RolesGuard)` to the controller class.
 
@@ -162,7 +170,7 @@ The controller class has **no `@UseGuards(RolesGuard)`** (unlike every sibling c
 
 **Location:** `apps/api/src/controllers/invitations/invitations.controller.ts:111` → `services/invitations.service.ts:184-224`
 
-Unauthenticated endpoint; gated only by a secret `reissueToken` and `reissueCount < 5`. Anyone holding a reissue token can re-send the invite email and reset expiry/status to `PENDING`. Matches the already-parked *"make reissue admin-only"* backlog item.
+Unauthenticated endpoint; gated only by a secret `reissueToken` and `reissueCount < 5`. Anyone holding a reissue token can re-send the invite email and reset expiry/status to `PENDING`. Matches the already-parked _"make reissue admin-only"_ backlog item.
 
 **Fix:** Require auth + `SUPER_ADMIN`; at minimum keep the count cap + rate-limit, and don't reset an already-cancelled invite to `PENDING`.
 
@@ -205,15 +213,18 @@ Full gate green: lint, check-types (5 pkgs), build (4/4), test:cov (1946 tests /
 Pending: manual verification (see the per-fix test plan handed to the team) + review + merge.
 
 **Launch blockers:**
+
 - [x] **I1** — Authenticated the Socket.io handshake via a `server.use` middleware + new `WsAuthService`: verifies the Clerk token, derives org/role from the DB user, ignores client-supplied `orgId`/`platform`, rejects unowned rooms; `PLATFORM_ROOM` only for ADMIN/SUPER_ADMIN. Widget `sessionId` bearer path preserved. Web client sends a fresh token on each (re)connect. New unit suite `ws-auth.service.spec.ts` (15 cases incl. the original exploit).
 - [x] **I2** — `deleteFile` now looks up the file scoped to the verified agent's `organizationId` (files are keyed by theme id, not agentId, so org-scope is the correct boundary), 404 on miss. Regression test added.
 
 **This week:**
+
 - [x] **I3** — Invitation acceptance now confirms via Clerk backend (`ClerkManagementService.isEmailVerified`) that the account owns AND verified the invited email before provisioning role/org; fail-closed. (Chosen over a JWT `email_verified` claim check, which would depend on template config and could break all logins.) Gate tests added.
 - [x] **I4** — Replaced the fail-open `NODE_ENV === 'production'` check with a fail-closed `ENABLE_DEV_ROUTES=true` opt-in read via ConfigService (works from local `.env`, immune to NODE_ENV misconfig). Documented in `.env.example`.
 - [x] **I5** — Added `@UseGuards(RolesGuard)` to `AgentDataFieldsController`.
 
 **Backlog / decisions:**
+
 - [ ] **I6** — NOT auth-gated: `POST /invitations/reissue` is a self-service (pre-login) flow; auth-gating breaks that UX and is an open product decision. Hardened instead: `reissueToken` now UUID-validated (Zod), reissue capped at 5, and `cancel()` deletes the row so a cancelled invite can't be resurrected. Revisit if product wants admin-only.
 - [ ] **I7** — Left as-is (LOW): `validate/:token` echoes `organizationId`/`role` to a holder of the secret token; the signup UI renders from it, so changing the shape risks breaking that flow for no real gain.
 - [x] **I8** — Added `ZodValidationPipe` to `POST /invitations` (create) and `POST /invitations/reissue`.
@@ -223,4 +234,4 @@ Pending: manual verification (see the per-fix test plan handed to the team) + re
 
 ## 6. Note for the broader security/compliance effort
 
-This audit covered **object-level authorization only** (one of the categories in the [2026-05-31 audit](./security-compliance-audit-2026-05-31.md)). Still open from that report and *not* re-examined here: GDPR right-to-erasure (F2), data-retention jobs (F3), visitor consent (F4), SSRF on webhook URLs (F5), CI SAST/dependency/secret scanning (F6), audit-log tamper-evidence (F7), PII scrubbing in logs/Sentry (F9), and data-export/portability (F8). Those remain the DPDP/GDPR/SOC 2 workstream.
+This audit covered **object-level authorization only** (one of the categories in the [2026-05-31 audit](./security-compliance-audit-2026-05-31.md)). Still open from that report and _not_ re-examined here: GDPR right-to-erasure (F2), data-retention jobs (F3), visitor consent (F4), SSRF on webhook URLs (F5), CI SAST/dependency/secret scanning (F6), audit-log tamper-evidence (F7), PII scrubbing in logs/Sentry (F9), and data-export/portability (F8). Those remain the DPDP/GDPR/SOC 2 workstream.

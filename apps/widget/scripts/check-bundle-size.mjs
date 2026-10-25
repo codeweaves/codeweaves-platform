@@ -13,7 +13,7 @@ import { resolve, dirname } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 const __dirname = dirname(fileURLToPath(import.meta.url));
-const BUNDLE_PATH = resolve(__dirname, '../dist/codeweaves-widget.js');
+const BUNDLE_PATH = resolve(__dirname, '../dist/klivo-widget.js');
 const MAX_GZIP_BYTES = 150 * 1024; // 150 KB
 
 try {

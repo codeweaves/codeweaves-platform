@@ -8,17 +8,26 @@
  *  4. Listen for postMessage theme updates in preview mode
  */
 
-import { THEME_MAP, type ThemeValueType } from '../styles/theme-map';
-import { debug, warn } from '../utils/debug';
+import { THEME_MAP, type ThemeValueType } from "../styles/theme-map";
+import { debug, warn } from "../utils/debug";
 
 // ── Value Validation ─────────────────────────────────────────────────
 
-const HEX_RE = /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
+const HEX_RE =
+  /^#(?:[0-9a-fA-F]{3}|[0-9a-fA-F]{4}|[0-9a-fA-F]{6}|[0-9a-fA-F]{8})$/;
 // CSS Color Level 4: supports both comma-separated rgb(1,2,3) and space-separated rgb(1 2 3) with optional alpha
-const RGB_RE = /^rgba?\(\s*\d{1,3}[\s,]+\d{1,3}[\s,]+\d{1,3}\s*(?:[,/]\s*[\d.]+%?\s*)?\)$/;
-const HSL_RE = /^hsla?\(\s*\d{1,3}[\s,]+\d{1,3}%[\s,]+\d{1,3}%\s*(?:[,/]\s*[\d.]+%?\s*)?\)$/;
+const RGB_RE =
+  /^rgba?\(\s*\d{1,3}[\s,]+\d{1,3}[\s,]+\d{1,3}\s*(?:[,/]\s*[\d.]+%?\s*)?\)$/;
+const HSL_RE =
+  /^hsla?\(\s*\d{1,3}[\s,]+\d{1,3}%[\s,]+\d{1,3}%\s*(?:[,/]\s*[\d.]+%?\s*)?\)$/;
 const SIZE_RE = /^-?\d+(\.\d+)?(px|rem|em|%|vh|vw)$/;
-const SPECIAL_COLORS = new Set(['transparent', 'currentcolor', 'inherit', 'initial', 'unset']);
+const SPECIAL_COLORS = new Set([
+  "transparent",
+  "currentcolor",
+  "inherit",
+  "initial",
+  "unset",
+]);
 /** Reject CSS injection patterns in string/font values */
 const SUSPICIOUS_RE = /expression\s*\(|url\s*\(/i;
 
@@ -36,8 +45,8 @@ export function isValidColor(value: string): boolean {
   if (RGB_RE.test(trimmed)) return true;
   if (HSL_RE.test(trimmed)) return true;
   // Fallback: use CSS.supports for named colors and other valid syntaxes
-  if (typeof CSS !== 'undefined' && CSS.supports) {
-    return CSS.supports('color', trimmed);
+  if (typeof CSS !== "undefined" && CSS.supports) {
+    return CSS.supports("color", trimmed);
   }
   return false;
 }
@@ -62,11 +71,11 @@ export function isValidFontFamily(value: string): boolean {
  * Returns the parsed number or null if invalid.
  */
 function strictParseNumber(value: unknown): number | null {
-  if (typeof value === 'number') {
+  if (typeof value === "number") {
     if (!isFinite(value)) return null;
     return value;
   }
-  if (typeof value === 'string') {
+  if (typeof value === "string") {
     const trimmed = value.trim();
     if (!trimmed) return null;
     // Reject if not purely numeric (with optional decimal)
@@ -90,18 +99,21 @@ function validateValue(
   if (value == null) return null;
 
   // Numeric types: convert number → CSS string with bounds checking
-  if (type === 'number-px' || type === 'number-pct' || type === 'number-ms') {
+  if (type === "number-px" || type === "number-pct" || type === "number-ms") {
     const num = strictParseNumber(value);
     if (num === null) {
-      debug(`[CodeWeaves] Invalid theme value for ${field}: ${String(value)}, using default`);
+      debug(
+        `Invalid theme value for ${field}: ${String(value)}, using default`,
+      );
       return null;
     }
     // Reject negative values for size/timing properties (never valid for widget dimensions)
     if (num < 0) {
-      debug(`[CodeWeaves] Negative value rejected for ${field}: ${num}, using default`);
+      debug(`Negative value rejected for ${field}: ${num}, using default`);
       return null;
     }
-    const unit = type === 'number-px' ? 'px' : type === 'number-pct' ? '%' : 'ms';
+    const unit =
+      type === "number-px" ? "px" : type === "number-pct" ? "%" : "ms";
     return `${num}${unit}`;
   }
 
@@ -110,31 +122,33 @@ function validateValue(
   if (!str) return null;
 
   switch (type) {
-    case 'color':
+    case "color":
       if (!isValidColor(str)) {
-        debug(`[CodeWeaves] Invalid theme value for ${field}: ${str}, using default`);
+        debug(`Invalid theme value for ${field}: ${str}, using default`);
         return null;
       }
       return str;
 
-    case 'size':
+    case "size":
       if (!isValidSize(str)) {
-        debug(`[CodeWeaves] Invalid theme value for ${field}: ${str}, using default`);
+        debug(`Invalid theme value for ${field}: ${str}, using default`);
         return null;
       }
       return str;
 
-    case 'font':
+    case "font":
       if (!isValidFontFamily(str)) {
-        debug(`[CodeWeaves] Invalid theme value for ${field}: ${str}, using default`);
+        debug(`Invalid theme value for ${field}: ${str}, using default`);
         return null;
       }
       return str;
 
-    case 'string':
+    case "string":
       // Defense-in-depth: reject suspicious CSS patterns
       if (SUSPICIOUS_RE.test(str) || /[{}<>]/.test(str)) {
-        debug(`[CodeWeaves] Rejected suspicious string value for ${field}: ${str}, using default`);
+        debug(
+          `Rejected suspicious string value for ${field}: ${str}, using default`,
+        );
         return null;
       }
       return str;
@@ -151,10 +165,10 @@ function validateValue(
  * E.g. resolveNested({ icon: { backgroundColor: '#f00' } }, 'icon.backgroundColor') → '#f00'
  */
 function resolveNested(obj: Record<string, unknown>, path: string): unknown {
-  const parts = path.split('.');
+  const parts = path.split(".");
   let current: unknown = obj;
   for (const part of parts) {
-    if (current == null || typeof current !== 'object') return undefined;
+    if (current == null || typeof current !== "object") return undefined;
     current = (current as Record<string, unknown>)[part];
   }
   return current;
@@ -205,13 +219,13 @@ export function clearTheme(hostElement: HTMLElement): void {
   for (const entry of Object.values(THEME_MAP)) {
     hostElement.style.removeProperty(entry.variable);
   }
-  debug('Theme cleared — using stylesheet defaults');
+  debug("Theme cleared — using stylesheet defaults");
 }
 
 // ── Preview Mode (postMessage) ───────────────────────────────────────
 
-const THEME_UPDATE_TYPE = 'cw-theme-update';
-const WIDGET_READY_TYPE = 'cw-widget-ready';
+const THEME_UPDATE_TYPE = "cw-theme-update";
+const WIDGET_READY_TYPE = "cw-widget-ready";
 
 let previewListener: ((event: MessageEvent) => void) | null = null;
 
@@ -229,8 +243,8 @@ export function setupPreviewMode(
   teardownPreviewMode();
 
   // Only activate if data-preview="true" on the script tag
-  const script = document.querySelector('script[data-agent-id]');
-  const isPreview = script?.getAttribute('data-preview') === 'true';
+  const script = document.querySelector("script[data-agent-id]");
+  const isPreview = script?.getAttribute("data-preview") === "true";
   if (!isPreview) return;
 
   // Build set of exact allowed origins and list of wildcard base domains
@@ -242,12 +256,15 @@ export function setupPreviewMode(
   for (const domain of allowedDomains) {
     const trimmed = domain.trim();
     if (!trimmed) continue;
-    if (trimmed.startsWith('*.')) {
+    if (trimmed.startsWith("*.")) {
       // Wildcard: *.example.com — store the base for suffix matching
       wildcardBases.push(trimmed.slice(2).toLowerCase());
-    } else if (trimmed.startsWith('http://') || trimmed.startsWith('https://')) {
+    } else if (
+      trimmed.startsWith("http://") ||
+      trimmed.startsWith("https://")
+    ) {
       // Full origin — use as-is
-      exactOrigins.add(trimmed.replace(/\/$/, ''));
+      exactOrigins.add(trimmed.replace(/\/$/, ""));
     } else {
       // Domain-only — add both protocol variants
       exactOrigins.add(`https://${trimmed}`);
@@ -263,7 +280,7 @@ export function setupPreviewMode(
     try {
       const hostname = new URL(origin).hostname.toLowerCase();
       for (const base of wildcardBases) {
-        if (hostname === base || hostname.endsWith('.' + base)) return true;
+        if (hostname === base || hostname.endsWith("." + base)) return true;
       }
     } catch {
       // Invalid origin URL — reject
@@ -280,19 +297,20 @@ export function setupPreviewMode(
 
     // Validate message shape
     const data = event.data;
-    if (!data || typeof data !== 'object' || data.type !== THEME_UPDATE_TYPE) return;
+    if (!data || typeof data !== "object" || data.type !== THEME_UPDATE_TYPE)
+      return;
 
     const theme = data.theme;
-    if (!theme || typeof theme !== 'object') {
-      debug('Received cw-theme-update with invalid theme payload');
+    if (!theme || typeof theme !== "object") {
+      debug("Received cw-theme-update with invalid theme payload");
       return;
     }
 
-    debug('Preview: applying theme update from', event.origin);
+    debug("Preview: applying theme update from", event.origin);
     applyTheme(hostElement, theme as Record<string, unknown>);
   };
 
-  window.addEventListener('message', previewListener);
+  window.addEventListener("message", previewListener);
 
   // Emit readiness handshake to each exact allowed origin
   // (wildcard domains cannot receive targeted postMessage — they match inbound only)
@@ -302,14 +320,14 @@ export function setupPreviewMode(
     }
   }
 
-  debug('Preview mode active — listening for theme updates');
+  debug("Preview mode active — listening for theme updates");
 }
 
 /** Remove the preview mode postMessage listener. */
 export function teardownPreviewMode(): void {
   if (previewListener) {
-    window.removeEventListener('message', previewListener);
+    window.removeEventListener("message", previewListener);
     previewListener = null;
-    debug('Preview mode listener removed');
+    debug("Preview mode listener removed");
   }
 }

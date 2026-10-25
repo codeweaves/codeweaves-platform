@@ -18,7 +18,7 @@ Research compiled from 50+ production sources, academic papers, official documen
 8. [pgvector Production Optimization](#8-pgvector-production-optimization)
 9. [Hybrid Search Implementation](#9-hybrid-search-implementation)
 10. [Multi-Document RAG (NotebookLM Style)](#10-multi-document-rag-notebooklm-style)
-11. [Recommended Architecture for CodeWeaves](#11-recommended-architecture-for-codeweaves)
+11. [Recommended Architecture for Klivo](#11-recommended-architecture-for-klivo)
 
 ---
 
@@ -29,6 +29,7 @@ Research compiled from 50+ production sources, academic papers, official documen
 NotebookLM is a **closed RAG system** -- it generates responses grounded solely in user-uploaded documents, not the open internet. This is the single biggest architectural decision that makes it feel better than generic chatbots.
 
 **Core Components:**
+
 - **LLM**: Google Gemini variants optimized for long context and multimodal input
 - **Context Window**: Up to 1M tokens (500K words per source)
 - **Source Limit**: Up to 50 documents per notebook
@@ -73,20 +74,21 @@ The "NotebookLM feel" comes from: (a) strict source grounding, (b) visible citat
 
 ### Strategy Comparison
 
-| Strategy | Accuracy (Benchmark) | Cost | Best For |
-|----------|---------------------|------|----------|
-| Fixed-size 512 tokens | 69% | Cheapest | Homogeneous content (news, blogs) |
-| Recursive splitting | 69% | Cheap | General-purpose starting point |
-| Semantic chunking | 54% | Moderate (needs embeddings) | Legal, compliance docs |
-| Hierarchical (parent-child) | High (no single benchmark) | Moderate | Technical docs, manuals |
-| Agentic (LLM-decided) | Highest | Expensive (LLM per doc) | Complex mixed-format docs |
-| Contextual (Anthropic) | 67% failure reduction | Moderate (with caching) | All types (best ROI) |
+| Strategy                    | Accuracy (Benchmark)       | Cost                        | Best For                          |
+| --------------------------- | -------------------------- | --------------------------- | --------------------------------- |
+| Fixed-size 512 tokens       | 69%                        | Cheapest                    | Homogeneous content (news, blogs) |
+| Recursive splitting         | 69%                        | Cheap                       | General-purpose starting point    |
+| Semantic chunking           | 54%                        | Moderate (needs embeddings) | Legal, compliance docs            |
+| Hierarchical (parent-child) | High (no single benchmark) | Moderate                    | Technical docs, manuals           |
+| Agentic (LLM-decided)       | Highest                    | Expensive (LLM per doc)     | Complex mixed-format docs         |
+| Contextual (Anthropic)      | 67% failure reduction      | Moderate (with caching)     | All types (best ROI)              |
 
 ### Optimal Chunk Sizes
 
 The practical sweet spot is **256 to 512 tokens with 10-25% overlap**. Microsoft Azure recommends 512 tokens with 25% overlap (128 tokens) as a starting point. A February 2026 benchmark across 50 academic papers placed recursive 512-token splitting first at 69%.
 
 **Per embedding model recommendations:**
+
 - OpenAI text-embedding-3-*: 512 tokens optimal
 - Cohere Embed v4: supports up to 128K but smaller chunks improve retrieval
 - BGE-M3: 512 tokens optimal
@@ -96,6 +98,7 @@ The practical sweet spot is **256 to 512 tokens with 10-25% overlap**. Microsoft
 This is the single highest-ROI chunking improvement available. It prepends a short contextual explanation to each chunk before embedding.
 
 **The Prompt:**
+
 ```
 <document>
 {{WHOLE_DOCUMENT}}
@@ -110,6 +113,7 @@ of the chunk. Answer only with the succinct context and nothing else.
 ```
 
 **Performance Numbers:**
+
 - Contextual Embeddings alone: **35% reduction** in retrieval failure
 - Contextual Embeddings + BM25: **49% reduction** in retrieval failure
 - Full pipeline (+ reranking): **67% reduction** in retrieval failure
@@ -117,6 +121,7 @@ of the chunk. Answer only with the succinct context and nothing else.
 - Context added per chunk: ~50-100 tokens prepended
 
 **Implementation Notes:**
+
 - Use Claude 3 Haiku (or equivalent cheap fast model) for context generation
 - Use prompt caching to avoid re-passing the full document for each chunk
 - Custom domain-specific prompts outperform generic instructions
@@ -145,14 +150,14 @@ An LLM analyzes each document and dynamically selects the chunking strategy base
 
 ### Document-Type-Specific Strategy Selection
 
-| Document Type | Recommended Approach | Rationale |
-|---|---|---|
-| FAQs, support tickets | No chunking (full document) | Self-contained units |
-| News, blog posts | Fixed-size 512 tokens | Homogeneous content |
-| Technical docs, wikis | Recursive or hierarchical | Mixed query types |
-| Legal/compliance docs | Semantic or proposition | Clause-specific precision |
-| Research papers | Proposition chunking | Factual accuracy |
-| Tables/structured data | Keep as structured markdown | Preserve relationships |
+| Document Type          | Recommended Approach        | Rationale                 |
+| ---------------------- | --------------------------- | ------------------------- |
+| FAQs, support tickets  | No chunking (full document) | Self-contained units      |
+| News, blog posts       | Fixed-size 512 tokens       | Homogeneous content       |
+| Technical docs, wikis  | Recursive or hierarchical   | Mixed query types         |
+| Legal/compliance docs  | Semantic or proposition     | Clause-specific precision |
+| Research papers        | Proposition chunking        | Factual accuracy          |
+| Tables/structured data | Keep as structured markdown | Preserve relationships    |
 
 ### What to AVOID
 
@@ -196,6 +201,7 @@ The LLM decides when to retrieve, evaluates whether retrieved documents are actu
 ### CRAG (Corrective RAG)
 
 A retrieval evaluator assesses document quality and triggers corrective actions:
+
 1. Retrieved docs scored as "correct" -> proceed normally
 2. Retrieved docs scored as "ambiguous" -> refine query and re-retrieve
 3. Retrieved docs scored as "incorrect" -> fall back to web search or abstain
@@ -207,6 +213,7 @@ A retrieval evaluator assesses document quality and triggers corrective actions:
 After retrieval, compress each chunk to only the parts relevant to the query before sending to the LLM. This reduces token usage and improves answer quality by removing noise.
 
 **Approaches:**
+
 - **LLMChainExtractor**: LLM extracts relevant portions (accurate but expensive/slow)
 - **EmbeddingsFilter**: Filter chunks by embedding similarity to query (cheap and fast)
 - **Pipeline**: Redundancy filter + relevance filter combined
@@ -253,24 +260,24 @@ Cross-encoder reranking improves RAG accuracy by 33-40% for only ~120ms addition
 
 ### Model Comparison (2026)
 
-| Model | Latency | Cost | Multilingual | Best For |
-|-------|---------|------|-------------|----------|
-| Cohere rerank-v3.5 | ~200ms (API) | $1/1K searches | Yes | Zero-infra production |
-| BGE-reranker-v2-m3 | 50-100ms (GPU) | Self-hosted | 100+ languages | Budget production with GPU |
-| Jina reranker v3 | 188ms | API | Yes | Sub-200ms latency requirement |
-| ZeroEntropy zerank-2 | Fast | 40x cheaper than Cohere | 100+ languages | Best overall production value |
-| ms-marco-MiniLM-L-6-v2 | 10ms (CPU) | Self-hosted | English only | CPU-only environments |
+| Model                  | Latency        | Cost                    | Multilingual   | Best For                      |
+| ---------------------- | -------------- | ----------------------- | -------------- | ----------------------------- |
+| Cohere rerank-v3.5     | ~200ms (API)   | $1/1K searches          | Yes            | Zero-infra production         |
+| BGE-reranker-v2-m3     | 50-100ms (GPU) | Self-hosted             | 100+ languages | Budget production with GPU    |
+| Jina reranker v3       | 188ms          | API                     | Yes            | Sub-200ms latency requirement |
+| ZeroEntropy zerank-2   | Fast           | 40x cheaper than Cohere | 100+ languages | Best overall production value |
+| ms-marco-MiniLM-L-6-v2 | 10ms (CPU)     | Self-hosted             | English only   | CPU-only environments         |
 
 ### Integration with Vercel AI SDK
 
 AI SDK 6 provides native `rerank()` function:
 
 ```typescript
-import { cohere } from '@ai-sdk/cohere';
-import { rerank } from 'ai';
+import { cohere } from "@ai-sdk/cohere";
+import { rerank } from "ai";
 
 const { ranking, rerankedDocuments } = await rerank({
-  model: cohere.reranking('rerank-v3.5'),
+  model: cohere.reranking("rerank-v3.5"),
   documents: retrievedChunks, // array of strings or objects
   query: userQuestion,
   topN: 5, // return only top 5
@@ -287,6 +294,7 @@ const { ranking, rerankedDocuments } = await rerank({
 ### Production Pipeline: Retrieve 20, Rerank to 5
 
 The optimal pattern:
+
 1. Retrieve top 150 candidates via hybrid search (vector + BM25)
 2. Pass to reranker, get top 20
 3. Add top 5 to LLM context
@@ -311,27 +319,27 @@ Anthropic's testing confirms: retrieve 150, rerank to 20 for optimal results.
 
 ### Top Models (March 2026 MTEB Rankings)
 
-| Model | MTEB Score | Dimensions | Context | Cost/1M tokens | Languages |
-|-------|-----------|-----------|---------|----------------|-----------|
-| Gemini Embedding 2 | 68.32 | 3072 | 32K+ | Google pricing | 100+ |
-| Qwen3-Embedding-8B | 70.58 (multilingual) | 32-4096 | 32K | Self-hosted | 100+ |
-| Cohere embed-v4 | 65.2 | 1024 | 128K | Cohere pricing | Multi |
-| OpenAI text-embedding-3-large | 64.6 | 3072 | 8K | $0.13/1M tokens | Multi |
-| OpenAI text-embedding-3-small | 62.3 | 1536 | 8K | $0.02/1M tokens | Multi |
-| BGE-M3 | 63.0 | 1024 | 8K | Self-hosted | 100+ |
-| Snowflake Arctic-Embed-L-v2 | 70.58 (multilingual) | Varies | Varies | Self-hosted | 100+ |
-| NVIDIA Llama-Embed-Nemotron-8B | #1 multilingual MTEB | Varies | Varies | Open-weight | 250+ |
+| Model                          | MTEB Score           | Dimensions | Context | Cost/1M tokens  | Languages |
+| ------------------------------ | -------------------- | ---------- | ------- | --------------- | --------- |
+| Gemini Embedding 2             | 68.32                | 3072       | 32K+    | Google pricing  | 100+      |
+| Qwen3-Embedding-8B             | 70.58 (multilingual) | 32-4096    | 32K     | Self-hosted     | 100+      |
+| Cohere embed-v4                | 65.2                 | 1024       | 128K    | Cohere pricing  | Multi     |
+| OpenAI text-embedding-3-large  | 64.6                 | 3072       | 8K      | $0.13/1M tokens | Multi     |
+| OpenAI text-embedding-3-small  | 62.3                 | 1536       | 8K      | $0.02/1M tokens | Multi     |
+| BGE-M3                         | 63.0                 | 1024       | 8K      | Self-hosted     | 100+      |
+| Snowflake Arctic-Embed-L-v2    | 70.58 (multilingual) | Varies     | Varies  | Self-hosted     | 100+      |
+| NVIDIA Llama-Embed-Nemotron-8B | #1 multilingual MTEB | Varies     | Varies  | Open-weight     | 250+      |
 
 ### OpenAI text-embedding-3: Small vs Large
 
-| Metric | 3-small | 3-large |
-|--------|---------|---------|
-| MTEB Score | 62.3 | 64.6 |
-| MIRACL Score | 44.0% | 54.9% |
-| Dimensions | 1536 | 3072 |
-| Price/1M tokens | $0.02 | $0.13 |
-| Latency | Lower | Higher |
-| Best for | Cost-sensitive, real-time | Quality-focused |
+| Metric          | 3-small                   | 3-large         |
+| --------------- | ------------------------- | --------------- |
+| MTEB Score      | 62.3                      | 64.6            |
+| MIRACL Score    | 44.0%                     | 54.9%           |
+| Dimensions      | 1536                      | 3072            |
+| Price/1M tokens | $0.02                     | $0.13           |
+| Latency         | Lower                     | Higher          |
+| Best for        | Cost-sensitive, real-time | Quality-focused |
 
 **Key insight**: 3-large supports dimension reduction (e.g., truncate to 1024 or 1536) via Matryoshka embeddings, trading accuracy for storage/speed.
 
@@ -340,6 +348,7 @@ Anthropic's testing confirms: retrieve 150, rerank to 20 for optimal results.
 Matryoshka embeddings produce embeddings at multiple dimensionalities. You can truncate the vector to a smaller size (e.g., 3072 -> 1024 -> 256) with graceful accuracy degradation. This avoids retraining when you need to optimize storage.
 
 **Models with MRL support:**
+
 - OpenAI text-embedding-3-large/small
 - Gemini Embedding 2
 - Voyage embeddings
@@ -358,9 +367,10 @@ Matryoshka embeddings produce embeddings at multiple dimensionalities. You can t
 
 **Warning**: English-only models (nomic-embed-text, mxbai-embed-large) score <0.16 on cross-lingual retrieval -- completely non-functional for Hindi/Marathi.
 
-### Recommendations for CodeWeaves
+### Recommendations for Klivo
 
 **Production choice**: OpenAI text-embedding-3-large at 1536 dimensions (truncated from 3072)
+
 - Good multilingual support
 - Matryoshka dimension reduction
 - Reasonable cost ($0.13/1M tokens)
@@ -368,6 +378,7 @@ Matryoshka embeddings produce embeddings at multiple dimensionalities. You can t
 - 8K context window is sufficient for 512-token chunks
 
 **Budget alternative**: OpenAI text-embedding-3-small at 1536 dimensions
+
 - 6.5x cheaper
 - Acceptable quality for most use cases
 
@@ -396,12 +407,12 @@ Metadata Extraction -> Verification
 
 **Production-grade options for TypeScript/Node.js:**
 
-| Library | npm Package | Strengths | Weaknesses |
-|---------|-------------|-----------|------------|
-| LiteParse | `liteparse` | TypeScript-native, spatial layout, local-first, OCR via Tesseract.js | New (March 2026), less battle-tested |
-| unpdf | `unpdf` | Multiple extraction strategies, layout-aware mode, async/await | Less table accuracy than LlamaParse |
-| pdf-parse | `pdf-parse` | 914 dependents, mature, cross-platform | Basic -- no table/layout intelligence |
-| officeparser | `officeparser` | Multi-format (DOCX, PPTX, XLSX, PDF), AST output | May not handle complex layouts |
+| Library      | npm Package    | Strengths                                                            | Weaknesses                            |
+| ------------ | -------------- | -------------------------------------------------------------------- | ------------------------------------- |
+| LiteParse    | `liteparse`    | TypeScript-native, spatial layout, local-first, OCR via Tesseract.js | New (March 2026), less battle-tested  |
+| unpdf        | `unpdf`        | Multiple extraction strategies, layout-aware mode, async/await       | Less table accuracy than LlamaParse   |
+| pdf-parse    | `pdf-parse`    | 914 dependents, mature, cross-platform                               | Basic -- no table/layout intelligence |
+| officeparser | `officeparser` | Multi-format (DOCX, PPTX, XLSX, PDF), AST output                     | May not handle complex layouts        |
 
 **For complex PDFs with tables/multi-column**: Use LlamaParse API (cloud) or LiteParse (local). LlamaParse is currently the top performer for complex PDFs due to vision-based layout analysis.
 
@@ -409,14 +420,14 @@ Metadata Extraction -> Verification
 
 ### Handling Different Document Types
 
-| Format | Parsing Approach | npm Package |
-|--------|-----------------|-------------|
-| PDF | LiteParse or LlamaParse API | `liteparse` or API |
-| DOCX | officeparser | `officeparser` |
-| TXT | Direct read | Built-in `fs` |
-| CSV | Papa Parse | `papaparse` |
-| HTML | Trafilatura (Python) or cheerio | `cheerio` |
-| Markdown | marked or remark | `marked`, `remark` |
+| Format   | Parsing Approach                | npm Package        |
+| -------- | ------------------------------- | ------------------ |
+| PDF      | LiteParse or LlamaParse API     | `liteparse` or API |
+| DOCX     | officeparser                    | `officeparser`     |
+| TXT      | Direct read                     | Built-in `fs`      |
+| CSV      | Papa Parse                      | `papaparse`        |
+| HTML     | Trafilatura (Python) or cheerio | `cheerio`          |
+| Markdown | marked or remark                | `marked`, `remark` |
 
 ### OCR for Scanned Documents
 
@@ -458,6 +469,7 @@ Hash normalized text before indexing to avoid embedding duplicates. Normalizatio
 ### Metadata Extraction
 
 Attach at ingestion time, not after:
+
 - `source_id`: Document identifier
 - `doc_type`: PDF, DOCX, etc.
 - `section_title`: Extracted from headings
@@ -499,15 +511,16 @@ RAGAS (Retrieval-Augmented Generation Assessment) is the standard open-source ev
 
 **Core Metrics:**
 
-| Metric | What It Measures | Needs Ground Truth? |
-|--------|-----------------|-------------------|
-| Faithfulness | Response only contains claims supported by context | No |
-| Answer Relevancy | Response actually addresses the question | No |
-| Context Precision | Fraction of retrieved chunks actually relevant | Yes (for full version) |
-| Context Recall | Whether retrieved set contains all needed info | Yes |
-| Noise Sensitivity | Robustness to irrelevant retrieved chunks | No |
+| Metric            | What It Measures                                   | Needs Ground Truth?    |
+| ----------------- | -------------------------------------------------- | ---------------------- |
+| Faithfulness      | Response only contains claims supported by context | No                     |
+| Answer Relevancy  | Response actually addresses the question           | No                     |
+| Context Precision | Fraction of retrieved chunks actually relevant     | Yes (for full version) |
+| Context Recall    | Whether retrieved set contains all needed info     | Yes                    |
+| Noise Sensitivity | Robustness to irrelevant retrieved chunks          | No                     |
 
 **Additional Metrics:**
+
 - Context Entities Recall
 - Factual Correctness (needs reference)
 - Semantic Similarity (needs reference)
@@ -518,6 +531,7 @@ RAGAS (Retrieval-Augmented Generation Assessment) is the standard open-source ev
 **Minimum viable set: 50 queries.** Fewer than 20 causes scores to swing significantly between runs.
 
 Composition:
+
 - 25-30 manually curated queries from domain experts
 - 20-25 synthetically generated questions from corpus
 - Real production queries harvested and labeled monthly
@@ -538,7 +552,9 @@ async function testRAGQuality() {
     throw new Error(`Faithfulness ${results.faithfulness} below threshold`);
   }
   if (results.contextPrecision < CONTEXT_PRECISION_THRESHOLD) {
-    throw new Error(`Context precision ${results.contextPrecision} below threshold`);
+    throw new Error(
+      `Context precision ${results.contextPrecision} below threshold`,
+    );
   }
 }
 ```
@@ -546,31 +562,34 @@ async function testRAGQuality() {
 ### Production Monitoring
 
 **Retrieval Layer Metrics:**
+
 - Latency: p50, p95, p99 by query type
 - Retrieved vs filtered document count (by reranker)
 - Average reranker score trending
 - Zero-result retrieval rate
 
 **Generation Layer Metrics:**
+
 - LLM latency percentiles
 - Token counts per query
 - Faithfulness score distribution (sample 10-20% of production queries)
 - Citation rate in responses
 
 **System Health:**
+
 - Vector index size and ingestion lag
 - Embedding API error rates and latency
 - Semantic cache hit rate
 
 ### Alerting Thresholds
 
-| Metric | Warning | Critical |
-|--------|---------|----------|
-| Retrieval latency p99 | >200ms | >500ms |
-| LLM generation p99 | >3s | >6s |
-| Zero-result rate | >5% | >15% |
-| Faithfulness score | <0.80 | <0.70 |
-| API error rate | >1% | >5% |
+| Metric                | Warning | Critical |
+| --------------------- | ------- | -------- |
+| Retrieval latency p99 | >200ms  | >500ms   |
+| LLM generation p99    | >3s     | >6s      |
+| Zero-result rate      | >5%     | >15%     |
+| Faithfulness score    | <0.80   | <0.70    |
+| API error rate        | >1%     | >5%      |
 
 ### Drift Detection
 
@@ -599,12 +618,12 @@ Monitor average top-1 similarity scores over time. A sustained downward trend wi
 
 **HNSW is the default choice for production.** It is 5,250x faster than sequential scan and ~1.5x faster than IVFFlat for similar recall.
 
-| Metric | IVFFlat (lists=100) | HNSW (m=16, ef=200) | Sequential Scan |
-|--------|-------------------|-------------------|-----------------|
-| Query Latency (p95) | ~12ms | **~8ms** | ~890ms |
-| Recall@10 | 0.92 | **0.98** | 1.0 |
-| Index Size (1M vectors) | ~6GB | ~8GB | N/A |
-| Build Time (1M vectors) | ~2 min | ~25 min | N/A |
+| Metric                  | IVFFlat (lists=100) | HNSW (m=16, ef=200) | Sequential Scan |
+| ----------------------- | ------------------- | ------------------- | --------------- |
+| Query Latency (p95)     | ~12ms               | **~8ms**            | ~890ms          |
+| Recall@10               | 0.92                | **0.98**            | 1.0             |
+| Index Size (1M vectors) | ~6GB                | ~8GB                | N/A             |
+| Build Time (1M vectors) | ~2 min              | ~25 min             | N/A             |
 
 **Use IVFFlat only when**: Index build time is critical and you can accept lower recall.
 
@@ -620,6 +639,7 @@ SET hnsw.ef_search = 40;
 ```
 
 **Parameters explained:**
+
 - `m` (default 16): Max connections per node. Range 5-48. Higher = better recall, more memory. 16 is optimal for 768-1536 dimensional embeddings.
 - `ef_construction` (default 64): Build-time candidate list size. Bump to **200-400 for production**. Higher = better graph quality, slower builds.
 - `ef_search` (default 40): Query-time candidate list size. Tune per query for speed/recall balance. Higher = better recall, more latency.
@@ -696,18 +716,21 @@ CREATE INDEX idx_chunks_3072 ON document_chunks
 ### Partitioning Strategies for Multi-Tenant
 
 **Option 1: Partition by tenant_id (LIST partitioning)**
+
 - Best when: Few large tenants with distinct workloads
 - Benefit: Per-partition HNSW indexes, planner prunes entire shards
 
 **Option 2: Shared table with partial indexes**
+
 - Best when: Many small tenants
 - Benefit: Simpler management, still fast with WHERE clause filtering
 
 **Option 3: Separate tables per tenant**
+
 - Best when: Strict data isolation requirements
 - Benefit: Independent index tuning, easy cleanup on tenant deletion
 
-**For CodeWeaves (multi-tenant SaaS)**: Start with Option 2 (shared table + tenant_id column + metadata filtering). Move to partitioning when any single tenant exceeds 1M vectors.
+**For Klivo (multi-tenant SaaS)**: Start with Option 2 (shared table + tenant_id column + metadata filtering). Move to partitioning when any single tenant exceeds 1M vectors.
 
 ### Connection Pooling (Critical for Production)
 
@@ -756,6 +779,7 @@ Vector search alone regularly returns answers that sound plausible but miss shor
 RRF focuses on rankings rather than raw scores, so it works across different score scales without normalization.
 
 **Weighted RRF**: Assign different weights per method:
+
 ```
 Score(d) = w1 * (1/(k + rank_semantic)) + w2 * (1/(k + rank_bm25))
 ```
@@ -812,33 +836,38 @@ LIMIT 20;
 ### BM25 Options for PostgreSQL
 
 **Option 1: Native tsvector + ts_rank (Simplest)**
+
 - Built into PostgreSQL, no extensions needed
 - Uses ts_rank which lacks IDF and length normalization
 - Good enough for most use cases
 
 **Option 2: pg_textsearch (Timescale)**
+
 - True BM25 ranking with IDF and length normalization
 - Block-Max WAND: up to 4x faster top-k queries
 - Parallel index builds: 4x faster for large tables
 - npm: access via standard PostgreSQL driver (Prisma raw SQL)
 
 **Option 3: ParadeDB pg_search**
+
 - Full BM25 via Tantivy (Rust-based Lucene alternative)
 - Column boosting, faceted search
 - ACID guarantees within PostgreSQL
 - Note: Being deprecated on some platforms (Neon removed it March 2026)
 
-**Recommendation for CodeWeaves**: Start with native tsvector + ts_rank. It's zero-dependency and good enough. Move to pg_textsearch if BM25 quality becomes a measurable issue.
+**Recommendation for Klivo**: Start with native tsvector + ts_rank. It's zero-dependency and good enough. Move to pg_textsearch if BM25 quality becomes a measurable issue.
 
 ### When Hybrid Search Matters vs Vector-Only
 
 **Hybrid search is essential when:**
+
 - Documents contain technical terms, codes, product IDs
 - Users search with exact phrases or specific terminology
 - Corpus includes structured/semi-structured data
 - Multilingual content (BM25 catches language-specific terms vectors miss)
 
 **Vector-only is fine when:**
+
 - All queries are conceptual/semantic
 - Corpus is purely natural language prose
 - Latency budget is extremely tight (<50ms total)
@@ -881,6 +910,7 @@ Each tenant/knowledge base is a collection of documents. The key design decision
 ### Document Management for Users
 
 Users need to:
+
 - Upload documents to their knowledge base
 - See processing status (queued, processing, ready, failed)
 - Remove documents (triggers vector cleanup)
@@ -890,6 +920,7 @@ Users need to:
 ### Cross-Document Retrieval
 
 When answering a question:
+
 1. Search across ALL documents in the collection
 2. Return chunks from multiple documents if relevant
 3. Ensure diverse source representation (don't return 20 chunks from one document)
@@ -929,7 +960,7 @@ WHERE tenant_id = $1
 
 ---
 
-## 11. Recommended Architecture for CodeWeaves
+## 11. Recommended Architecture for Klivo
 
 ### Phase 1: Foundation (MVP)
 
@@ -941,6 +972,7 @@ Generate with citations
 ```
 
 **npm packages:**
+
 - `pgvector` -- pgvector Node.js support
 - `pdf-parse` or `liteparse` -- PDF parsing
 - `officeparser` -- DOCX/PPTX parsing
@@ -950,6 +982,7 @@ Generate with citations
 - `bullmq` -- Background job queue for document processing
 
 **Estimated latency budget:**
+
 - Query embedding: 30ms
 - Hybrid search (parallel): 20ms
 - LLM generation: 500ms-2s
@@ -958,12 +991,14 @@ Generate with citations
 ### Phase 2: Quality Boost
 
 Add on top of Phase 1:
+
 1. **Anthropic contextual retrieval** -- prepend context to chunks before embedding
 2. **Cohere reranking** via Vercel AI SDK `rerank()` function
 3. **Multi-query retrieval** -- generate 2-3 query variants
 4. **RAGAS evaluation** -- 50-query eval set, CI/CD integration
 
 **Additional packages:**
+
 - `@ai-sdk/cohere` -- Cohere reranking provider
 
 **Estimated improvement**: 40-67% reduction in retrieval failures.
@@ -1035,23 +1070,24 @@ model DocumentChunk {
 
 ### Key Technology Decisions Summary
 
-| Component | Choice | Rationale |
-|-----------|--------|-----------|
-| Vector DB | pgvector (existing PostgreSQL) | No new infra, ACID, proven at scale |
-| Embeddings | OpenAI text-embedding-3-small (start) | Cost-effective, good quality |
-| Reranking | Cohere via Vercel AI SDK | Native SDK support, proven quality |
-| BM25 | PostgreSQL tsvector (start) | Zero dependency, good enough |
-| Chunking | Recursive 512 tokens + contextual retrieval | Best ROI per benchmarks |
-| Document parsing | LiteParse + officeparser | TypeScript-native, local-first |
-| Job queue | BullMQ | Battle-tested for Node.js |
-| Evaluation | RAGAS metrics | Industry standard |
-| LLM | Via OpenRouter/Vercel AI SDK | Flexibility, streaming |
+| Component        | Choice                                      | Rationale                           |
+| ---------------- | ------------------------------------------- | ----------------------------------- |
+| Vector DB        | pgvector (existing PostgreSQL)              | No new infra, ACID, proven at scale |
+| Embeddings       | OpenAI text-embedding-3-small (start)       | Cost-effective, good quality        |
+| Reranking        | Cohere via Vercel AI SDK                    | Native SDK support, proven quality  |
+| BM25             | PostgreSQL tsvector (start)                 | Zero dependency, good enough        |
+| Chunking         | Recursive 512 tokens + contextual retrieval | Best ROI per benchmarks             |
+| Document parsing | LiteParse + officeparser                    | TypeScript-native, local-first      |
+| Job queue        | BullMQ                                      | Battle-tested for Node.js           |
+| Evaluation       | RAGAS metrics                               | Industry standard                   |
+| LLM              | Via OpenRouter/Vercel AI SDK                | Flexibility, streaming              |
 
 ---
 
 ## Sources
 
 ### NotebookLM Architecture
+
 - [NotebookLM Guide - Learn Prompting](https://learnprompting.org/blog/notebooklm-guide)
 - [RAG vs Traditional AI - Elephas](https://elephas.app/blog/rag-vs-traditional-ai-unlimited-document-processing)
 - [NotebookLM RAG Architecture - Scribd](https://www.scribd.com/document/887551310/NotebookLM-Internal-Framework-Explained)
@@ -1059,6 +1095,7 @@ model DocumentChunk {
 - [NotebookLM as Socratic Tutor - ArXiv](https://arxiv.org/abs/2504.09720)
 
 ### Chunking Strategies
+
 - [Contextual Retrieval - Anthropic](https://www.anthropic.com/news/contextual-retrieval)
 - [Best Chunking Strategies - Firecrawl](https://www.firecrawl.dev/blog/best-chunking-strategies-rag)
 - [Document Chunking 70% Accuracy Boost - LangCopilot](https://langcopilot.com/posts/2025-10-11-document-chunking-for-rag-practical-guide)
@@ -1068,18 +1105,21 @@ model DocumentChunk {
 - [TopoChunker Agentic Framework - ArXiv](https://arxiv.org/html/2603.18409)
 
 ### Retrieval Strategies
+
 - [Beyond Vector Search - ML Mastery](https://machinelearningmastery.com/beyond-vector-search-5-next-gen-rag-retrieval-strategies/)
 - [RAG Architectures - Humanloop](https://humanloop.com/blog/rag-architectures)
 - [Agentic Retrieval Guide - LlamaIndex](https://www.llamaindex.ai/blog/rag-is-dead-long-live-agentic-retrieval)
 - [RAG Techniques Repository - GitHub](https://github.com/NirDiamant/RAG_Techniques)
 
 ### Reranking
+
 - [Cross-Encoder Reranking +40% Accuracy - Ailog](https://app.ailog.fr/en/blog/guides/reranking)
 - [Best Reranker Models 2026 - ZeroEntropy](https://www.zeroentropy.dev/articles/ultimate-guide-to-choosing-the-best-reranking-model-in-2025)
 - [Top 7 Rerankers for RAG - Analytics Vidhya](https://www.analyticsvidhya.com/blog/2025/06/top-rerankers-for-rag/)
 - [BGE Reranker Cross-Encoder - MarkAICode](https://markaicode.com/bge-reranker-cross-encoder-reranking-rag/)
 
 ### Embedding Models
+
 - [Best Open-Source Embedding Models 2026 - BentoML](https://www.bentoml.com/blog/a-guide-to-open-source-embedding-models)
 - [MTEB Leaderboard - Modal](https://modal.com/blog/mteb-leaderboard-article)
 - [Embedding Model Benchmark 2026 - DEV](https://dev.to/chen_zhang_bac430bc7f6b95/which-embedding-model-should-you-actually-use-in-2026-i-benchmarked-10-models-to-find-out-58bc)
@@ -1088,11 +1128,13 @@ model DocumentChunk {
 - [OpenAI Embedding Models](https://platform.openai.com/docs/models/text-embedding-3-small)
 
 ### Vercel AI SDK
+
 - [AI SDK 6 - Vercel](https://vercel.com/blog/ai-sdk-6)
 - [AI SDK Reranking Docs](https://ai-sdk.dev/docs/ai-sdk-core/reranking)
 - [AI SDK Cohere Provider](https://ai-sdk.dev/providers/ai-sdk-providers/cohere)
 
 ### pgvector
+
 - [pgvector Production Guide 2026 - Calmops](https://calmops.com/database/postgresql-vector-search-pgvector-2026/)
 - [HNSW Indexes - Crunchy Data](https://www.crunchydata.com/blog/hnsw-indexes-with-postgres-and-pgvector)
 - [pgvector Production RAG <10ms - MarkAICode](https://markaicode.com/pgvector-rag-production/)
@@ -1101,22 +1143,26 @@ model DocumentChunk {
 - [Prisma pgvector Support](https://www.prisma.io/blog/orm-6-13-0-ci-cd-workflows-and-pgvector-for-prisma-postgres)
 
 ### Hybrid Search
+
 - [Hybrid Search Missing Manual - ParadeDB](https://www.paradedb.com/blog/hybrid-search-in-postgresql-the-missing-manual)
 - [pg_textsearch BM25 - Timescale](https://github.com/timescale/pg_textsearch)
 - [From ts_rank to BM25 - Tiger Data](https://www.tigerdata.com/blog/introducing-pg_textsearch-true-bm25-ranking-hybrid-retrieval-postgres)
 
 ### RAG Evaluation
+
 - [RAGAS Docs](https://docs.ragas.io/en/latest/concepts/metrics/)
 - [RAG Evaluation 2026 - Prem AI](https://blog.premai.io/rag-evaluation-metrics-frameworks-testing-2026/)
 - [Building Production RAG 2026 - Prem AI](https://blog.premai.io/building-production-rag-architecture-chunking-evaluation-monitoring-2026-guide/)
 - [Top 5 RAG Evaluation Platforms 2026 - Maxim](https://www.getmaxim.ai/articles/the-5-best-rag-evaluation-tools-you-should-know-in-2026/)
 
 ### Document Parsing
+
 - [LiteParse TypeScript PDF - MarkTechPost](https://www.marktechpost.com/2026/03/19/llamaindex-releases-liteparse-a-cli-and-typescript-native-library-for-spatial-pdf-parsing-in-ai-agent-workflows/)
 - [7 PDF Parsing Libraries Node.js - Strapi](https://strapi.io/blog/7-best-javascript-pdf-parsing-libraries-nodejs-2025)
 - [Unstructured vs LlamaParse](https://unstructured.io/insights/unstructured-vs-llamaparse-choosing-the-right-tool-for-document-processing)
 
 ### Production RAG Pitfalls
+
 - [RAG at Scale 2026 - Redis](https://redis.io/blog/rag-at-scale/)
 - [Enterprise RAG Pitfalls - Fram](https://wearefram.com/blog/enterprise-rag/)
 - [Why GenAI Pilots Fail - Zeta Alpha](https://www.zeta-alpha.com/post/why-genai-pilots-fail-common-challenges-with-enterprise-rag)

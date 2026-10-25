@@ -74,7 +74,7 @@ function writeLocalStorage(id: string): boolean {
     localStorage.setItem(STORAGE_KEY, id);
     return true;
   } catch {
-    console.warn("[CodeWeaves] localStorage unavailable, using fallback");
+    console.warn("[Klivo] localStorage unavailable, using fallback");
     return false;
   }
 }
@@ -108,7 +108,7 @@ function persist(id: string): void {
   if (writeLocalStorage(id)) return;
   if (writeCookie(id)) return;
   console.warn(
-    "[CodeWeaves] All persistent storage unavailable, device ID is session-only",
+    "[Klivo] All persistent storage unavailable, device ID is session-only",
   );
 }
 

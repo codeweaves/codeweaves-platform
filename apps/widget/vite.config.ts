@@ -1,9 +1,9 @@
-import { defineConfig } from 'vite';
-import preact from '@preact/preset-vite';
-import tailwindcss from '@tailwindcss/vite';
-import { visualizer } from 'rollup-plugin-visualizer';
+import { defineConfig } from "vite";
+import preact from "@preact/preset-vite";
+import tailwindcss from "@tailwindcss/vite";
+import { visualizer } from "rollup-plugin-visualizer";
 
-const analyze = process.env.ANALYZE === 'true';
+const analyze = process.env.ANALYZE === "true";
 
 export default defineConfig({
   plugins: [
@@ -12,7 +12,7 @@ export default defineConfig({
     ...(analyze
       ? [
           visualizer({
-            filename: 'dist/stats.html',
+            filename: "dist/stats.html",
             gzipSize: true,
             brotliSize: true,
           }),
@@ -20,27 +20,27 @@ export default defineConfig({
       : []),
   ],
   build: {
-    target: 'es2020',
-    sourcemap: 'hidden',
+    target: "es2020",
+    sourcemap: "hidden",
     rollupOptions: {
-      input: 'src/main.tsx',
+      input: "src/main.tsx",
       output: {
-        format: 'iife',
-        name: 'CodeWeavesWidget',
-        entryFileNames: 'codeweaves-widget.js',
+        format: "iife",
+        name: "KlivoWidget",
+        entryFileNames: "klivo-widget.js",
         inlineDynamicImports: true,
       },
     },
     cssCodeSplit: false,
-    minify: 'terser',
+    minify: "terser",
     terserOptions: {
       compress: {
         drop_debugger: true,
         // Console calls managed by debug utility (data-debug attribute enables at runtime)
         // Only strip console.debug in production; warn/error always preserved
-        pure_funcs: ['console.debug'],
+        pure_funcs: ["console.debug"],
       },
     },
   },
-  base: './',
+  base: "./",
 });

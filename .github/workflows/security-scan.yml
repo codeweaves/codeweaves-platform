@@ -21,7 +21,7 @@ permissions:
 jobs:
   secrets-gitleaks:
     name: Secrets (Gitleaks)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
         with:
@@ -39,7 +39,7 @@ jobs:
 
   sast-semgrep:
     name: SAST (Semgrep)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Semgrep
@@ -57,7 +57,7 @@ jobs:
 
   deps-config-trivy:
     name: Deps + Config (Trivy)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Trivy
@@ -74,7 +74,7 @@ jobs:
 
   sbom:
     name: SBOM + licences (CycloneDX)
-    runs-on: ubuntu-latest
+    runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@v4
       - name: Generate SBOM (CycloneDX) and a licence summary

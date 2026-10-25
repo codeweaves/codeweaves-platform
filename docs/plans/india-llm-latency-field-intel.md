@@ -35,12 +35,13 @@ Companion to: parked branch [`feature/ai-orchestration-phase-1-code`](../../) (c
 
 **OpenAI community forum, user `Sainan`, July 2024** — verbatim:
 
-> *"there is no way to reuse this connection after the '[DONE]', so it just has to be dropped... [TLS handshakes] all-in-all tally up to 1 second wasted per request"*
+> _"there is no way to reuse this connection after the '[DONE]', so it just has to be dropped... [TLS handshakes] all-in-all tally up to 1 second wasted per request"_
 
 OpenAI staff never replied. https://community.openai.com/t/how-to-reuse-keep-alive-connections-for-streaming-responses/882953
 
 **OpenAI's own Codex codebase fixes this** with a preconnect pattern — connection is kept warm in `Idle → InFlight → Ready` state:
-> *"Preconnect is handshake-only. The first response.create is still sent only when a turn starts."*
+
+> _"Preconnect is handshake-only. The first response.create is still sent only when a turn starts."_
 
 PR: https://github.com/openai/codex/pull/10698
 
@@ -64,17 +65,21 @@ Cerebras free tier (1M tokens/day, no card) includes Qwen3-32B + Llama 3.3 70B +
 ## 4. The 5 patterns that keep showing up
 
 ### Pattern 1 — Small fast model + US inference + accept the hop
-**Zomato** moved off GPT-4 to Llama 3 (70B intent + 8B chat) on Together AI in US, sub-10s target, 1,000 msg/min peak. Reason given: *"challenges with scaling costs and latency of larger models like GPT-4."* Didn't fight geography, swapped models. https://www.together.ai/customers/zomato
+
+**Zomato** moved off GPT-4 to Llama 3 (70B intent + 8B chat) on Together AI in US, sub-10s target, 1,000 msg/min peak. Reason given: _"challenges with scaling costs and latency of larger models like GPT-4."_ Didn't fight geography, swapped models. https://www.together.ai/customers/zomato
 
 ### Pattern 2 — India-based API origin + foreign LLM
-**Yellow.ai** primary region is `z0 - India` (Mumbai). They explicitly wrote: *"the latency of communicating from the West Coast of the United States to India was significantly slower than we expected."* https://tech.yellow.ai/p/yellowais-multi-region-expansion-part-one
 
-**Haptik (Jio)** publishes a **500ms end-to-end voice target**, routes via *"India-based cloud availability zones"*, offers on-prem for Tier-2 customers. Model strategy: *"7B-13B parameter fine-tuned models for FAQ/structured tasks; larger models engaged selectively."* https://www.haptik.ai/blog/latency-interruption-handling-impact-on-voice-ai-quality
+**Yellow.ai** primary region is `z0 - India` (Mumbai). They explicitly wrote: _"the latency of communicating from the West Coast of the United States to India was significantly slower than we expected."_ https://tech.yellow.ai/p/yellowais-multi-region-expansion-part-one
+
+**Haptik (Jio)** publishes a **500ms end-to-end voice target**, routes via _"India-based cloud availability zones"_, offers on-prem for Tier-2 customers. Model strategy: _"7B-13B parameter fine-tuned models for FAQ/structured tasks; larger models engaged selectively."_ https://www.haptik.ai/blog/latency-interruption-handling-impact-on-voice-ai-quality
 
 ### Pattern 3 — Cerebras / Groq for LLM brain (when quality permits)
+
 See section 3 above. 156ms TTFT from India to Groq Qwen3-32B is the cleanest documented number found.
 
 ### Pattern 4 — Split-stack: Indic STT/TTS in India + LLM in US
+
 Plivo + Pipecat integration guide: **Sarvam STT (~70ms India) + OpenAI LLM (US) + Sarvam Bulbul TTS (India)**. https://www.plivo.com/docs/voice-agents/audio-streaming/integration-guides/pipecat/sarvam-openai
 
 **ElevenLabs confirms Cars24, Razorpay, Unacademy, Apna, Meesho, Skit all run this split-stack pattern**: https://elevenlabs.io/blog/powering-indian-voice-agent-infrastructure
@@ -82,7 +87,8 @@ Plivo + Pipecat integration guide: **Sarvam STT (~70ms India) + OpenAI LLM (US) 
 The user's Sarvam 30B scar (4.2s) doesn't disqualify their STT/TTS — different products.
 
 ### Pattern 5 — Keep-alive + warm pool + filler tokens to hide the network
-- Sub-500ms voice agent postmortem (HN 570 pts): https://news.ycombinator.com/item?id=47224295. Commenter `evara-ai`: *"We serve callers in India connecting to US-East, and the Twilio edge hop alone adds 150-250ms depending on the carrier."*
+
+- Sub-500ms voice agent postmortem (HN 570 pts): https://news.ycombinator.com/item?id=47224295. Commenter `evara-ai`: _"We serve callers in India connecting to US-East, and the Twilio edge hop alone adds 150-250ms depending on the carrier."_
 - OpenAI Codex preconnect pattern (covered above): https://github.com/openai/codex/pull/10698
 - "Optimistic Acknowledge" filler tokens — Hamming AI's pattern name: https://hamming.ai/resources/voice-ai-latency-whats-fast-whats-slow-how-to-fix-it. Backed by ACM CUI 2024 ("Explaining the Wait" increases trust): https://dl.acm.org/doi/10.1145/3640794.3665550
 
@@ -91,6 +97,7 @@ The user's Sarvam 30B scar (4.2s) doesn't disqualify their STT/TTS — different
 ## 5. Cheap providers Indians actually deploy
 
 ### Sarvam (direct API) — INR billing, no mandate
+
 - Sarvam-30B: ₹2.5 input / ₹10 output per 1M tokens
 - Sarvam-105B: ₹4 / ₹16 per 1M tokens
 - STT ₹30/hr, TTS ₹30/10K chars
@@ -99,11 +106,12 @@ The user's Sarvam 30B scar (4.2s) doesn't disqualify their STT/TTS — different
 
 **Sarvam Startup Programme** (launched 5 March 2026): 6-12 months free credits scaled to startup. https://www.sarvam.ai/startup-program / https://www.businesstoday.in/technology/news/story/sarvam-launches-startup-programme-offering-ai-credits-tools-to-boost-indias-developer-ecosystem-519295-2026-03-05
 
-Real Indian dev hands-on (Deepak, 27 May 2025): *"definitely faster than ChatGPT and Gemini via the playground"* — qualitative, no TTFT cited. https://deepakness.com/blog/sarvam-m/
+Real Indian dev hands-on (Deepak, 27 May 2025): _"definitely faster than ChatGPT and Gemini via the playground"_ — qualitative, no TTFT cited. https://deepakness.com/blog/sarvam-m/
 
 **Gap:** no measured TTFT from India for Sarvam-M (24B). The user's scar is on Sarvam 30B — Sarvam-M is untested.
 
 ### Krutrim (Ola) — published per-token prices, free signup
+
 - DeepSeek-R1-Distill-Llama-8B: **₹3 / 1M tokens** (~$0.036/M)
 - Llama-4-Scout-17B: ₹7/M
 - Gemma-3-27B: ₹8/M
@@ -115,32 +123,37 @@ Real Indian dev hands-on (Deepak, 27 May 2025): *"definitely faster than ChatGPT
 **Gap:** no independent latency benchmark found. Cheapest thing on the market with Indic claims; one day of testing reveals whether it's real.
 
 ### Cerebras free tier
+
 - **1M tokens/day FREE**, no card
 - Llama 3.3 70B + Qwen3 32B + GPT-OSS 120B
 - 156ms TTFT from India documented (section 3)
 - https://pricepertoken.com/endpoints/cerebras/free
 
 ### DeepSeek direct API
+
 - $0.28/M input, $0.42/M output (cache hits $0.028/M)
 - At ~1,000 chats/day = **~$6/mo**
 - https://api-docs.deepseek.com/quick_start/pricing
-- Tamil rated *"clear winner"* vs GPT-4o by Hinduja Balasubramaniyam (WSO2 engineer): https://hindujab.medium.com/deepseek-v3-and-its-tamil-literacy-21907ea5e664
+- Tamil rated _"clear winner"_ vs GPT-4o by Hinduja Balasubramaniyam (WSO2 engineer): https://hindujab.medium.com/deepseek-v3-and-its-tamil-literacy-21907ea5e664
 - Hindi rated Tier-2 ("strong, light review needed"): https://machinetranslate.org/deepseek
 - **Caveat:** DeepSeek-direct servers are in China. No India TTFT published.
 
 ### Yotta Shakti Cloud (India physical inference)
+
 - Llama 3.1 70B at ₹75 / 1M input tokens (~$0.90/M): https://shakticloud.ai/pricing/
 - NVIDIA-backed, 16,000 H100s deployed: https://www.nvidia.com/en-in/customer-stories/yotta-built-india-sovereign-ai-infrastructure-shakti-cloud/
 - **Gap:** no published TTFT, no public benchmark from a third-party deployer. Real but unproven.
 
 ### Vercel AI Gateway / OpenRouter
+
 - OpenRouter free tier: 50 req/day without $10 credit, 1,000/day after. Free models log prompts for training. https://openrouter.ai/docs/api/reference/limits
 - Vercel AI Gateway adds **15-20% overhead** on small prompts vs direct SDK (measured Feb 2026 by Zac Clifton): https://dev.to/cliftonz/benchmarking-vercel-ai-gateway-against-the-native-anthropic-sdk-21g5
 
 ### Cloudflare AI Gateway from India — DON'T
+
 Punit Sethi measured from Bangalore on Jio Fiber (15 Sep 2025): baseline 47ms, **Cloudflare Free/Pro 152-186ms** (served from Singapore/Amsterdam — Jio + Airtel don't peer with Cloudflare Mumbai).
 
-> *"If your audience is mainly from India, do not assume Cloudflare will improve your site speed."*
+> _"If your audience is mainly from India, do not assume Cloudflare will improve your site speed."_
 
 https://punits.dev/blog/cloudflare-latency-india/
 
@@ -154,12 +167,12 @@ Cloudflare Business/Enterprise tier (~$200+/mo) routes via Mumbai — kills the 
 
 Evidence:
 
-- **Yellow.ai chose Mumbai primary** because *"latency from US West Coast to India was significantly slower than we expected"*: https://tech.yellow.ai/p/yellowais-multi-region-expansion-part-one
+- **Yellow.ai chose Mumbai primary** because _"latency from US West Coast to India was significantly slower than we expected"_: https://tech.yellow.ai/p/yellowais-multi-region-expansion-part-one
 - **Haptik routes via India-based AZs** + on-prem for Tier-2: https://www.haptik.ai/blog/latency-interruption-handling-impact-on-voice-ai-quality
 - **Zomato stayed US** (Together AI) for the LLM, accepted sub-10s. Chat support, not voice. https://www.together.ai/customers/zomato
-- **Fly.io community thread from Indian devs**: AWS EC2 Mumbai = **1-3ms intra-region**. Fly Singapore = +50-60ms. Fly Bangalore routing is *"a mess"* — verbatim from Fly staff `jssjr`. https://community.fly.io/t/anyone-using-fly-io-from-india-sri-lanka-pakistan-regions-beware-of-poor-routing/18072 / https://community.fly.io/t/higher-latency-on-fly-apps-compared-to-aws/24124
+- **Fly.io community thread from Indian devs**: AWS EC2 Mumbai = **1-3ms intra-region**. Fly Singapore = +50-60ms. Fly Bangalore routing is _"a mess"_ — verbatim from Fly staff `jssjr`. https://community.fly.io/t/anyone-using-fly-io-from-india-sri-lanka-pakistan-regions-beware-of-poor-routing/18072 / https://community.fly.io/t/higher-latency-on-fly-apps-compared-to-aws/24124
 - **Fly Bangalore has documented capacity failures** (April 2025): https://community.fly.io/t/apr-22-2025-failed-to-deploy-no-capacity-available-in-region-bom-india/24662
-- **AWS Bedrock CRIS in ap-south-1**: inference NOT in Mumbai despite the endpoint — AWS's own blog says *"BOM → AWS commercial Regions"* without naming destinations, **publishes zero latency numbers**: https://aws.amazon.com/blogs/machine-learning/access-anthropic-claude-models-in-india-on-amazon-bedrock-with-global-cross-region-inference/
+- **AWS Bedrock CRIS in ap-south-1**: inference NOT in Mumbai despite the endpoint — AWS's own blog says _"BOM → AWS commercial Regions"_ without naming destinations, **publishes zero latency numbers**: https://aws.amazon.com/blogs/machine-learning/access-anthropic-claude-models-in-india-on-amazon-bedrock-with-global-cross-region-inference/
 
 **The one thing that would change this verdict:** Vertex AI `asia-south1` Gemini 2.5 Flash is the **only major LLM with documented inference physically in Mumbai**. https://docs.cloud.google.com/vertex-ai/generative-ai/docs/learn/locations. User rejected Gemini Flash earlier — but was the test hitting AI Studio (US-routed) or Vertex `asia-south1` (Mumbai-routed)? Worth re-checking. Indian dev forum post asking this exact question got zero Google staff replies: https://discuss.ai.google.dev/t/is-there-any-model-available-or-planned-in-the-asia-south1-region-on-vertex-ai-that-is-more-capable-than-gemini-2-5-flash/128791. Catch: Vertex AI requires a billed GCP project = credit-card mandate (the trauma trigger).
 
@@ -174,7 +187,7 @@ Evidence:
 3. **Punit Sethi — Cloudflare is broken from India on Jio/Airtel**: https://punits.dev/blog/cloudflare-latency-india/
 4. **Fly.io staff admits India routing "is a mess"**: https://community.fly.io/t/anyone-using-fly-io-from-india-sri-lanka-pakistan-regions-beware-of-poor-routing/18072
 5. **Zomato architecture (Together AI Llama 3, US, sub-10s)**: https://www.together.ai/customers/zomato
-6. **Yellow.ai region strategy** (*"US→India was significantly slower than expected"*): https://tech.yellow.ai/p/yellowais-multi-region-expansion-part-one
+6. **Yellow.ai region strategy** (_"US→India was significantly slower than expected"_): https://tech.yellow.ai/p/yellowais-multi-region-expansion-part-one
 7. **OpenAI streaming connection cannot be reused — ~1s per call**: https://community.openai.com/t/how-to-reuse-keep-alive-connections-for-streaming-responses/882953
 8. **OpenAI Codex preconnect pattern (the fix for #7)**: https://github.com/openai/codex/pull/10698
 9. **AWS Bedrock Claude in India via CRIS** (Mumbai endpoint but US/EU inference): https://aws.amazon.com/blogs/machine-learning/access-anthropic-claude-models-in-india-on-amazon-bedrock-with-global-cross-region-inference/
@@ -185,27 +198,33 @@ Evidence:
 ## 8. What to do this week (in order)
 
 ### 1. Today, free, no migration — fix the cold start
+
 Wire `undici` keep-alive + a 25s heartbeat `GET /v1/models` on the NestJS API → n8n / LLM connection. References:
+
 - OpenAI Codex PR #10698 for the preconnect pattern
 - Bhagya Rana's 50% latency cut from keep-alive + DNS caching
 
 Estimated impact: kill the >3s first call.
 
 ### 2. Today, 10-line code change — add "Optimistic Acknowledge"
-Emit a server-side pre-token (`एक सेकंड…` / `got it…`) as the FIRST SSE chunk before n8n→OpenAI returns. Hamming AI's documented pattern. Can turn 2.5s TTFT into sub-300ms *perceived* TTFT.
+
+Emit a server-side pre-token (`एक सेकंड…` / `got it…`) as the FIRST SSE chunk before n8n→OpenAI returns. Hamming AI's documented pattern. Can turn 2.5s TTFT into sub-300ms _perceived_ TTFT.
 
 ### 3. This weekend — spike Qwen3-32B on Cerebras free tier
+
 - 1M tokens/day FREE, no card
 - Same model as the 156ms India measurement
 - 20 prompts each in Hindi/Tamil/Marathi
 - If quality holds → free production-grade backend with measurable India numbers, no mandate
 
 ### 4. This week — apply to Sarvam Startup Programme
+
 - Zero downside, INR billing, 6-12 months free credits
 - Lets us test **Sarvam-M (24B — different from the 30B scar)** + Bulbul TTS + Saaras STT properly
 - The split-stack pattern (Sarvam STT/TTS + foreign LLM) is what Cars24, Razorpay, Apna actually run
 
 ### 5. Next sprint — migrate API origin to AWS `ap-south-1`
+
 - `t4g.micro`, NOT Fly Bangalore
 - Billing alerts at $5/$10/$15 to scar-proof
 - Estimated ~$8/mo with NAT + storage
@@ -238,9 +257,10 @@ The closest pattern that fits the constraints:
 
 Companion research from a 10-agent workflow (`wf_de090d67-bf5`), 2026-05-30. **All voice changes land in the AI orchestration layer (parked branch `feature/ai-orchestration-phase-1-code` / its successor), NOT on top of n8n.** n8n is going away — don't patch around it.
 
-## 11. The mechanical truth (from production Supabase, codeweaves-dashboard)
+## 11. The mechanical truth (from production Supabase, klivo-dashboard)
 
 From 92 voice messages with full timing metadata:
+
 - STT avg **1.93s** (Sarvam Saaras or Deepgram, mixed)
 - TTS avg per sentence **3.05s**, p95 **6.25s** (Sarvam Bulbul or ElevenLabs)
 - n8n→LLM bucket (LLM + n8n overhead combined): ~4s
@@ -248,6 +268,7 @@ From 92 voice messages with full timing metadata:
 - Total end-to-end avg **9.33s**, p50 **8.87s**, p95 **13s**
 
 Root cause from code: both Sarvam endpoints and the ElevenLabs synthesize call hit **batch HTTP**, not streaming.
+
 - [apps/api/src/modules/voice/providers/sarvam.provider.ts:156](../../apps/api/src/modules/voice/providers/sarvam.provider.ts#L156) STT batch
 - [sarvam.provider.ts:201](../../apps/api/src/modules/voice/providers/sarvam.provider.ts#L201) TTS batch
 - [apps/api/src/modules/voice/providers/elevenlabs.provider.ts:114](../../apps/api/src/modules/voice/providers/elevenlabs.provider.ts#L114) TTS batch on `eleven_multilingual_v2` (the slow model)
@@ -256,11 +277,11 @@ Root cause from code: both Sarvam endpoints and the ElevenLabs synthesize call h
 
 Current code hardcodes `eleven_multilingual_v2`. Per Gradium/Coval independently-measured benchmark (https://gradium.ai/content/tts-latency-benchmark-2026):
 
-| ElevenLabs model | TTFT | WER | Notes |
-|---|---|---|---|
-| `eleven_multilingual_v2` ← current | **1,232 ms** | 3.9% | Slowest, best quality |
-| `eleven_turbo_v2_5` | 264 ms | 5.2% | **5× faster, near-identical quality for short replies** |
-| `eleven_flash_v2_5` | 288 ms | 5.2% | Same speed bracket |
+| ElevenLabs model                   | TTFT         | WER  | Notes                                                   |
+| ---------------------------------- | ------------ | ---- | ------------------------------------------------------- |
+| `eleven_multilingual_v2` ← current | **1,232 ms** | 3.9% | Slowest, best quality                                   |
+| `eleven_turbo_v2_5`                | 264 ms       | 5.2% | **5× faster, near-identical quality for short replies** |
+| `eleven_flash_v2_5`                | 288 ms       | 5.2% | Same speed bracket                                      |
 
 **Why ElevenLabs matters at all** (when we have Sarvam): Sarvam voices are heavy on North Indian Hindi cadence. For Bengali/Odia/Northeast/non-standard-accent clients, ElevenLabs sounds more natural. Dual-provider routing already in code stays — both providers just need to be faster.
 
@@ -269,8 +290,9 @@ Current code hardcodes `eleven_multilingual_v2`. Per Gradium/Coval independently
 The code is on batch endpoints. Streaming exists and was never wired.
 
 - **TTS WebSocket**: `wss://api.sarvam.ai/text-to-speech/ws` — https://docs.sarvam.ai/api-reference-docs/api-guides-tutorials/text-to-speech/streaming-api/web-socket
-  > *"Audio playback begins as soon as the first chunk is synthesized — no need to wait for the full response."*
-  Vendor claim: sub-250ms first byte. **Same ₹30/10K chars price as batch.**
+
+  > _"Audio playback begins as soon as the first chunk is synthesized — no need to wait for the full response."_
+  > Vendor claim: sub-250ms first byte. **Same ₹30/10K chars price as batch.**
 
 - **STT WebSocket**: `wss://api.sarvam.ai/speech-to-text/ws` — https://docs.sarvam.ai/api-reference-docs/speech-to-text/transcribe/ws
   - Saaras v3, server-side VAD (`high_vad_sensitivity=true`, emits `START_SPEECH`/`END_SPEECH`), partial transcripts
@@ -294,20 +316,21 @@ The code is on batch endpoints. Streaming exists and was never wired.
 ## 16. The only public Indian Sarvam-streaming deployment with numbers
 
 **GrowwStacks** tested Bulbul v3 + Saaras v3 + GPT-4 (https://growwstacks.com/blog/sarvam-ai-tts-stt-voice-agent-test):
-- *"Audio after 300-400ms of processing"*
-- *"40-60% perceived latency reduction vs batch"*
-- *"88% Hindi accuracy clean"*
+
+- _"Audio after 300-400ms of processing"_
+- _"40-60% perceived latency reduction vs batch"_
+- _"88% Hindi accuracy clean"_
 
 Other Indian shops (Cars24, Razorpay, Apna, Meesho, Skit AI, Haptik, Yellow.ai) are named in ecosystem write-ups but **none publish their measured voice stack**.
 
 ## 17. Ship order — voice refactor merges into AI orchestration layer
 
-| PR | Effort | Win | Risk | Branch / lands in |
-|---|---|---|---|---|
-| **PR #0 (5 min)** | Change `eleven_multilingual_v2` → `eleven_turbo_v2_5` at [elevenlabs.provider.ts:114](../../apps/api/src/modules/voice/providers/elevenlabs.provider.ts#L114). Behind per-agent setting if you want fallback. | **~1 sec saved per sentence** for any ElevenLabs agent | Zero — same vendor/API | Standalone fix branch — merge to develop immediately |
-| **PR #1 (1-2 days)** | Sarvam TTS batch → Bulbul v3 WebSocket (new `SarvamTTSWebSocketClient`). Sentence flush on each LLM-stream sentence boundary. Replace the 3 batch calls. Keep behind `VOICE_TTS_STREAMING_ENABLED` per-agent flag. | ~2-3 sec saved p50 for Sarvam agents | Low (WS reconnect, 30s ping keepalive) | **AI orchestration branch** — pairs with the direct LLM path via `voice-token-stream.adapter.ts` |
-| **PR #2 (1 day)** | ElevenLabs batch → Flash v2.5 WebSocket | First audio chunk ~300ms | Low | AI orchestration branch |
-| **PR #3 (2-3 days)** | Sarvam STT batch → Saaras v3 WebSocket + widget VAD (`@ricky0123/vad-web`). Opus→PCM16 decode using `prism-media`. | Another 1.5-2 sec saved | Medium (audio format mismatch is the main gotcha) | AI orchestration branch + widget |
+| PR                   | Effort                                                                                                                                                                                                             | Win                                                    | Risk                                              | Branch / lands in                                                                                |
+| -------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ | ------------------------------------------------------ | ------------------------------------------------- | ------------------------------------------------------------------------------------------------ |
+| **PR #0 (5 min)**    | Change `eleven_multilingual_v2` → `eleven_turbo_v2_5` at [elevenlabs.provider.ts:114](../../apps/api/src/modules/voice/providers/elevenlabs.provider.ts#L114). Behind per-agent setting if you want fallback.      | **~1 sec saved per sentence** for any ElevenLabs agent | Zero — same vendor/API                            | Standalone fix branch — merge to develop immediately                                             |
+| **PR #1 (1-2 days)** | Sarvam TTS batch → Bulbul v3 WebSocket (new `SarvamTTSWebSocketClient`). Sentence flush on each LLM-stream sentence boundary. Replace the 3 batch calls. Keep behind `VOICE_TTS_STREAMING_ENABLED` per-agent flag. | ~2-3 sec saved p50 for Sarvam agents                   | Low (WS reconnect, 30s ping keepalive)            | **AI orchestration branch** — pairs with the direct LLM path via `voice-token-stream.adapter.ts` |
+| **PR #2 (1 day)**    | ElevenLabs batch → Flash v2.5 WebSocket                                                                                                                                                                            | First audio chunk ~300ms                               | Low                                               | AI orchestration branch                                                                          |
+| **PR #3 (2-3 days)** | Sarvam STT batch → Saaras v3 WebSocket + widget VAD (`@ricky0123/vad-web`). Opus→PCM16 decode using `prism-media`.                                                                                                 | Another 1.5-2 sec saved                                | Medium (audio format mismatch is the main gotcha) | AI orchestration branch + widget                                                                 |
 
 Total to ship full streaming voice: **4-6 days of focused work**, all flag-gated.
 

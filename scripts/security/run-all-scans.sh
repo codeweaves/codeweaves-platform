@@ -7,7 +7,7 @@
 # Usage: ./run-all-scans.sh [target-url]   (default https://app.getklivo.com)
 set -uo pipefail   # NOT -e: one scanner failing must not abort the rest
 
-REPO="/c/personal/codeweaves-platform"
+REPO="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 TARGET="${1:-https://app.getklivo.com}"
 OUT="$REPO/security-scan-results"
 LOG="$OUT/run.log"

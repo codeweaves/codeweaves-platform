@@ -1,4 +1,4 @@
-# Development Guide - CodeWeaves Platform
+# Development Guide - Klivo Platform
 
 > Generated: 2026-02-14
 

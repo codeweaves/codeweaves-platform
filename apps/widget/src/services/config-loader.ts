@@ -1,5 +1,5 @@
 /**
- * Config-loader service for CodeWeaves widget (Story 5-4).
+ * Config-loader service for the Klivo widget (Story 5-4).
  *
  * Implements cache-first fetch strategy with ETag-based revalidation:
  *   1. If localStorage cache is valid (< TTL), return immediately.
@@ -7,8 +7,8 @@
  *   3. 200 → store new config + ETag; 304 → refresh TTL; error → fallback to cache.
  */
 
-import type { LoadedWidgetConfig } from '../types';
-import { debug, warn } from '../utils/debug';
+import type { LoadedWidgetConfig } from "../types";
+import { debug, warn } from "../utils/debug";
 
 // ── Constants ────────────────────────────────────────────────────────
 
@@ -58,7 +58,11 @@ function getCachedConfig(agentId: string): LoadedWidgetConfig | null {
 
 function getCachedEtag(agentId: string): string | null {
   try {
-    return localStorage.getItem(KEY_ETAG(agentId)) ?? memoryCache.get(agentId)?.etag ?? null;
+    return (
+      localStorage.getItem(KEY_ETAG(agentId)) ??
+      memoryCache.get(agentId)?.etag ??
+      null
+    );
   } catch {
     return memoryCache.get(agentId)?.etag ?? null;
   }
@@ -79,7 +83,7 @@ function setCachedConfig(
     if (etag) localStorage.setItem(KEY_ETAG(agentId), etag);
     localStorage.setItem(KEY_TS(agentId), String(ts));
   } catch {
-    warn('localStorage write failed — using in-memory cache for this session');
+    warn("localStorage write failed — using in-memory cache for this session");
   }
 }
 
@@ -130,20 +134,20 @@ export async function loadConfig(
   if (isCacheValid(agentId, ttl)) {
     const cached = getCachedConfig(agentId);
     if (cached) {
-      debug('Config cache hit (TTL valid)');
+      debug("Config cache hit (TTL valid)");
       return cached;
     }
   }
 
   // Build fetch URL (strip trailing slash from apiBaseUrl)
-  const base = apiBaseUrl.replace(/\/+$/, '');
+  const base = apiBaseUrl.replace(/\/+$/, "");
   const url = `${base}/api/klivo/v1/public/agents/${encodeURIComponent(agentId)}/config`;
 
   // Task 3: Include If-None-Match header when ETag is cached
   const headers: Record<string, string> = {};
   const cachedEtag = getCachedEtag(agentId);
   if (cachedEtag) {
-    headers['If-None-Match'] = cachedEtag;
+    headers["If-None-Match"] = cachedEtag;
   }
 
   try {
@@ -152,21 +156,21 @@ export async function loadConfig(
     // Task 4: Handle API response codes
     if (response.status === 200) {
       const config = (await response.json()) as LoadedWidgetConfig;
-      const etag = response.headers.get('etag');
+      const etag = response.headers.get("etag");
       setCachedConfig(agentId, config, etag);
-      debug('Config fetched (200), ETag:', etag);
+      debug("Config fetched (200), ETag:", etag);
       return config;
     }
 
     if (response.status === 304) {
       refreshCacheTimestamp(agentId);
       const cached = getCachedConfig(agentId);
-      debug('Config not modified (304), using cache');
+      debug("Config not modified (304), using cache");
       return cached;
     }
 
     if (response.status === 404) {
-      warn('Agent not found (404)');
+      warn("Agent not found (404)");
       clearConfigCache(agentId);
       return null;
     }
@@ -181,15 +185,19 @@ export async function loadConfig(
     const ts = readTs(agentId);
     const age = ts === null ? Infinity : Date.now() - ts;
     if (cached && age < FALLBACK_MAX_AGE_MS) {
-      warn(`API unreachable, using cached config (${Math.floor(age / 60000)}m old)`);
+      warn(
+        `API unreachable, using cached config (${Math.floor(age / 60000)}m old)`,
+      );
       return cached;
     }
 
     if (cached) {
-      warn(`Cached config too stale (${Math.floor(age / 3600000)}h old) — purging`);
+      warn(
+        `Cached config too stale (${Math.floor(age / 3600000)}h old) — purging`,
+      );
       clearConfigCache(agentId);
     } else {
-      warn('API unreachable and no cached config available');
+      warn("API unreachable and no cached config available");
     }
     return null;
   }

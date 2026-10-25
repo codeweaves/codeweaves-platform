@@ -22,7 +22,7 @@ export const VOICE_FIXTURE = join(RUN_DIR, 'fixtures', 'voice.wav');
 
 export const CDP_PORT = 9333;
 export const HOST_PORT = 5180;
-export const PG_CONTAINER = 'codeweaves-postgres';
+export const PG_CONTAINER = 'klivo-postgres';
 export const PG_PORT = 5433;
 
 export const URLS = {

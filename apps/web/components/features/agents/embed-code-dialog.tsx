@@ -14,7 +14,7 @@ import { Button } from "@/components/ui/button";
 import { toast } from "sonner";
 
 const WIDGET_URL =
-  process.env.NEXT_PUBLIC_WIDGET_URL ?? "https://widget.codeweaves.com";
+  process.env.NEXT_PUBLIC_WIDGET_URL || "http://localhost:5173";
 
 interface EmbedCodeDialogProps {
   publicId: string;

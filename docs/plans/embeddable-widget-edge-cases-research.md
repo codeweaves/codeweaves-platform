@@ -1,6 +1,6 @@
 # Embeddable Chat Widget: Edge Cases, Mobile, Accessibility & Battle-Tested Patterns
 
-> Research document for the CodeWeaves embeddable chat widget.
+> Research document for the Klivo embeddable chat widget.
 > This widget will be deployed on THOUSANDS of customer websites — every edge case matters.
 
 ---
@@ -38,13 +38,13 @@ function setupKeyboardHandler(widgetEl: HTMLElement) {
     widgetEl.style.transform = `translateY(-${offsetBottom}px)`;
   };
 
-  window.visualViewport.addEventListener('resize', onViewportResize);
-  window.visualViewport.addEventListener('scroll', onViewportResize);
+  window.visualViewport.addEventListener("resize", onViewportResize);
+  window.visualViewport.addEventListener("scroll", onViewportResize);
 
   // Return cleanup function
   return () => {
-    window.visualViewport?.removeEventListener('resize', onViewportResize);
-    window.visualViewport?.removeEventListener('scroll', onViewportResize);
+    window.visualViewport?.removeEventListener("resize", onViewportResize);
+    window.visualViewport?.removeEventListener("scroll", onViewportResize);
   };
 }
 ```
@@ -52,9 +52,14 @@ function setupKeyboardHandler(widgetEl: HTMLElement) {
 **GOTCHA (iOS 26):** There are reported issues where `visualViewport.height` consistently remains smaller than `window.innerHeight` after keyboard dismissal. Test thoroughly on latest iOS.
 
 **Alternative — `interactive-widget` meta tag:**
+
 ```html
-<meta name="viewport" content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content">
+<meta
+  name="viewport"
+  content="width=device-width, initial-scale=1.0, interactive-widget=resizes-content"
+/>
 ```
+
 - `resizes-visual` — Resize only Visual Viewport (default on most browsers)
 - `resizes-content` — Resize both Visual and Layout Viewport
 - `overlays-content` — Do not resize any viewport
@@ -63,12 +68,12 @@ function setupKeyboardHandler(widgetEl: HTMLElement) {
 
 ### 1.2 `100vh` vs `100dvh` — Which to Use
 
-| Unit | Behavior | Use Case |
-|------|----------|----------|
-| `100vh` | Fixed to initial viewport, does NOT change with keyboard/URL bar | Avoid for mobile |
-| `100svh` | Smallest possible viewport (URL bar visible) | Safe minimum height |
-| `100lvh` | Largest possible viewport (URL bar hidden) | Max possible height |
-| `100dvh` | Dynamic — changes in real-time as browser chrome appears/disappears | Chat window height |
+| Unit     | Behavior                                                            | Use Case            |
+| -------- | ------------------------------------------------------------------- | ------------------- |
+| `100vh`  | Fixed to initial viewport, does NOT change with keyboard/URL bar    | Avoid for mobile    |
+| `100svh` | Smallest possible viewport (URL bar visible)                        | Safe minimum height |
+| `100lvh` | Largest possible viewport (URL bar hidden)                          | Max possible height |
+| `100dvh` | Dynamic — changes in real-time as browser chrome appears/disappears | Chat window height  |
 
 **Recommendation:** Use `100dvh` with `100vh` fallback:
 
@@ -113,17 +118,17 @@ let scrollPosition = 0;
 
 function lockScroll() {
   scrollPosition = window.scrollY;
-  document.body.style.position = 'fixed';
+  document.body.style.position = "fixed";
   document.body.style.top = `-${scrollPosition}px`;
-  document.body.style.width = '100%';
-  document.body.style.overflow = 'hidden';
+  document.body.style.width = "100%";
+  document.body.style.overflow = "hidden";
 }
 
 function unlockScroll() {
-  document.body.style.position = '';
-  document.body.style.top = '';
-  document.body.style.width = '';
-  document.body.style.overflow = '';
+  document.body.style.position = "";
+  document.body.style.top = "";
+  document.body.style.width = "";
+  document.body.style.overflow = "";
   window.scrollTo(0, scrollPosition);
 }
 ```
@@ -184,15 +189,23 @@ function unlockScroll() {
 
 ```typescript
 // Inside shadow DOM chat container
-chatMessages.addEventListener('touchmove', (e) => {
-  // Allow scrolling within the chat messages area
-  e.stopPropagation();
-}, { passive: true });
+chatMessages.addEventListener(
+  "touchmove",
+  (e) => {
+    // Allow scrolling within the chat messages area
+    e.stopPropagation();
+  },
+  { passive: true },
+);
 
 // On the overlay/backdrop — prevent scroll
-overlay.addEventListener('touchmove', (e) => {
-  e.preventDefault();
-}, { passive: false });
+overlay.addEventListener(
+  "touchmove",
+  (e) => {
+    e.preventDefault();
+  },
+  { passive: false },
+);
 ```
 
 ### 1.7 Pinch-to-Zoom Prevention Inside Widget
@@ -228,6 +241,7 @@ iOS Safari's elastic "bounce" scrolling works inside Shadow DOM, but can cause v
 **Good news:** Screen readers (NVDA, JAWS, VoiceOver) hook into the browser's accessibility tree, which is the **flattened/composed** tree. Shadow DOM boundaries are transparent to assistive technology. Content inside Shadow DOM IS accessible to screen readers.
 
 **GOTCHA — ARIA IDREFs do NOT cross Shadow DOM boundaries.** This means:
+
 - `aria-labelledby="some-id"` will NOT work if the referenced ID is outside the shadow root.
 - `aria-describedby`, `aria-controls`, `aria-owns` — same limitation.
 - **Solution:** Keep all ARIA IDREF relationships within the same shadow root.
@@ -242,12 +256,13 @@ function createFocusTrap(shadowRoot: ShadowRoot) {
     'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
   function getFocusableElements(): HTMLElement[] {
-    return Array.from(shadowRoot.querySelectorAll(FOCUSABLE_SELECTOR))
-      .filter(el => !el.hasAttribute('disabled') && el.offsetParent !== null) as HTMLElement[];
+    return Array.from(shadowRoot.querySelectorAll(FOCUSABLE_SELECTOR)).filter(
+      (el) => !el.hasAttribute("disabled") && el.offsetParent !== null,
+    ) as HTMLElement[];
   }
 
   function handleKeyDown(e: KeyboardEvent) {
-    if (e.key !== 'Tab') return;
+    if (e.key !== "Tab") return;
 
     const focusable = getFocusableElements();
     if (focusable.length === 0) return;
@@ -274,13 +289,13 @@ function createFocusTrap(shadowRoot: ShadowRoot) {
   }
 
   // Activate
-  shadowRoot.addEventListener('keydown', handleKeyDown);
+  shadowRoot.addEventListener("keydown", handleKeyDown);
   const focusable = getFocusableElements();
   if (focusable.length > 0) focusable[0].focus();
 
   // Deactivate — returns cleanup function
   return () => {
-    shadowRoot.removeEventListener('keydown', handleKeyDown);
+    shadowRoot.removeEventListener("keydown", handleKeyDown);
   };
 }
 ```
@@ -306,18 +321,18 @@ function closeChat() {
 
 ### 2.4 Keyboard Navigation
 
-| Key | Action |
-|-----|--------|
-| `Enter` / `Space` | Open chat (on trigger button) |
-| `Escape` | Close chat window |
-| `Tab` | Move to next focusable element (trapped) |
-| `Shift+Tab` | Move to previous focusable element (trapped) |
-| `Enter` | Send message (in input field) |
+| Key               | Action                                       |
+| ----------------- | -------------------------------------------- |
+| `Enter` / `Space` | Open chat (on trigger button)                |
+| `Escape`          | Close chat window                            |
+| `Tab`             | Move to next focusable element (trapped)     |
+| `Shift+Tab`       | Move to previous focusable element (trapped) |
+| `Enter`           | Send message (in input field)                |
 
 ```typescript
 // Escape to close — on the shadow root
-shadowRoot.addEventListener('keydown', (e: KeyboardEvent) => {
-  if (e.key === 'Escape') {
+shadowRoot.addEventListener("keydown", (e: KeyboardEvent) => {
+  if (e.key === "Escape") {
     closeChat();
   }
 });
@@ -329,7 +344,12 @@ Screen readers need to announce new messages as they arrive. `aria-live` works i
 
 ```html
 <!-- Inside shadow DOM -->
-<div class="chat-messages" role="log" aria-live="polite" aria-relevant="additions">
+<div
+  class="chat-messages"
+  role="log"
+  aria-live="polite"
+  aria-relevant="additions"
+>
   <!-- Messages are appended here -->
 </div>
 ```
@@ -392,7 +412,9 @@ function validateThemeContrast(theme: WidgetTheme): string[] {
   const warnings: string[] = [];
   const textOnPrimary = getContrastRatio(theme.primaryColor, theme.textColor);
   if (textOnPrimary < 4.5) {
-    warnings.push(`Text on primary background has insufficient contrast (${textOnPrimary.toFixed(1)}:1, needs 4.5:1)`);
+    warnings.push(
+      `Text on primary background has insufficient contrast (${textOnPrimary.toFixed(1)}:1, needs 4.5:1)`,
+    );
   }
   return warnings;
 }
@@ -414,13 +436,15 @@ function validateThemeContrast(theme: WidgetTheme): string[] {
 Also check in JavaScript for animation triggers:
 
 ```typescript
-const prefersReducedMotion = window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+const prefersReducedMotion = window.matchMedia(
+  "(prefers-reduced-motion: reduce)",
+).matches;
 
 function openChatWindow() {
   if (prefersReducedMotion) {
-    chatWindow.style.display = 'block'; // Instant show
+    chatWindow.style.display = "block"; // Instant show
   } else {
-    chatWindow.classList.add('animate-slide-up'); // Animated
+    chatWindow.classList.add("animate-slide-up"); // Animated
   }
 }
 ```
@@ -447,14 +471,14 @@ function openChatWindow() {
 
 Common leak sources and mitigations:
 
-| Leak Source | Mitigation |
-|-------------|------------|
-| Event listeners not cleaned up | Store all listener references; remove on destroy |
-| WebSocket/SSE connections | AbortController pattern; close on destroy |
-| Accumulated message DOM nodes | Virtualize message list; limit to ~200 visible nodes |
-| Stale closures holding old state | Use refs instead of closures for mutable state |
-| Timer/interval not cleared | Track all timer IDs; clearInterval/clearTimeout on destroy |
-| Large message history in memory | Cap in-memory messages (e.g., 500); paginate older from server |
+| Leak Source                      | Mitigation                                                     |
+| -------------------------------- | -------------------------------------------------------------- |
+| Event listeners not cleaned up   | Store all listener references; remove on destroy               |
+| WebSocket/SSE connections        | AbortController pattern; close on destroy                      |
+| Accumulated message DOM nodes    | Virtualize message list; limit to ~200 visible nodes           |
+| Stale closures holding old state | Use refs instead of closures for mutable state                 |
+| Timer/interval not cleared       | Track all timer IDs; clearInterval/clearTimeout on destroy     |
+| Large message history in memory  | Cap in-memory messages (e.g., 500); paginate older from server |
 
 **Message virtualization pattern:**
 
@@ -463,11 +487,19 @@ Common leak sources and mitigations:
 const BUFFER_SIZE = 20;
 const MESSAGE_HEIGHT_ESTIMATE = 60; // px
 
-function getVisibleRange(scrollTop: number, containerHeight: number, totalMessages: number) {
-  const startIdx = Math.max(0, Math.floor(scrollTop / MESSAGE_HEIGHT_ESTIMATE) - BUFFER_SIZE);
+function getVisibleRange(
+  scrollTop: number,
+  containerHeight: number,
+  totalMessages: number,
+) {
+  const startIdx = Math.max(
+    0,
+    Math.floor(scrollTop / MESSAGE_HEIGHT_ESTIMATE) - BUFFER_SIZE,
+  );
   const endIdx = Math.min(
     totalMessages,
-    Math.ceil((scrollTop + containerHeight) / MESSAGE_HEIGHT_ESTIMATE) + BUFFER_SIZE
+    Math.ceil((scrollTop + containerHeight) / MESSAGE_HEIGHT_ESTIMATE) +
+      BUFFER_SIZE,
   );
   return { startIdx, endIdx };
 }
@@ -490,8 +522,8 @@ class WidgetManager {
   }
 
   private mount() {
-    this.hostElement = document.createElement('div');
-    this.hostElement.id = 'codeweaves-widget-host';
+    this.hostElement = document.createElement("div");
+    this.hostElement.id = "klivo-widget-host";
     document.body.appendChild(this.hostElement);
     // Attach shadow DOM and render widget...
   }
@@ -501,9 +533,12 @@ class WidgetManager {
     this.observer = new MutationObserver((mutations) => {
       for (const mutation of mutations) {
         for (const removed of mutation.removedNodes) {
-          if (removed === this.hostElement || (removed as Element).contains?.(this.hostElement!)) {
+          if (
+            removed === this.hostElement ||
+            (removed as Element).contains?.(this.hostElement!)
+          ) {
             // Our host was removed — re-mount
-            console.warn('[CodeWeaves] Widget host removed, re-mounting...');
+            console.warn("[Klivo] Widget host removed, re-mounting...");
             this.mount();
           }
         }
@@ -524,7 +559,7 @@ class WidgetManager {
 
 ```typescript
 // Detect SPA navigation
-window.addEventListener('popstate', () => {
+window.addEventListener("popstate", () => {
   // Widget persists — no action needed if mounted to body
   // But re-check configuration (e.g., should widget be hidden on certain pages?)
 });
@@ -535,7 +570,7 @@ window.addEventListener('popstate', () => {
 Every embeddable widget MUST expose a clean destroy method:
 
 ```typescript
-interface CodeWeavesWidget {
+interface KlivoWidget {
   init(config: WidgetConfig): void;
   destroy(): void;
   open(): void;
@@ -545,7 +580,7 @@ interface CodeWeavesWidget {
 }
 
 // Implementation
-class Widget implements CodeWeavesWidget {
+class Widget implements KlivoWidget {
   private cleanupFns: Array<() => void> = [];
 
   init(config: WidgetConfig) {
@@ -554,9 +589,13 @@ class Widget implements CodeWeavesWidget {
     const keyboardCleanup = setupKeyboardHandler(this.element);
     this.cleanupFns.push(keyboardCleanup);
 
-    const resizeHandler = () => { /* ... */ };
-    window.addEventListener('resize', resizeHandler);
-    this.cleanupFns.push(() => window.removeEventListener('resize', resizeHandler));
+    const resizeHandler = () => {
+      /* ... */
+    };
+    window.addEventListener("resize", resizeHandler);
+    this.cleanupFns.push(() =>
+      window.removeEventListener("resize", resizeHandler),
+    );
 
     // WebSocket
     const ws = new WebSocket(config.wsUrl);
@@ -567,7 +606,11 @@ class Widget implements CodeWeavesWidget {
     // Run all cleanup functions in reverse order
     while (this.cleanupFns.length) {
       const fn = this.cleanupFns.pop()!;
-      try { fn(); } catch (e) { console.error('[CodeWeaves] Cleanup error:', e); }
+      try {
+        fn();
+      } catch (e) {
+        console.error("[Klivo] Cleanup error:", e);
+      }
     }
     // Remove DOM
     this.shadowHost?.remove();
@@ -581,20 +624,23 @@ class Widget implements CodeWeavesWidget {
 
 ```html
 <!-- Phase 1: Tiny loader script (~2KB gzipped) -->
-<script async src="https://cdn.codeweaves.com/widget/loader.js"
-  data-widget-id="abc123"></script>
+<script
+  async
+  src="https://cdn.getklivo.com/widget/loader.js"
+  data-widget-id="abc123"
+></script>
 ```
 
 ```typescript
 // loader.js — Phase 1 (~2KB)
-(function() {
+(function () {
   // Prevent double-load
-  if (window.__codeweaves_loaded) return;
-  window.__codeweaves_loaded = true;
+  if (window.__klivo_loaded) return;
+  window.__klivo_loaded = true;
 
   // Create trigger button immediately (lightweight)
-  const host = document.createElement('div');
-  const shadow = host.attachShadow({ mode: 'open' });
+  const host = document.createElement("div");
+  const shadow = host.attachShadow({ mode: "open" });
   shadow.innerHTML = `
     <style>
       .trigger {
@@ -618,16 +664,21 @@ class Widget implements CodeWeavesWidget {
   document.body.appendChild(host);
 
   // Phase 2: Load full widget only on interaction
-  const trigger = shadow.querySelector('.trigger')!;
-  trigger.addEventListener('click', async () => {
-    trigger.innerHTML = '<div class="spinner"></div>'; // Loading state
-    const module = await import('https://cdn.codeweaves.com/widget/widget.js');
-    module.init({ widgetId: host.dataset.widgetId, shadowRoot: shadow });
-  }, { once: true });
+  const trigger = shadow.querySelector(".trigger")!;
+  trigger.addEventListener(
+    "click",
+    async () => {
+      trigger.innerHTML = '<div class="spinner"></div>'; // Loading state
+      const module = await import("https://cdn.getklivo.com/widget/widget.js");
+      module.init({ widgetId: host.dataset.widgetId, shadowRoot: shadow });
+    },
+    { once: true },
+  );
 })();
 ```
 
 **Benefits:**
+
 - Initial page impact: ~2KB gzipped (just the trigger button)
 - Full widget JS (~40-80KB gzipped) loads only when needed
 - No impact on host page's Core Web Vitals
@@ -636,12 +687,14 @@ class Widget implements CodeWeavesWidget {
 
 ```typescript
 // In the loader
-(function() {
-  if (window.__codeweaves_loaded) {
-    console.warn('[CodeWeaves] Widget already loaded. Ignoring duplicate script tag.');
+(function () {
+  if (window.__klivo_loaded) {
+    console.warn(
+      "[Klivo] Widget already loaded. Ignoring duplicate script tag.",
+    );
     return;
   }
-  window.__codeweaves_loaded = true;
+  window.__klivo_loaded = true;
   // ...
 })();
 ```
@@ -655,6 +708,7 @@ Use a global flag. Do NOT try to support multiple widget instances — it create
 ### 4.1 Shadow DOM CSS Isolation — What IS and ISN'T Protected
 
 **Shadow DOM DOES protect against:**
+
 - Host page class-based styles (`.button { }`, `.modal { }`)
 - Host page ID-based styles (`#chat { }`)
 - Tag-based styles with specificity (`div.container > p { }`)
@@ -663,6 +717,7 @@ Use a global flag. Do NOT try to support multiple widget instances — it create
 - `!important` on wildcard selectors — does NOT leak in
 
 **Shadow DOM does NOT protect against:**
+
 - **Inherited CSS properties** — these DO cross the shadow boundary:
   - `font-family`, `font-size`, `color`, `line-height`
   - `direction`, `text-align`
@@ -678,7 +733,8 @@ Use a global flag. Do NOT try to support multiple widget instances — it create
   all: initial;
 
   /* Then set our own defaults */
-  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   font-size: 14px;
   line-height: 1.5;
   color: #1a1a1a;
@@ -696,13 +752,13 @@ Use a global flag. Do NOT try to support multiple widget instances — it create
 
 ### 4.2 CSS Frameworks — Specific Conflicts
 
-| Framework | Risk | Shadow DOM Protection |
-|-----------|------|----------------------|
-| Bootstrap | Global resets, `* { box-sizing }` | Fully protected |
-| Tailwind CSS | Preflight (CSS reset), utility classes | Fully protected |
-| Material UI | Emotion/JSS injects `<style>` in `<head>` | Fully protected |
-| Foundation | Global resets, aggressive base styles | Fully protected |
-| Bulma | Global element styles (`input`, `button`) | Fully protected |
+| Framework    | Risk                                      | Shadow DOM Protection |
+| ------------ | ----------------------------------------- | --------------------- |
+| Bootstrap    | Global resets, `* { box-sizing }`         | Fully protected       |
+| Tailwind CSS | Preflight (CSS reset), utility classes    | Fully protected       |
+| Material UI  | Emotion/JSS injects `<style>` in `<head>` | Fully protected       |
+| Foundation   | Global resets, aggressive base styles     | Fully protected       |
+| Bulma        | Global element styles (`input`, `button`) | Fully protected       |
 
 **The only risk is inherited properties**, which `all: initial` on `:host` handles.
 
@@ -715,7 +771,8 @@ Use a global flag. Do NOT try to support multiple widget instances — it create
 - **jQuery UI:** Uses `z-index` extensively for dialogs/overlays. Our max z-index handles this.
 
 **Documentation we should provide to WordPress customers:**
-1. Exclude `cdn.codeweaves.com` from caching/minification plugins
+
+1. Exclude `cdn.getklivo.com` from caching/minification plugins
 2. If using a CSP plugin, add our domains to allowed sources
 
 ### 4.4 Shopify Themes — Known Conflicts
@@ -736,11 +793,11 @@ let originalBodyOverflow: string | null = null;
 
 function lockScroll() {
   originalBodyOverflow = document.body.style.overflow; // Might already be 'hidden'
-  document.body.style.overflow = 'hidden';
+  document.body.style.overflow = "hidden";
 }
 
 function unlockScroll() {
-  document.body.style.overflow = originalBodyOverflow ?? '';
+  document.body.style.overflow = originalBodyOverflow ?? "";
   originalBodyOverflow = null;
 }
 ```
@@ -757,33 +814,36 @@ jQuery UI dialogs use z-index up to ~1000 by default. Bootstrap modals use 1050-
 
 ### 5.1 `async` vs `defer` vs Neither
 
-| Attribute | Download | Execute | Use When |
-|-----------|----------|---------|----------|
-| (none) | Blocks parsing | Immediately | Never — terrible for perf |
-| `async` | Parallel | ASAP when ready (order not guaranteed) | Independent scripts |
-| `defer` | Parallel | After DOM parsing, before DOMContentLoaded | Scripts that need DOM |
+| Attribute | Download       | Execute                                    | Use When                  |
+| --------- | -------------- | ------------------------------------------ | ------------------------- |
+| (none)    | Blocks parsing | Immediately                                | Never — terrible for perf |
+| `async`   | Parallel       | ASAP when ready (order not guaranteed)     | Independent scripts       |
+| `defer`   | Parallel       | After DOM parsing, before DOMContentLoaded | Scripts that need DOM     |
 
 **Recommendation: Use `async`**
 
 Our widget loader is self-contained and does not depend on DOM order. `async` ensures minimal impact on host page load time.
 
 ```html
-<script async src="https://cdn.codeweaves.com/widget/loader.js"
-  data-widget-id="abc123"></script>
+<script
+  async
+  src="https://cdn.getklivo.com/widget/loader.js"
+  data-widget-id="abc123"
+></script>
 ```
 
 ### 5.2 When to Initialize
 
 ```typescript
 // Handle all possible loading scenarios
-(function() {
+(function () {
   function init() {
     // Widget initialization code
   }
 
-  if (document.readyState === 'loading') {
+  if (document.readyState === "loading") {
     // DOM not ready yet — wait
-    document.addEventListener('DOMContentLoaded', init);
+    document.addEventListener("DOMContentLoaded", init);
   } else {
     // DOM already ready (script loaded late, or async after DOMContentLoaded)
     init();
@@ -799,10 +859,10 @@ If customers load our script dynamically:
 
 ```javascript
 // This should work fine
-const script = document.createElement('script');
-script.src = 'https://cdn.codeweaves.com/widget/loader.js';
+const script = document.createElement("script");
+script.src = "https://cdn.getklivo.com/widget/loader.js";
 script.async = true;
-script.dataset.widgetId = 'abc123';
+script.dataset.widgetId = "abc123";
 document.head.appendChild(script);
 ```
 
@@ -814,7 +874,7 @@ const currentScript = document.currentScript as HTMLScriptElement;
 const widgetId = currentScript?.dataset?.widgetId;
 
 // Method 2: Global config (fallback for dynamic loading)
-const globalConfig = (window as any).__codeweaves_config;
+const globalConfig = (window as any).__klivo_config;
 const config = widgetId ? { widgetId } : globalConfig;
 ```
 
@@ -822,11 +882,13 @@ const config = widgetId ? { widgetId } : globalConfig;
 
 ```typescript
 // Singleton guard — FIRST LINE of the loader
-if ((window as any).__codeweaves_loaded) {
-  console.warn('[CodeWeaves] Widget script loaded multiple times. Ignoring duplicate.');
+if ((window as any).__klivo_loaded) {
+  console.warn(
+    "[Klivo] Widget script loaded multiple times. Ignoring duplicate.",
+  );
   return;
 }
-(window as any).__codeweaves_loaded = true;
+(window as any).__klivo_loaded = true;
 ```
 
 ### 5.5 Slow Networks — Progressive Loading
@@ -836,7 +898,7 @@ if ((window as any).__codeweaves_loaded) {
 // Then load full widget on interaction
 // If full widget fails to load, show error state:
 
-trigger.addEventListener('click', async () => {
+trigger.addEventListener("click", async () => {
   trigger.innerHTML = '<div class="spinner">...</div>';
   try {
     const module = await import(widgetUrl);
@@ -857,20 +919,23 @@ trigger.addEventListener('click', async () => {
 SRI prevents tampered CDN scripts from executing:
 
 ```html
-<script async
-  src="https://cdn.codeweaves.com/widget/loader.js"
+<script
+  async
+  src="https://cdn.getklivo.com/widget/loader.js"
   integrity="sha384-oqVuAfXRKap7fdgcCY5uykM6+R9GqQ8K/uxy9rx7HNQlGYl1kPzQho1wx4JwY8w"
   crossorigin="anonymous"
-  data-widget-id="abc123">
-</script>
+  data-widget-id="abc123"
+></script>
 ```
 
 **GOTCHA for SRI:** Every time we update the widget script, the hash changes. This means:
+
 - Customers with hardcoded SRI hashes will get blocked on updates.
 - **Recommendation:** Do NOT use SRI for the loader script (it changes with updates). Instead, use SRI for immutable versioned assets loaded by the widget internally.
-- Use a versioned URL pattern: `cdn.codeweaves.com/widget/v2/loader.js` for breaking changes.
+- Use a versioned URL pattern: `cdn.getklivo.com/widget/v2/loader.js` for breaking changes.
 
 **CDN Requirements for SRI:**
+
 - CDN must set `Access-Control-Allow-Origin: *` header
 - Must serve over HTTPS
 
@@ -880,12 +945,12 @@ SRI prevents tampered CDN scripts from executing:
 
 ### 6.1 Shadow DOM Support
 
-| Feature | Chrome | Firefox | Safari | Edge |
-|---------|--------|---------|--------|------|
-| Shadow DOM v1 | 53+ | 63+ | 10.1+ | 79+ |
-| Open shadow root | Yes | Yes | Yes | Yes |
-| Closed shadow root | Yes | Yes | Yes | Yes |
-| `adoptedStyleSheets` | 73+ | 101+ | 16.4+ | 79+ |
+| Feature              | Chrome | Firefox | Safari | Edge |
+| -------------------- | ------ | ------- | ------ | ---- |
+| Shadow DOM v1        | 53+    | 63+     | 10.1+  | 79+  |
+| Open shadow root     | Yes    | Yes     | Yes    | Yes  |
+| Closed shadow root   | Yes    | Yes     | Yes    | Yes  |
+| `adoptedStyleSheets` | 73+    | 101+    | 16.4+  | 79+  |
 
 **Global support in 2026: ~97%**. No polyfills needed.
 
@@ -907,13 +972,13 @@ shadowRoot.adoptedStyleSheets = [sheet];
 
 ```typescript
 function applyStyles(shadowRoot: ShadowRoot, css: string) {
-  if ('adoptedStyleSheets' in Document.prototype) {
+  if ("adoptedStyleSheets" in Document.prototype) {
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
     shadowRoot.adoptedStyleSheets = [sheet];
   } else {
     // Fallback: inject <style> tag
-    const style = document.createElement('style');
+    const style = document.createElement("style");
     style.textContent = css;
     shadowRoot.appendChild(style);
   }
@@ -932,8 +997,12 @@ Supported in Chrome 105+, Firefox 110+, Safari 16+, Edge 105+. ~93% global cover
 }
 
 @container (max-width: 350px) {
-  .message-avatar { display: none; }
-  .message-text { font-size: 13px; }
+  .message-avatar {
+    display: none;
+  }
+  .message-text {
+    font-size: 13px;
+  }
 }
 ```
 
@@ -946,6 +1015,7 @@ Supported in Chrome 105+, Firefox 110+, Safari 16+, Edge 105+. ~93% global cover
 ### 6.5 Remaining Polyfill Needs
 
 In 2026, for our target set of features, **no polyfills are needed**:
+
 - Shadow DOM v1: 97%+
 - Constructable Stylesheets: 95%+ (with `<style>` fallback)
 - Container Queries: 93%+
@@ -988,14 +1058,14 @@ For the `<style>` tag fallback (older browsers), we need to support nonces:
 
 ```typescript
 function applyStyles(shadowRoot: ShadowRoot, css: string, nonce?: string) {
-  if ('adoptedStyleSheets' in Document.prototype) {
+  if ("adoptedStyleSheets" in Document.prototype) {
     // Preferred: CSP-safe, no nonce needed
     const sheet = new CSSStyleSheet();
     sheet.replaceSync(css);
     shadowRoot.adoptedStyleSheets = [sheet];
   } else {
     // Fallback: need nonce for strict CSP sites
-    const style = document.createElement('style');
+    const style = document.createElement("style");
     if (nonce) style.nonce = nonce;
     style.textContent = css;
     shadowRoot.appendChild(style);
@@ -1004,14 +1074,17 @@ function applyStyles(shadowRoot: ShadowRoot, css: string, nonce?: string) {
 ```
 
 Customers with strict CSP must either:
+
 1. Use a browser supporting Constructable Stylesheets (95%+ in 2026), OR
 2. Provide a nonce via the widget config:
 
 ```html
-<script async src="https://cdn.codeweaves.com/widget/loader.js"
+<script
+  async
+  src="https://cdn.getklivo.com/widget/loader.js"
   data-widget-id="abc123"
-  data-csp-nonce="abc123xyz">
-</script>
+  data-csp-nonce="abc123xyz"
+></script>
 ```
 
 ### 7.4 `connect-src` for API Calls
@@ -1019,19 +1092,19 @@ Customers with strict CSP must either:
 Customers MUST add our API domain to their CSP `connect-src`:
 
 ```
-Content-Security-Policy: connect-src 'self' https://api.codeweaves.com wss://ws.codeweaves.com
+Content-Security-Policy: connect-src 'self' https://api.getklivo.com wss://ws.getklivo.com
 ```
 
 **Documentation we must provide:**
 
 ```
-# Required CSP Directives for CodeWeaves Chat Widget
+# Required CSP Directives for Klivo Chat Widget
 
-script-src: https://cdn.codeweaves.com
-connect-src: https://api.codeweaves.com wss://ws.codeweaves.com
+script-src: https://cdn.getklivo.com
+connect-src: https://api.getklivo.com wss://ws.getklivo.com
 style-src: (not needed if browser supports Constructable Stylesheets)
-img-src: https://cdn.codeweaves.com (for avatars/images)
-font-src: https://cdn.codeweaves.com (if loading custom fonts)
+img-src: https://cdn.getklivo.com (for avatars/images)
+font-src: https://cdn.getklivo.com (if loading custom fonts)
 ```
 
 ### 7.5 `script-src` and Dynamic Imports
@@ -1039,7 +1112,7 @@ font-src: https://cdn.codeweaves.com (if loading custom fonts)
 If we use dynamic `import()` for lazy loading, the customer's CSP must allow our CDN in `script-src`:
 
 ```
-Content-Security-Policy: script-src 'self' https://cdn.codeweaves.com
+Content-Security-Policy: script-src 'self' https://cdn.getklivo.com
 ```
 
 **GOTCHA:** Some sites use `strict-dynamic` in their CSP, which means only scripts loaded by other trusted scripts are allowed. Our loader script must be the trusted entry point — and dynamic imports from it will be automatically trusted.
@@ -1078,13 +1151,13 @@ Playwright pierces Shadow DOM by default — it is the recommended tool for widg
 
 ```typescript
 // Playwright test example
-import { test, expect } from '@playwright/test';
+import { test, expect } from "@playwright/test";
 
-test('widget opens and closes on all test pages', async ({ page }) => {
+test("widget opens and closes on all test pages", async ({ page }) => {
   const testPages = [
-    'bootstrap-5.html',
-    'tailwind-3.html',
-    'strict-csp.html',
+    "bootstrap-5.html",
+    "tailwind-3.html",
+    "strict-csp.html",
     // ...
   ];
 
@@ -1092,15 +1165,17 @@ test('widget opens and closes on all test pages', async ({ page }) => {
     await page.goto(`http://localhost:3000/test-harness/${pageName}`);
 
     // Playwright pierces shadow DOM automatically
-    const trigger = page.getByRole('button', { name: 'Open chat' });
+    const trigger = page.getByRole("button", { name: "Open chat" });
     await expect(trigger).toBeVisible();
     await trigger.click();
 
-    const chatWindow = page.getByRole('dialog', { name: 'Customer support chat' });
+    const chatWindow = page.getByRole("dialog", {
+      name: "Customer support chat",
+    });
     await expect(chatWindow).toBeVisible();
 
     // Test keyboard close
-    await page.keyboard.press('Escape');
+    await page.keyboard.press("Escape");
     await expect(chatWindow).not.toBeVisible();
 
     // Test focus restoration
@@ -1108,10 +1183,10 @@ test('widget opens and closes on all test pages', async ({ page }) => {
   }
 });
 
-test('widget styles are not affected by host page CSS', async ({ page }) => {
-  await page.goto('http://localhost:3000/test-harness/aggressive-css.html');
+test("widget styles are not affected by host page CSS", async ({ page }) => {
+  await page.goto("http://localhost:3000/test-harness/aggressive-css.html");
 
-  const trigger = page.getByRole('button', { name: 'Open chat' });
+  const trigger = page.getByRole("button", { name: "Open chat" });
   const triggerBox = await trigger.boundingBox();
 
   // Verify trigger button dimensions are correct (not affected by host CSS)
@@ -1127,14 +1202,14 @@ test('widget styles are not affected by host page CSS', async ({ page }) => {
 Use Playwright's built-in screenshot comparison:
 
 ```typescript
-test('widget visual regression', async ({ page }) => {
-  await page.goto('http://localhost:3000/test-harness/bootstrap-5.html');
-  const trigger = page.getByRole('button', { name: 'Open chat' });
+test("widget visual regression", async ({ page }) => {
+  await page.goto("http://localhost:3000/test-harness/bootstrap-5.html");
+  const trigger = page.getByRole("button", { name: "Open chat" });
   await trigger.click();
 
   // Screenshot just the widget area
-  const chatWindow = page.getByRole('dialog');
-  await expect(chatWindow).toHaveScreenshot('chat-open-bootstrap.png', {
+  const chatWindow = page.getByRole("dialog");
+  await expect(chatWindow).toHaveScreenshot("chat-open-bootstrap.png", {
     maxDiffPixelRatio: 0.01,
   });
 });
@@ -1146,17 +1221,17 @@ Run across multiple browsers: Chromium, Firefox, WebKit (Safari proxy).
 
 ```typescript
 // playwright.config.ts
-import { devices } from '@playwright/test';
+import { devices } from "@playwright/test";
 
 export default {
   projects: [
-    { name: 'Desktop Chrome', use: { ...devices['Desktop Chrome'] } },
-    { name: 'Desktop Firefox', use: { ...devices['Desktop Firefox'] } },
-    { name: 'Desktop Safari', use: { ...devices['Desktop Safari'] } },
-    { name: 'iPhone 14', use: { ...devices['iPhone 14'] } },
-    { name: 'iPhone 14 Pro Max', use: { ...devices['iPhone 14 Pro Max'] } },
-    { name: 'Pixel 7', use: { ...devices['Pixel 7'] } },
-    { name: 'iPad Pro', use: { ...devices['iPad Pro 11'] } },
+    { name: "Desktop Chrome", use: { ...devices["Desktop Chrome"] } },
+    { name: "Desktop Firefox", use: { ...devices["Desktop Firefox"] } },
+    { name: "Desktop Safari", use: { ...devices["Desktop Safari"] } },
+    { name: "iPhone 14", use: { ...devices["iPhone 14"] } },
+    { name: "iPhone 14 Pro Max", use: { ...devices["iPhone 14 Pro Max"] } },
+    { name: "Pixel 7", use: { ...devices["Pixel 7"] } },
+    { name: "iPad Pro", use: { ...devices["iPad Pro 11"] } },
   ],
 };
 ```
@@ -1167,15 +1242,15 @@ export default {
 
 ```typescript
 // Automated a11y testing with axe-core
-import AxeBuilder from '@axe-core/playwright';
+import AxeBuilder from "@axe-core/playwright";
 
-test('widget meets WCAG 2.1 AA', async ({ page }) => {
-  await page.goto('http://localhost:3000/test-harness/bare-reset.html');
-  const trigger = page.getByRole('button', { name: 'Open chat' });
+test("widget meets WCAG 2.1 AA", async ({ page }) => {
+  await page.goto("http://localhost:3000/test-harness/bare-reset.html");
+  const trigger = page.getByRole("button", { name: "Open chat" });
   await trigger.click();
 
   const results = await new AxeBuilder({ page })
-    .include('codeweaves-widget') // axe-core can pierce shadow DOM
+    .include("klivo-widget") // axe-core can pierce shadow DOM
     .analyze();
 
   expect(results.violations).toEqual([]);
@@ -1183,6 +1258,7 @@ test('widget meets WCAG 2.1 AA', async ({ page }) => {
 ```
 
 **Manual testing checklist:**
+
 - [ ] NVDA + Chrome on Windows: Navigate widget, send message, hear new messages announced
 - [ ] JAWS + Chrome on Windows: Same flow
 - [ ] VoiceOver + Safari on macOS: Same flow
@@ -1193,25 +1269,30 @@ test('widget meets WCAG 2.1 AA', async ({ page }) => {
 
 ```typescript
 // Measure widget impact on host page
-test('widget does not impact host page CWV', async ({ page }) => {
+test("widget does not impact host page CWV", async ({ page }) => {
   // Measure without widget
-  await page.goto('http://localhost:3000/test-harness/heavy-dom.html?no-widget');
+  await page.goto(
+    "http://localhost:3000/test-harness/heavy-dom.html?no-widget",
+  );
   const baseMetrics = await page.evaluate(() => {
     return new Promise((resolve) => {
       new PerformanceObserver((list) => {
         const entries = list.getEntries();
         resolve({
-          lcp: entries.find(e => e.entryType === 'largest-contentful-paint')?.startTime,
+          lcp: entries.find((e) => e.entryType === "largest-contentful-paint")
+            ?.startTime,
           cls: entries.reduce((sum, e: any) => sum + (e.value || 0), 0),
         });
-      }).observe({ entryTypes: ['largest-contentful-paint', 'layout-shift'] });
+      }).observe({ entryTypes: ["largest-contentful-paint", "layout-shift"] });
       setTimeout(resolve, 5000, { lcp: 0, cls: 0 }); // Timeout fallback
     });
   });
 
   // Measure with widget
-  await page.goto('http://localhost:3000/test-harness/heavy-dom.html');
-  const widgetMetrics = await page.evaluate(() => { /* same as above */ });
+  await page.goto("http://localhost:3000/test-harness/heavy-dom.html");
+  const widgetMetrics = await page.evaluate(() => {
+    /* same as above */
+  });
 
   // Widget should not increase LCP by more than 100ms
   // Widget should not increase CLS by more than 0.01

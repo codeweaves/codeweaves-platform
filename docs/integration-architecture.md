@@ -1,10 +1,10 @@
-# Integration Architecture - CodeWeaves Platform
+# Integration Architecture - Klivo Platform
 
 > Generated: 2026-02-14 | Type: Monorepo Multi-Part
 
 ## Overview
 
-The CodeWeaves Platform consists of three application parts that communicate through Auth0 and REST APIs. This document describes the integration points, data flow, and communication patterns between parts.
+The Klivo Platform consists of three application parts that communicate through Auth0 and REST APIs. This document describes the integration points, data flow, and communication patterns between parts.
 
 ## Integration Diagram
 
@@ -46,17 +46,18 @@ The CodeWeaves Platform consists of three application parts that communicate thr
 
 ### 1. Web → API (REST API)
 
-| Property | Value |
-|----------|-------|
-| **From** | `apps/web` |
-| **To** | `apps/api` |
-| **Type** | REST API (HTTP) |
-| **Client** | `apps/web/lib/api-client.ts` |
-| **Auth** | Auth0 JWT Bearer token |
-| **Protocol** | HTTP/HTTPS |
-| **Format** | JSON |
+| Property     | Value                        |
+| ------------ | ---------------------------- |
+| **From**     | `apps/web`                   |
+| **To**       | `apps/api`                   |
+| **Type**     | REST API (HTTP)              |
+| **Client**   | `apps/web/lib/api-client.ts` |
+| **Auth**     | Auth0 JWT Bearer token       |
+| **Protocol** | HTTP/HTTPS                   |
+| **Format**   | JSON                         |
 
 **Flow:**
+
 1. Web app authenticates user via Auth0 (`@auth0/auth0-react`)
 2. `api-client.ts` attaches JWT token to HTTP requests
 3. API validates JWT via `JwtAuthGuard` + `JwtStrategy`
@@ -67,15 +68,16 @@ The CodeWeaves Platform consists of three application parts that communicate thr
 
 ### 2. Web ↔ Auth0 (OAuth2/OIDC)
 
-| Property | Value |
-|----------|-------|
-| **From** | `apps/web` |
-| **To** | Auth0 |
-| **Type** | OAuth2/OIDC |
-| **Client** | `@auth0/auth0-react` |
-| **Callback** | `/callback` page |
+| Property     | Value                |
+| ------------ | -------------------- |
+| **From**     | `apps/web`           |
+| **To**       | Auth0                |
+| **Type**     | OAuth2/OIDC          |
+| **Client**   | `@auth0/auth0-react` |
+| **Callback** | `/callback` page     |
 
 **Flow:**
+
 1. User clicks Login → redirected to Auth0
 2. Auth0 authenticates user (email/password, social, etc.)
 3. Auth0 redirects back to `/callback` with authorization code
@@ -86,15 +88,16 @@ The CodeWeaves Platform consists of three application parts that communicate thr
 
 ### 3. API ↔ Auth0 (JWKS Verification)
 
-| Property | Value |
-|----------|-------|
-| **From** | `apps/api` |
-| **To** | Auth0 |
-| **Type** | JWKS (JSON Web Key Set) |
-| **Client** | `jwks-rsa` library |
+| Property     | Value                                     |
+| ------------ | ----------------------------------------- |
+| **From**     | `apps/api`                                |
+| **To**       | Auth0                                     |
+| **Type**     | JWKS (JSON Web Key Set)                   |
+| **Client**   | `jwks-rsa` library                        |
 | **Strategy** | `apps/api/src/strategies/jwt.strategy.ts` |
 
 **Flow:**
+
 1. API receives JWT token in request header
 2. `JwtStrategy` fetches public keys from Auth0's JWKS endpoint
 3. Validates token signature, expiry, audience, and issuer
@@ -104,11 +107,11 @@ The CodeWeaves Platform consists of three application parts that communicate thr
 
 ### 4. Widget → API (Planned)
 
-| Property | Value |
-|----------|-------|
-| **From** | `apps/widget` |
-| **To** | `apps/api` |
-| **Type** | REST API (HTTP) |
+| Property   | Value               |
+| ---------- | ------------------- |
+| **From**   | `apps/widget`       |
+| **To**     | `apps/api`          |
+| **Type**   | REST API (HTTP)     |
 | **Status** | Not yet implemented |
 
 The widget will communicate with the API for customer-facing features. Authentication strategy TBD (likely API key or limited JWT).
@@ -116,19 +119,23 @@ The widget will communicate with the API for customer-facing features. Authentic
 ## Shared Dependencies
 
 ### packages/validation
+
 - **Used by:** api, web (planned)
 - **Purpose:** Shared Zod validation schemas
 - **Ensures:** Consistent validation rules across frontend and backend
 
 ### packages/typescript-config
+
 - **Used by:** api, web, widget
 - **Purpose:** Shared TypeScript compiler options
 
 ### packages/eslint-config
+
 - **Used by:** api, web, widget
 - **Purpose:** Shared linting rules
 
 ### packages/jest-config
+
 - **Used by:** api (web testing not yet configured)
 - **Purpose:** Shared test configuration
 
@@ -149,6 +156,7 @@ User Browser
 ## Environment Configuration Coupling
 
 Both `web` and `api` depend on matching Auth0 configuration:
+
 - `AUTH0_DOMAIN` must match across both apps
 - `AUTH0_AUDIENCE` must match API identifier in Auth0
 - `AUTH0_CLIENT_ID` (web) must be registered in the same Auth0 tenant

@@ -2,7 +2,7 @@
 
 > **Date:** 2026-03-24
 > **Purpose:** Definitive research for building a bulletproof embeddable chat widget that works on ANY customer website without CSS/layout interference
-> **Context:** CodeWeaves widget — Preact + Vite, 50+ theme properties, deployed on thousands of sites
+> **Context:** Klivo widget — Preact + Vite, 50+ theme properties, deployed on thousands of sites
 
 ---
 
@@ -23,7 +23,7 @@
 13. [Script Loading & Initialization](#13-script-loading)
 14. [Performance & Lazy Loading](#14-performance)
 15. [Testing Strategy](#15-testing)
-16. [Recommended Architecture for CodeWeaves](#16-recommendation)
+16. [Recommended Architecture for Klivo](#16-recommendation)
 
 ---
 
@@ -31,27 +31,27 @@
 
 **Every major production chat widget uses iframes as the primary isolation mechanism:**
 
-| Widget | Architecture | CSS Isolation | Z-Index |
-|--------|-------------|---------------|---------|
-| **Intercom** | iframe | Full iframe isolation | ~2,147,483,647 |
-| **Drift** | iframe | Full iframe isolation | 2,147,483,647 |
-| **Crisp** | iframe | Full iframe isolation | 1,000,000 |
-| **Tidio** | iframe | Full iframe isolation | 999,999,999 |
-| **Tawk.to** | iframe | Full iframe isolation | 2,000,000,000 |
-| **Chatwoot** | iframe (chat) + direct DOM (button) | iframe + `.woot-` prefixed classes | 2,147,483,000 |
-| **Zendesk** | iframe | Full iframe isolation | High fixed value |
+| Widget       | Architecture                        | CSS Isolation                      | Z-Index          |
+| ------------ | ----------------------------------- | ---------------------------------- | ---------------- |
+| **Intercom** | iframe                              | Full iframe isolation              | ~2,147,483,647   |
+| **Drift**    | iframe                              | Full iframe isolation              | 2,147,483,647    |
+| **Crisp**    | iframe                              | Full iframe isolation              | 1,000,000        |
+| **Tidio**    | iframe                              | Full iframe isolation              | 999,999,999      |
+| **Tawk.to**  | iframe                              | Full iframe isolation              | 2,000,000,000    |
+| **Chatwoot** | iframe (chat) + direct DOM (button) | iframe + `.woot-` prefixed classes | 2,147,483,000    |
+| **Zendesk**  | iframe                              | Full iframe isolation              | High fixed value |
 
 **Open-source widgets:**
 
-| Widget | Architecture | CSS Isolation |
-|--------|-------------|---------------|
-| **Chatwoot** | iframe (chat) + light DOM (button) | iframe isolation |
-| **Botpress** | iframe | Full iframe isolation |
-| **Typebot** | Custom Elements (SolidJS) | Scoped styles, no Shadow DOM |
-| **Papercups** | iframe | Full iframe isolation |
-| **Rocket.Chat** | iframe + Preact inside | Full iframe isolation |
-| **n8n Chat** | Direct DOM injection (Vue 3) | **None** — CSS injected into host `<head>` |
-| **Voiceflow** | Shadow DOM (embedded mode) | `.vfrc-` prefixes + Shadow DOM |
+| Widget          | Architecture                       | CSS Isolation                              |
+| --------------- | ---------------------------------- | ------------------------------------------ |
+| **Chatwoot**    | iframe (chat) + light DOM (button) | iframe isolation                           |
+| **Botpress**    | iframe                             | Full iframe isolation                      |
+| **Typebot**     | Custom Elements (SolidJS)          | Scoped styles, no Shadow DOM               |
+| **Papercups**   | iframe                             | Full iframe isolation                      |
+| **Rocket.Chat** | iframe + Preact inside             | Full iframe isolation                      |
+| **n8n Chat**    | Direct DOM injection (Vue 3)       | **None** — CSS injected into host `<head>` |
+| **Voiceflow**   | Shadow DOM (embedded mode)         | `.vfrc-` prefixes + Shadow DOM             |
 
 **Key insight:** 5 out of 8 open-source widgets and ALL major commercial widgets use iframes. The reason is simple — iframes provide **complete, browser-enforced isolation** with zero edge cases.
 
@@ -62,6 +62,7 @@
 ### Option A: Pure Shadow DOM (Closed Mode)
 
 **Pros:**
+
 - Single execution context — direct API access, shared state, no postMessage
 - Lighter weight — no iframe overhead
 - Better for Preact rendering — direct DOM access
@@ -69,6 +70,7 @@
 - Preact works well with Shadow DOM (direct event listeners, not document-level delegation like React)
 
 **Cons:**
+
 - Inherited CSS properties leak through (font-family, color, line-height, cursor, direction, etc.)
 - Requires explicit CSS reset (`all: initial`) which then requires re-declaring everything
 - `@font-face` doesn't work inside Shadow DOM — must inject into light DOM
@@ -80,6 +82,7 @@
 ### Option B: Pure iframe
 
 **Pros:**
+
 - Complete isolation — zero CSS leakage in either direction, guaranteed
 - Zero edge cases — no inherited properties, no z-index conflicts within the iframe
 - Works with any CSS framework inside (Tailwind, etc.)
@@ -88,6 +91,7 @@
 - Full form autofill/password manager support
 
 **Cons:**
+
 - Communication requires postMessage bridge (adds complexity)
 - Separate execution context — can't share state directly
 - iframe resizing is complex (especially for dynamic content height)
@@ -100,6 +104,7 @@
 **Shadow DOM for trigger button** + **iframe for chat window**
 
 This is what Chatwoot does and is the pattern used by most production widgets:
+
 - Trigger button is tiny, lightweight, and style-isolated via Shadow DOM
 - Chat window gets complete iframe isolation — zero CSS conflicts
 - postMessage bridge for communication between trigger and chat window
@@ -108,6 +113,7 @@ This is what Chatwoot does and is the pattern used by most production widgets:
 ### Our Decision: Shadow DOM (Option A) — With Battle-Hardened Protections
 
 **Rationale:**
+
 - Our architecture already specifies Preact + Shadow DOM, and Preact's event model is Shadow DOM-compatible
 - We need tight theming control with 50+ CSS variables that naturally cross shadow boundary
 - iframe adds significant complexity (postMessage bridge, iframe sizing, cross-origin) that Shadow DOM doesn't need
@@ -127,12 +133,13 @@ This is what Chatwoot does and is the pattern used by most production widgets:
 ```typescript
 // shadow-dom.ts
 export function createWidgetShadowRoot(hostElement: HTMLElement): ShadowRoot {
-  const shadowRoot = hostElement.attachShadow({ mode: 'closed' });
+  const shadowRoot = hostElement.attachShadow({ mode: "closed" });
   return shadowRoot;
 }
 ```
 
 **Why closed mode:**
+
 - `mode: 'open'` exposes `element.shadowRoot` to any JS on the host page
 - `mode: 'closed'` returns `null` for `element.shadowRoot` — host page JS cannot access internals
 - Only our code holds a reference to the shadow root
@@ -143,32 +150,32 @@ The host element sits in the light DOM and MUST be bulletproof:
 
 ```typescript
 function createHostElement(): HTMLElement {
-  const host = document.createElement('div');
-  host.id = 'codeweaves-widget-host';
+  const host = document.createElement("div");
+  host.id = "klivo-widget-host";
 
   // Critical: These styles are on the LIGHT DOM element
   // They prevent host page CSS from affecting positioning
   const criticalStyles = [
-    'position: fixed !important',
-    'z-index: 2147483647 !important',   // max 32-bit int
-    'bottom: 0 !important',
-    'right: 0 !important',
-    'width: auto !important',
-    'height: auto !important',
-    'margin: 0 !important',
-    'padding: 0 !important',
-    'border: none !important',
-    'background: transparent !important',
-    'pointer-events: none !important',   // pass-through by default
-    'isolation: isolate !important',     // new stacking context
-    'transform: none !important',        // prevent stacking context issues
-    'opacity: 1 !important',
-    'overflow: visible !important',
-    'display: block !important',
-    'visibility: visible !important',
-  ].join('; ');
+    "position: fixed !important",
+    "z-index: 2147483647 !important", // max 32-bit int
+    "bottom: 0 !important",
+    "right: 0 !important",
+    "width: auto !important",
+    "height: auto !important",
+    "margin: 0 !important",
+    "padding: 0 !important",
+    "border: none !important",
+    "background: transparent !important",
+    "pointer-events: none !important", // pass-through by default
+    "isolation: isolate !important", // new stacking context
+    "transform: none !important", // prevent stacking context issues
+    "opacity: 1 !important",
+    "overflow: visible !important",
+    "display: block !important",
+    "visibility: visible !important",
+  ].join("; ");
 
-  host.setAttribute('style', criticalStyles);
+  host.setAttribute("style", criticalStyles);
   document.body.appendChild(host);
   return host;
 }
@@ -186,16 +193,19 @@ Some host page scripts may try to modify our host element's styles:
 function protectHostElement(host: HTMLElement): void {
   const observer = new MutationObserver((mutations) => {
     for (const mutation of mutations) {
-      if (mutation.type === 'attributes' && mutation.attributeName === 'style') {
+      if (
+        mutation.type === "attributes" &&
+        mutation.attributeName === "style"
+      ) {
         // Re-apply critical styles if tampered with
-        host.setAttribute('style', criticalStyles);
+        host.setAttribute("style", criticalStyles);
       }
     }
   });
 
   observer.observe(host, {
     attributes: true,
-    attributeFilter: ['style', 'class'],
+    attributeFilter: ["style", "class"],
   });
 }
 ```
@@ -207,6 +217,7 @@ function protectHostElement(host: HTMLElement): void {
 ### The Problem
 
 Host pages use z-index values ranging from 1 to 2,147,483,647. Common offenders:
+
 - Cookie consent banners: z-index 9999-999999
 - Modal overlays: z-index 1000-10000
 - Sticky headers: z-index 100-1000
@@ -227,10 +238,18 @@ Inside the shadow root, use a relative scale:
 
 ```css
 /* Inside shadow root */
-.widget-trigger     { z-index: 1; }
-.widget-bubble      { z-index: 2; }
-.widget-chat-window { z-index: 3; }
-.widget-overlay      { z-index: 4; }  /* if needed */
+.widget-trigger {
+  z-index: 1;
+}
+.widget-bubble {
+  z-index: 2;
+}
+.widget-chat-window {
+  z-index: 3;
+}
+.widget-overlay {
+  z-index: 4;
+} /* if needed */
 ```
 
 Since the host element has `isolation: isolate`, these internal values don't leak out.
@@ -273,7 +292,16 @@ Shadow DOM blocks external stylesheets from affecting shadow content. BUT these 
 
 /* Apply our base styles to the widget container */
 .cw-widget-root {
-  font-family: var(--cw-font-family, -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, 'Helvetica Neue', Arial, sans-serif);
+  font-family: var(
+    --cw-font-family,
+    -apple-system,
+    BlinkMacSystemFont,
+    "Segoe UI",
+    Roboto,
+    "Helvetica Neue",
+    Arial,
+    sans-serif
+  );
   font-size: var(--cw-font-size-base, 14px);
   line-height: var(--cw-line-height-base, 1.5);
   color: var(--cw-color-text, #1a1a2e);
@@ -294,11 +322,13 @@ Shadow DOM blocks external stylesheets from affecting shadow content. BUT these 
 ### What `all: initial` Does and Doesn't Do
 
 **Does:**
+
 - Resets every CSS property to its initial value (per CSS spec)
 - Blocks inherited properties from the host page
 - Effectively creates a clean slate
 
 **Doesn't:**
+
 - Reset CSS custom properties (they still inherit — which is what we WANT for theming)
 - Reset `direction` (we explicitly re-inherit it)
 - Handle `display` correctly (initial value is `inline`, we need `block`)
@@ -332,7 +362,8 @@ All variables use `--cw-` prefix to avoid conflicts with host page variables:
   --cw-color-bot-text: #1a1a2e;
 
   /* Typography */
-  --cw-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+  --cw-font-family:
+    -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
   --cw-font-size-base: 14px;
   --cw-font-size-sm: 12px;
   --cw-font-size-lg: 16px;
@@ -380,13 +411,13 @@ function applyTheme(shadowRoot: ShadowRoot, theme: ThemeConfig): void {
 
   // Map theme config to CSS variables
   const variableMap: Record<string, string> = {
-    '--cw-color-primary': theme.primaryColor,
-    '--cw-color-background': theme.backgroundColor,
-    '--cw-color-user-bubble': theme.userBubbleColor,
-    '--cw-color-bot-bubble': theme.botBubbleColor,
-    '--cw-font-family': theme.fontFamily,
-    '--cw-radius-md': theme.borderRadius,
-    '--cw-trigger-size': `${theme.triggerSize}px`,
+    "--cw-color-primary": theme.primaryColor,
+    "--cw-color-background": theme.backgroundColor,
+    "--cw-color-user-bubble": theme.userBubbleColor,
+    "--cw-color-bot-bubble": theme.botBubbleColor,
+    "--cw-font-family": theme.fontFamily,
+    "--cw-radius-md": theme.borderRadius,
+    "--cw-trigger-size": `${theme.triggerSize}px`,
     // ... map all 50+ properties
   };
 
@@ -409,14 +440,15 @@ function applyTheme(shadowRoot: ShadowRoot, theme: ThemeConfig): void {
 
 ### Why Constructable Stylesheets Over `<style>` Tags
 
-| Approach | Performance | CSP Compatible | Dynamic Updates |
-|----------|-------------|----------------|-----------------|
-| **Constructable Stylesheets** | Best — shared parsed CSSOM | Yes — bypasses `style-src` | `replaceSync()` |
-| **`<style>` tags** | Good — re-parsed per shadow root | **No** — blocked by strict CSP | Replace innerHTML |
-| **Inline styles** | Poor at scale | Yes | Direct manipulation |
-| **CSS Modules** | Good — build-time | Depends on injection method | N/A |
+| Approach                      | Performance                      | CSP Compatible                 | Dynamic Updates     |
+| ----------------------------- | -------------------------------- | ------------------------------ | ------------------- |
+| **Constructable Stylesheets** | Best — shared parsed CSSOM       | Yes — bypasses `style-src`     | `replaceSync()`     |
+| **`<style>` tags**            | Good — re-parsed per shadow root | **No** — blocked by strict CSP | Replace innerHTML   |
+| **Inline styles**             | Poor at scale                    | Yes                            | Direct manipulation |
+| **CSS Modules**               | Good — build-time                | Depends on injection method    | N/A                 |
 
 **Constructable Stylesheets win decisively** because:
+
 1. They're NOT blocked by CSP `style-src` restrictions (this is the #1 deployment blocker for enterprise customers)
 2. Fastest performance — the stylesheet is parsed once and shared
 3. Clean dynamic update API via `replaceSync()`
@@ -440,9 +472,9 @@ export function createStylesheet(css: string): CSSStyleSheet {
 }
 
 // styles/index.ts — 3-sheet architecture
-import { resetCSS } from './reset';
-import { themeCSS } from './theme';
-import { componentCSS } from './components';
+import { resetCSS } from "./reset";
+import { themeCSS } from "./theme";
+import { componentCSS } from "./components";
 
 export function applyStyles(shadowRoot: ShadowRoot): void {
   const resetSheet = createStylesheet(resetCSS);
@@ -453,7 +485,10 @@ export function applyStyles(shadowRoot: ShadowRoot): void {
 }
 
 // To update theme dynamically:
-export function updateThemeSheet(shadowRoot: ShadowRoot, newThemeCSS: string): void {
+export function updateThemeSheet(
+  shadowRoot: ShadowRoot,
+  newThemeCSS: string,
+): void {
   // Replace only the theme sheet (index 1), keep reset and components
   shadowRoot.adoptedStyleSheets[1].replaceSync(newThemeCSS);
 }
@@ -488,8 +523,8 @@ function loadWidgetFonts(fontFamily: string, fontUrl?: string): void {
   if (document.querySelector(`link[data-cw-font="${fontFamily}"]`)) return;
 
   // Option 1: Google Fonts or external URL
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
   link.href = fontUrl;
   link.dataset.cwFont = fontFamily;
   document.head.appendChild(link);
@@ -505,9 +540,9 @@ function loadWidgetFonts(fontFamily: string, fontUrl?: string): void {
 Use system font stack as default (zero network cost):
 
 ```css
---cw-font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto,
-  'Helvetica Neue', Arial, 'Noto Sans', sans-serif, 'Apple Color Emoji',
-  'Segoe UI Emoji';
+--cw-font-family:
+  -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue",
+  Arial, "Noto Sans", sans-serif, "Apple Color Emoji", "Segoe UI Emoji";
 ```
 
 Only load custom fonts when the agent config specifies one. Use `FontFace` API with a 3-second timeout — fall back to system fonts if loading fails.
@@ -526,7 +561,7 @@ Only load custom fonts when the agent config specifies one. Use `FontFace` API w
 function handleMobileKeyboard(): void {
   if (!window.visualViewport) return;
 
-  window.visualViewport.addEventListener('resize', () => {
+  window.visualViewport.addEventListener("resize", () => {
     const viewport = window.visualViewport!;
     const keyboardHeight = window.innerHeight - viewport.height;
 
@@ -536,8 +571,8 @@ function handleMobileKeyboard(): void {
       chatWindow.style.maxHeight = `${viewport.height - 20}px`;
     } else {
       // Keyboard closed — reset
-      chatWindow.style.transform = '';
-      chatWindow.style.maxHeight = '';
+      chatWindow.style.transform = "";
+      chatWindow.style.maxHeight = "";
     }
   });
 }
@@ -560,16 +595,16 @@ When the chat window is open on mobile, prevent background page scrolling:
 ```typescript
 function lockScroll(): void {
   const scrollY = window.scrollY;
-  document.body.style.position = 'fixed';
+  document.body.style.position = "fixed";
   document.body.style.top = `-${scrollY}px`;
-  document.body.style.width = '100%';
+  document.body.style.width = "100%";
 }
 
 function unlockScroll(): void {
-  const scrollY = parseInt(document.body.style.top || '0') * -1;
-  document.body.style.position = '';
-  document.body.style.top = '';
-  document.body.style.width = '';
+  const scrollY = parseInt(document.body.style.top || "0") * -1;
+  document.body.style.position = "";
+  document.body.style.top = "";
+  document.body.style.width = "";
   window.scrollTo(0, scrollY);
 }
 ```
@@ -651,13 +686,13 @@ function getFocusedElement(shadowRoot: ShadowRoot): Element | null {
 // Focus trapping in chat window
 function trapFocus(shadowRoot: ShadowRoot, container: HTMLElement): void {
   const focusableElements = container.querySelectorAll(
-    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])'
+    'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])',
   );
   const first = focusableElements[0] as HTMLElement;
   const last = focusableElements[focusableElements.length - 1] as HTMLElement;
 
-  container.addEventListener('keydown', (e: KeyboardEvent) => {
-    if (e.key === 'Tab') {
+  container.addEventListener("keydown", (e: KeyboardEvent) => {
+    if (e.key === "Tab") {
       if (e.shiftKey && shadowRoot.activeElement === first) {
         e.preventDefault();
         last.focus();
@@ -666,7 +701,7 @@ function trapFocus(shadowRoot: ShadowRoot, container: HTMLElement): void {
         first.focus();
       }
     }
-    if (e.key === 'Escape') {
+    if (e.key === "Escape") {
       // Close chat window, restore focus to trigger button
     }
   });
@@ -711,8 +746,8 @@ Many enterprise sites have strict CSP headers. If our widget violates CSP, it si
 ### CSP Directives Customers Need
 
 ```
-script-src: cdn.codeweaves.com (or wherever widget.js is hosted)
-connect-src: api.codeweaves.com (for API calls and SSE streaming)
+script-src: cdn.getklivo.com (or wherever widget.js is hosted)
+connect-src: api.getklivo.com (for API calls and SSE streaming)
 img-src: *.supabase.co (for agent avatars/logos, if using Supabase storage)
 font-src: fonts.gstatic.com (only if using Google Fonts)
 ```
@@ -720,10 +755,11 @@ font-src: fonts.gstatic.com (only if using Google Fonts)
 ### Documentation for Customers
 
 Provide a clear CSP guide:
+
 ```
 If your site uses Content Security Policy headers, add these directives:
-  script-src 'self' https://cdn.codeweaves.com;
-  connect-src 'self' https://api.codeweaves.com;
+  script-src 'self' https://cdn.getklivo.com;
+  connect-src 'self' https://api.getklivo.com;
   img-src 'self' https://*.supabase.co;
 ```
 
@@ -733,30 +769,31 @@ If your site uses Content Security Policy headers, add these directives:
 
 ### What Shadow DOM Protects Against (automatically)
 
-| Attack Vector | Protected? |
-|--------------|------------|
-| Host CSS classes/IDs targeting widget | ✅ Yes |
-| Host CSS tag selectors (`button { }`) | ✅ Yes |
-| `* { box-sizing: border-box }` | ✅ Yes |
-| CSS resets (normalize.css, reset.css) | ✅ Yes |
-| `!important` on wildcard selectors | ✅ Yes |
-| Bootstrap/Tailwind/Material UI styles | ✅ Yes |
-| jQuery UI overlay/dialog styles | ✅ Yes |
+| Attack Vector                         | Protected? |
+| ------------------------------------- | ---------- |
+| Host CSS classes/IDs targeting widget | ✅ Yes     |
+| Host CSS tag selectors (`button { }`) | ✅ Yes     |
+| `* { box-sizing: border-box }`        | ✅ Yes     |
+| CSS resets (normalize.css, reset.css) | ✅ Yes     |
+| `!important` on wildcard selectors    | ✅ Yes     |
+| Bootstrap/Tailwind/Material UI styles | ✅ Yes     |
+| jQuery UI overlay/dialog styles       | ✅ Yes     |
 
 ### What Shadow DOM Does NOT Protect Against
 
-| Attack Vector | Protection Required |
-|--------------|-------------------|
-| Inherited properties (font, color, etc.) | `all: initial` on `:host` |
-| Host page JS modifying host element | MutationObserver |
-| Host page setting `display: none !important` on `*` | `!important` on host styles |
-| Z-index wars with modals/overlays | `z-index: 2147483647` |
-| `overflow: hidden` on `<body>` | `position: fixed` on host |
-| Host page removing our host element | MutationObserver on `document.body` |
+| Attack Vector                                       | Protection Required                 |
+| --------------------------------------------------- | ----------------------------------- |
+| Inherited properties (font, color, etc.)            | `all: initial` on `:host`           |
+| Host page JS modifying host element                 | MutationObserver                    |
+| Host page setting `display: none !important` on `*` | `!important` on host styles         |
+| Z-index wars with modals/overlays                   | `z-index: 2147483647`               |
+| `overflow: hidden` on `<body>`                      | `position: fixed` on host           |
+| Host page removing our host element                 | MutationObserver on `document.body` |
 
 ### WordPress-Specific
 
 WordPress themes and plugins are the most common conflict source:
+
 - WooCommerce modals (z-index 999999)
 - GDPR cookie plugins (z-index varies wildly)
 - Page builders (Elementor, Divi) with aggressive CSS
@@ -767,6 +804,7 @@ WordPress themes and plugins are the most common conflict source:
 ### Shopify-Specific
 
 Shopify themes use Dawn (default) which is relatively clean, but:
+
 - Cart drawer overlays (z-index varies)
 - Quick-buy modals
 - Announcement bars
@@ -780,7 +818,11 @@ Shopify themes use Dawn (default) which is relatively clean, but:
 ### Recommended Pattern
 
 ```html
-<script async src="https://cdn.codeweaves.com/widget.js" data-agent-id="abc123"></script>
+<script
+  async
+  src="https://cdn.getklivo.com/widget.js"
+  data-agent-id="abc123"
+></script>
 ```
 
 ### Initialization Flow
@@ -789,8 +831,8 @@ Shopify themes use Dawn (default) which is relatively clean, but:
 // Entry point (main.tsx)
 (function() {
   // 1. Singleton guard — prevent double-init
-  if (window.__codeweaves_loaded) return;
-  window.__codeweaves_loaded = true;
+  if (window.__klivo_loaded) return;
+  window.__klivo_loaded = true;
 
   // 2. Extract config from script tag
   const script = document.currentScript ||
@@ -798,7 +840,7 @@ Shopify themes use Dawn (default) which is relatively clean, but:
   const agentId = script?.getAttribute('data-agent-id');
 
   if (!agentId) {
-    console.warn('[CodeWeaves] Missing data-agent-id attribute');
+    console.warn('[Klivo] Missing data-agent-id attribute');
     return;
   }
 
@@ -819,7 +861,7 @@ Shopify themes use Dawn (default) which is relatively clean, but:
 })();
 
 // Also expose manual init API
-window.CodeWeaves = {
+window.Klivo = {
   init: (config: WidgetConfig) => { /* manual initialization */ },
   destroy: () => { /* cleanup */ },
   open: () => { /* open chat */ },
@@ -836,18 +878,22 @@ window.CodeWeaves = {
 // Loader (phase 1) — this is the initial <script>
 function createTriggerOnly(agentId: string) {
   const host = createHostElement();
-  const shadow = host.attachShadow({ mode: 'closed' });
+  const shadow = host.attachShadow({ mode: "closed" });
 
   // Minimal trigger button with inline styles
-  const trigger = document.createElement('button');
-  trigger.setAttribute('aria-label', 'Open chat');
+  const trigger = document.createElement("button");
+  trigger.setAttribute("aria-label", "Open chat");
   // Apply minimal styles...
 
-  trigger.addEventListener('click', async () => {
-    // Dynamically import the full widget
-    const { initFullWidget } = await import('./widget-full.js');
-    initFullWidget(shadow, agentId);
-  }, { once: true });
+  trigger.addEventListener(
+    "click",
+    async () => {
+      // Dynamically import the full widget
+      const { initFullWidget } = await import("./widget-full.js");
+      initFullWidget(shadow, agentId);
+    },
+    { once: true },
+  );
 
   shadow.appendChild(trigger);
 }
@@ -869,10 +915,10 @@ function destroyWidget(
   observers: MutationObserver[],
 ): void {
   // Disconnect all observers
-  observers.forEach(o => o.disconnect());
+  observers.forEach((o) => o.disconnect());
 
   // Remove event listeners
-  window.visualViewport?.removeEventListener('resize', handleResize);
+  window.visualViewport?.removeEventListener("resize", handleResize);
 
   // Unmount Preact
   render(null, shadow);
@@ -881,7 +927,7 @@ function destroyWidget(
   host.remove();
 
   // Clear singleton flag
-  delete window.__codeweaves_loaded;
+  delete window.__klivo_loaded;
 }
 ```
 
@@ -901,23 +947,23 @@ const urlObserver = new MutationObserver(() => {
 
 // Observe URL changes via history API
 const originalPushState = history.pushState;
-history.pushState = function(...args) {
+history.pushState = function (...args) {
   originalPushState.apply(this, args);
-  window.dispatchEvent(new Event('cw-navigation'));
+  window.dispatchEvent(new Event("cw-navigation"));
 };
 ```
 
 ### Bundle Size Budget
 
-| Component | Budget | Notes |
-|-----------|--------|-------|
-| Preact runtime | ~4KB gzip | Fixed cost |
-| Shadow DOM + init | ~2KB gzip | Host setup, stylesheet adoption |
-| Theme engine | ~3KB gzip | CSS variable management |
-| UI components | ~25-35KB gzip | All chat UI |
-| API/streaming client | ~5-8KB gzip | SSE, fetch, config loading |
-| Voice UI (if included) | ~5-10KB gzip | Mic button, audio playback |
-| **Total** | **~45-65KB gzip** | Well under 150KB NFR |
+| Component              | Budget            | Notes                           |
+| ---------------------- | ----------------- | ------------------------------- |
+| Preact runtime         | ~4KB gzip         | Fixed cost                      |
+| Shadow DOM + init      | ~2KB gzip         | Host setup, stylesheet adoption |
+| Theme engine           | ~3KB gzip         | CSS variable management         |
+| UI components          | ~25-35KB gzip     | All chat UI                     |
+| API/streaming client   | ~5-8KB gzip       | SSE, fetch, config loading      |
+| Voice UI (if included) | ~5-10KB gzip      | Mic button, audio playback      |
+| **Total**              | **~45-65KB gzip** | Well under 150KB NFR            |
 
 ---
 
@@ -929,8 +975,8 @@ Playwright pierces Shadow DOM by default — no special configuration needed:
 
 ```typescript
 // Playwright test
-test('widget opens on trigger click', async ({ page }) => {
-  await page.goto('https://test-host-page.com');
+test("widget opens on trigger click", async ({ page }) => {
+  await page.goto("https://test-host-page.com");
 
   // Playwright automatically pierces shadow DOM
   await page.click('button[aria-label="Open chat"]');
@@ -941,6 +987,7 @@ test('widget opens on trigger click', async ({ page }) => {
 ### Test Harness Sites
 
 Create test pages with different CSS frameworks:
+
 - `test-bootstrap.html` — Bootstrap 5
 - `test-tailwind.html` — Tailwind CSS
 - `test-material.html` — Material UI
@@ -953,6 +1000,7 @@ Create test pages with different CSS frameworks:
 ### Real Device Testing
 
 **Mandatory** for:
+
 - iOS Safari keyboard behavior (VisualViewport API)
 - Safe area insets on notched devices
 - Android Chrome back button behavior
@@ -962,7 +1010,7 @@ Use BrowserStack or similar — Playwright emulation doesn't accurately simulate
 
 ---
 
-## 16. Recommended Architecture for CodeWeaves {#16-recommendation}
+## 16. Recommended Architecture for Klivo {#16-recommendation}
 
 ### Summary
 
@@ -971,7 +1019,7 @@ Use BrowserStack or similar — Playwright emulation doesn't accurately simulate
 │ Host Page (customer's website)          │
 │                                          │
 │  ┌───────────────────────────────────┐  │
-│  │ <div id="codeweaves-widget-host"> │  │
+│  │ <div id="klivo-widget-host"> │  │
 │  │ position: fixed; z-index: MAX     │  │
 │  │ pointer-events: none              │  │
 │  │                                    │  │
@@ -1000,18 +1048,18 @@ Use BrowserStack or similar — Playwright emulation doesn't accurately simulate
 
 ### Key Decisions
 
-| Decision | Choice | Rationale |
-|----------|--------|-----------|
-| Isolation | Closed Shadow DOM | Preact-compatible, theming-friendly, simpler than iframe |
-| Styling | Constructable Stylesheets | CSP-safe, best performance, dynamic updates |
-| Theming | CSS custom properties (`--cw-*`) | Cross shadow boundary by design |
-| CSS Reset | `all: initial` on `:host` | Blocks all inherited properties |
-| Z-Index | 2147483647 + `isolation: isolate` | Maximum possible, own stacking context |
-| Host Protection | `!important` on all host styles + MutationObserver | Survive aggressive host CSS |
-| Fonts | Light DOM injection + system font default | `@font-face` doesn't work in Shadow DOM |
-| Mobile | VisualViewport API + fullscreen on small screens | iOS keyboard handling |
-| Bundle | 2-phase lazy load (2KB trigger → full widget on click) | Sub-200ms initial load |
-| Fallback Plan | Hybrid (Shadow DOM button + iframe chat) | If Shadow DOM proves insufficient |
+| Decision        | Choice                                                 | Rationale                                                |
+| --------------- | ------------------------------------------------------ | -------------------------------------------------------- |
+| Isolation       | Closed Shadow DOM                                      | Preact-compatible, theming-friendly, simpler than iframe |
+| Styling         | Constructable Stylesheets                              | CSP-safe, best performance, dynamic updates              |
+| Theming         | CSS custom properties (`--cw-*`)                       | Cross shadow boundary by design                          |
+| CSS Reset       | `all: initial` on `:host`                              | Blocks all inherited properties                          |
+| Z-Index         | 2147483647 + `isolation: isolate`                      | Maximum possible, own stacking context                   |
+| Host Protection | `!important` on all host styles + MutationObserver     | Survive aggressive host CSS                              |
+| Fonts           | Light DOM injection + system font default              | `@font-face` doesn't work in Shadow DOM                  |
+| Mobile          | VisualViewport API + fullscreen on small screens       | iOS keyboard handling                                    |
+| Bundle          | 2-phase lazy load (2KB trigger → full widget on click) | Sub-200ms initial load                                   |
+| Fallback Plan   | Hybrid (Shadow DOM button + iframe chat)               | If Shadow DOM proves insufficient                        |
 
 ### Non-Negotiable Requirements
 

@@ -1,6 +1,6 @@
-# CodeWeaves API
+# Klivo API
 
-NestJS backend service for the CodeWeaves platform.
+NestJS backend service for the Klivo platform.
 
 ## Prerequisites
 
@@ -45,6 +45,7 @@ pnpm test:e2e --filter @repo/api
 ```
 
 **Note**: Docker must be running for E2E tests. The test framework will automatically:
+
 1. Start a PostgreSQL 16 container
 2. Set environment variables for database connection
 3. Run tests against the real database
@@ -76,10 +77,10 @@ apps/api/
 
 ```typescript
 // src/users/users.service.spec.ts
-import { Test, TestingModule } from '@nestjs/testing';
-import { UsersService } from './users.service';
+import { Test, TestingModule } from "@nestjs/testing";
+import { UsersService } from "./users.service";
 
-describe('UsersService', () => {
+describe("UsersService", () => {
   let service: UsersService;
 
   beforeEach(async () => {
@@ -90,7 +91,7 @@ describe('UsersService', () => {
     service = module.get<UsersService>(UsersService);
   });
 
-  it('should be defined', () => {
+  it("should be defined", () => {
     expect(service).toBeDefined();
   });
 });
@@ -100,10 +101,10 @@ describe('UsersService', () => {
 
 ```typescript
 // test/users.e2e-spec.ts
-import { createTestApp, TestApp } from '@test/utils/test-app';
-import { UsersModule } from '@/users/users.module';
+import { createTestApp, TestApp } from "@test/utils/test-app";
+import { UsersModule } from "@/users/users.module";
 
-describe('Users (e2e)', () => {
+describe("Users (e2e)", () => {
   let app: TestApp;
 
   beforeAll(async () => {
@@ -117,38 +118,38 @@ describe('Users (e2e)', () => {
     await app.close();
   });
 
-  it('POST /users - should create a user', async () => {
+  it("POST /users - should create a user", async () => {
     const response = await app.request
-      .post('/users')
-      .send({ email: 'test@example.com', name: 'Test User' })
+      .post("/users")
+      .send({ email: "test@example.com", name: "Test User" })
       .expect(201);
 
     expect(response.body.id).toBeDefined();
-    expect(response.body.email).toBe('test@example.com');
+    expect(response.body.email).toBe("test@example.com");
   });
 });
 ```
 
 ## Scripts
 
-| Script | Description |
-|--------|-------------|
-| `pnpm build` | Build for production |
-| `pnpm start` | Start production server |
-| `pnpm start:dev` | Start with hot-reload |
-| `pnpm test` | Run unit tests |
+| Script            | Description             |
+| ----------------- | ----------------------- |
+| `pnpm build`      | Build for production    |
+| `pnpm start`      | Start production server |
+| `pnpm start:dev`  | Start with hot-reload   |
+| `pnpm test`       | Run unit tests          |
 | `pnpm test:watch` | Run tests in watch mode |
-| `pnpm test:cov` | Run tests with coverage |
-| `pnpm test:e2e` | Run integration tests |
-| `pnpm lint` | Run ESLint |
+| `pnpm test:cov`   | Run tests with coverage |
+| `pnpm test:e2e`   | Run integration tests   |
+| `pnpm lint`       | Run ESLint              |
 
 ## Environment Variables
 
-| Variable | Description | Default |
-|----------|-------------|---------|
-| `PORT` | Server port | `3001` |
-| `DATABASE_HOST` | PostgreSQL host | `localhost` |
-| `DATABASE_PORT` | PostgreSQL port | `5432` |
-| `DATABASE_NAME` | Database name | `codeweaves` |
-| `DATABASE_USER` | Database user | `postgres` |
-| `DATABASE_PASSWORD` | Database password | `postgres` |
+| Variable            | Description       | Default     |
+| ------------------- | ----------------- | ----------- |
+| `PORT`              | Server port       | `3001`      |
+| `DATABASE_HOST`     | PostgreSQL host   | `localhost` |
+| `DATABASE_PORT`     | PostgreSQL port   | `5432`      |
+| `DATABASE_NAME`     | Database name     | `klivo`     |
+| `DATABASE_USER`     | Database user     | `postgres`  |
+| `DATABASE_PASSWORD` | Database password | `postgres`  |

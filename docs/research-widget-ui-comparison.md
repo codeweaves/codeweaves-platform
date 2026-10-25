@@ -1,15 +1,16 @@
-# CodeWeaves Widget UI/UX vs The World's Best — Competitive Analysis
+# Klivo Widget UI/UX vs The World's Best — Competitive Analysis
 
 **Date:** 2026-03-31
-**Purpose:** Compare CodeWeaves widget design against industry leaders, identify gaps, and define target specs
+**Purpose:** Compare Klivo widget design against industry leaders, identify gaps, and define target specs
 
 ---
 
-## 1. Current State of CodeWeaves Widget
+## 1. Current State of Klivo Widget
 
 ### Actual Widget (`apps/widget/src/App.tsx`) — SKELETON
 
 The real embeddable widget is **33 lines of bare HTML**:
+
 - A `💬` emoji as the trigger button (not a styled icon)
 - Plain HTML divs with zero CSS/styling
 - No theming, no animations, no Shadow DOM, no responsive design
@@ -19,38 +20,39 @@ The real embeddable widget is **33 lines of bare HTML**:
 
 The agent editor preview is much richer but still has issues vs industry standards:
 
-| Property | CodeWeaves Preview | Industry Standard | Gap |
-|---|---|---|---|
-| **Width** | 380px fixed | 380-400px | OK |
-| **Height** | 520px fixed | 550-600px | Too short by 30-80px |
-| **Mobile** | None — no responsive design at all | Full-screen or near full-screen | CRITICAL gap |
-| **Body font** | 14px default | 16px minimum | Too small for accessibility |
-| **Header height** | 80px | 56-64px | Too tall, wastes space |
-| **Launcher size** | 56px | 56-60px | Fine |
-| **Dark mode** | Not supported | Expected in 2025-2026 | CRITICAL gap |
-| **Shadow DOM** | None (direct DOM injection) | Required for CSS isolation | CRITICAL gap |
-| **Message max-width** | 70% | 75-80% | Slightly narrow |
-| **Bubble border-radius** | 14-16px uniform on all corners | 16-18px with asymmetric tail (e.g. 18px 18px 18px 4px) | No tail effect |
-| **Input area** | Single line, no auto-expand | Auto-expand up to ~6 lines | Missing |
-| **Rich content** | Plain text only | Markdown, cards, carousels, images | Missing |
-| **Quick replies** | Basic buttons (max 4) | Styled chips with icons | Basic |
-| **Conversation starters** | Only after first message | Prominent on home screen | Limited |
-| **Online status** | Not shown | Green dot / "Active now" | Missing |
-| **Read receipts** | None | Checkmarks or "Seen" | Missing |
-| **Sound notifications** | None | Configurable notification sound | Missing |
-| **File attachments** | None | Image/file upload in input | Missing |
-| **Emoji picker** | None | Standard in all major widgets | Missing |
+| Property                  | Klivo Preview                      | Industry Standard                                      | Gap                         |
+| ------------------------- | ---------------------------------- | ------------------------------------------------------ | --------------------------- |
+| **Width**                 | 380px fixed                        | 380-400px                                              | OK                          |
+| **Height**                | 520px fixed                        | 550-600px                                              | Too short by 30-80px        |
+| **Mobile**                | None — no responsive design at all | Full-screen or near full-screen                        | CRITICAL gap                |
+| **Body font**             | 14px default                       | 16px minimum                                           | Too small for accessibility |
+| **Header height**         | 80px                               | 56-64px                                                | Too tall, wastes space      |
+| **Launcher size**         | 56px                               | 56-60px                                                | Fine                        |
+| **Dark mode**             | Not supported                      | Expected in 2025-2026                                  | CRITICAL gap                |
+| **Shadow DOM**            | None (direct DOM injection)        | Required for CSS isolation                             | CRITICAL gap                |
+| **Message max-width**     | 70%                                | 75-80%                                                 | Slightly narrow             |
+| **Bubble border-radius**  | 14-16px uniform on all corners     | 16-18px with asymmetric tail (e.g. 18px 18px 18px 4px) | No tail effect              |
+| **Input area**            | Single line, no auto-expand        | Auto-expand up to ~6 lines                             | Missing                     |
+| **Rich content**          | Plain text only                    | Markdown, cards, carousels, images                     | Missing                     |
+| **Quick replies**         | Basic buttons (max 4)              | Styled chips with icons                                | Basic                       |
+| **Conversation starters** | Only after first message           | Prominent on home screen                               | Limited                     |
+| **Online status**         | Not shown                          | Green dot / "Active now"                               | Missing                     |
+| **Read receipts**         | None                               | Checkmarks or "Seen"                                   | Missing                     |
+| **Sound notifications**   | None                               | Configurable notification sound                        | Missing                     |
+| **File attachments**      | None                               | Image/file upload in input                             | Missing                     |
+| **Emoji picker**          | None                               | Standard in all major widgets                          | Missing                     |
 
 ### Default Theme Problems
 
 The default theme uses Tailwind's `blue-500` (#3b82f6) everywhere — icon, header, send button, user messages, avatar backgrounds. This is the most generic color possible and screams "template." Enterprise widgets use brand-neutral defaults or dark/neutral themes that work on any site.
 
 **Current defaults that feel "childish":**
+
 - 💬 emoji as launcher (not an SVG icon)
 - Lucide icons as bot avatars (Zap, Settings, Bot, Headphones) feel developer-tool-ish, not professional
 - Uniform border-radius on everything (no visual hierarchy)
 - No gradient or depth — completely flat
-- "Powered by CodeWeaves" footer on by default
+- "Powered by Klivo" footer on by default
 
 ---
 
@@ -59,6 +61,7 @@ The default theme uses Tailwind's `blue-500` (#3b82f6) everywhere — icon, head
 ### Tier 1: Industry Leaders
 
 #### Intercom Messenger (Gold Standard)
+
 - **Architecture:** "Spaces" — Home, Messages, Help, News. It's a mini-app, not just a chat box
 - **Header:** 800x600px hero image option, not just a colored bar
 - **Agents:** Real photos with names and online status indicators
@@ -70,32 +73,38 @@ The default theme uses Tailwind's `blue-500` (#3b82f6) everywhere — icon, head
 - **Why it works:** Feels like a product, not a chat box. Clean hierarchy, subtle animations, professional typography
 
 #### Crisp
+
 - **Performance:** Near-zero Lighthouse impact (~100KB) — best in class
 - **Design:** Recently redesigned for "peace and tranquility" aesthetic
 - **Features:** Multi-channel unified (email, WhatsApp, SMS in one widget), Magic Browse (co-browsing), video chat in widget
 - **Why it works:** Lightweight, modern, doesn't feel like a burden on the page
 
 #### Tidio
+
 - **Awards:** "Best Live Chat Tool for Ease of Use" 2025 & 2026
 - **Design:** Modern UI that feels premium, well-organized dashboard
 - **AI:** Lyro chatbot with personality configuration
 - **Why it works:** Intuitive, clean, accessible to non-technical users
 
 #### LiveChat
+
 - **Performance:** Optimized from 412KB → 256KB. Dropped SockJS for pure WebSockets (saved 18KB)
 - **Features:** Eye-catchers (animated attention grabbers), rich messages (cards, carousels, buttons), customer info panel alongside chat
 - **Why it works:** Years of performance optimization, deep customization without complexity
 
 #### Zendesk
+
 - **Two versions:** Modern Messaging Widget (AI-first) and Classic Web Widget (ticket-based)
 - **Customization:** Custom themes, brand colors, custom CSS injection
 - **Warning:** 500KB+ bundle, 2.3MB unzipped — cautionary tale of bloat
 
 #### HubSpot
+
 - **Limitation:** Very restricted customization — users on forums heavily request more styling options
-- **Lesson:** Limited customization frustrates customers. CodeWeaves' extensive customization is a competitive advantage IF the defaults look good
+- **Lesson:** Limited customization frustrates customers. Klivo' extensive customization is a competitive advantage IF the defaults look good
 
 #### Voiceflow
+
 - **Three modes:** Widget (corner), Popover (full-screen overlay), Embed (inline in page)
 - **Open source:** React component on GitHub
 - **Developer-friendly:** Custom forms and extensions inside chat
@@ -104,12 +113,14 @@ The default theme uses Tailwind's `blue-500` (#3b82f6) everywhere — icon, head
 ### Tier 2: AI-Native Widgets
 
 #### Chatbase / CustomGPT
+
 - Clean, minimal chat interfaces
 - Focus on AI response quality over visual design
 - Usually simpler widgets with fewer features
 - Lesson: AI-first products can get away with simpler UI if the AI is good
 
 #### Botpress Webchat
+
 - Visual conversation builder
 - Multi-channel deployment
 - Agent routing (multi-agent)
@@ -150,6 +161,7 @@ The default theme uses Tailwind's `blue-500` (#3b82f6) everywhere — icon, head
 ### What Makes "Enterprise" vs "Cheap/Childish"
 
 **Enterprise signals:**
+
 - Brand-consistent colors, fonts, and tone (not default/generic themes)
 - Subtle animations, not flashy ones
 - Clean visual hierarchy with proper spacing
@@ -158,7 +170,8 @@ The default theme uses Tailwind's `blue-500` (#3b82f6) everywhere — icon, head
 - Seamless handoff between AI and human
 - Predictable, professional launcher icon (SVG, not emoji)
 
-**"Cheap/childish" signals (CodeWeaves has several of these):**
+**"Cheap/childish" signals (Klivo has several of these):**
+
 - Generic blue everywhere (#3b82f6 is Tailwind's `blue-500`)
 - Emoji trigger button (💬)
 - No dark mode
@@ -187,97 +200,98 @@ The default theme uses Tailwind's `blue-500` (#3b82f6) everywhere — icon, head
 
 ---
 
-## 5. Target Specifications for CodeWeaves Widget
+## 5. Target Specifications for Klivo Widget
 
 ### Dimensions
 
-| Parameter | Current | Target | Notes |
-|---|---|---|---|
-| Widget width (desktop) | 380px | **400px** | Matches HelpCrunch, Intercom range |
-| Widget height (desktop) | 520px | **580px** | Room for more messages |
-| Widget on mobile | None | **Full-screen** | Over 50% traffic is mobile |
-| Launcher button size | 56px | **56-60px** | Fine as-is |
-| Launcher offset from edge | 24px | **20px** | Slight adjustment |
-| Header height | 80px | **60px** | Reduce wasted space |
-| Input area min-height | ~40px | **44px**, auto-expand to 6 lines | Needs auto-expand |
+| Parameter                 | Current | Target                           | Notes                              |
+| ------------------------- | ------- | -------------------------------- | ---------------------------------- |
+| Widget width (desktop)    | 380px   | **400px**                        | Matches HelpCrunch, Intercom range |
+| Widget height (desktop)   | 520px   | **580px**                        | Room for more messages             |
+| Widget on mobile          | None    | **Full-screen**                  | Over 50% traffic is mobile         |
+| Launcher button size      | 56px    | **56-60px**                      | Fine as-is                         |
+| Launcher offset from edge | 24px    | **20px**                         | Slight adjustment                  |
+| Header height             | 80px    | **60px**                         | Reduce wasted space                |
+| Input area min-height     | ~40px   | **44px**, auto-expand to 6 lines | Needs auto-expand                  |
 
 ### Typography
 
-| Parameter | Current | Target | Notes |
-|---|---|---|---|
-| Body font size | 14px | **16px** | Accessibility standard |
-| Header title | 18px | **16-17px** | Proportional to smaller header |
-| Subtitle | 12px | **13px** | Slightly larger for readability |
-| Timestamps | 12px | **12px** | Fine |
-| Font family | Inter | **Inter / system stack** | Good choice, keep it |
-| Max variations | Unlimited | **4 sizes max** | LearnUI.design guidance |
+| Parameter      | Current   | Target                   | Notes                           |
+| -------------- | --------- | ------------------------ | ------------------------------- |
+| Body font size | 14px      | **16px**                 | Accessibility standard          |
+| Header title   | 18px      | **16-17px**              | Proportional to smaller header  |
+| Subtitle       | 12px      | **13px**                 | Slightly larger for readability |
+| Timestamps     | 12px      | **12px**                 | Fine                            |
+| Font family    | Inter     | **Inter / system stack** | Good choice, keep it            |
+| Max variations | Unlimited | **4 sizes max**          | LearnUI.design guidance         |
 
 ### Message Bubbles
 
-| Parameter | Current | Target | Notes |
-|---|---|---|---|
-| Padding | 12px 16px | **12px 16px** | Good |
-| Max-width | 70% | **80%** | More room for content |
-| Border-radius | 14-16px uniform | **18px** with **4px tail corner** | iOS-style asymmetric |
-| Same-sender gap | ~16px (space-y-4) | **4px** | Tighter grouping |
-| Different-sender gap | ~16px (space-y-4) | **20px** | Clear separation |
-| Line height | 1.625 | **1.5** (24px at 16px font) | Standard |
-| Avatar repetition | Every message | **Last message in group only** | Less clutter |
+| Parameter            | Current           | Target                            | Notes                 |
+| -------------------- | ----------------- | --------------------------------- | --------------------- |
+| Padding              | 12px 16px         | **12px 16px**                     | Good                  |
+| Max-width            | 70%               | **80%**                           | More room for content |
+| Border-radius        | 14-16px uniform   | **18px** with **4px tail corner** | iOS-style asymmetric  |
+| Same-sender gap      | ~16px (space-y-4) | **4px**                           | Tighter grouping      |
+| Different-sender gap | ~16px (space-y-4) | **20px**                          | Clear separation      |
+| Line height          | 1.625             | **1.5** (24px at 16px font)       | Standard              |
+| Avatar repetition    | Every message     | **Last message in group only**    | Less clutter          |
 
 ### Performance
 
-| Parameter | Current | Target | Notes |
-|---|---|---|---|
-| Initial loader bundle | N/A (skeleton) | **<30KB** | Show launcher only |
-| Full widget bundle | N/A | **<150KB** | Preact gives us an edge |
-| Time to visible (launcher) | N/A | **<2 seconds** | Async load |
-| Loading strategy | Eager | **Lazy** | Load full widget on first click |
+| Parameter                  | Current        | Target         | Notes                           |
+| -------------------------- | -------------- | -------------- | ------------------------------- |
+| Initial loader bundle      | N/A (skeleton) | **<30KB**      | Show launcher only              |
+| Full widget bundle         | N/A            | **<150KB**     | Preact gives us an edge         |
+| Time to visible (launcher) | N/A            | **<2 seconds** | Async load                      |
+| Loading strategy           | Eager          | **Lazy**       | Load full widget on first click |
 
 ### Bundle Size Benchmarks
 
-| Widget | Bundle Size | Notes |
-|---|---|---|
-| Sonario | ~25KB | Lightest tested |
-| Crisp | ~100KB | "Very well optimized" |
-| LiveChat | 256KB | Aggressive optimization |
-| Intercom | ~301KB | Well optimized for features |
-| Zendesk | 500KB+ | "Big React app for a button" |
-| **CodeWeaves target** | **<150KB** | Preact advantage |
+| Widget           | Bundle Size | Notes                        |
+| ---------------- | ----------- | ---------------------------- |
+| Sonario          | ~25KB       | Lightest tested              |
+| Crisp            | ~100KB      | "Very well optimized"        |
+| LiveChat         | 256KB       | Aggressive optimization      |
+| Intercom         | ~301KB      | Well optimized for features  |
+| Zendesk          | 500KB+      | "Big React app for a button" |
+| **Klivo target** | **<150KB**  | Preact advantage             |
 
 ### Features Needed
 
-| Feature | Priority | Notes |
-|---|---|---|
-| Shadow DOM isolation | P0 | CSS conflicts on customer sites |
-| Dark mode | P0 | Expected in 2026. Use #121212 not #000000 |
-| Mobile full-screen | P0 | 50%+ of traffic |
-| Auto-expanding input | P1 | Up to 6 lines |
-| Markdown rendering | P1 | Bold, italic, links, code blocks |
-| Emoji picker | P1 | Standard across all competitors |
-| File/image attachments | P1 | Upload in input area |
-| Sound notifications | P2 | Configurable new message sound |
-| Read receipts | P2 | Checkmarks or "Seen" |
-| Online status indicator | P2 | Green dot / "Active now" |
-| Multiple render modes | P2 | Widget, Popover, Embed (like Voiceflow) |
-| Rich cards/carousels | P3 | Inline in chat |
-| Co-browsing | P3 | Like Crisp's Magic Browse |
+| Feature                 | Priority | Notes                                     |
+| ----------------------- | -------- | ----------------------------------------- |
+| Shadow DOM isolation    | P0       | CSS conflicts on customer sites           |
+| Dark mode               | P0       | Expected in 2026. Use #121212 not #000000 |
+| Mobile full-screen      | P0       | 50%+ of traffic                           |
+| Auto-expanding input    | P1       | Up to 6 lines                             |
+| Markdown rendering      | P1       | Bold, italic, links, code blocks          |
+| Emoji picker            | P1       | Standard across all competitors           |
+| File/image attachments  | P1       | Upload in input area                      |
+| Sound notifications     | P2       | Configurable new message sound            |
+| Read receipts           | P2       | Checkmarks or "Seen"                      |
+| Online status indicator | P2       | Green dot / "Active now"                  |
+| Multiple render modes   | P2       | Widget, Popover, Embed (like Voiceflow)   |
+| Rich cards/carousels    | P3       | Inline in chat                            |
+| Co-browsing             | P3       | Like Crisp's Magic Browse                 |
 
 ### Accessibility (WCAG)
 
-| Requirement | Current | Target |
-|---|---|---|
-| Color contrast | Untested | **4.5:1 minimum** (Level AA) |
-| Font zoom support | None | **Up to 200%** |
-| ARIA labels | Partial (buttons only) | **Full** — messages, live regions |
-| Keyboard navigation | Basic (Enter to send) | **Full** — Tab, Escape, arrow keys |
-| Screen reader support | None | **Live regions for new messages** |
-| Focus indicators | None visible | **Visible in all themes** |
+| Requirement           | Current                | Target                             |
+| --------------------- | ---------------------- | ---------------------------------- |
+| Color contrast        | Untested               | **4.5:1 minimum** (Level AA)       |
+| Font zoom support     | None                   | **Up to 200%**                     |
+| ARIA labels           | Partial (buttons only) | **Full** — messages, live regions  |
+| Keyboard navigation   | Basic (Enter to send)  | **Full** — Tab, Escape, arrow keys |
+| Screen reader support | None                   | **Live regions for new messages**  |
+| Focus indicators      | None visible           | **Visible in all themes**          |
 
 ---
 
 ## 6. Recommended Default Theme Changes
 
 ### Current Default (Generic Blue)
+
 ```
 Primary: #3b82f6 (Tailwind blue-500) — EVERYWHERE
 Background: #ffffff
@@ -286,6 +300,7 @@ Text: #1f2937
 ```
 
 ### Recommended Default (Professional Neutral)
+
 ```
 Primary: #18181b (zinc-900) or #0f172a (slate-900) — dark, works on any site
 Accent: #6366f1 (indigo-500) — more unique than blue-500
@@ -299,11 +314,13 @@ Subtle border: #e4e4e7 (zinc-200)
 **Why:** Dark/neutral default themes work on ANY website without clashing. The customer can always customize to their brand colors, but the out-of-box experience should feel premium and universal.
 
 ### Launcher Icon
+
 - Replace 💬 emoji with a proper SVG chat icon
 - Consider a subtle entrance animation (fade + scale from 0.8 to 1.0)
 - Add a pulse/glow on hover, not just scale
 
 ### Avatar Defaults
+
 - Default bot avatar: A clean, minimal AI icon or company initial — not Lucide's `<Bot>` icon
 - Consider AI-specific iconography (sparkle, brain, circuit) that's become standard in 2025-2026
 - Shape: Rounded square (border-radius: 8px) feels more modern than full circle

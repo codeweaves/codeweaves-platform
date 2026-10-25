@@ -1,4 +1,7 @@
-import { PostgreSqlContainer, StartedPostgreSqlContainer } from '@testcontainers/postgresql';
+import {
+  PostgreSqlContainer,
+  StartedPostgreSqlContainer,
+} from "@testcontainers/postgresql";
 
 declare global {
   var __POSTGRES_CONTAINER__: StartedPostgreSqlContainer | undefined;
@@ -17,12 +20,12 @@ declare global {
  * - DATABASE_URL
  */
 export default async function globalSetup(): Promise<void> {
-  console.log('\n🐘 Starting PostgreSQL container for integration tests...');
+  console.log("\n🐘 Starting PostgreSQL container for integration tests...");
 
-  const container = await new PostgreSqlContainer('postgres:16-alpine')
-    .withDatabase('codeweaves_test')
-    .withUsername('test_user')
-    .withPassword('test_password')
+  const container = await new PostgreSqlContainer("postgres:16-alpine")
+    .withDatabase("klivo_test")
+    .withUsername("test_user")
+    .withPassword("test_password")
     .withExposedPorts(5432)
     .start();
 
@@ -47,10 +50,12 @@ export default async function globalSetup(): Promise<void> {
     connectionUri: container.getConnectionUri(),
   };
 
-  const fs = await import('fs');
-  const path = await import('path');
-  const tempFile = path.join(__dirname, '.db-connection.json');
+  const fs = await import("fs");
+  const path = await import("path");
+  const tempFile = path.join(__dirname, ".db-connection.json");
   fs.writeFileSync(tempFile, JSON.stringify(connectionInfo));
 
-  console.log(`✅ PostgreSQL container started at ${container.getConnectionUri()}`);
+  console.log(
+    `✅ PostgreSQL container started at ${container.getConnectionUri()}`,
+  );
 }

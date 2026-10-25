@@ -20,7 +20,7 @@ services:
     # enabled. `develop` does not use it, the RAG branch does, so a branch switch
     # will not break local setup.
     image: pgvector/pgvector:pg17
-    container_name: codeweaves-postgres
+    container_name: klivo-postgres
     restart: unless-stopped
     ports:
       # 5433 on the host, not 5432. A native PostgreSQL install (common on
@@ -32,7 +32,7 @@ services:
     environment:
       POSTGRES_USER: postgres
       POSTGRES_PASSWORD: postgres
-      POSTGRES_DB: codeweaves
+      POSTGRES_DB: klivo
     volumes:
       - postgres_data:/var/lib/postgresql/data
     # Docker gives containers a 64 MB /dev/shm. Postgres parallel query workers
@@ -42,14 +42,14 @@ services:
     healthcheck:
       # Waits for the named database, not just the server, so `bun db:setup`
       # cannot start migrating a database that is still being created.
-      test: ["CMD-SHELL", "pg_isready -U postgres -d codeweaves"]
+      test: ["CMD-SHELL", "pg_isready -U postgres -d klivo"]
       interval: 5s
       timeout: 5s
       retries: 12
 
   redis:
     image: redis:7-alpine
-    container_name: codeweaves-redis
+    container_name: klivo-redis
     restart: unless-stopped
     ports:
       - "6379:6379"
