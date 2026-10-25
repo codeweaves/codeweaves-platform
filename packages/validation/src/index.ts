@@ -223,8 +223,7 @@ export const domainSchema = z
 
 export const allowedDomainsSchema = z
   .array(domainSchema)
-  .max(50, "Maximum 50 domains allowed")
-  .default([]);
+  .max(50, "Maximum 50 domains allowed");
 
 export const createAgentSchema = z.object({
   name: z
@@ -248,8 +247,7 @@ export const categoryKeywordSchema = z
 
 export const categoryKeywordsSchema = z
   .array(categoryKeywordSchema)
-  .max(24, "At most 24 categories per agent")
-  .default([]);
+  .max(24, "At most 24 categories per agent");
 
 // Phrases the agent replies with when it can't answer from its knowledge.
 // Injected into the system prompt and fuzzy-matched against replies to flag
@@ -262,8 +260,7 @@ export const fallbackPhraseSchema = z
 
 export const fallbackPhrasesSchema = z
   .array(fallbackPhraseSchema)
-  .max(3, "At most 3 fallback phrases per agent")
-  .default([]);
+  .max(3, "At most 3 fallback phrases per agent");
 
 // Languages the agent owner wants conversations classified against. Mostly
 // ISO 639-1 codes; `hinglish` is a non-standard sentinel for code-mixed
@@ -304,8 +301,7 @@ export const supportedLanguagesSchema = z
   // a clearer error than a silent dedupe on save.
   .refine((langs) => new Set(langs).size === langs.length, {
     message: "Duplicate languages are not allowed",
-  })
-  .default([]);
+  });
 
 // Maximum age of a single chat session (from createdAt) before the backend
 // rotates the visitor to a new sessionId on their next message. Bounded to
@@ -340,7 +336,7 @@ export const updateAgentSchema = z
       .max(100, "Name must be at most 100 characters")
       .optional(),
     status: agentStatusEnum.optional(),
-    allowedDomains: allowedDomainsSchema.removeDefault().optional(),
+    allowedDomains: allowedDomainsSchema.optional(),
     voiceEnabled: z.boolean().optional(),
     voiceConfig: voiceConfigSchema.nullable().optional(),
     welcomeMessage: z.string().max(500).nullable().optional(),
@@ -349,10 +345,10 @@ export const updateAgentSchema = z
     // ~125K tokens) and let the chat pipeline append it at assembly time.
     systemPrompt: z.string().max(50000).nullable().optional(),
     aiConfig: agentAiConfigUpdateSchema.nullable().optional(),
-    categoryKeywords: categoryKeywordsSchema.removeDefault().optional(),
-    supportedLanguages: supportedLanguagesSchema.removeDefault().optional(),
+    categoryKeywords: categoryKeywordsSchema.optional(),
+    supportedLanguages: supportedLanguagesSchema.optional(),
     sessionLifetimeHours: sessionLifetimeHoursSchema.optional(),
-    fallbackPhrases: fallbackPhrasesSchema.removeDefault().optional(),
+    fallbackPhrases: fallbackPhrasesSchema.optional(),
     // --- Human handover (live agent takeover) ---
     humanTakeoverEnabled: z.boolean().optional(),
     showTalkToHumanButton: z.boolean().optional(),

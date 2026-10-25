@@ -13,18 +13,36 @@ import { z } from "zod";
 
 type AnySchema = z.ZodType;
 
+/** Removes defaults, also under `.nullable()`, which would still apply one. */
 function withoutDefault(schema: AnySchema): AnySchema {
-  let s = schema;
-  while (s instanceof z.ZodDefault || s instanceof z.ZodPrefault) {
-    s = s.unwrap() as AnySchema;
+  if (schema instanceof z.ZodDefault || schema instanceof z.ZodPrefault) {
+    return withoutDefault(schema.unwrap() as AnySchema);
   }
-  return s;
+  if (schema instanceof z.ZodNullable) {
+    return withoutDefault(schema.unwrap() as AnySchema).nullable();
+  }
+  return schema;
 }
 
+type WithoutDefault<T> =
+  T extends z.ZodDefault<infer I>
+    ? WithoutDefault<I>
+    : T extends z.ZodPrefault<infer I>
+      ? WithoutDefault<I>
+      : T extends z.ZodNullable<infer I>
+        ? z.ZodNullable<WithoutDefault<I>>
+        : T;
+
 /** One level, like Zod 3's `.partial()`. */
-export function patchOf<S extends z.ZodObject>(
-  schema: S,
-): z.ZodObject<{ [K in keyof S["shape"]]: z.ZodOptional<S["shape"][K]> }> {
+export function patchOf<
+  Shape extends z.ZodRawShape,
+  Config extends z.core.$ZodObjectConfig,
+>(
+  schema: z.ZodObject<Shape, Config>,
+): z.ZodObject<
+  { [K in keyof Shape]: z.ZodOptional<WithoutDefault<Shape[K]>> },
+  Config
+> {
   const shape: Record<string, AnySchema> = {};
   for (const [key, field] of Object.entries(schema.shape)) {
     shape[key] = withoutDefault(field as AnySchema).optional();

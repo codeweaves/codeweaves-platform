@@ -1,18 +1,7 @@
+import { readdirSync } from "fs";
+import { join, relative } from "path";
 import { z } from "zod";
 import * as validation from "@repo/validation";
-import * as agentDto from "../../src/models/agent.dto";
-import * as agentThemeDto from "../../src/models/agent-theme.dto";
-import * as analyticsDto from "../../src/models/analytics.dto";
-import * as conversationsDto from "../../src/models/conversations.dto";
-import * as emailTemplateDto from "../../src/models/email-template.dto";
-import * as handoverDto from "../../src/models/handover.dto";
-import * as invitationDto from "../../src/models/invitation.dto";
-import * as notificationDto from "../../src/models/notification.dto";
-import * as organizationDto from "../../src/models/organization.dto";
-import * as rbacDto from "../../src/models/rbac.dto";
-import * as usageDto from "../../src/models/usage.dto";
-import * as userDto from "../../src/models/user.dto";
-import * as whatsappDto from "../../src/modules/whatsapp/whatsapp-channel.dto";
 
 /**
  * Zod 4 applies a `.default()` even when the field is wrapped in `.optional()`
@@ -24,12 +13,25 @@ import * as whatsappDto from "../../src/modules/whatsapp/whatsapp-channel.dto";
  */
 type Def = Record<string, unknown>;
 
+/** True when an omitted value would reach a default through these wrappers. */
 function unwrapToDefault(schema: z.ZodType): boolean {
   let s: z.ZodType = schema;
-  while (s instanceof z.ZodOptional || s instanceof z.ZodNullable) {
-    s = s.unwrap() as z.ZodType;
+  for (;;) {
+    if (s instanceof z.ZodDefault || s instanceof z.ZodPrefault) return true;
+    const def = s._zod.def as unknown as Def;
+    if (
+      s instanceof z.ZodOptional ||
+      s instanceof z.ZodNullable ||
+      s instanceof z.ZodReadonly ||
+      s instanceof z.ZodCatch
+    ) {
+      s = def.innerType as z.ZodType;
+    } else if (s instanceof z.ZodPipe) {
+      s = def.in as z.ZodType;
+    } else {
+      return false;
+    }
   }
-  return s instanceof z.ZodDefault || s instanceof z.ZodPrefault;
 }
 
 function findOptionalDefaults(
@@ -72,21 +74,32 @@ function findOptionalDefaults(
   }
 }
 
+// Every exported schema in @repo/validation, src/models and any *.dto.ts, found
+// on disk so a new DTO module is covered without editing this list. Schemas
+// declared inline in a controller are not exported and are not walked.
+const SRC = join(__dirname, "..", "..", "src");
+
+function dtoFiles(dir: string): string[] {
+  return readdirSync(dir, { withFileTypes: true }).flatMap((entry) => {
+    const path = join(dir, entry.name);
+    if (entry.isDirectory()) return dtoFiles(path);
+    const inModels = relative(SRC, dir) === "models";
+    return /\.dto\.ts$/.test(entry.name) ||
+      (inModels && entry.name.endsWith(".ts"))
+      ? [path]
+      : [];
+  });
+}
+
 const modules: Record<string, Record<string, unknown>> = {
   validation,
-  agentDto,
-  agentThemeDto,
-  analyticsDto,
-  conversationsDto,
-  emailTemplateDto,
-  handoverDto,
-  invitationDto,
-  notificationDto,
-  organizationDto,
-  rbacDto,
-  usageDto,
-  userDto,
-  whatsappDto,
+  ...Object.fromEntries(
+    dtoFiles(SRC).map((file) => [
+      relative(SRC, file),
+      // eslint-disable-next-line @typescript-eslint/no-require-imports
+      require(file) as Record<string, unknown>,
+    ]),
+  ),
 };
 
 describe("PATCH schemas keep omitted fields omitted", () => {
@@ -136,8 +149,34 @@ describe("PATCH schemas keep omitted fields omitted", () => {
 });
 
 describe("Zod schemas: no default inside an optional field", () => {
-  it("walks at least the core schemas", () => {
-    expect(validation.updateAgentSchema).toBeInstanceOf(z.ZodType);
+  it("finds the DTO modules on disk", () => {
+    expect(Object.keys(modules)).toEqual(
+      expect.arrayContaining([
+        "validation",
+        join("models", "agent.dto.ts"),
+        join("modules", "whatsapp", "whatsapp-channel.dto.ts"),
+      ]),
+    );
+  });
+
+  it("sees a default through a pipe, nullable, catch or readonly", () => {
+    const shapes = [
+      z.object({
+        a: z
+          .string()
+          .default("x")
+          .transform((s) => s)
+          .optional(),
+      }),
+      z.object({ a: z.string().default("x").nullable().optional() }),
+      z.object({ a: z.string().default("x").catch("y").optional() }),
+      z.object({ a: z.array(z.string()).default([]).readonly().optional() }),
+    ];
+    for (const shape of shapes) {
+      const found: string[] = [];
+      findOptionalDefaults(shape, "probe", new Set(), found);
+      expect(found).toEqual(["probe.a"]);
+    }
   });
 
   it("has no optional field whose omission would be replaced by a default", () => {

@@ -21,6 +21,7 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | [0012](0012-usage-ledger-and-price-list.md)                  | Usage ledger and price list                   | Accepted | 2026-10-10 |
 | [0013](0013-external-monitoring-and-alerting.md)             | External monitoring and alerting              | Accepted | 2026-10-10 |
 | [0014](0014-retire-n8n-chat-routing.md)                      | Retire n8n chat routing                       | Accepted | 2026-10-11 |
+| [0015](0015-zod-4-with-zod-3-patch-semantics.md)             | Zod 4, with Zod 3 PATCH semantics kept        | Accepted | 2026-10-26 |
 
 ## When to write one
 
