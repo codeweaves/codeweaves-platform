@@ -8,7 +8,7 @@
  * Values are captured OUT OF BAND by a background extractor (never on the reply
  * hot path), so nothing here touches chat latency.
  */
-import { z } from 'zod';
+import { z } from "zod";
 
 // ============================================
 // Limits
@@ -30,12 +30,12 @@ export const MAX_DATA_FIELD_DESCRIPTION = 500;
 // ============================================
 
 export const DATA_FIELD_TYPES = [
-  'STRING',
-  'NUMBER',
-  'BOOLEAN',
-  'DATE',
-  'EMAIL',
-  'PHONE',
+  "STRING",
+  "NUMBER",
+  "BOOLEAN",
+  "DATE",
+  "EMAIL",
+  "PHONE",
 ] as const;
 
 export const dataFieldTypeEnum = z.enum(DATA_FIELD_TYPES);
@@ -53,8 +53,8 @@ export type DataFieldType = z.infer<typeof dataFieldTypeEnum>;
  */
 export const dataFieldKeySchema = z
   .string()
-  .min(1, 'Field key is required')
-  .max(64, 'Field key must be at most 64 characters')
+  .min(1, "Field key is required")
+  .max(64, "Field key must be at most 64 characters")
   .regex(
     /^[a-z][a-z0-9_]*$/,
     'Field key must start with a lowercase letter and contain only lowercase letters, digits, and underscores (e.g. "email", "order_id")',
@@ -64,9 +64,9 @@ export const dataFieldSchema = z.object({
   key: dataFieldKeySchema,
   label: z
     .string()
-    .min(1, 'Field label is required')
-    .max(100, 'Field label must be at most 100 characters'),
-  type: dataFieldTypeEnum.default('STRING'),
+    .min(1, "Field label is required")
+    .max(100, "Field label must be at most 100 characters"),
+  type: dataFieldTypeEnum.default("STRING"),
   /** Whether the agent should proactively ask for this if not volunteered. */
   required: z.boolean().default(false),
   /** Optional hint to help the extractor pull the right value. */
@@ -103,7 +103,7 @@ export const updateDataFieldsSchema = z.object({
           ctx.addIssue({
             code: z.ZodIssueCode.custom,
             message: `Duplicate field key "${field.key}" — each key must be unique`,
-            path: [index, 'key'],
+            path: [index, "key"],
           });
         }
         seen.add(field.key);
@@ -118,8 +118,8 @@ export type UpdateDataFieldsDto = z.infer<typeof updateDataFieldsSchema>;
 // ============================================
 
 export const dataFieldResponseSchema = z.object({
-  id: z.string().uuid(),
-  agentId: z.string().uuid(),
+  id: z.guid(),
+  agentId: z.guid(),
   key: z.string(),
   label: z.string(),
   type: dataFieldTypeEnum,
@@ -138,9 +138,9 @@ export type DataFieldResponse = z.infer<typeof dataFieldResponseSchema>;
  * (kept loose here since the shape is per-agent dynamic).
  */
 export const collectedDataResponseSchema = z.object({
-  id: z.string().uuid(),
-  agentId: z.string().uuid(),
-  chatSessionId: z.string().uuid(),
+  id: z.guid(),
+  agentId: z.guid(),
+  chatSessionId: z.guid(),
   data: z.record(z.string(), z.unknown()),
   extractedAt: z.coerce.date(),
   createdAt: z.coerce.date(),

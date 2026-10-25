@@ -1,12 +1,12 @@
-import { z } from 'zod';
-import { AccessScope } from '@prisma/client';
+import { z } from "zod";
+import { AccessScope } from "@prisma/client";
 
 /** Role keys are catalog identifiers like `org.agent_editor`. */
 const roleKeySchema = z
   .string()
   .min(1)
   .max(60)
-  .regex(/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/, 'Invalid role key');
+  .regex(/^[a-z][a-z0-9_]*\.[a-z][a-z0-9_]*$/, "Invalid role key");
 
 /**
  * Full replacement of a user's role set, matching the checkbox dialog which
@@ -21,7 +21,7 @@ const roleKeySchema = z
 export const setUserRolesSchema = z.object({
   roleKeys: z
     .array(roleKeySchema)
-    .min(1, 'A user must hold at least one role')
+    .min(1, "A user must hold at least one role")
     .max(20)
     // Duplicate keys are harmless to resolution (it is a union) but would create
     // a misleading audit diff, so normalize here.
@@ -39,12 +39,12 @@ export const userListQuerySchema = z.object({
   page: z.coerce.number().int().min(1).default(1),
   limit: z.coerce.number().int().min(1).max(100).default(20),
   search: z.string().trim().max(200).optional(),
-  organizationId: z.string().uuid().optional(),
+  organizationId: z.guid().optional(),
   accessScope: z.nativeEnum(AccessScope).optional(),
 });
 export type UserListQuery = z.infer<typeof userListQuerySchema>;
 
-export const userIdParamsSchema = z.object({ id: z.string().uuid() });
+export const userIdParamsSchema = z.object({ id: z.guid() });
 export type UserIdParams = z.infer<typeof userIdParamsSchema>;
 
 export interface RoleView {

@@ -10,7 +10,7 @@ const isoDateTime = z
   .refine((v) => !Number.isNaN(new Date(v).getTime()), "Invalid ISO datetime");
 
 /** Comma-separated list (`?a=x,y`) parsed into a de-duplicated array. */
-function csvList<T extends z.ZodTypeAny>(item: T) {
+function csvList<T extends z.ZodType<unknown, string>>(item: T) {
   return z
     .string()
     .optional()
@@ -45,9 +45,9 @@ export const auditLogListQuerySchema = z
     ...pageFields,
     /** Substring match on the event name. */
     search: z.string().trim().max(200).optional(),
-    organizationId: z.string().uuid().optional(),
-    userId: z.string().uuid().optional(),
-    agentId: z.string().uuid().optional(),
+    organizationId: z.guid().optional(),
+    userId: z.guid().optional(),
+    agentId: z.guid().optional(),
     events: csvList(z.string().max(120)),
   })
   .refine(fromBeforeTo, { message: "from must be before to", path: ["from"] });
@@ -75,8 +75,8 @@ export const eventLogListQuerySchema = z
       .enum(["true", "false"])
       .optional()
       .transform((v) => (v === undefined ? undefined : v === "true")),
-    organizationId: z.string().uuid().optional(),
-    agentId: z.string().uuid().optional(),
+    organizationId: z.guid().optional(),
+    agentId: z.guid().optional(),
     sessionId: z.string().trim().max(200).optional(),
   })
   .refine(fromBeforeTo, { message: "from must be before to", path: ["from"] });

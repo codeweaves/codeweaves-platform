@@ -3,6 +3,7 @@
  * Defines the complete theme configuration for the embeddable chat widget.
  */
 import { z } from "zod";
+import { deepPatchOf, patchOf } from "./patch.js";
 
 // ============================================
 // Shared Validators
@@ -235,20 +236,21 @@ export const widgetThemeSchema = z.object({
     endedLineColor: "#3b82f6",
   }),
   // Defaulted (all fields) so stored themes without this key validate.
-  consent: consentConfigSchema.default({}),
+  // `prefault`, not `default`: the {} is parsed, so each consent field default
+  // fills in. A plain `default({})` would return the bare {}.
+  consent: consentConfigSchema.prefault({}),
 });
 
 export type WidgetTheme = z.infer<typeof widgetThemeSchema>;
 
 /** Deep-partial schema for PATCH/update operations (all fields optional) */
-// `deepPartial()` does not reach inside a `.default()` section, so on its own a
-// PATCH of `{ consent: { enabled: true } }` would fill every other consent field
-// with its default and the merge would overwrite the client's saved wording.
-// `.partial()` wraps each field in Optional, which returns undefined before the
-// field default runs, so a PATCH carries only the keys it sent.
-export const partialWidgetThemeSchema = widgetThemeSchema.deepPartial().extend({
-  consent: consentConfigSchema.partial().optional(),
-});
+// A section sent whole is parsed whole, so consent is made partial field by
+// field: a PATCH of `{ consent: { enabled: true } }` must not fill every other
+// consent field with its default, or the merge would overwrite the client's
+// saved wording. A PATCH carries only the keys it sent.
+export const partialWidgetThemeSchema = deepPatchOf(
+  widgetThemeSchema.extend({ consent: patchOf(consentConfigSchema) }),
+);
 export type PartialWidgetTheme = z.infer<typeof partialWidgetThemeSchema>;
 
 // ============================================

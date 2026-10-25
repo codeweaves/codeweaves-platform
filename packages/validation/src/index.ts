@@ -48,7 +48,7 @@ export * from "./admin-logs.js";
 
 export const emailSchema = z.string().email("Invalid email address");
 
-export const uuidSchema = z.string().uuid("Invalid UUID");
+export const uuidSchema = z.guid("Invalid UUID");
 
 export const paginationSchema = z.object({
   page: z.coerce.number().int().positive().default(1),
@@ -120,7 +120,7 @@ export const updateUserProfileSchema = z.object({
 export type UpdateUserProfileDto = z.infer<typeof updateUserProfileSchema>;
 
 export const organizationSummarySchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   name: z.string(),
   slug: z.string(),
 });
@@ -131,7 +131,7 @@ export const accessScopeEnum = z.enum(["PLATFORM", "ORG"]);
 export type AccessScope = z.infer<typeof accessScopeEnum>;
 
 export const userProfileResponseSchema = z.object({
-  id: z.string().uuid(),
+  id: z.guid(),
   email: z.string().email(),
   name: z.string().nullable(),
   role: roleEnum,
@@ -223,15 +223,14 @@ export const domainSchema = z
 
 export const allowedDomainsSchema = z
   .array(domainSchema)
-  .max(50, "Maximum 50 domains allowed")
-  .default([]);
+  .max(50, "Maximum 50 domains allowed");
 
 export const createAgentSchema = z.object({
   name: z
     .string()
     .min(2, "Name must be at least 2 characters")
     .max(100, "Name must be at most 100 characters"),
-  organizationId: z.string().uuid("Invalid organization ID"),
+  organizationId: z.guid("Invalid organization ID"),
 });
 
 export type CreateAgentDto = z.infer<typeof createAgentSchema>;
@@ -248,8 +247,7 @@ export const categoryKeywordSchema = z
 
 export const categoryKeywordsSchema = z
   .array(categoryKeywordSchema)
-  .max(24, "At most 24 categories per agent")
-  .default([]);
+  .max(24, "At most 24 categories per agent");
 
 // Phrases the agent replies with when it can't answer from its knowledge.
 // Injected into the system prompt and fuzzy-matched against replies to flag
@@ -262,8 +260,7 @@ export const fallbackPhraseSchema = z
 
 export const fallbackPhrasesSchema = z
   .array(fallbackPhraseSchema)
-  .max(3, "At most 3 fallback phrases per agent")
-  .default([]);
+  .max(3, "At most 3 fallback phrases per agent");
 
 // Languages the agent owner wants conversations classified against. Mostly
 // ISO 639-1 codes; `hinglish` is a non-standard sentinel for code-mixed
@@ -304,8 +301,7 @@ export const supportedLanguagesSchema = z
   // a clearer error than a silent dedupe on save.
   .refine((langs) => new Set(langs).size === langs.length, {
     message: "Duplicate languages are not allowed",
-  })
-  .default([]);
+  });
 
 // Maximum age of a single chat session (from createdAt) before the backend
 // rotates the visitor to a new sessionId on their next message. Bounded to
@@ -386,7 +382,7 @@ export type UpdateAgentDto = z.infer<typeof updateAgentSchema>;
 
 export const agentListQuerySchema = paginationSchema.extend({
   search: z.string().optional(),
-  organizationId: z.string().uuid().optional(),
+  organizationId: z.guid().optional(),
   status: agentStatusEnum.optional(),
   sortBy: z.enum(["name", "createdAt", "updatedAt"]).default("createdAt"),
   sortOrder: z.enum(["asc", "desc"]).default("desc"),
@@ -414,6 +410,6 @@ export function validate<T extends z.ZodTypeAny>(
 export function safeValidate<T extends z.ZodTypeAny>(
   schema: T,
   data: unknown,
-): z.SafeParseReturnType<unknown, z.infer<T>> {
+): z.ZodSafeParseResult<z.infer<T>> {
   return schema.safeParse(data);
 }

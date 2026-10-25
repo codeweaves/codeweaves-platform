@@ -1,11 +1,11 @@
-import { z } from 'zod';
+import { z } from "zod";
 
 /** Inbox list filter — which handover states to show. */
 export const handoverInboxQuerySchema = z.object({
-  filter: z.enum(['needs', 'handling', 'all']).default('needs'),
-  agentId: z.string().uuid().optional(),
+  filter: z.enum(["needs", "handling", "all"]).default("needs"),
+  agentId: z.guid().optional(),
   // ADMIN/SUPER_ADMIN only — scope to one org. Ignored for CLIENT (own org).
-  orgId: z.string().uuid().optional(),
+  orgId: z.guid().optional(),
 });
 export type HandoverInboxQuery = z.infer<typeof handoverInboxQuerySchema>;
 

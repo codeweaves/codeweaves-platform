@@ -240,7 +240,7 @@ export class AgentsService {
         } catch (error) {
           if (error instanceof ZodError) {
             throw new BadRequestException(
-              `Invalid voice configuration: ${error.errors.map((e) => e.message).join(", ")}`,
+              `Invalid voice configuration: ${error.issues.map((e) => e.message).join(", ")}`,
             );
           }
           throw error;
@@ -277,7 +277,7 @@ export class AgentsService {
         } catch (error) {
           if (error instanceof ZodError) {
             throw new BadRequestException(
-              `Invalid AI configuration: ${error.errors.map((e) => e.message).join(", ")}`,
+              `Invalid AI configuration: ${error.issues.map((e) => e.message).join(", ")}`,
             );
           }
           throw error;
