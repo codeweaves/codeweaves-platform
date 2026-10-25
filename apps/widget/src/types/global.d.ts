@@ -1,12 +1,12 @@
 /** Vite ?inline CSS imports return a string */
-declare module '*.css?inline' {
+declare module "*.css?inline" {
   const css: string;
   export default css;
 }
 
-/** Global window augmentation for CodeWeaves widget */
+/** Global window augmentation for the Klivo widget */
 
-interface CodeWeavesAPI {
+interface KlivoAPI {
   /** Programmatic initialization (alternative to script src URL) */
   init: (agentId: string) => void;
   /** Fully remove widget from DOM, clean up all listeners, reset singleton */
@@ -18,6 +18,6 @@ interface CodeWeavesAPI {
 }
 
 interface Window {
-  __codeweaves_loaded?: boolean;
-  CodeWeaves?: CodeWeavesAPI;
+  __klivo_loaded?: boolean;
+  Klivo?: KlivoAPI;
 }

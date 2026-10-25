@@ -76,7 +76,7 @@ The baseline above runs on a few thousand rows, where every query is fast. The s
 
 - **Load:** `cd apps/api && bun run prisma/seed-scale.ts` (about 6 minutes). It adds 4 orgs (verify-sandbox and scale-org-1..3), 16 "Scale Agent" agents, 200,000 sessions over 90 days (50,000 per org, 3 in 4 widget, 1 in 4 WhatsApp), 2,000,000 messages and 1,000,000 metrics rows. Rows are inserted in time order, like production. Remove with `--remove`.
 - **Measure:** `cw-verify perf page-load --url /dashboard --as owner --runs 5 --wait-text "Scale conversation"`. At scale, "Verify Chat Bot" is not in the top-5 lists, so it never appears.
-- **Find slow SQL:** `ALTER SYSTEM SET log_min_duration_statement = 0; SELECT pg_reload_conf();` in the local container, load the page, then read `docker logs codeweaves-postgres`. Reset with `ALTER SYSTEM RESET log_min_duration_statement; SELECT pg_reload_conf();`.
+- **Find slow SQL:** `ALTER SYSTEM SET log_min_duration_statement = 0; SELECT pg_reload_conf();` in the local container, load the page, then read `docker logs klivo-postgres`. Reset with `ALTER SYSTEM RESET log_min_duration_statement; SELECT pg_reload_conf();`.
 
 Result, owner of verify-sandbox (50,000 sessions), 30-day window, production builds:
 

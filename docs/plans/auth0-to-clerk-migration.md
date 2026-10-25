@@ -28,7 +28,7 @@ Two facts, verified against the current code, make this migration small:
    ([roles.guard.ts:44-50](../../apps/api/src/guards/roles.guard.ts#L44-L50)) and the
    permission matrix read `request.user.role`, which `UserSyncGuard`
    ([user-sync.guard.ts:52-66](../../apps/api/src/guards/user-sync.guard.ts#L52-L66)) loads
-   from Postgres. The Auth0 namespaced claims (`https://codeweaves.com/roles`,
+   from Postgres. The Auth0 namespaced claims (`https://getklivo.com/roles`,
    `/organizationId`) are parsed in [jwt.strategy.ts:36-37](../../apps/api/src/strategies/jwt.strategy.ts#L36-L37)
    but **never used in any decision.** → We replicate **zero** Auth0 Rules / custom claims / Orgs in Clerk.
 

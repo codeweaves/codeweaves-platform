@@ -1,13 +1,22 @@
-import { Widget, triggerOpen, triggerClose, unregisterWidgetControls } from './components/Widget';
-import { initShadowDom, renderInShadow, destroy as shadowDestroy } from './shadow-dom';
-import { debug, warn, enableDebug } from './utils/debug';
+import {
+  Widget,
+  triggerOpen,
+  triggerClose,
+  unregisterWidgetControls,
+} from "./components/Widget";
+import {
+  initShadowDom,
+  renderInShadow,
+  destroy as shadowDestroy,
+} from "./shadow-dom";
+import { debug, warn, enableDebug } from "./utils/debug";
 
 /**
- * CodeWeaves Widget — IIFE auto-init entry point (Story 5-3).
+ * Klivo widget: IIFE auto-init entry point (Story 5-3).
  *
  * Reads `data-agent-id` from the embedding script tag, waits for DOM-ready,
  * creates a closed Shadow DOM, renders the Preact widget, and exposes
- * window.CodeWeaves global API for programmatic control.
+ * window.Klivo global API for programmatic control.
  */
 
 // ── Module State ──────────────────────────────────────────────────────
@@ -27,26 +36,28 @@ let navigationHandler: (() => void) | null = null;
  * For local dev, set VITE_API_BASE_URL in .env to point at the API server.
  */
 function resolveApiBaseUrl(): string {
-  return import.meta.env.VITE_API_BASE_URL ?? '';
+  return import.meta.env.VITE_API_BASE_URL ?? "";
 }
 
 /**
  * Extract agent ID from the script src URL path.
- * Production URL: https://widget.codeweaves.com/<agentId>
+ * Production URL: <NEXT_PUBLIC_WIDGET_URL>/<agentId>
  * Fallback: data-agent-id attribute (for dev / Vite)
  */
-function resolveAgentId(script: HTMLOrSVGScriptElement | Element | null): string | null {
+function resolveAgentId(
+  script: HTMLOrSVGScriptElement | Element | null,
+): string | null {
   // 1. Try extracting from script src URL path (production pattern)
-  if (script && 'src' in script) {
+  if (script && "src" in script) {
     const src = (script as HTMLScriptElement).src;
     if (src) {
       try {
         const url = new URL(src);
         // Last non-empty segment of the path = agent ID
-        const segments = url.pathname.split('/').filter(Boolean);
+        const segments = url.pathname.split("/").filter(Boolean);
         const lastSegment = segments[segments.length - 1];
         // Skip if it looks like a JS file (dev mode: /src/main.tsx)
-        if (lastSegment && !lastSegment.includes('.')) {
+        if (lastSegment && !lastSegment.includes(".")) {
           return lastSegment;
         }
       } catch {
@@ -56,20 +67,21 @@ function resolveAgentId(script: HTMLOrSVGScriptElement | Element | null): string
   }
 
   // 2. Fallback: data-agent-id attribute (dev mode)
-  return script?.getAttribute?.('data-agent-id')?.trim() || null;
+  return script?.getAttribute?.("data-agent-id")?.trim() || null;
 }
 
 // ── Task 1: IIFE entry with singleton guard + script tag reading ──────
 
 (function autoInit() {
   // Task 1a: Singleton guard
-  if (window.__codeweaves_loaded) return;
+  if (window.__klivo_loaded) return;
 
   // Task 1c/1d: Read agent ID from script src URL or data attribute
-  const script = document.currentScript || document.querySelector('script[data-agent-id]');
+  const script =
+    document.currentScript || document.querySelector("script[data-agent-id]");
 
   // Task 7: Detect debug mode (data-debug attribute or Vite dev mode)
-  const hasDebugAttr = script?.hasAttribute('data-debug') ?? false;
+  const hasDebugAttr = script?.hasAttribute("data-debug") ?? false;
   if (hasDebugAttr || import.meta.env.DEV) {
     enableDebug();
   }
@@ -79,14 +91,16 @@ function resolveAgentId(script: HTMLOrSVGScriptElement | Element | null): string
 
   // Task 6: Handle missing agent-id gracefully
   if (!agentId) {
-    warn('Missing agent ID — use <script src="https://widget.codeweaves.com/<agentId>"> or data-agent-id attribute');
+    warn(
+      "Missing agent ID. Add it to the end of the script src URL, or set the data-agent-id attribute.",
+    );
     // Expose stub API so programmatic init is still possible
     exposeStubAPI();
     return;
   }
 
-  debug('Agent ID detected:', agentId);
-  if (apiBaseUrl) debug('API base URL:', apiBaseUrl);
+  debug("Agent ID detected:", agentId);
+  if (apiBaseUrl) debug("API base URL:", apiBaseUrl);
 
   // Task 2: DOM-ready wait
   initWidget(agentId, apiBaseUrl);
@@ -97,45 +111,49 @@ function resolveAgentId(script: HTMLOrSVGScriptElement | Element | null): string
 function onReady(callback: () => void): void {
   // Remove any previously registered handler (prevents race on rapid init/destroy)
   if (domReadyHandler) {
-    document.removeEventListener('DOMContentLoaded', domReadyHandler);
+    document.removeEventListener("DOMContentLoaded", domReadyHandler);
     domReadyHandler = null;
   }
 
-  if (document.readyState === 'loading') {
-    debug('DOM still loading, deferring initialization');
+  if (document.readyState === "loading") {
+    debug("DOM still loading, deferring initialization");
     domReadyHandler = callback;
-    document.addEventListener('DOMContentLoaded', domReadyHandler, { once: true });
+    document.addEventListener("DOMContentLoaded", domReadyHandler, {
+      once: true,
+    });
   } else {
-    debug('DOM already ready, proceeding immediately');
+    debug("DOM already ready, proceeding immediately");
     callback();
   }
 }
 
 // ── Core initialization (used by auto-init and programmatic init) ─────
 
-function initWidget(agentId: string, apiBaseUrl: string = ''): void {
+function initWidget(agentId: string, apiBaseUrl: string = ""): void {
   onReady(() => bootstrap(agentId, apiBaseUrl));
 }
 
-function bootstrap(agentId: string, apiBaseUrl: string = ''): void {
+function bootstrap(agentId: string, apiBaseUrl: string = ""): void {
   // Re-check singleton (may have been set between auto-init and DOMContentLoaded)
-  if (window.__codeweaves_loaded) return;
+  if (window.__klivo_loaded) return;
   if (!document.body) return;
 
-  window.__codeweaves_loaded = true;
+  window.__klivo_loaded = true;
 
   // Clean up DOMContentLoaded listener reference
   domReadyHandler = null;
 
-  debug('Initializing widget for agent:', agentId);
+  debug("Initializing widget for agent:", agentId);
 
   // Task 3: Create host element and Shadow DOM
-  debug('Creating Shadow DOM');
+  debug("Creating Shadow DOM");
   const { host: hostEl } = initShadowDom();
 
   // Task 4: Render Preact app into shadow root (pass host for theme injection)
-  debug('Rendering Preact app');
-  renderInShadow(<Widget agentId={agentId} apiBaseUrl={apiBaseUrl} hostElement={hostEl} />);
+  debug("Rendering Preact app");
+  renderInShadow(
+    <Widget agentId={agentId} apiBaseUrl={apiBaseUrl} hostElement={hostEl} />,
+  );
 
   // Task 8: Setup SPA navigation handling
   setupSPANavigation();
@@ -143,53 +161,53 @@ function bootstrap(agentId: string, apiBaseUrl: string = ''): void {
   // Task 5: Expose global API
   exposeGlobalAPI();
 
-  debug('Widget initialization complete');
+  debug("Widget initialization complete");
 }
 
 // ── Task 5: Global API ────────────────────────────────────────────────
 
 function exposeGlobalAPI(): void {
-  window.CodeWeaves = {
+  window.Klivo = {
     init: programmaticInit,
     destroy: fullDestroy,
     open: () => {
-      debug('API: open()');
+      debug("API: open()");
       triggerOpen();
     },
     close: () => {
-      debug('API: close()');
+      debug("API: close()");
       triggerClose();
     },
   };
-  debug('Global API exposed on window.CodeWeaves');
+  debug("Global API exposed on window.Klivo");
 }
 
 /** Stub API exposed when auto-init fails or after destroy — only init() works. */
 function exposeStubAPI(): void {
-  window.CodeWeaves = {
+  window.Klivo = {
     init: programmaticInit,
-    destroy: () => warn('Widget not initialized'),
-    open: () => warn('Widget not initialized'),
-    close: () => warn('Widget not initialized'),
+    destroy: () => warn("Widget not initialized"),
+    open: () => warn("Widget not initialized"),
+    close: () => warn("Widget not initialized"),
   };
 }
 
 /** Programmatic init — alternative to data-agent-id attribute (for SPAs). */
 function programmaticInit(agentId: string): void {
-  if (!agentId || typeof agentId !== 'string') {
-    warn('init() requires a non-empty agentId string');
+  if (!agentId || typeof agentId !== "string") {
+    warn("init() requires a non-empty agentId string");
     return;
   }
 
   const trimmed = agentId.trim();
   if (!trimmed) {
-    warn('init() requires a non-empty agentId string');
+    warn("init() requires a non-empty agentId string");
     return;
   }
 
   // If already loaded, destroy first for re-init
-  if (window.__codeweaves_loaded) {
-    debug('Re-initializing widget with new agent:', trimmed);
+  if (window.__klivo_loaded) {
+    debug("Re-initializing widget with new agent:", trimmed);
     fullDestroy();
   }
 
@@ -199,7 +217,7 @@ function programmaticInit(agentId: string): void {
 // ── Task 5 (destroy): Full cleanup ───────────────────────────────────
 
 function fullDestroy(): void {
-  debug('Destroying widget');
+  debug("Destroying widget");
 
   // Tear down SPA navigation handling
   teardownSPANavigation();
@@ -209,7 +227,7 @@ function fullDestroy(): void {
 
   // Clean up DOMContentLoaded listener if destroy called before DOM ready
   if (domReadyHandler) {
-    document.removeEventListener('DOMContentLoaded', domReadyHandler);
+    document.removeEventListener("DOMContentLoaded", domReadyHandler);
     domReadyHandler = null;
   }
 
@@ -217,12 +235,12 @@ function fullDestroy(): void {
   shadowDestroy();
 
   // Reset singleton flag (explicit — don't rely solely on shadowDestroy)
-  window.__codeweaves_loaded = false;
+  window.__klivo_loaded = false;
 
   // Remove global API but re-expose stub for programmatic re-init
   exposeStubAPI();
 
-  debug('Widget destroyed');
+  debug("Widget destroyed");
 }
 
 // ── Task 8: SPA navigation handling ──────────────────────────────────
@@ -230,13 +248,13 @@ function fullDestroy(): void {
 function setupSPANavigation(): void {
   // Listen for browser back/forward
   popstateHandler = () => {
-    debug('SPA navigation: popstate event');
+    debug("SPA navigation: popstate event");
   };
-  window.addEventListener('popstate', popstateHandler);
+  window.addEventListener("popstate", popstateHandler);
 
   // Patch history.pushState and history.replaceState
   navigationHandler = () => {
-    debug('SPA navigation: programmatic navigation detected');
+    debug("SPA navigation: programmatic navigation detected");
   };
 
   originalPushState = history.pushState.bind(history);
@@ -244,29 +262,29 @@ function setupSPANavigation(): void {
 
   history.pushState = (...args: Parameters<typeof history.pushState>) => {
     originalPushState!(...args);
-    window.dispatchEvent(new Event('cw:navigation'));
+    window.dispatchEvent(new Event("cw:navigation"));
   };
 
   history.replaceState = (...args: Parameters<typeof history.replaceState>) => {
     originalReplaceState!(...args);
-    window.dispatchEvent(new Event('cw:navigation'));
+    window.dispatchEvent(new Event("cw:navigation"));
   };
 
-  window.addEventListener('cw:navigation', navigationHandler);
+  window.addEventListener("cw:navigation", navigationHandler);
 
-  debug('SPA navigation handling registered');
+  debug("SPA navigation handling registered");
 }
 
 function teardownSPANavigation(): void {
   // Remove popstate listener
   if (popstateHandler) {
-    window.removeEventListener('popstate', popstateHandler);
+    window.removeEventListener("popstate", popstateHandler);
     popstateHandler = null;
   }
 
   // Remove custom navigation event listener
   if (navigationHandler) {
-    window.removeEventListener('cw:navigation', navigationHandler);
+    window.removeEventListener("cw:navigation", navigationHandler);
     navigationHandler = null;
   }
 

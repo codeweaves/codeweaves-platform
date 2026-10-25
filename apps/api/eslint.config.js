@@ -5,6 +5,7 @@ export default [
   {
     ignores: [
       "dist/**",
+      "dist-dev/**",
       "coverage/**",
       // Local RAG eval harness build output (untracked). Not source.
       "eval/.build/**",

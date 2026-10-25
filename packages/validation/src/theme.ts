@@ -341,7 +341,7 @@ export const defaultWidgetTheme: WidgetTheme = {
     textPrefix: "Powered by",
     useLogo: false,
     linkText: "Klivo",
-    linkUrl: "https://codeweaves.com",
+    linkUrl: "https://www.getklivo.com",
     textColor: "#6b7280",
     linkColor: "#2563eb",
   },

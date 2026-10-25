@@ -1,0 +1,11 @@
+{
+  "extends": "./tsconfig.build.json",
+  // `bun run dev` compiles here, not into dist/. `bun run build` deletes and
+  // rewrites dist/ (see "prebuild"), so with a shared folder a build pulled the
+  // files out from under a running dev server, and its tsbuildinfo then told
+  // the watcher there was nothing to emit. Each now owns its own folder and its
+  // own incremental state.
+  "compilerOptions": {
+    "outDir": "./dist-dev"
+  }
+}

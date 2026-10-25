@@ -1,7 +1,7 @@
 # Shadow DOM Styling Research for Embeddable Chat Widget
 
 **Date:** 2026-03-24
-**Context:** CodeWeaves widget (`apps/widget`) — Preact + Vite IIFE bundle, 50+ theme properties, embedded on customer sites via `<script>` tag.
+**Context:** Klivo widget (`apps/widget`) — Preact + Vite IIFE bundle, 50+ theme properties, embedded on customer sites via `<script>` tag.
 
 ---
 
@@ -22,12 +22,14 @@ shadowRoot.adoptedStyleSheets = [resetSheet, themeSheet, componentSheet];
 ```
 
 **Pros:**
+
 - Fastest approach — parsed once, shared across multiple shadow roots (zero duplication cost)
 - Dynamic updates via `sheet.replaceSync()` or `sheet.replace()` (async, returns Promise)
 - No DOM nodes created (no `<style>` element overhead)
 - Deduplication: same sheet object referenced by multiple roots shares the parsed CSSOM
 
 **Cons:**
+
 - Cannot use `@import` inside constructable stylesheets (throws error)
 - Slightly more verbose setup code
 
@@ -38,16 +40,18 @@ shadowRoot.adoptedStyleSheets = [resetSheet, themeSheet, componentSheet];
 ### 1.2 `<style>` Tags Inside Shadow Root
 
 ```ts
-const style = document.createElement('style');
+const style = document.createElement("style");
 style.textContent = `/* all CSS here */`;
 shadowRoot.appendChild(style);
 ```
 
 **Pros:**
+
 - Works everywhere, simple mental model
 - Can use `@import` (but blocks rendering)
 
 **Cons:**
+
 - Each shadow root gets its own `<style>` element — duplicated parsing if you have multiple widget instances
 - Slight FOUC risk: content renders before style is parsed (mitigated by inserting style before other DOM)
 - Updating requires replacing `textContent` which triggers full re-parse
@@ -63,7 +67,7 @@ CSS Modules are a build-time tool (Vite/webpack) that scopes class names. They p
 - Class name scoping is redundant inside Shadow DOM (already isolated), but still useful for avoiding internal collisions in large stylesheets
 
 ```ts
-import cssText from './widget.css?inline';
+import cssText from "./widget.css?inline";
 
 const sheet = new CSSStyleSheet();
 sheet.replaceSync(cssText);
@@ -79,10 +83,12 @@ shadowRoot.adoptedStyleSheets = [sheet];
 ```
 
 **Pros:**
+
 - No stylesheet management, reactive by nature
 - TypeScript type safety on style properties
 
 **Cons:**
+
 - Cannot use pseudo-selectors (`:hover`, `:focus`, `::placeholder`)
 - Cannot use media queries or container queries
 - Cannot use `@keyframes` animations
@@ -161,14 +167,14 @@ The browser maintains a single parsed CSSOM. This is the primary performance adv
 
 ### 2.4 Browser Support (as of 2026)
 
-| Browser | `new CSSStyleSheet()` | `adoptedStyleSheets` | Notes |
-|---|---|---|---|
-| Chrome | 73+ (Mar 2019) | 73+ | Full support |
-| Edge | 79+ (Jan 2020) | 79+ | Chromium-based, same as Chrome |
-| Firefox | 101+ (May 2022) | 101+ | Full support |
-| Safari | 16.4+ (Mar 2023) | 16.4+ | Full support |
-| Safari iOS | 16.4+ | 16.4+ | Full support |
-| Samsung Internet | 11.1+ | 11.1+ | Full support |
+| Browser          | `new CSSStyleSheet()` | `adoptedStyleSheets` | Notes                          |
+| ---------------- | --------------------- | -------------------- | ------------------------------ |
+| Chrome           | 73+ (Mar 2019)        | 73+                  | Full support                   |
+| Edge             | 79+ (Jan 2020)        | 79+                  | Chromium-based, same as Chrome |
+| Firefox          | 101+ (May 2022)       | 101+                 | Full support                   |
+| Safari           | 16.4+ (Mar 2023)      | 16.4+                | Full support                   |
+| Safari iOS       | 16.4+                 | 16.4+                | Full support                   |
+| Samsung Internet | 11.1+                 | 11.1+                | Full support                   |
 
 **Global support: ~97%+ of browsers.** No polyfill needed in 2026. Any browser that doesn't support this is also unlikely to support Shadow DOM.
 
@@ -211,9 +217,9 @@ This means the host page can theme your widget without accessing the shadow root
 
 ```css
 /* Customer's CSS */
-codeweaves-widget {
+klivo-widget {
   --cw-primary-color: #ff6600;
-  --cw-font-family: 'Inter', sans-serif;
+  --cw-font-family: "Inter", sans-serif;
 }
 ```
 
@@ -275,7 +281,7 @@ Every variable usage includes a default so the widget works without any theming:
   color: var(--cw-color-text, #1a1a1a);
   font-family: var(--cw-font-family, system-ui, -apple-system, sans-serif);
   border-radius: var(--cw-radius-lg, 12px);
-  box-shadow: var(--cw-shadow-lg, 0 8px 30px rgba(0,0,0,0.12));
+  box-shadow: var(--cw-shadow-lg, 0 8px 30px rgba(0, 0, 0, 0.12));
 }
 ```
 
@@ -284,7 +290,10 @@ Every variable usage includes a default so the widget works without any theming:
 ```css
 .button-primary {
   /* Use hover color if set, otherwise darken primary */
-  background: var(--cw-color-primary-hover, color-mix(in srgb, var(--cw-color-primary, #007bff) 85%, black));
+  background: var(
+    --cw-color-primary-hover,
+    color-mix(in srgb, var(--cw-color-primary, #007bff) 85%, black)
+  );
 }
 ```
 
@@ -314,8 +323,8 @@ function applyTheme(host: HTMLElement, theme: Partial<WidgetTheme>) {
 
 ```ts
 // From widget JS — update specific properties
-const host = document.querySelector('codeweaves-widget');
-host.style.setProperty('--cw-color-primary', '#ff6600');
+const host = document.querySelector("klivo-widget");
+host.style.setProperty("--cw-color-primary", "#ff6600");
 ```
 
 **Approach 2: Replace theme stylesheet (BEST for bulk theme swap)**
@@ -325,7 +334,7 @@ host.style.setProperty('--cw-color-primary', '#ff6600');
 themeSheet.replaceSync(generateThemeCSS(darkTheme));
 ```
 
-**Approach 3: Hybrid (RECOMMENDED for CodeWeaves)**
+**Approach 3: Hybrid (RECOMMENDED for Klivo)**
 
 Use constructable stylesheet for the base theme + component styles, and CSS custom properties for runtime overrides:
 
@@ -333,8 +342,8 @@ Use constructable stylesheet for the base theme + component styles, and CSS cust
 // Base theme in stylesheet (parsed once)
 const themeCSS = `
   :host {
-    --cw-color-primary: ${config.primaryColor || '#007bff'};
-    --cw-color-background: ${config.backgroundColor || '#ffffff'};
+    --cw-color-primary: ${config.primaryColor || "#007bff"};
+    --cw-color-background: ${config.backgroundColor || "#ffffff"};
     /* ... 50+ defaults from API config ... */
   }
 `;
@@ -375,7 +384,7 @@ async function initWidget() {
 
 ```html
 <script
-  src="https://cdn.codeweaves.com/widget.js"
+  src="https://cdn.getklivo.com/widget.js"
   data-agent-id="abc123"
   data-primary-color="#ff6600"
   data-bg-color="#1a1a1a"
@@ -420,11 +429,11 @@ If the host page sets `body { font-family: 'Comic Sans'; color: red; }`, your wi
 
 ### 4.2 `all: initial` vs `all: revert` vs `all: unset`
 
-| Keyword | What it does | For inherited props | For non-inherited props |
-|---|---|---|---|
-| `initial` | Sets to CSS spec initial value | `color: canvastext`, `font-size: medium` | `display: inline`, `margin: 0` |
-| `unset` | Acts like `inherit` for inherited props, `initial` for non-inherited | Same as `inherit` (LEAKS host styles!) | Same as `initial` |
-| `revert` | Reverts to browser's UA stylesheet | Browser default `color`, `font` | Browser default `display`, etc. |
+| Keyword   | What it does                                                         | For inherited props                      | For non-inherited props         |
+| --------- | -------------------------------------------------------------------- | ---------------------------------------- | ------------------------------- |
+| `initial` | Sets to CSS spec initial value                                       | `color: canvastext`, `font-size: medium` | `display: inline`, `margin: 0`  |
+| `unset`   | Acts like `inherit` for inherited props, `initial` for non-inherited | Same as `inherit` (LEAKS host styles!)   | Same as `initial`               |
+| `revert`  | Reverts to browser's UA stylesheet                                   | Browser default `color`, `font`          | Browser default `display`, etc. |
 
 **`all: initial` problem:** It resets `display` to `inline`, `visibility` to `visible`, `box-sizing` to `content-box`. You must re-declare these.
 
@@ -447,7 +456,14 @@ If the host page sets `body { font-family: 'Comic Sans'; color: red; }`, your wi
   visibility: visible;
 
   /* Establish widget's own typography baseline */
-  font-family: var(--cw-font-family, system-ui, -apple-system, 'Segoe UI', Roboto, sans-serif);
+  font-family: var(
+    --cw-font-family,
+    system-ui,
+    -apple-system,
+    "Segoe UI",
+    Roboto,
+    sans-serif
+  );
   font-size: var(--cw-font-size-base, 14px);
   font-weight: var(--cw-font-weight-normal, 400);
   line-height: var(--cw-line-height, 1.5);
@@ -467,7 +483,9 @@ If the host page sets `body { font-family: 'Comic Sans'; color: red; }`, your wi
 }
 
 /* Box-sizing reset for all elements inside shadow root */
-*, *::before, *::after {
+*,
+*::before,
+*::after {
   box-sizing: border-box;
 }
 
@@ -480,7 +498,7 @@ If the host page sets `body { font-family: 'Comic Sans'; color: red; }`, your wi
 
 ### 4.4 The `:host` Selector
 
-`:host` targets the shadow host element (the custom element itself, e.g., `<codeweaves-widget>`). It is the shadow-root equivalent of styling the outer container.
+`:host` targets the shadow host element (the custom element itself, e.g., `<klivo-widget>`). It is the shadow-root equivalent of styling the outer container.
 
 - `:host` — always matches the host
 - `:host(.dark)` — matches when host has class `dark`
@@ -505,7 +523,7 @@ If the host page sets `body { font-family: 'Comic Sans'; color: red; }`, your wi
 
 /* RTL-aware spacing using logical properties */
 .message-bubble {
-  margin-inline-start: 8px;  /* margin-left in LTR, margin-right in RTL */
+  margin-inline-start: 8px; /* margin-left in LTR, margin-right in RTL */
   padding-inline: 12px;
   text-align: start;
 }
@@ -524,13 +542,24 @@ If the host page sets `body { font-family: 'Comic Sans'; color: red; }`, your wi
 ```css
 /* Inside the shadow root's stylesheet */
 @keyframes cw-fade-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 @keyframes cw-pulse {
-  0%, 100% { opacity: 1; }
-  50% { opacity: 0.5; }
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.5;
+  }
 }
 
 .chat-window {
@@ -550,7 +579,8 @@ Transitions work normally inside shadow roots. No gotchas beyond the standard:
 
 ```css
 .chat-window {
-  transition: transform var(--cw-transition-duration, 0.2s) var(--cw-transition-easing, ease-out);
+  transition: transform var(--cw-transition-duration, 0.2s)
+    var(--cw-transition-easing, ease-out);
 }
 ```
 
@@ -566,7 +596,9 @@ Media queries work inside shadow roots. Always respect this preference:
 
 ```css
 @media (prefers-reduced-motion: reduce) {
-  *, *::before, *::after {
+  *,
+  *::before,
+  *::after {
     animation-duration: 0.01ms !important;
     animation-iteration-count: 1 !important;
     transition-duration: 0.01ms !important;
@@ -623,12 +655,18 @@ Container queries let internal components respond to the **widget container's si
 
 /* Respond to container width */
 @container cw-chat (max-width: 320px) {
-  .message-actions { flex-direction: column; }
-  .sidebar { display: none; }
+  .message-actions {
+    flex-direction: column;
+  }
+  .sidebar {
+    display: none;
+  }
 }
 
 @container cw-chat (min-width: 500px) {
-  .chat-layout { grid-template-columns: 200px 1fr; }
+  .chat-layout {
+    grid-template-columns: 200px 1fr;
+  }
 }
 ```
 
@@ -639,6 +677,7 @@ Container queries let internal components respond to the **widget container's si
 The virtual keyboard on mobile pushes content up or resizes the viewport. This is one of the trickiest issues for chat widgets.
 
 **Problem:** When the input field is focused, the keyboard appears and:
+
 - On iOS Safari: the viewport height doesn't change but content scrolls
 - On Android Chrome: the viewport shrinks (with `interactive-widget=resizes-content` meta)
 
@@ -655,7 +694,7 @@ The virtual keyboard on mobile pushes content up or resizes the viewport. This i
 
 ```ts
 // Listen for Virtual Keyboard API (Chrome 94+, progressive enhancement)
-if ('virtualKeyboard' in navigator) {
+if ("virtualKeyboard" in navigator) {
   navigator.virtualKeyboard.overlaysContent = true;
   // Now use CSS env() variables
 }
@@ -675,9 +714,12 @@ function handleKeyboard() {
   const vv = window.visualViewport;
   if (!vv) return;
 
-  vv.addEventListener('resize', () => {
+  vv.addEventListener("resize", () => {
     const keyboardHeight = window.innerHeight - vv.height;
-    hostElement.style.setProperty('--cw-keyboard-height', `${keyboardHeight}px`);
+    hostElement.style.setProperty(
+      "--cw-keyboard-height",
+      `${keyboardHeight}px`,
+    );
   });
 }
 ```
@@ -707,38 +749,48 @@ function loadFont(fontUrl: string) {
   // Check if already loaded
   if (document.querySelector(`link[href="${fontUrl}"]`)) return;
 
-  const link = document.createElement('link');
-  link.rel = 'stylesheet';
+  const link = document.createElement("link");
+  link.rel = "stylesheet";
   link.href = fontUrl;
   document.head.appendChild(link);
 }
 
 // Usage
-loadFont('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap');
+loadFont(
+  "https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&display=swap",
+);
 ```
 
 **Approach 2: Use `FontFace` API (programmatic, no `<link>` needed)**
 
 ```ts
-async function loadCustomFont(name: string, url: string, descriptors?: FontFaceDescriptors) {
+async function loadCustomFont(
+  name: string,
+  url: string,
+  descriptors?: FontFaceDescriptors,
+) {
   const font = new FontFace(name, `url(${url})`, descriptors);
   await font.load();
   document.fonts.add(font); // Must add to DOCUMENT, not shadow root
 }
 
 // Usage
-await loadCustomFont('CustomBrand', 'https://cdn.example.com/fonts/brand.woff2', {
-  weight: '400',
-  style: 'normal',
-  display: 'swap',
-});
+await loadCustomFont(
+  "CustomBrand",
+  "https://cdn.example.com/fonts/brand.woff2",
+  {
+    weight: "400",
+    style: "normal",
+    display: "swap",
+  },
+);
 ```
 
 **Approach 3: Inject `@font-face` into a light-DOM `<style>` tag**
 
 ```ts
 function injectFontFace(css: string) {
-  const style = document.createElement('style');
+  const style = document.createElement("style");
   style.textContent = css;
   document.head.appendChild(style);
 }
@@ -746,7 +798,7 @@ function injectFontFace(css: string) {
 injectFontFace(`
   @font-face {
     font-family: 'AgentFont';
-    src: url('https://cdn.codeweaves.com/fonts/agent-abc123.woff2') format('woff2');
+    src: url('https://cdn.getklivo.com/fonts/agent-abc123.woff2') format('woff2');
     font-weight: 400;
     font-style: normal;
     font-display: swap;
@@ -759,23 +811,26 @@ After any of these approaches, the font is available inside the shadow root by n
 ```css
 /* Inside shadow root */
 :host {
-  font-family: var(--cw-font-family, 'Inter', system-ui, sans-serif);
+  font-family: var(--cw-font-family, "Inter", system-ui, sans-serif);
 }
 ```
 
 ### 7.3 Google Fonts Integration Pattern
 
 ```ts
-function loadGoogleFont(family: string, weights: number[] = [400, 500, 600, 700]) {
-  const weightStr = weights.join(';');
+function loadGoogleFont(
+  family: string,
+  weights: number[] = [400, 500, 600, 700],
+) {
+  const weightStr = weights.join(";");
   const url = `https://fonts.googleapis.com/css2?family=${encodeURIComponent(family)}:wght@${weightStr}&display=swap`;
 
   // Preconnect for performance
   if (!document.querySelector('link[href="https://fonts.gstatic.com"]')) {
-    const preconnect = document.createElement('link');
-    preconnect.rel = 'preconnect';
-    preconnect.href = 'https://fonts.gstatic.com';
-    preconnect.crossOrigin = 'anonymous';
+    const preconnect = document.createElement("link");
+    preconnect.rel = "preconnect";
+    preconnect.href = "https://fonts.gstatic.com";
+    preconnect.crossOrigin = "anonymous";
     document.head.appendChild(preconnect);
   }
 
@@ -787,17 +842,18 @@ function loadGoogleFont(family: string, weights: number[] = [400, 500, 600, 700]
 
 ```css
 :host {
-  font-family: var(--cw-font-family,
+  font-family: var(
+    --cw-font-family,
     system-ui,
     -apple-system,
-    'Segoe UI',
+    "Segoe UI",
     Roboto,
-    'Helvetica Neue',
+    "Helvetica Neue",
     Arial,
-    'Noto Sans',
+    "Noto Sans",
     sans-serif,
-    'Apple Color Emoji',
-    'Segoe UI Emoji'
+    "Apple Color Emoji",
+    "Segoe UI Emoji"
   );
 }
 ```
@@ -807,18 +863,25 @@ This is the default. If the customer's config specifies a custom font, load it a
 ### 7.5 Graceful Font Fallback
 
 ```ts
-async function loadFontWithFallback(config: { fontFamily?: string; fontUrl?: string }) {
+async function loadFontWithFallback(config: {
+  fontFamily?: string;
+  fontUrl?: string;
+}) {
   if (!config.fontFamily || !config.fontUrl) return; // Use system stack
 
   try {
     const font = new FontFace(config.fontFamily, `url(${config.fontUrl})`);
     const loaded = await Promise.race([
       font.load(),
-      new Promise((_, reject) => setTimeout(() => reject(new Error('Font timeout')), 3000))
+      new Promise((_, reject) =>
+        setTimeout(() => reject(new Error("Font timeout")), 3000),
+      ),
     ]);
     document.fonts.add(loaded as FontFace);
   } catch (err) {
-    console.warn(`[CodeWeaves] Failed to load font "${config.fontFamily}", using system fonts`);
+    console.warn(
+      `[Klivo] Failed to load font "${config.fontFamily}", using system fonts`,
+    );
     // Widget continues with system font stack — no user-visible error
   }
 }
@@ -835,7 +898,7 @@ Inside shadow DOM, image URLs work normally — `<img src="...">` and `backgroun
 For a CDN-deployed widget, always use absolute URLs:
 
 ```tsx
-<img src="https://cdn.codeweaves.com/assets/logo.svg" alt="Agent" />
+<img src="https://cdn.getklivo.com/assets/logo.svg" alt="Agent" />
 ```
 
 ### 8.2 Inline SVGs vs External URLs
@@ -844,7 +907,7 @@ For a CDN-deployed widget, always use absolute URLs:
 
 ```tsx
 // Icons should be inline SVGs — no network request, instant render, themeable
-function SendIcon({ color = 'currentColor' }: { color?: string }) {
+function SendIcon({ color = "currentColor" }: { color?: string }) {
   return (
     <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
       <path d="M2 10l7-7v4h9v6h-9v4L2 10z" fill={color} />
@@ -854,6 +917,7 @@ function SendIcon({ color = 'currentColor' }: { color?: string }) {
 ```
 
 **Advantages of inline SVGs:**
+
 - Zero network requests
 - Can be themed with `currentColor` or CSS custom properties
 - No CORS issues
@@ -869,26 +933,30 @@ function SendIcon({ color = 'currentColor' }: { color?: string }) {
   width={32}
   height={32}
   loading="lazy"
-  onError={(e) => { (e.target as HTMLImageElement).src = DEFAULT_AVATAR_DATA_URI; }}
+  onError={(e) => {
+    (e.target as HTMLImageElement).src = DEFAULT_AVATAR_DATA_URI;
+  }}
 />
 ```
 
 ### 8.3 Base64 vs CDN URLs
 
-| | Base64 | CDN URL |
-|---|---|---|
-| **Initial load** | Increases JS bundle size | Separate request but cacheable |
-| **Caching** | Cached with JS bundle | Cached independently with long TTL |
-| **Multiple uses** | Duplicated in HTML for each `<img>` | Single cached resource |
-| **Best for** | Tiny icons (<1KB), fallback avatars | Agent avatars, logos, backgrounds |
+|                   | Base64                              | CDN URL                            |
+| ----------------- | ----------------------------------- | ---------------------------------- |
+| **Initial load**  | Increases JS bundle size            | Separate request but cacheable     |
+| **Caching**       | Cached with JS bundle               | Cached independently with long TTL |
+| **Multiple uses** | Duplicated in HTML for each `<img>` | Single cached resource             |
+| **Best for**      | Tiny icons (<1KB), fallback avatars | Agent avatars, logos, backgrounds  |
 
 **Recommendation:**
+
 - **Base64:** Only for the default/fallback avatar and the widget launcher icon (tiny, critical-path)
 - **CDN URLs:** For agent avatars, brand logos, background images
 
 ```ts
 // Tiny fallback avatar as base64 (< 500 bytes)
-const DEFAULT_AVATAR = 'data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIi...';
+const DEFAULT_AVATAR =
+  "data:image/svg+xml;base64,PHN2ZyB3aWR0aD0iMzIiIGhlaWdodD0iMzIi...";
 
 // Agent avatar from API — CDN URL
 const agentAvatar = config.avatarUrl || DEFAULT_AVATAR;
@@ -897,9 +965,9 @@ const agentAvatar = config.avatarUrl || DEFAULT_AVATAR;
 ### 8.4 Agent Avatar/Logo Loading Pattern
 
 ```tsx
-import { useState } from 'preact/hooks';
+import { useState } from "preact/hooks";
 
-const DEFAULT_AVATAR = 'data:image/svg+xml,...'; // inline SVG as data URI
+const DEFAULT_AVATAR = "data:image/svg+xml,..."; // inline SVG as data URI
 
 function AgentAvatar({ src, name }: { src?: string; name: string }) {
   const [error, setError] = useState(false);
@@ -955,16 +1023,16 @@ shadowRoot.adoptedStyleSheets = [
 
 ### Key Decisions:
 
-| Decision | Choice | Rationale |
-|---|---|---|
-| Primary styling | Constructable Stylesheets | Best perf, shareable, dynamic updates |
-| Theming mechanism | CSS custom properties (50+ `--cw-*` vars) | Inherit across shadow boundary, dynamic |
-| Default values | `var(--cw-x, fallback)` in component CSS | Widget works with zero config |
-| CSS reset | `all: initial` on `:host` + re-establish defaults | Full isolation from host |
-| Icons | Inline SVGs with `currentColor` | Zero requests, themeable |
-| Fonts | System stack default + `FontFace` API for custom | Load in document scope, use in shadow |
-| Avatars/logos | CDN URLs with base64 fallback | Cacheable, graceful degradation |
-| Responsive | `@media` for mobile/desktop + container queries for internal layout | Both needed |
-| Animations | `@keyframes` in component stylesheet | Must be inside shadow root |
-| RTL | CSS logical properties + `direction: inherit` | Automatic RTL support |
-| `prefers-reduced-motion` | Respected via reset sheet | Accessibility requirement |
+| Decision                 | Choice                                                              | Rationale                               |
+| ------------------------ | ------------------------------------------------------------------- | --------------------------------------- |
+| Primary styling          | Constructable Stylesheets                                           | Best perf, shareable, dynamic updates   |
+| Theming mechanism        | CSS custom properties (50+ `--cw-*` vars)                           | Inherit across shadow boundary, dynamic |
+| Default values           | `var(--cw-x, fallback)` in component CSS                            | Widget works with zero config           |
+| CSS reset                | `all: initial` on `:host` + re-establish defaults                   | Full isolation from host                |
+| Icons                    | Inline SVGs with `currentColor`                                     | Zero requests, themeable                |
+| Fonts                    | System stack default + `FontFace` API for custom                    | Load in document scope, use in shadow   |
+| Avatars/logos            | CDN URLs with base64 fallback                                       | Cacheable, graceful degradation         |
+| Responsive               | `@media` for mobile/desktop + container queries for internal layout | Both needed                             |
+| Animations               | `@keyframes` in component stylesheet                                | Must be inside shadow root              |
+| RTL                      | CSS logical properties + `direction: inherit`                       | Automatic RTL support                   |
+| `prefers-reduced-motion` | Respected via reset sheet                                           | Accessibility requirement               |

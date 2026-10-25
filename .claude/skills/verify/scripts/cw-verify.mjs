@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-// cw-verify: drive the local Codeweaves stack the way a user does.
+// cw-verify: drive the local Klivo stack the way a user does.
 // Usage: .claude/skills/verify/SKILL.md, or `--help`.
 // Every command prints one JSON object on stdout and exits non-zero on failure.
 //

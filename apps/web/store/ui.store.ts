@@ -1,5 +1,5 @@
-import { create } from 'zustand';
-import { devtools, persist } from 'zustand/middleware';
+import { create } from "zustand";
+import { devtools, persist } from "zustand/middleware";
 
 interface UIState {
   sidebarOpen: boolean;
@@ -19,7 +19,7 @@ export const useUIStore = create<UIState>()(
         openModal: (modal: string) => set({ activeModal: modal }),
         closeModal: () => set({ activeModal: null }),
       }),
-      { name: 'codeweaves-ui' },
+      { name: "klivo-ui" },
     ),
   ),
 );

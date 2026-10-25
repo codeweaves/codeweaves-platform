@@ -4,7 +4,7 @@
 
 ## Overview
 
-The API is a **NestJS 11** REST backend serving the CodeWeaves Platform. It handles user authentication via Auth0 JWT tokens, manages multi-tenant data through Prisma ORM, and provides endpoints for the web dashboard and widget.
+The API is a **NestJS 11** REST backend serving the Klivo Platform. It handles user authentication via Auth0 JWT tokens, manages multi-tenant data through Prisma ORM, and provides endpoints for the web dashboard and widget.
 
 ## Architecture Pattern
 
@@ -53,26 +53,27 @@ HTTP Request
 > and return 403 Forbidden on every role-protected route.
 >
 > Registration order in `app.module.ts`:
+>
 > ```typescript
 > providers: [
->   { provide: APP_GUARD, useClass: JwtAuthGuard },    // 1st: validates JWT
->   { provide: APP_GUARD, useClass: UserSyncGuard },   // 2nd: loads DB user data
-> ]
+>   { provide: APP_GUARD, useClass: JwtAuthGuard }, // 1st: validates JWT
+>   { provide: APP_GUARD, useClass: UserSyncGuard }, // 2nd: loads DB user data
+> ];
 > ```
 
 ## Technology Stack
 
-| Category | Technology | Version | Purpose |
-|----------|-----------|---------|---------|
-| Framework | NestJS | 11.0.1 | REST API framework |
-| ORM | Prisma | 7.3.0 | Database access layer |
-| Database | PostgreSQL | 16 | Primary data store (via Supabase) |
-| Auth | Passport + JWT | - | Request authentication |
-| Auth Provider | Auth0 | - | Identity management (JWKS) |
-| Validation | class-validator + Zod | - | Request/DTO validation |
-| Serialization | class-transformer | 0.5.1 | Response transformation |
-| Testing | Jest + Supertest | 29.x | Unit & E2E testing |
-| E2E Infra | Testcontainers | 10.16.0 | Docker-based test databases |
+| Category      | Technology            | Version | Purpose                           |
+| ------------- | --------------------- | ------- | --------------------------------- |
+| Framework     | NestJS                | 11.0.1  | REST API framework                |
+| ORM           | Prisma                | 7.3.0   | Database access layer             |
+| Database      | PostgreSQL            | 16      | Primary data store (via Supabase) |
+| Auth          | Passport + JWT        | -       | Request authentication            |
+| Auth Provider | Auth0                 | -       | Identity management (JWKS)        |
+| Validation    | class-validator + Zod | -       | Request/DTO validation            |
+| Serialization | class-transformer     | 0.5.1   | Response transformation           |
+| Testing       | Jest + Supertest      | 29.x    | Unit & E2E testing                |
+| E2E Infra     | Testcontainers        | 10.16.0 | Docker-based test databases       |
 
 ## Module Structure
 
@@ -115,11 +116,13 @@ AppModule (root)
 ### Schema (3 models)
 
 **Organization** (Multi-tenant root)
+
 - `id` (UUID, PK)
 - `name` (String)
 - `users` (1:N → User)
 
 **User** (Platform user)
+
 - `id` (UUID, PK)
 - `email` (unique)
 - `name` (optional)
@@ -128,6 +131,7 @@ AppModule (root)
 - `organizationId` (FK → Organization)
 
 **UserInvitation** (Invitation system)
+
 - `id` (UUID, PK)
 - `email`, `role`, `organizationId`
 - `token` (unique, UUID)
@@ -138,6 +142,7 @@ AppModule (root)
 - `invitedBy` (optional)
 
 ### Indexes
+
 - `users.organizationId`
 - `users.auth0Id`
 - `user_invitations.email`
@@ -147,11 +152,11 @@ AppModule (root)
 
 ## API Endpoints
 
-| Method | Path | Auth | Controller | Description |
-|--------|------|------|-----------|-------------|
-| GET | `/health` | Public | HealthController | Health check |
-| GET | `/users/me` | JWT | UsersController | Get current user profile |
-| PATCH | `/users/me` | JWT | UsersController | Update current user profile |
+| Method | Path        | Auth   | Controller       | Description                 |
+| ------ | ----------- | ------ | ---------------- | --------------------------- |
+| GET    | `/health`   | Public | HealthController | Health check                |
+| GET    | `/users/me` | JWT    | UsersController  | Get current user profile    |
+| PATCH  | `/users/me` | JWT    | UsersController  | Update current user profile |
 
 ## Testing Strategy
 
@@ -166,15 +171,16 @@ AppModule (root)
 **File:** `apps/api/src/main.ts`
 
 Bootstraps NestJS with:
+
 - Express platform adapter
 - Configured on `PORT` env var (default: 3001)
 
 ## Configuration
 
-| Env Variable | Purpose | Default |
-|-------------|---------|---------|
-| `PORT` | API server port | 3001 |
-| `DATABASE_URL` | PostgreSQL connection string | - |
-| `AUTH0_DOMAIN` | Auth0 tenant domain | - |
-| `AUTH0_AUDIENCE` | Auth0 API audience | - |
-| `REDIS_URL` | Redis connection (future) | - |
+| Env Variable     | Purpose                      | Default |
+| ---------------- | ---------------------------- | ------- |
+| `PORT`           | API server port              | 3001    |
+| `DATABASE_URL`   | PostgreSQL connection string | -       |
+| `AUTH0_DOMAIN`   | Auth0 tenant domain          | -       |
+| `AUTH0_AUDIENCE` | Auth0 API audience           | -       |
+| `REDIS_URL`      | Redis connection (future)    | -       |

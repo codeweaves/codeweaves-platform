@@ -12,6 +12,7 @@
 Replace the n8n webhook dependency with a native AI orchestration layer inside the NestJS backend. Currently, n8n is a passthrough — we send `{chatInput, sessionId}` to a webhook and get streaming LLM responses back. n8n handles LLM calls (via langchain nodes) and conversation memory (memoryBufferWindow). Everything else (session management, message storage, SSE streaming, rate limiting, voice STT/TTS) is already in our backend.
 
 This plan builds the AI brain directly into NestJS using **Vercel AI SDK v6 + OpenRouter**, giving us:
+
 - Direct LLM calls with 300+ model support
 - Native streaming (no n8n chunk format translation)
 - Per-agent model selection and configuration
@@ -28,43 +29,44 @@ This plan builds the AI brain directly into NestJS using **Vercel AI SDK v6 + Op
 
 ## Current State (What n8n Does Today)
 
-| Responsibility | Owner Today | Owner After |
-|---|---|---|
-| LLM API calls (OpenAI GPT-4) | n8n (langchain nodes) | NestJS (Vercel AI SDK + OpenRouter) |
-| Conversation memory | n8n (memoryBufferWindow) | NestJS (DB-backed context assembly) |
-| Streaming token delivery | n8n (NDJSON chunks) → Backend (SSE) | NestJS (AI SDK stream → SSE) |
-| System prompt | n8n workflow config | NestJS (Agent.systemPrompt, already in DB) |
-| Model selection | n8n workflow config (hardcoded) | NestJS (per-agent AgentAiConfig) |
-| Session management | NestJS | NestJS (unchanged) |
-| Message storage | NestJS | NestJS (unchanged) |
-| Rate limiting | NestJS (Redis) | NestJS (unchanged) |
-| Voice STT/TTS | NestJS (Deepgram/Sarvam/ElevenLabs) | NestJS (unchanged) |
-| SSE to widget/web | NestJS | NestJS (simplified — no chunk format translation) |
-| Cost tracking | None | NestJS (OpenRouter cost field + LlmUsage table) |
-| RAG / document retrieval | None | NestJS (pgvector + hybrid search) |
-| Tool/function calling | None | NestJS (Vercel AI SDK tools) |
-| WhatsApp channel | None | NestJS (Meta Cloud API webhook) |
+| Responsibility               | Owner Today                         | Owner After                                       |
+| ---------------------------- | ----------------------------------- | ------------------------------------------------- |
+| LLM API calls (OpenAI GPT-4) | n8n (langchain nodes)               | NestJS (Vercel AI SDK + OpenRouter)               |
+| Conversation memory          | n8n (memoryBufferWindow)            | NestJS (DB-backed context assembly)               |
+| Streaming token delivery     | n8n (NDJSON chunks) → Backend (SSE) | NestJS (AI SDK stream → SSE)                      |
+| System prompt                | n8n workflow config                 | NestJS (Agent.systemPrompt, already in DB)        |
+| Model selection              | n8n workflow config (hardcoded)     | NestJS (per-agent AgentAiConfig)                  |
+| Session management           | NestJS                              | NestJS (unchanged)                                |
+| Message storage              | NestJS                              | NestJS (unchanged)                                |
+| Rate limiting                | NestJS (Redis)                      | NestJS (unchanged)                                |
+| Voice STT/TTS                | NestJS (Deepgram/Sarvam/ElevenLabs) | NestJS (unchanged)                                |
+| SSE to widget/web            | NestJS                              | NestJS (simplified — no chunk format translation) |
+| Cost tracking                | None                                | NestJS (OpenRouter cost field + LlmUsage table)   |
+| RAG / document retrieval     | None                                | NestJS (pgvector + hybrid search)                 |
+| Tool/function calling        | None                                | NestJS (Vercel AI SDK tools)                      |
+| WhatsApp channel             | None                                | NestJS (Meta Cloud API webhook)                   |
 
 ---
 
 ## Technology Decisions
 
-| Decision | Choice | Why |
-|---|---|---|
-| LLM SDK | Vercel AI SDK v6 (`ai`) | TypeScript-native, provider-agnostic, streaming built-in, works in any Node.js env |
-| LLM Gateway | OpenRouter (`@openrouter/ai-sdk-provider`) | 300+ models, zero ops, built-in fallback routing, cost tracking in every response, MIT |
-| Vector DB | pgvector (PostgreSQL extension) | Already run PostgreSQL, co-located with relational data, ACID, handles <10M vectors easily |
-| Hybrid Search | pgvector + PostgreSQL tsvector/ts_rank | Native PostgreSQL, no additional infra. Upgrade to pg_textsearch for true BM25 if needed |
-| Document Processing | pdf-parse, mammoth (MVP); upgrade path to LiteParse | Lightweight for MVP. LiteParse is TypeScript-native with OCR (Tesseract.js) for complex PDFs — adopt when needed |
-| Queue | BullMQ + @nestjs/bullmq | NestJS ecosystem standard, Redis-backed (already have Redis), reliable |
-| Resilience | cockatiel | Circuit breaker, retry, timeout, bulkhead — all in one package |
-| Embeddings | OpenAI text-embedding-3-small (via OpenRouter) | $0.02/1M tokens, 1536 dims, good quality. Upgrade path: text-embedding-3-large with Matryoshka dim reduction (3072→1536). For Indian languages: evaluate Cohere embed-v4 or BGE-M3 |
-| Reranking | Cohere rerank-v3.5 (via AI SDK `rerank()`) | Best quality/cost ratio, 33-40% retrieval accuracy improvement, ~120ms latency |
+| Decision            | Choice                                              | Why                                                                                                                                                                                |
+| ------------------- | --------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| LLM SDK             | Vercel AI SDK v6 (`ai`)                             | TypeScript-native, provider-agnostic, streaming built-in, works in any Node.js env                                                                                                 |
+| LLM Gateway         | OpenRouter (`@openrouter/ai-sdk-provider`)          | 300+ models, zero ops, built-in fallback routing, cost tracking in every response, MIT                                                                                             |
+| Vector DB           | pgvector (PostgreSQL extension)                     | Already run PostgreSQL, co-located with relational data, ACID, handles <10M vectors easily                                                                                         |
+| Hybrid Search       | pgvector + PostgreSQL tsvector/ts_rank              | Native PostgreSQL, no additional infra. Upgrade to pg_textsearch for true BM25 if needed                                                                                           |
+| Document Processing | pdf-parse, mammoth (MVP); upgrade path to LiteParse | Lightweight for MVP. LiteParse is TypeScript-native with OCR (Tesseract.js) for complex PDFs — adopt when needed                                                                   |
+| Queue               | BullMQ + @nestjs/bullmq                             | NestJS ecosystem standard, Redis-backed (already have Redis), reliable                                                                                                             |
+| Resilience          | cockatiel                                           | Circuit breaker, retry, timeout, bulkhead — all in one package                                                                                                                     |
+| Embeddings          | OpenAI text-embedding-3-small (via OpenRouter)      | $0.02/1M tokens, 1536 dims, good quality. Upgrade path: text-embedding-3-large with Matryoshka dim reduction (3072→1536). For Indian languages: evaluate Cohere embed-v4 or BGE-M3 |
+| Reranking           | Cohere rerank-v3.5 (via AI SDK `rerank()`)          | Best quality/cost ratio, 33-40% retrieval accuracy improvement, ~120ms latency                                                                                                     |
 
 ### Architectural Decision Rationale
 
 **OpenRouter vs LiteLLM:**
 The research recommended LiteLLM (self-hosted proxy) as highest value. We chose OpenRouter instead because:
+
 - Zero operational overhead (managed SaaS vs Docker sidecar to maintain)
 - 300+ models vs 100+ (broader coverage)
 - Native fallback routing via `models[] + route: "fallback"` (no extra config)
@@ -74,6 +76,7 @@ The research recommended LiteLLM (self-hosted proxy) as highest value. We chose 
 
 **Custom Observability vs Langfuse:**
 The research recommended Langfuse (MIT, same stack) for LLM observability. We chose custom because:
+
 - Langfuse is another service to deploy and maintain (PostgreSQL + Next.js)
 - Our analytics needs are met by `LlmUsage` table + Sentry APM + structured logging
 - We already have an analytics dashboard and endpoints
@@ -109,14 +112,14 @@ bun add -D @types/pdf-parse
 
 ## Phase Overview
 
-| Phase | Name | Epics | Stories | Purpose |
-|---|---|---|---|---|
-| 1 | Core LLM Gateway | Epic 14 | 14 | Replace n8n with direct LLM calls via AI SDK + OpenRouter |
-| 2 | Conversation Intelligence | Epic 15 | 8 | Smart memory, context management, summarization |
-| 3 | RAG Pipeline | Epic 16 | 18 | Document upload, ingestion, contextual chunking, embedding, hybrid search, reranking, citation, RAG evaluation |
-| 4 | Tool Use & Function Calling | Epic 17 | 7 | Agent tools, MCP support, custom functions |
-| 5 | Production Hardening | Epic 18 | 11 | Semantic caching, cost controls, AI security, usage limits, observability, load testing |
-| 6 | WhatsApp Integration | Epic 19 | 9 | WhatsApp Business API channel with voice note support |
+| Phase | Name                        | Epics   | Stories | Purpose                                                                                                        |
+| ----- | --------------------------- | ------- | ------- | -------------------------------------------------------------------------------------------------------------- |
+| 1     | Core LLM Gateway            | Epic 14 | 14      | Replace n8n with direct LLM calls via AI SDK + OpenRouter                                                      |
+| 2     | Conversation Intelligence   | Epic 15 | 8       | Smart memory, context management, summarization                                                                |
+| 3     | RAG Pipeline                | Epic 16 | 18      | Document upload, ingestion, contextual chunking, embedding, hybrid search, reranking, citation, RAG evaluation |
+| 4     | Tool Use & Function Calling | Epic 17 | 7       | Agent tools, MCP support, custom functions                                                                     |
+| 5     | Production Hardening        | Epic 18 | 11      | Semantic caching, cost controls, AI security, usage limits, observability, load testing                        |
+| 6     | WhatsApp Integration        | Epic 19 | 9       | WhatsApp Business API channel with voice note support                                                          |
 
 **Total: 6 phases, 6 epics, 67 stories**
 
@@ -155,6 +158,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Add `ai` and `@openrouter/ai-sdk-provider` packages. Create a thin `AiSdkModule` that exports a configured OpenRouter client.
 
 **Acceptance Criteria:**
+
 - `ai` (Vercel AI SDK v6) installed in `apps/api`
 - `@openrouter/ai-sdk-provider` installed in `apps/api`
 - `AiSdkModule` created at `apps/api/src/modules/ai/ai-sdk.module.ts`
@@ -165,6 +169,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit test: AiSdkService instantiates and returns a model object
 
 **Files:**
+
 - `apps/api/src/modules/ai/ai-sdk.module.ts` (new)
 - `apps/api/src/modules/ai/ai-sdk.service.ts` (new)
 - `apps/api/src/modules/ai/index.ts` (new)
@@ -178,6 +183,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Add per-agent AI configuration (model, temperature, max tokens, routing mode) to the database. This lets each agent independently choose its model and whether to use n8n or direct mode.
 
 **Acceptance Criteria:**
+
 - New `AgentAiConfig` model in Prisma schema (or JSON field on Agent — decision: use JSON field `aiConfig` on Agent, same pattern as `voiceConfig`)
 - `aiConfig` field added to Agent model as `Json? @db.JsonB`
 - Zod validation schema for `AgentAiConfigDto`:
@@ -202,6 +208,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests for validation schema (valid configs, invalid configs, defaults)
 
 **Files:**
+
 - `apps/api/prisma/schema.prisma` (edit — add aiConfig to Agent)
 - `packages/validation/src/agent-ai-config.ts` (new)
 - `apps/api/src/services/agents.service.ts` (edit — handle aiConfig in update)
@@ -214,45 +221,47 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Create `LlmService` that wraps Vercel AI SDK's `generateText()` for non-streaming completions. This is the core service that all other services will call.
 
 **Acceptance Criteria:**
+
 - `LlmService` at `apps/api/src/modules/ai/llm.service.ts`
 - Method: `generateCompletion(request: LlmCompletionRequest): Promise<LlmCompletionResponse>`
   ```typescript
   interface LlmCompletionRequest {
-    modelId: string
-    systemPrompt: string
-    messages: CoreMessage[]       // from 'ai' package
-    temperature?: number
-    maxTokens?: number
-    topP?: number
-    frequencyPenalty?: number
-    presencePenalty?: number
-    tools?: Record<string, Tool>  // from 'ai' package
-    maxSteps?: number             // tool loop iterations
-    abortSignal?: AbortSignal
+    modelId: string;
+    systemPrompt: string;
+    messages: CoreMessage[]; // from 'ai' package
+    temperature?: number;
+    maxTokens?: number;
+    topP?: number;
+    frequencyPenalty?: number;
+    presencePenalty?: number;
+    tools?: Record<string, Tool>; // from 'ai' package
+    maxSteps?: number; // tool loop iterations
+    abortSignal?: AbortSignal;
   }
-  
+
   interface LlmCompletionResponse {
-    text: string
+    text: string;
     usage: {
-      promptTokens: number
-      completionTokens: number
-      totalTokens: number
-    }
-    cost: number | null           // from OpenRouter response
-    model: string                 // actual model used (may differ if fallback)
-    finishReason: string
-    toolCalls?: ToolCall[]
-    latencyMs: number
+      promptTokens: number;
+      completionTokens: number;
+      totalTokens: number;
+    };
+    cost: number | null; // from OpenRouter response
+    model: string; // actual model used (may differ if fallback)
+    finishReason: string;
+    toolCalls?: ToolCall[];
+    latencyMs: number;
   }
   ```
 - Calls `generateText()` from AI SDK with OpenRouter model
 - Measures latency (start to finish)
 - Extracts cost from OpenRouter response metadata
 - Handles abort signal for cancellation
-- Error handling: wraps AI SDK errors into typed CodeWeaves errors
+- Error handling: wraps AI SDK errors into typed Klivo errors
 - Unit tests with mocked AI SDK
 
 **Files:**
+
 - `apps/api/src/modules/ai/llm.service.ts` (new)
 - `apps/api/src/modules/ai/interfaces/llm.interfaces.ts` (new)
 - `apps/api/src/modules/ai/ai-sdk.module.ts` (edit — export LlmService)
@@ -264,19 +273,25 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Create streaming counterpart using `streamText()`. Returns an `AsyncGenerator` of typed chunks that the controller can pipe to SSE.
 
 **Acceptance Criteria:**
+
 - Method on `LlmService`: `streamCompletion(request: LlmCompletionRequest): Promise<LlmStreamHandle>`
   ```typescript
   interface LlmStreamHandle {
-    stream: AsyncGenerator<LlmStreamChunk>
+    stream: AsyncGenerator<LlmStreamChunk>;
     // Promise that resolves when stream completes — contains final usage/cost
-    completion: Promise<LlmCompletionResponse>
+    completion: Promise<LlmCompletionResponse>;
   }
-  
+
   type LlmStreamChunk =
-    | { type: 'text-delta'; content: string }
-    | { type: 'tool-call'; toolCallId: string; toolName: string; args: unknown }
-    | { type: 'tool-result'; toolCallId: string; result: unknown }
-    | { type: 'finish'; usage: TokenUsage; cost: number | null; finishReason: string }
+    | { type: "text-delta"; content: string }
+    | { type: "tool-call"; toolCallId: string; toolName: string; args: unknown }
+    | { type: "tool-result"; toolCallId: string; result: unknown }
+    | {
+        type: "finish";
+        usage: TokenUsage;
+        cost: number | null;
+        finishReason: string;
+      };
   ```
 - Wraps `streamText()` from AI SDK
 - Converts AI SDK's text stream into AsyncGenerator of typed chunks
@@ -288,6 +303,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests with mocked stream
 
 **Files:**
+
 - `apps/api/src/modules/ai/llm.service.ts` (edit — add streamCompletion)
 - `apps/api/src/modules/ai/interfaces/llm.interfaces.ts` (edit — add stream types)
 
@@ -298,22 +314,23 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Build conversation context from database messages. This replaces n8n's `memoryBufferWindow` — we load the last N messages from our `ChatMessage` table and format them as AI SDK `CoreMessage[]`.
 
 **Acceptance Criteria:**
+
 - `ContextAssemblyService` at `apps/api/src/modules/ai/context-assembly.service.ts`
 - Method: `assembleContext(request: ContextRequest): Promise<AssembledContext>`
   ```typescript
   interface ContextRequest {
-    sessionId: string
-    systemPrompt: string
-    maxMessages: number        // from agent aiConfig.maxContextMessages, default 20
-    maxTokens?: number         // optional: truncate if context exceeds token budget
-    ragContext?: string         // optional: injected RAG retrieval results (Phase 3)
+    sessionId: string;
+    systemPrompt: string;
+    maxMessages: number; // from agent aiConfig.maxContextMessages, default 20
+    maxTokens?: number; // optional: truncate if context exceeds token budget
+    ragContext?: string; // optional: injected RAG retrieval results (Phase 3)
   }
-  
+
   interface AssembledContext {
-    systemMessage: CoreMessage  // system prompt + optional RAG context
-    messages: CoreMessage[]     // conversation history
-    estimatedTokens: number    // rough estimate for monitoring
-    truncated: boolean         // whether messages were truncated
+    systemMessage: CoreMessage; // system prompt + optional RAG context
+    messages: CoreMessage[]; // conversation history
+    estimatedTokens: number; // rough estimate for monitoring
+    truncated: boolean; // whether messages were truncated
   }
   ```
 - Loads messages from ChatMessage table ordered by `createdAt ASC`
@@ -326,6 +343,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests: context assembly with various message counts, truncation, RAG injection
 
 **Files:**
+
 - `apps/api/src/modules/ai/context-assembly.service.ts` (new)
 - `apps/api/src/modules/ai/interfaces/context.interfaces.ts` (new)
 
@@ -336,6 +354,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** The orchestrator that wires together context assembly → LLM completion → message storage. This is the direct-mode equivalent of calling the n8n webhook.
 
 **Acceptance Criteria:**
+
 - `DirectChatService` at `apps/api/src/modules/ai/direct-chat.service.ts`
 - Method: `sendMessage(request): Promise<DirectChatResponse>` (non-streaming)
 - Method: `streamMessage(request): Promise<DirectStreamHandle>` (streaming)
@@ -354,6 +373,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests with mocked dependencies
 
 **Files:**
+
 - `apps/api/src/modules/ai/direct-chat.service.ts` (new)
 - `apps/api/src/modules/ai/ai-sdk.module.ts` (edit — export DirectChatService)
 
@@ -364,6 +384,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Modify the existing `ChatService` to route between n8n webhook and direct LLM based on the agent's `aiConfig.routingMode`.
 
 **Acceptance Criteria:**
+
 - `ChatService.sendMessage()` checks `agent.aiConfig?.routingMode`
   - `'n8n'` or `undefined` → existing `callN8nWebhook()` path (unchanged)
   - `'direct'` → call `DirectChatService.sendMessage()`
@@ -374,20 +395,20 @@ Note: Phase 4 can start after Phase 1 is done.
 - Metadata format: direct mode produces `DirectStreamingMetadata` (compatible with existing metadata interface)
   ```typescript
   interface DirectStreamingMetadata {
-    streamingMode: 'direct'
-    provider: 'openrouter'
-    model: string               // actual model used
-    backendReceivedAt: string
-    firstTokenAt: string | null
-    backendRespondedAt: string
-    responseLatencyMs: number
-    timeToFirstToken: number | null
-    streamDurationMs: number | null
-    totalChunks: number
-    promptTokens: number
-    completionTokens: number
-    totalTokens: number
-    cost: number | null
+    streamingMode: "direct";
+    provider: "openrouter";
+    model: string; // actual model used
+    backendReceivedAt: string;
+    firstTokenAt: string | null;
+    backendRespondedAt: string;
+    responseLatencyMs: number;
+    timeToFirstToken: number | null;
+    streamDurationMs: number | null;
+    totalChunks: number;
+    promptTokens: number;
+    completionTokens: number;
+    totalTokens: number;
+    cost: number | null;
   }
   ```
 - All existing n8n-mode behavior unchanged (zero regression risk)
@@ -395,6 +416,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Integration test: send message with `routingMode: 'n8n'` → still calls webhook
 
 **Files:**
+
 - `apps/api/src/services/chat.service.ts` (edit — add routing logic)
 - `apps/api/src/services/chat-metadata.interface.ts` (edit — add DirectStreamingMetadata)
 - `apps/api/src/modules/chat.module.ts` (edit — import AiModule)
@@ -406,6 +428,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Update `PublicChatController.stream()` to handle direct-mode streaming. Currently it translates n8n NDJSON chunks to SSE. For direct mode, it pipes `LlmStreamChunk` to SSE — which is simpler (no chunk format translation needed).
 
 **Acceptance Criteria:**
+
 - Controller detects routing mode from the stream response
 - Direct mode: iterates `LlmStreamChunk` generator, writes SSE events:
   - `text-delta` → `data: {"type":"chunk","content":"..."}\n\n` (same format as today)
@@ -419,6 +442,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - No changes needed in widget or web frontend (SSE contract identical)
 
 **Files:**
+
 - `apps/api/src/controllers/public/public-chat.controller.ts` (edit)
 - `apps/api/src/modules/voice/voice.controller.ts` (edit — direct mode voice streaming)
 
@@ -429,6 +453,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Add resilience patterns around LLM calls using `cockatiel`. OpenRouter has built-in fallback via `models[]` + `route: "fallback"`, but we also need client-side circuit breaking for when OpenRouter itself is down.
 
 **Acceptance Criteria:**
+
 - Install `cockatiel` package
 - `ResilienceService` at `apps/api/src/modules/ai/resilience.service.ts`
 - **Retry policy:**
@@ -450,6 +475,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests: retry behavior, circuit open/close, fallback chain
 
 **Files:**
+
 - `apps/api/src/modules/ai/resilience.service.ts` (new)
 - `apps/api/src/modules/ai/llm.service.ts` (edit — wrap calls with resilience)
 - `apps/api/package.json` (edit — add cockatiel)
@@ -461,6 +487,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Track every LLM call's token usage and cost in the database for per-tenant billing, analytics, and cost alerting.
 
 **Acceptance Criteria:**
+
 - New `LlmUsage` model in Prisma schema:
   ```prisma
   model LlmUsage {
@@ -481,7 +508,7 @@ Note: Phase 4 can start after Phase 1 is done.
     retryCount       Int           @default(0)
     finishReason     String?
     createdAt        DateTime      @default(now())
-    
+
     @@index([organizationId, createdAt])
     @@index([agentId, createdAt])
     @@index([feature])
@@ -498,6 +525,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit test: batch flushing works
 
 **Files:**
+
 - `apps/api/prisma/schema.prisma` (edit — add LlmUsage model)
 - `apps/api/src/modules/ai/usage-tracking.service.ts` (new)
 - `apps/api/src/modules/ai/direct-chat.service.ts` (edit — integrate tracking)
@@ -510,6 +538,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Add AI configuration section to the agent editor in the web dashboard so admins can configure model, temperature, routing mode per agent.
 
 **Acceptance Criteria:**
+
 - New `AiSettingsSection` component in agent editor
 - Fields:
   - **Routing Mode** toggle: "n8n Webhook" (default) vs "Direct AI" — with clear labels explaining each
@@ -528,6 +557,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Form validation matches Zod schema from 14-2
 
 **Files:**
+
 - `apps/web/components/features/agents/agent-editor/sections/ai-settings.tsx` (new)
 - `apps/web/components/features/agents/agent-editor/agent-editor.tsx` (edit — add section)
 
@@ -538,6 +568,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** API endpoint for super admins to batch-migrate agents from n8n to direct mode. Also a CLI-friendly way to test direct mode on a single agent.
 
 **Acceptance Criteria:**
+
 - `POST /agents/:id/migrate-to-direct` — sets `aiConfig.routingMode = 'direct'` with default model
 - `POST /agents/:id/migrate-to-n8n` — reverts to n8n mode (safety net)
 - `POST /agents/batch-migrate` — migrate multiple agents (body: `{ agentIds: string[], mode: 'direct' | 'n8n' }`)
@@ -548,6 +579,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/controllers/agents/agents.controller.ts` (edit — add endpoints)
 - `apps/api/src/services/agents.service.ts` (edit — migration methods)
 
@@ -558,6 +590,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Wire the voice conversation flow to use direct LLM when agent is in direct mode. Currently voice calls n8n webhook → gets text → TTS. In direct mode: voice calls DirectChatService → gets streaming text → progressive TTS.
 
 **Acceptance Criteria:**
+
 - `VoiceController.handleConversation()` (non-streaming voice):
   - `routingMode: 'direct'` → call `DirectChatService.sendMessage()` instead of `ChatService.callN8nWebhook()`
   - Response text fed to TTS as before
@@ -575,6 +608,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Integration test: voice conversation with direct mode
 
 **Files:**
+
 - `apps/api/src/modules/voice/voice.controller.ts` (edit)
 - `apps/api/src/modules/voice/voice.service.ts` (edit — accept LlmStreamChunk as input, add TTS pre-warming)
 - `apps/api/src/modules/voice/voice.module.ts` (edit — import AiModule)
@@ -586,6 +620,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Comprehensive testing across all paths to ensure direct mode works identically to n8n mode from the client's perspective.
 
 **Acceptance Criteria:**
+
 - **Unit tests** for all new services (LlmService, ContextAssemblyService, DirectChatService, ResilienceService, UsageTrackingService)
 - **Integration tests:**
   - Chat send (non-streaming) with direct mode → correct response
@@ -608,6 +643,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - All tests pass, lint clean, types clean, build succeeds
 
 **Files:**
+
 - `apps/api/test/ai/` directory (new — all AI module tests)
 - `apps/api/test/integration/direct-chat.spec.ts` (new)
 
@@ -626,6 +662,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Accurate token counting for context budgeting. The rough `length/4` estimate from Phase 1 is fine for monitoring, but we need precision for context window management.
 
 **Acceptance Criteria:**
+
 - `TokenCounterService` at `apps/api/src/modules/ai/token-counter.service.ts`
 - Uses `tiktoken` (or AI SDK's built-in token counting if available) for accurate counts
 - Method: `countTokens(text: string, model?: string): number`
@@ -635,6 +672,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests with known token counts
 
 **Files:**
+
 - `apps/api/src/modules/ai/token-counter.service.ts` (new)
 - `apps/api/package.json` (edit — add tiktoken if needed)
 
@@ -645,10 +683,11 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Smart context assembly that respects the model's context window. Instead of fixed "last 20 messages", use a token budget approach.
 
 **Acceptance Criteria:**
+
 - Update `ContextAssemblyService` with strategy pattern:
   ```typescript
   interface ContextStrategy {
-    assemble(params: ContextStrategyParams): Promise<AssembledContext>
+    assemble(params: ContextStrategyParams): Promise<AssembledContext>;
   }
   ```
 - `SlidingWindowStrategy` (default):
@@ -661,6 +700,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests: budget calculation, message truncation, edge cases (very long single message)
 
 **Files:**
+
 - `apps/api/src/modules/ai/context-assembly.service.ts` (edit — strategy pattern)
 - `apps/api/src/modules/ai/strategies/sliding-window.strategy.ts` (new)
 - `apps/api/src/modules/ai/interfaces/context.interfaces.ts` (edit)
@@ -672,6 +712,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** When a conversation gets too long for the context window, summarize older messages into a condensed form that preserves key information.
 
 **Acceptance Criteria:**
+
 - `SummarizationService` at `apps/api/src/modules/ai/summarization.service.ts`
 - Method: `summarize(messages: CoreMessage[], maxTokens?: number): Promise<string>`
 - Uses a fast/cheap model for summarization (e.g., `openai/gpt-4o-mini` or `google/gemini-2.5-flash`)
@@ -686,6 +727,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/ai/summarization.service.ts` (new)
 - `apps/api/src/modules/ai/strategies/summarize.strategy.ts` (new)
 - `apps/api/prisma/schema.prisma` (edit — add summary to ChatSession)
@@ -698,6 +740,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Combine sliding window (recent messages) + summary (older context) for best quality.
 
 **Acceptance Criteria:**
+
 - `HybridStrategy`:
   - Token budget split: 70% for recent messages (sliding window), 30% for summary
   - If conversation short (<= maxContextMessages), no summary needed → pure sliding window
@@ -707,6 +750,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests: short conversation (no summary), long conversation (with summary), budget splits
 
 **Files:**
+
 - `apps/api/src/modules/ai/strategies/hybrid.strategy.ts` (new)
 - `apps/api/src/modules/ai/context-assembly.service.ts` (edit — register hybrid strategy)
 
@@ -717,6 +761,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Allow system prompts to include template variables that are resolved at runtime (e.g., current date, agent name, organization name, user info).
 
 **Acceptance Criteria:**
+
 - `PromptTemplateService` at `apps/api/src/modules/ai/prompt-template.service.ts`
 - Supported variables:
   - `{{agent.name}}` — agent's display name
@@ -733,6 +778,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests: all variables, missing variables, empty template
 
 **Files:**
+
 - `apps/api/src/modules/ai/prompt-template.service.ts` (new)
 - `apps/api/src/modules/ai/context-assembly.service.ts` (edit — resolve prompt before assembly)
 
@@ -743,6 +789,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Auto-generate a short title for conversations based on the first few messages. Useful for analytics, search, and future conversation list UI.
 
 **Acceptance Criteria:**
+
 - New field on `ChatSession`: `title: String?`
 - After the 2nd assistant message in a session, trigger title generation (async, non-blocking)
 - Uses cheap model (`openai/gpt-4o-mini`): "Generate a 5-8 word title for this conversation: [first 2 exchanges]"
@@ -753,6 +800,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit test
 
 **Files:**
+
 - `apps/api/src/modules/ai/summarization.service.ts` (edit — add generateTitle method)
 - `apps/api/prisma/schema.prisma` (edit — add title to ChatSession)
 - `apps/api/src/modules/ai/direct-chat.service.ts` (edit — trigger title generation)
@@ -765,6 +813,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Optimize context assembly for latency — it's on the critical path of every request.
 
 **Acceptance Criteria:**
+
 - **Message pre-loading:** Load messages in a single Prisma query with `select` (only id, role, content, createdAt — not full metadata)
 - **Token cache:** Cache token counts for individual messages in Redis (key: `msg_tokens:{messageId}`, TTL: 24h). Messages are immutable, so counts never change
 - **Summary cache:** Cache conversation summary in Redis (key: `session_summary:{sessionId}`, TTL: 5min). Invalidated when new summary generated
@@ -773,6 +822,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests for caching behavior
 
 **Files:**
+
 - `apps/api/src/modules/ai/context-assembly.service.ts` (edit — optimization)
 - `apps/api/src/modules/ai/token-counter.service.ts` (edit — Redis caching)
 
@@ -783,6 +833,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Surface conversation intelligence features in the web dashboard — show conversation titles, summaries, and context usage metrics.
 
 **Acceptance Criteria:**
+
 - Analytics dashboard: new "AI Usage" card showing:
   - Total tokens used (prompt + completion) per period
   - Total cost per period (from LlmUsage)
@@ -795,6 +846,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - API endpoints only (UI can be built later if needed, but data must be queryable now)
 
 **Files:**
+
 - `apps/api/src/services/analytics.service.ts` (edit — add AI usage queries)
 - `apps/api/src/controllers/analytics/analytics.controller.ts` (edit — add endpoints)
 
@@ -813,6 +865,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Enable the pgvector PostgreSQL extension and verify it works with our Prisma setup.
 
 **Acceptance Criteria:**
+
 - Prisma migration: `CREATE EXTENSION IF NOT EXISTS vector;`
 - Verify pgvector is active: `SELECT * FROM pg_extension WHERE extname = 'vector';`
 - Install `pgvector` npm package for Node.js client
@@ -822,6 +875,7 @@ Note: Phase 4 can start after Phase 1 is done.
   - Use `pgvector/pgvector:pg16` or equivalent image
 
 **Files:**
+
 - `apps/api/prisma/migrations/XXXXXX_enable_pgvector/migration.sql` (new)
 - `apps/api/package.json` (edit — add pgvector)
 - `docker-compose.yml` (edit if needed — pgvector-enabled PostgreSQL image)
@@ -833,6 +887,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Create the database models for documents and their chunks with vector embeddings.
 
 **Acceptance Criteria:**
+
 - New Prisma models:
   ```prisma
   model Document {
@@ -850,15 +905,15 @@ Note: Phase 4 can start after Phase 1 is done.
     uploadedById   String
     createdAt      DateTime        @default(now())
     updatedAt      DateTime        @updatedAt
-    
+
     chunks         DocumentChunk[]
-    
+
     @@index([agentId])
     @@index([organizationId])
     @@index([status])
     @@map("documents")
   }
-  
+
   enum DocumentStatus {
     PENDING       // uploaded, not yet processed
     PROCESSING    // in queue, being chunked/embedded
@@ -866,7 +921,7 @@ Note: Phase 4 can start after Phase 1 is done.
     FAILED        // processing failed
     DELETING      // being removed
   }
-  
+
   model DocumentChunk {
     id          String   @id @default(uuid())
     documentId  String
@@ -877,16 +932,16 @@ Note: Phase 4 can start after Phase 1 is done.
     tokenCount  Int
     contentHash String   // SHA-256 for change detection / dedup
     createdAt   DateTime @default(now())
-    
+
     document    Document @relation(fields: [documentId], references: [id], onDelete: Cascade)
-    
+
     @@index([documentId])
     @@map("document_chunks")
   }
   ```
 - Raw SQL in migration for HNSW index with **production-tuned parameters** (per pgvector optimization research):
   ```sql
-  CREATE INDEX document_chunks_embedding_idx 
+  CREATE INDEX document_chunks_embedding_idx
     ON document_chunks USING hnsw (embedding vector_cosine_ops)
     WITH (m = 16, ef_construction = 200);
   -- Production ef_construction=200 (not 64) for better recall at build-time cost
@@ -898,6 +953,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - **Scaling note:** For >50M vectors, evaluate pgvectorscale extension or dedicated vector DB (Qdrant). Document threshold in ADR.
 
 **Files:**
+
 - `apps/api/prisma/schema.prisma` (edit)
 - Prisma migration file (generated)
 - `packages/validation/src/document.ts` (new)
@@ -909,6 +965,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** API endpoint for uploading documents to be associated with an agent. Files stored in Supabase Storage (already integrated), metadata stored in Document table.
 
 **Acceptance Criteria:**
+
 - `POST /agents/:agentId/documents` — multipart file upload
   - Accepts: PDF, DOCX, TXT (max 50MB)
   - Stores file in Supabase Storage bucket `agent-documents`
@@ -924,6 +981,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests for controller and service
 
 **Files:**
+
 - `apps/api/src/modules/documents/documents.module.ts` (new)
 - `apps/api/src/modules/documents/documents.service.ts` (new)
 - `apps/api/src/modules/documents/documents.controller.ts` (new)
@@ -937,18 +995,19 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Extract text content from uploaded documents (PDF, DOCX, TXT).
 
 **Acceptance Criteria:**
+
 - `DocumentParserService` at `apps/api/src/modules/documents/parser.service.ts`
 - Install `pdf-parse` and `mammoth` packages
 - Method: `parse(buffer: Buffer, mimeType: string): Promise<ParsedDocument>`
   ```typescript
   interface ParsedDocument {
-    text: string
+    text: string;
     metadata: {
-      pageCount?: number
-      title?: string
-      author?: string
-    }
-    pages?: { pageNumber: number; text: string }[]  // PDF only
+      pageCount?: number;
+      title?: string;
+      author?: string;
+    };
+    pages?: { pageNumber: number; text: string }[]; // PDF only
   }
   ```
 - Supported formats:
@@ -958,8 +1017,8 @@ Note: Phase 4 can start after Phase 1 is done.
 - **Parser abstraction:** Use a `DocumentParser` interface so parsers are swappable:
   ```typescript
   interface DocumentParser {
-    canParse(mimeType: string): boolean
-    parse(buffer: Buffer): Promise<ParsedDocument>
+    canParse(mimeType: string): boolean;
+    parse(buffer: Buffer): Promise<ParsedDocument>;
   }
   ```
   This allows upgrading to LiteParse (TypeScript-native, includes OCR via Tesseract.js for scanned PDFs) or LlamaParse (vision-based, best for tables/layouts) without changing the pipeline.
@@ -970,6 +1029,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests with sample files (include edge cases: empty PDF, 1-page, 100-page, DOCX with images, UTF-8 with special chars)
 
 **Files:**
+
 - `apps/api/src/modules/documents/parser.service.ts` (new)
 - `apps/api/package.json` (edit — add pdf-parse, mammoth)
 - `apps/api/test/fixtures/` (sample PDF, DOCX, TXT for testing)
@@ -981,15 +1041,16 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Set up BullMQ job queue infrastructure for async document processing.
 
 **Acceptance Criteria:**
+
 - Install `bullmq` and `@nestjs/bullmq`
 - Configure BullMQ module with existing Redis connection
 - Queue: `document-ingestion` — processes document parsing + chunking + embedding
 - Job types:
   ```typescript
   interface DocumentIngestionJob {
-    documentId: string
-    agentId: string
-    organizationId: string
+    documentId: string;
+    agentId: string;
+    organizationId: string;
   }
   ```
 - Job options: 3 retries with exponential backoff, 5-minute timeout
@@ -999,6 +1060,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit test: job gets queued and processed
 
 **Files:**
+
 - `apps/api/src/modules/queue/queue.module.ts` (new)
 - `apps/api/src/modules/queue/document-ingestion.processor.ts` (new)
 - `apps/api/src/modules/app.module.ts` (edit — import QueueModule)
@@ -1011,6 +1073,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Split extracted document text into chunks suitable for embedding and retrieval.
 
 **Acceptance Criteria:**
+
 - `ChunkingService` at `apps/api/src/modules/documents/chunking.service.ts`
 - **Recursive chunking** (default strategy):
   - Target chunk size: 512 tokens
@@ -1020,21 +1083,21 @@ Note: Phase 4 can start after Phase 1 is done.
 - Method: `chunk(text: string, options?: ChunkingOptions): DocumentChunkData[]`
   ```typescript
   interface ChunkingOptions {
-    strategy?: 'recursive' | 'fixed' | 'contextual'
-    targetTokens?: number      // default 512
-    overlapTokens?: number     // default 50
+    strategy?: "recursive" | "fixed" | "contextual";
+    targetTokens?: number; // default 512
+    overlapTokens?: number; // default 50
   }
-  
+
   interface DocumentChunkData {
-    content: string
-    contextPrefix?: string     // contextual retrieval prefix (see below)
-    chunkIndex: number
-    tokenCount: number
-    contentHash: string        // SHA-256
+    content: string;
+    contextPrefix?: string; // contextual retrieval prefix (see below)
+    chunkIndex: number;
+    tokenCount: number;
+    contentHash: string; // SHA-256
     metadata: {
-      pageNumber?: number      // if from PDF with page boundaries
-      sectionHeading?: string  // if detectable
-    }
+      pageNumber?: number; // if from PDF with page boundaries
+      sectionHeading?: string; // if detectable
+    };
   }
   ```
 - **Contextual Retrieval (Anthropic pattern — 67% failure reduction):**
@@ -1051,6 +1114,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests with various document types and sizes
 
 **Files:**
+
 - `apps/api/src/modules/documents/chunking.service.ts` (new)
 
 ---
@@ -1060,6 +1124,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Generate vector embeddings for document chunks and queries using OpenRouter/AI SDK.
 
 **Acceptance Criteria:**
+
 - `EmbeddingService` at `apps/api/src/modules/ai/embedding.service.ts`
 - Uses AI SDK's `embedMany()` and `embed()` functions
 - Default model: `openai/text-embedding-3-small` (1536 dimensions, $0.02/1M tokens)
@@ -1072,6 +1137,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests with mocked AI SDK
 
 **Files:**
+
 - `apps/api/src/modules/ai/embedding.service.ts` (new)
 - `apps/api/src/modules/ai/ai-sdk.module.ts` (edit — export EmbeddingService)
 
@@ -1082,6 +1148,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** The BullMQ processor that orchestrates: download → parse → chunk → embed → store.
 
 **Acceptance Criteria:**
+
 - `DocumentIngestionProcessor` processes jobs from `document-ingestion` queue
 - Pipeline:
   1. Update document status to `PROCESSING`
@@ -1098,6 +1165,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit test with mocked services
 
 **Files:**
+
 - `apps/api/src/modules/queue/document-ingestion.processor.ts` (edit — full implementation)
 - `apps/api/src/modules/documents/documents.service.ts` (edit — helper methods for chunk storage)
 
@@ -1108,24 +1176,25 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Query pgvector for semantically similar chunks given an embedding vector.
 
 **Acceptance Criteria:**
+
 - `VectorSearchService` at `apps/api/src/modules/documents/vector-search.service.ts`
 - Method: `search(params: VectorSearchParams): Promise<SearchResult[]>`
   ```typescript
   interface VectorSearchParams {
-    queryEmbedding: number[]
-    agentId: string
-    topK?: number            // default 10
-    similarityThreshold?: number  // default 0.7 (cosine similarity)
-    documentIds?: string[]   // optional: filter to specific documents
+    queryEmbedding: number[];
+    agentId: string;
+    topK?: number; // default 10
+    similarityThreshold?: number; // default 0.7 (cosine similarity)
+    documentIds?: string[]; // optional: filter to specific documents
   }
-  
+
   interface SearchResult {
-    chunkId: string
-    documentId: string
-    content: string
-    score: number            // cosine similarity (0-1)
-    metadata: Record<string, unknown>
-    tokenCount: number
+    chunkId: string;
+    documentId: string;
+    content: string;
+    score: number; // cosine similarity (0-1)
+    metadata: Record<string, unknown>;
+    tokenCount: number;
   }
   ```
 - Uses Prisma `$queryRaw` with pgvector `<=>` operator (cosine distance)
@@ -1146,6 +1215,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit test with mocked query results
 
 **Files:**
+
 - `apps/api/src/modules/documents/vector-search.service.ts` (new)
 
 ---
@@ -1155,9 +1225,10 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Keyword-based search using PostgreSQL's full-text search. Complements vector search for exact term matching.
 
 **Acceptance Criteria:**
+
 - Add `tsvector` column to DocumentChunk via migration:
   ```sql
-  ALTER TABLE document_chunks ADD COLUMN search_vector tsvector 
+  ALTER TABLE document_chunks ADD COLUMN search_vector tsvector
     GENERATED ALWAYS AS (to_tsvector('english', content)) STORED;
   CREATE INDEX document_chunks_search_idx ON document_chunks USING gin(search_vector);
   ```
@@ -1165,10 +1236,10 @@ Note: Phase 4 can start after Phase 1 is done.
 - Method: `search(params: TextSearchParams): Promise<SearchResult[]>`
   ```typescript
   interface TextSearchParams {
-    query: string
-    agentId: string
-    topK?: number           // default 10
-    documentIds?: string[]
+    query: string;
+    agentId: string;
+    topK?: number; // default 10
+    documentIds?: string[];
   }
   ```
 - Uses `ts_query` + `ts_rank` for scoring
@@ -1177,6 +1248,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit test
 
 **Files:**
+
 - `apps/api/src/modules/documents/text-search.service.ts` (new)
 - Prisma migration: add tsvector column + GIN index
 
@@ -1187,6 +1259,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Combine vector search + text search results using RRF for superior retrieval quality.
 
 **Acceptance Criteria:**
+
 - `HybridSearchService` at `apps/api/src/modules/documents/hybrid-search.service.ts`
 - Method: `search(params: HybridSearchParams): Promise<SearchResult[]>`
 - Pipeline:
@@ -1200,6 +1273,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests: fusion logic, deduplication, empty results
 
 **Files:**
+
 - `apps/api/src/modules/documents/hybrid-search.service.ts` (new)
 
 ---
@@ -1209,19 +1283,20 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Add a reranking step after hybrid search to dramatically improve retrieval accuracy (33-40% improvement per research benchmarks).
 
 **Acceptance Criteria:**
+
 - `RerankingService` at `apps/api/src/modules/documents/reranking.service.ts`
 - Uses Vercel AI SDK's `rerank()` function with Cohere rerank-v3.5
 - Method: `rerank(params: RerankParams): Promise<RerankResult[]>`
   ```typescript
   interface RerankParams {
-    query: string
-    results: SearchResult[]    // from hybrid search
-    topK?: number              // return top K after reranking, default 5
+    query: string;
+    results: SearchResult[]; // from hybrid search
+    topK?: number; // return top K after reranking, default 5
   }
-  
+
   interface RerankResult extends SearchResult {
-    rerankScore: number        // cross-encoder relevance score (0-1)
-    originalRank: number       // position before reranking
+    rerankScore: number; // cross-encoder relevance score (0-1)
+    originalRank: number; // position before reranking
   }
   ```
 - **Pipeline integration:** Retrieve 20-30 from hybrid search → rerank → return top 5
@@ -1232,6 +1307,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests: reranking logic, fallback on failure, result ordering
 
 **Files:**
+
 - `apps/api/src/modules/documents/reranking.service.ts` (new)
 - `apps/api/src/modules/documents/hybrid-search.service.ts` (edit — integrate reranking)
 
@@ -1242,6 +1318,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Format retrieved search results into a context string with full source attribution pipeline — the LLM cites sources, and we map citations back to document chunks for the UI.
 
 **Acceptance Criteria:**
+
 - `RagContextFormatter` at `apps/api/src/modules/documents/rag-context-formatter.ts`
 - Method: `format(results: SearchResult[], options?: FormatOptions): string`
 - **Prompt engineering for citation:**
@@ -1251,10 +1328,10 @@ Note: Phase 4 can start after Phase 1 is done.
   2. Cite sources inline using [Source N] notation
   3. If the sources don't contain enough information, say so explicitly
   4. Never fabricate information not present in the sources
-  
+
   [Source 1] (document: "filename.pdf", page 3)
   <chunk content>
-  
+
   [Source 2] (document: "guide.docx", section: "Getting Started")
   <chunk content>
   ```
@@ -1281,6 +1358,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests: formatting, citation extraction, diversity enforcement
 
 **Files:**
+
 - `apps/api/src/modules/documents/rag-context-formatter.ts` (new)
 
 ---
@@ -1290,6 +1368,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Wire RAG retrieval into the chat flow. When an agent has documents indexed, automatically retrieve relevant context before calling the LLM.
 
 **Acceptance Criteria:**
+
 - Update `DirectChatService.sendMessage()` and `streamMessage()`:
   1. Check if agent has any documents with status `READY`
   2. If yes: run `HybridSearchService.search()` with the user's message
@@ -1305,6 +1384,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Integration test: upload document → send message → response grounded in document
 
 **Files:**
+
 - `apps/api/src/modules/ai/direct-chat.service.ts` (edit — RAG integration)
 - `apps/api/src/modules/ai/interfaces/llm.interfaces.ts` (edit — RAG metadata)
 
@@ -1315,6 +1395,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** UI for uploading, viewing, and deleting documents per agent in the web dashboard.
 
 **Acceptance Criteria:**
+
 - New "Knowledge Base" section in agent editor
 - **Upload area:** Drag-and-drop or click-to-upload, accepts PDF/DOCX/TXT
 - **Document list:** Table showing: filename, type icon, size, status (with color badge), chunk count, uploaded date
@@ -1330,6 +1411,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - React Query hooks for document CRUD
 
 **Files:**
+
 - `apps/web/hooks/use-documents.ts` (new)
 - `apps/web/components/features/agents/agent-editor/sections/knowledge-base.tsx` (new)
 - `apps/web/components/features/agents/agent-editor/agent-editor.tsx` (edit — add section)
@@ -1341,6 +1423,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Support re-uploading a document (same filename) and only re-embedding changed chunks.
 
 **Acceptance Criteria:**
+
 - When uploading a document with same filename for same agent:
   - Option 1 (default): Replace — delete old document, process new one
   - Option 2: Update — compare chunk content hashes, only re-embed changed/new chunks, delete removed chunks
@@ -1350,6 +1433,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit test
 
 **Files:**
+
 - `apps/api/src/modules/documents/documents.service.ts` (edit — re-index logic)
 - `apps/api/src/modules/queue/document-ingestion.processor.ts` (edit — change detection)
 
@@ -1360,6 +1444,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Comprehensive testing of the entire RAG pipeline.
 
 **Acceptance Criteria:**
+
 - Integration tests:
   - Upload PDF → status transitions (PENDING → PROCESSING → READY)
   - Upload DOCX → correct text extraction and chunking
@@ -1374,6 +1459,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - All tests pass, lint clean, types clean, build succeeds
 
 **Files:**
+
 - `apps/api/test/documents/` directory (new)
 - `apps/api/test/integration/rag-pipeline.spec.ts` (new)
 
@@ -1384,6 +1470,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Set up automated RAG quality evaluation using RAGAS metrics so we can measure and monitor retrieval quality, not fly blind in production.
 
 **Acceptance Criteria:**
+
 - `RagEvaluationService` at `apps/api/src/modules/documents/rag-evaluation.service.ts`
 - **Core metrics** (from RAGAS framework):
   - **Faithfulness:** Are LLM claims supported by retrieved context? (hallucination detector)
@@ -1402,11 +1489,11 @@ Note: Phase 4 can start after Phase 1 is done.
       expectedAnswer String   @db.Text
       contexts       String[] // expected source passages
       createdAt      DateTime @default(now())
-      
+
       @@index([agentId])
       @@map("rag_eval_items")
     }
-    
+
     model RagEvalRun {
       id              String   @id @default(uuid())
       agentId         String
@@ -1417,7 +1504,7 @@ Note: Phase 4 can start after Phase 1 is done.
       avgLatencyMs    Int
       evaluatedAt     DateTime @default(now())
       details         Json     // per-question results
-      
+
       @@index([agentId, evaluatedAt])
       @@map("rag_eval_runs")
     }
@@ -1441,6 +1528,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/documents/rag-evaluation.service.ts` (new)
 - `apps/api/src/modules/documents/rag-evaluation.controller.ts` (new)
 - `apps/api/prisma/schema.prisma` (edit — add RagEvalItem, RagEvalRun)
@@ -1461,6 +1549,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Create the framework for defining, registering, and managing tools that agents can use.
 
 **Acceptance Criteria:**
+
 - `ToolRegistryService` at `apps/api/src/modules/ai/tools/tool-registry.service.ts`
 - Tool definition uses Vercel AI SDK's `tool()` function with Zod schemas
 - Built-in tool categories:
@@ -1479,7 +1568,7 @@ Note: Phase 4 can start after Phase 1 is done.
     enabled     Boolean  @default(true)
     createdAt   DateTime @default(now())
     updatedAt   DateTime @updatedAt
-    
+
     @@unique([agentId, name])
     @@index([agentId])
     @@map("agent_tools")
@@ -1491,6 +1580,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/ai/tools/tool-registry.service.ts` (new)
 - `apps/api/src/modules/ai/tools/index.ts` (new)
 - `apps/api/prisma/schema.prisma` (edit — add AgentTool)
@@ -1503,6 +1593,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Create a set of always-available tools that any agent can use.
 
 **Acceptance Criteria:**
+
 - Built-in tools:
   - `getCurrentDateTime` — returns current date/time in agent's timezone
   - `calculateMath` — evaluates safe math expressions (no eval — use a parser)
@@ -1513,6 +1604,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests for each tool
 
 **Files:**
+
 - `apps/api/src/modules/ai/tools/builtin/datetime.tool.ts` (new)
 - `apps/api/src/modules/ai/tools/builtin/math.tool.ts` (new)
 - `apps/api/src/modules/ai/tools/builtin/knowledge-search.tool.ts` (new)
@@ -1525,6 +1617,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Allow agents to call external HTTP endpoints as tools. This enables connecting agents to any API (CRM, ticketing, databases, etc.).
 
 **Acceptance Criteria:**
+
 - Tool type: `http-webhook`
 - Config schema:
   ```typescript
@@ -1548,6 +1641,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/ai/tools/executors/http-webhook.executor.ts` (new)
 
 ---
@@ -1557,6 +1651,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Wire tool calling into the chat completion flow. AI SDK handles the tool loop automatically with `maxSteps`.
 
 **Acceptance Criteria:**
+
 - Update `LlmService.generateCompletion()` and `streamCompletion()`:
   - Accept `tools` parameter
   - Pass to AI SDK `generateText`/`streamText` with `maxSteps` (default: 5)
@@ -1574,6 +1669,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/ai/direct-chat.service.ts` (edit — tool integration)
 - `apps/api/src/modules/ai/llm.service.ts` (edit — pass tools)
 - `apps/api/src/controllers/public/public-chat.controller.ts` (edit — stream tool events)
@@ -1585,6 +1681,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** CRUD API for managing agent tools.
 
 **Acceptance Criteria:**
+
 - `POST /agents/:agentId/tools` — create tool
 - `GET /agents/:agentId/tools` — list tools
 - `PATCH /agents/:agentId/tools/:toolId` — update tool
@@ -1595,6 +1692,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/ai/tools/tools.controller.ts` (new)
 - `apps/api/src/modules/ai/tools/tools.service.ts` (new)
 
@@ -1605,6 +1703,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** UI for managing agent tools in the web dashboard.
 
 **Acceptance Criteria:**
+
 - New "Tools" section in agent editor
 - **Tool list:** Table showing: name, type (badge), description, enabled toggle
 - **Add tool dialog:**
@@ -1617,6 +1716,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - React Query hooks for tool CRUD
 
 **Files:**
+
 - `apps/web/hooks/use-agent-tools.ts` (new)
 - `apps/web/components/features/agents/agent-editor/sections/tools-settings.tsx` (new)
 - `apps/web/components/features/agents/agent-editor/agent-editor.tsx` (edit — add section)
@@ -1628,6 +1728,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** End-to-end testing of tool functionality.
 
 **Acceptance Criteria:**
+
 - Unit tests for all tool-related services
 - Integration tests:
   - Agent with built-in tools → LLM uses tools correctly
@@ -1638,6 +1739,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - All tests pass
 
 **Files:**
+
 - `apps/api/test/ai/tools/` directory (new)
 
 ---
@@ -1655,6 +1757,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Cache LLM responses for semantically similar queries to reduce cost and latency.
 
 **Acceptance Criteria:**
+
 - `SemanticCacheService` at `apps/api/src/modules/ai/caching/semantic-cache.service.ts`
 - **Exact match cache** (fast path):
   - Key: SHA-256 of `(modelId + systemPrompt + last3Messages)`
@@ -1671,6 +1774,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/ai/caching/semantic-cache.service.ts` (new)
 - `apps/api/src/modules/ai/direct-chat.service.ts` (edit — check cache before LLM)
 
@@ -1681,6 +1785,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Enforce usage limits per organization to prevent cost overruns.
 
 **Acceptance Criteria:**
+
 - New fields on Organization (or separate model):
   ```prisma
   model OrganizationQuota {
@@ -1695,7 +1800,7 @@ Note: Phase 4 can start after Phase 1 is done.
     lastResetAt         DateTime @default(now())
     createdAt           DateTime @default(now())
     updatedAt           DateTime @updatedAt
-    
+
     @@map("organization_quotas")
   }
   ```
@@ -1712,6 +1817,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/prisma/schema.prisma` (edit)
 - `apps/api/src/modules/ai/quota.service.ts` (new)
 - `apps/api/src/modules/ai/direct-chat.service.ts` (edit — quota check)
@@ -1724,6 +1830,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Comprehensive observability for all AI operations — traces, metrics, and alerts.
 
 **Acceptance Criteria:**
+
 - **Structured logging** for every LLM call:
   - Request: model, token count, agent ID, org ID, feature
   - Response: latency, tokens used, cost, finish reason, cache hit/miss
@@ -1746,6 +1853,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Vercel AI SDK has built-in OpenTelemetry support — enable it
 
 **Files:**
+
 - `apps/api/src/modules/ai/llm.service.ts` (edit — telemetry hooks)
 - `apps/api/src/modules/health/health.controller.ts` (edit — AI health)
 - `apps/api/src/modules/ai/ai-sdk.module.ts` (edit — OTel config)
@@ -1757,6 +1865,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Cache embeddings by content hash to avoid re-embedding identical content.
 
 **Acceptance Criteria:**
+
 - Before embedding, check if content hash exists in cache:
   - Redis cache: `embedding:{contentHash}` → serialized vector, TTL 7 days
   - If hit, return cached embedding (skip API call)
@@ -1767,6 +1876,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/ai/embedding.service.ts` (edit — add caching layer)
 
 ---
@@ -1776,6 +1886,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Comprehensive analytics endpoints for AI usage, cost, and performance.
 
 **Acceptance Criteria:**
+
 - `GET /analytics/ai/summary` — total tokens, cost, requests for period
 - `GET /analytics/ai/models` — breakdown by model (tokens, cost, latency)
 - `GET /analytics/ai/cost-per-org` — cost breakdown per organization
@@ -1788,6 +1899,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/services/analytics.service.ts` (edit — AI analytics queries)
 - `apps/api/src/controllers/analytics/analytics.controller.ts` (edit — new endpoints)
 
@@ -1798,6 +1910,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Dashboard page for viewing AI usage, costs, and performance metrics.
 
 **Acceptance Criteria:**
+
 - New "AI Usage" tab/page in analytics dashboard
 - **KPI cards:** Total cost, total tokens, average latency, cache hit rate
 - **Cost chart:** Line chart of daily cost over time, stacked by model
@@ -1808,6 +1921,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - React Query hooks using new analytics endpoints
 
 **Files:**
+
 - `apps/web/components/features/analytics/ai-usage-tab.tsx` (new)
 - `apps/web/hooks/use-ai-analytics.ts` (new)
 
@@ -1818,6 +1932,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** UI for super admins to set and view usage quotas per organization.
 
 **Acceptance Criteria:**
+
 - New "Quotas" section in organization settings (admin only)
 - Fields: monthly token limit, monthly budget (USD), daily request limit
 - Current usage display: progress bars showing usage vs limit
@@ -1825,6 +1940,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Quota editor with save/reset
 
 **Files:**
+
 - `apps/web/components/features/organizations/quota-settings.tsx` (new)
 - `apps/web/hooks/use-org-quota.ts` (new)
 
@@ -1835,6 +1951,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Validate the AI orchestration layer handles production load.
 
 **Acceptance Criteria:**
+
 - **Load test scenarios:**
   - 100 concurrent chat streams (direct mode) → all complete within 30s
   - 50 concurrent RAG queries (10K chunks per agent) → retrieval <100ms p95
@@ -1852,6 +1969,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Document results and thresholds
 
 **Files:**
+
 - `apps/api/test/load/` directory (new)
 - `docs/plans/ai-orchestration-performance-results.md` (new)
 
@@ -1862,6 +1980,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Protect against prompt injection attacks, malicious inputs, and unsafe LLM outputs in production.
 
 **Acceptance Criteria:**
+
 - `AiSecurityService` at `apps/api/src/modules/ai/security/ai-security.service.ts`
 - **Input validation:**
   - Max message length: 10,000 chars (configurable per agent)
@@ -1887,6 +2006,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests for injection patterns, sanitization
 
 **Files:**
+
 - `apps/api/src/modules/ai/security/ai-security.service.ts` (new)
 - `apps/api/src/modules/ai/security/injection-patterns.ts` (new — pattern definitions)
 - `apps/api/src/modules/ai/direct-chat.service.ts` (edit — integrate security checks)
@@ -1898,6 +2018,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Finalize all environment configuration, secrets management, and deployment documentation.
 
 **Acceptance Criteria:**
+
 - All new env vars documented in `.env.example` with descriptions:
   ```
   # AI Orchestration
@@ -1924,6 +2045,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Rollback procedure documented (switch agents back to n8n mode)
 
 **Files:**
+
 - `apps/api/.env.example` (edit)
 - `docker-compose.yml` (edit)
 - `docs/plans/ai-orchestration-deployment.md` (new)
@@ -1935,6 +2057,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** After all agents migrated to direct mode, remove n8n-related code.
 
 **Acceptance Criteria:**
+
 - **Do NOT execute until all agents in production are on direct mode**
 - Remove: `N8nStreamingService`, `n8n-stream.interface.ts`
 - Remove: n8n chunk format translation in PublicChatController
@@ -1946,6 +2069,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Full regression test suite passes
 
 **Files:**
+
 - Multiple files (cleanup only — not new functionality)
 
 ---
@@ -1963,6 +2087,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Create the WhatsApp module with Meta Cloud API webhook receiver.
 
 **Acceptance Criteria:**
+
 - `WhatsAppModule` at `apps/api/src/modules/whatsapp/whatsapp.module.ts`
 - Webhook verification endpoint: `GET /webhooks/whatsapp` (Meta challenge verification)
 - Webhook receiver: `POST /webhooks/whatsapp` (incoming messages)
@@ -1972,6 +2097,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/whatsapp/whatsapp.module.ts` (new)
 - `apps/api/src/modules/whatsapp/whatsapp.controller.ts` (new)
 - `apps/api/src/modules/whatsapp/whatsapp.service.ts` (new)
@@ -1983,6 +2109,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Map WhatsApp business phone numbers to specific agents.
 
 **Acceptance Criteria:**
+
 - New model or config: `WhatsAppConfig` linking phone number to agent
 - Multiple phone numbers can map to different agents (multi-tenant)
 - Admin UI: configure WhatsApp number per agent
@@ -1990,6 +2117,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/prisma/schema.prisma` (edit)
 - `apps/api/src/modules/whatsapp/whatsapp-routing.service.ts` (new)
 
@@ -2000,6 +2128,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Process incoming text messages and send AI responses.
 
 **Acceptance Criteria:**
+
 - Receive text message → resolve agent → create/resume session → send to DirectChatService → send response back
 - Session management: use WhatsApp phone number as visitor ID, 24-hour session window
 - Responses sent via WhatsApp Cloud API `POST /messages` endpoint
@@ -2009,6 +2138,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/whatsapp/handlers/text-message.handler.ts` (new)
 - `apps/api/src/modules/whatsapp/whatsapp-api.service.ts` (new)
 
@@ -2019,6 +2149,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Process incoming voice notes — download, transcribe, get AI response, synthesize and send back as voice note.
 
 **Acceptance Criteria:**
+
 - Receive audio message → download media via WhatsApp Media API → STT → LLM → TTS → upload audio → send voice note
 - Pipeline queued via BullMQ (voice processing is async)
 - Intermediate status: send "typing" indicator while processing
@@ -2029,6 +2160,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/whatsapp/handlers/voice-message.handler.ts` (new)
 - `apps/api/src/modules/queue/whatsapp-voice.processor.ts` (new)
 
@@ -2039,6 +2171,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Support for pre-approved outbound message templates (required by WhatsApp for business-initiated conversations).
 
 **Acceptance Criteria:**
+
 - Template management: store approved templates in database
 - Template sending API: `POST /agents/:agentId/whatsapp/send-template`
 - Variable substitution in templates
@@ -2046,6 +2179,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/whatsapp/templates.service.ts` (new)
 - `apps/api/prisma/schema.prisma` (edit — WhatsAppTemplate model)
 
@@ -2056,6 +2190,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Handle incoming images and documents — store and optionally process for RAG.
 
 **Acceptance Criteria:**
+
 - Download images/documents from WhatsApp Media API
 - Store in Supabase Storage
 - For documents (PDF, DOCX): optionally trigger RAG ingestion pipeline
@@ -2063,6 +2198,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/whatsapp/handlers/media-message.handler.ts` (new)
 
 ---
@@ -2072,6 +2208,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** WhatsApp-specific rate limiting and cost controls.
 
 **Acceptance Criteria:**
+
 - Per-phone-number rate limiting (separate from widget rate limiting)
 - WhatsApp messaging tier awareness (250/2K/10K/100K per 24hr)
 - Cost tracking: WhatsApp API costs + LLM costs per conversation
@@ -2080,6 +2217,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - Unit tests
 
 **Files:**
+
 - `apps/api/src/modules/whatsapp/whatsapp-rate-limit.service.ts` (new)
 
 ---
@@ -2089,6 +2227,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** UI for configuring WhatsApp integration per agent.
 
 **Acceptance Criteria:**
+
 - New "WhatsApp" section in agent editor
 - Fields: phone number ID, access token (encrypted), verify token
 - Connection test button
@@ -2096,6 +2235,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - WhatsApp-specific analytics (messages received/sent, voice notes processed)
 
 **Files:**
+
 - `apps/web/components/features/agents/agent-editor/sections/whatsapp-settings.tsx` (new)
 
 ---
@@ -2105,6 +2245,7 @@ Note: Phase 4 can start after Phase 1 is done.
 **What:** Comprehensive testing of WhatsApp integration.
 
 **Acceptance Criteria:**
+
 - Unit tests for all handlers and services
 - Integration tests with mocked WhatsApp API
 - Test webhook signature verification
@@ -2114,6 +2255,7 @@ Note: Phase 4 can start after Phase 1 is done.
 - All tests pass
 
 **Files:**
+
 - `apps/api/test/whatsapp/` directory (new)
 
 ---
@@ -2123,26 +2265,31 @@ Note: Phase 4 can start after Phase 1 is done.
 ## Zero-Downtime Migration Plan
 
 ### Step 1: Deploy Phase 1 (Direct Mode Available)
+
 - All agents remain on `routingMode: 'n8n'` (default)
 - New code deployed but inactive for existing agents
 - Test direct mode with a single test agent
 
 ### Step 2: Canary Migration (5% of agents)
+
 - Switch 2-3 low-traffic agents to `routingMode: 'direct'`
 - Monitor for 48 hours: latency, error rate, cost, response quality
 - Compare metrics side-by-side with n8n-mode agents
 
 ### Step 3: Gradual Rollout (25% → 50% → 100%)
+
 - Batch-migrate agents in stages
 - Each stage: 48-hour monitoring window
 - Rollback: switch `routingMode` back to `'n8n'` (instant, no deploy needed)
 
 ### Step 4: n8n Deprecation
+
 - After 100% on direct mode + 2-week soak period
 - Remove n8n-related code (Story 18-10)
 - Shut down n8n instance
 
 ### Rollback Procedure
+
 1. `POST /agents/:id/migrate-to-n8n` — instant per-agent rollback
 2. `POST /agents/batch-migrate` with `mode: 'n8n'` — batch rollback
 3. No code deployment needed — just a database field change
@@ -2152,22 +2299,23 @@ Note: Phase 4 can start after Phase 1 is done.
 
 # Risk Matrix
 
-| Risk | Likelihood | Impact | Mitigation |
-|---|---|---|---|
-| OpenRouter downtime | Low | High | Fallback models array, circuit breaker, can revert to n8n |
-| Higher cost than n8n | Medium | Medium | Per-tenant quotas, semantic caching, cost alerts, model selection (cheaper models available) |
-| LLM response quality differs from n8n | Medium | High | Canary migration, side-by-side testing, easy rollback |
-| pgvector performance at scale | Low | Medium | HNSW index, benchmark at 10K/100K/1M chunks, can migrate to dedicated vector DB later |
-| Document ingestion queue backup | Medium | Low | Concurrency tuning, job priority, dead letter queue, monitoring |
-| Memory leak in streaming | Low | High | Load testing (Story 18-8), memory profiling, abort signal cleanup |
-| WhatsApp rate limit exceeded | Medium | Medium | Tier-aware rate limiting, alert before hitting limits |
-| Token budget miscalculation | Medium | Medium | Conservative defaults, monitoring, automatic truncation |
+| Risk                                  | Likelihood | Impact | Mitigation                                                                                   |
+| ------------------------------------- | ---------- | ------ | -------------------------------------------------------------------------------------------- |
+| OpenRouter downtime                   | Low        | High   | Fallback models array, circuit breaker, can revert to n8n                                    |
+| Higher cost than n8n                  | Medium     | Medium | Per-tenant quotas, semantic caching, cost alerts, model selection (cheaper models available) |
+| LLM response quality differs from n8n | Medium     | High   | Canary migration, side-by-side testing, easy rollback                                        |
+| pgvector performance at scale         | Low        | Medium | HNSW index, benchmark at 10K/100K/1M chunks, can migrate to dedicated vector DB later        |
+| Document ingestion queue backup       | Medium     | Low    | Concurrency tuning, job priority, dead letter queue, monitoring                              |
+| Memory leak in streaming              | Low        | High   | Load testing (Story 18-8), memory profiling, abort signal cleanup                            |
+| WhatsApp rate limit exceeded          | Medium     | Medium | Tier-aware rate limiting, alert before hitting limits                                        |
+| Token budget miscalculation           | Medium     | Medium | Conservative defaults, monitoring, automatic truncation                                      |
 
 ---
 
 # Story Dependency Graph (Execution Order)
 
 ## Phase 1 (Epic 14) — Can start immediately
+
 ```
 14-1 → 14-3 → 14-4 (sequential: SDK → completion → streaming)
 14-2 (parallel with 14-1: schema + migration)
@@ -2184,6 +2332,7 @@ Note: Phase 4 can start after Phase 1 is done.
 ```
 
 ## Phase 2 (Epic 15) — After Epic 14
+
 ```
 15-1 (standalone)
 15-2 (after 15-1: needs token counting)
@@ -2196,6 +2345,7 @@ Note: Phase 4 can start after Phase 1 is done.
 ```
 
 ## Phase 3 (Epic 16) — After Epic 14, can partially overlap with Phase 2
+
 ```
 16-1 → 16-2 (sequential: extension → models)
 16-3 (after 16-2: upload needs Document model)
@@ -2217,6 +2367,7 @@ Note: Phase 4 can start after Phase 1 is done.
 ```
 
 ## Phase 4 (Epic 17) — After Epic 14, can overlap with Phase 2/3
+
 ```
 17-1 → 17-2 → 17-3 (sequential: framework → builtin → webhook)
 17-4 (after 17-1: tool execution in chat)
@@ -2226,6 +2377,7 @@ Note: Phase 4 can start after Phase 1 is done.
 ```
 
 ## Phase 5 (Epic 18) — After Phases 1-3
+
 ```
 18-1 (after 14-6 + 16-7: semantic cache needs chat + embeddings)
 18-2 (after 14-10: quota needs usage tracking)
@@ -2241,6 +2393,7 @@ Note: Phase 4 can start after Phase 1 is done.
 ```
 
 ## Phase 6 (Epic 19) — After Phase 5
+
 ```
 19-1 → 19-2 → 19-3 (sequential: setup → routing → text handler)
 19-4 (after 19-3: voice needs text flow working)
@@ -2255,17 +2408,17 @@ Note: Phase 4 can start after Phase 1 is done.
 
 # Summary
 
-| Metric | Value |
-|---|---|
-| Total Phases | 6 |
-| Total Epics | 6 (Epic 14–19) |
-| Total Stories | 67 |
-| New Database Models | 7 (LlmUsage, Document, DocumentChunk, AgentTool, OrganizationQuota, RagEvalItem, RagEvalRun) |
-| New NestJS Modules | 4 (AI, Documents, Queue, WhatsApp) |
-| New Packages | ~8 (ai, @openrouter/ai-sdk-provider, pgvector, pdf-parse, mammoth, bullmq, @nestjs/bullmq, cockatiel) |
+| Metric                 | Value                                                                                                            |
+| ---------------------- | ---------------------------------------------------------------------------------------------------------------- |
+| Total Phases           | 6                                                                                                                |
+| Total Epics            | 6 (Epic 14–19)                                                                                                   |
+| Total Stories          | 67                                                                                                               |
+| New Database Models    | 7 (LlmUsage, Document, DocumentChunk, AgentTool, OrganizationQuota, RagEvalItem, RagEvalRun)                     |
+| New NestJS Modules     | 4 (AI, Documents, Queue, WhatsApp)                                                                               |
+| New Packages           | ~8 (ai, @openrouter/ai-sdk-provider, pgvector, pdf-parse, mammoth, bullmq, @nestjs/bullmq, cockatiel)            |
 | Existing Code Modified | ChatService, PublicChatController, VoiceController, VoiceService, AgentsService, AnalyticsService, schema.prisma |
-| Breaking Changes | Zero (n8n mode preserved until explicit deprecation) |
-| Rollback Strategy | Per-agent `routingMode` field toggle (instant, no deploy) |
+| Breaking Changes       | Zero (n8n mode preserved until explicit deprecation)                                                             |
+| Rollback Strategy      | Per-agent `routingMode` field toggle (instant, no deploy)                                                        |
 
 ---
 
@@ -2273,15 +2426,15 @@ Note: Phase 4 can start after Phase 1 is done.
 
 These were identified in research but deliberately deferred. They should be revisited after Phases 1-5 are complete:
 
-| Enhancement | Source | Why Deferred |
-|---|---|---|
-| **Advanced retrieval strategies** (Multi-query, HyDE, Self-RAG, CRAG) | RAG deep research §3 | Hybrid search + reranking covers 90% of cases. Add when eval metrics show retrieval gaps |
-| **Vector memory for past conversations** | AI orchestration research §5 | Summarization covers most memory needs. Vector memory is high-effort, add when customers report context loss |
-| **Voice interruption handling** (state machine) | AI orchestration research §3 | Requires WebSocket refactor on widget side. Plan after widget voice is stable |
-| **Voice Activity Detection (VAD)** | AI orchestration research §3 | Browser-side feature (`@ricky0123/vad-web`). Add when voice UX polish is prioritized |
-| **MCP (Model Context Protocol)** support | AI SDK 6 features | Tool use via HTTP webhooks covers our needs. MCP is for standardized tool ecosystems (not yet critical) |
-| **Langfuse integration** | Backend platforms research | Custom observability sufficient for now. Add if tracing/eval needs outgrow custom solution |
-| **Semantic chunking** (embedding-based split) | RAG deep research §2 | Recursive + contextual retrieval is superior. Semantic chunking adds complexity for marginal gain |
-| **Multi-agent coordination** (agent networks) | Mastra framework | Single-agent + tools handles our use cases. Multi-agent adds latency and cost |
-| **Scheduled document re-indexing** (cron) | RAG deep research §6 | Manual re-index sufficient initially. Automate when document update frequency justifies it |
-| **Redis 8.4+ native vector search** for semantic caching | Scalability research §6 | pgvector sufficient. Evaluate Redis vectors when Redis 8.4 is stable and available |
+| Enhancement                                                           | Source                       | Why Deferred                                                                                                 |
+| --------------------------------------------------------------------- | ---------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| **Advanced retrieval strategies** (Multi-query, HyDE, Self-RAG, CRAG) | RAG deep research §3         | Hybrid search + reranking covers 90% of cases. Add when eval metrics show retrieval gaps                     |
+| **Vector memory for past conversations**                              | AI orchestration research §5 | Summarization covers most memory needs. Vector memory is high-effort, add when customers report context loss |
+| **Voice interruption handling** (state machine)                       | AI orchestration research §3 | Requires WebSocket refactor on widget side. Plan after widget voice is stable                                |
+| **Voice Activity Detection (VAD)**                                    | AI orchestration research §3 | Browser-side feature (`@ricky0123/vad-web`). Add when voice UX polish is prioritized                         |
+| **MCP (Model Context Protocol)** support                              | AI SDK 6 features            | Tool use via HTTP webhooks covers our needs. MCP is for standardized tool ecosystems (not yet critical)      |
+| **Langfuse integration**                                              | Backend platforms research   | Custom observability sufficient for now. Add if tracing/eval needs outgrow custom solution                   |
+| **Semantic chunking** (embedding-based split)                         | RAG deep research §2         | Recursive + contextual retrieval is superior. Semantic chunking adds complexity for marginal gain            |
+| **Multi-agent coordination** (agent networks)                         | Mastra framework             | Single-agent + tools handles our use cases. Multi-agent adds latency and cost                                |
+| **Scheduled document re-indexing** (cron)                             | RAG deep research §6         | Manual re-index sufficient initially. Automate when document update frequency justifies it                   |
+| **Redis 8.4+ native vector search** for semantic caching              | Scalability research §6      | pgvector sufficient. Evaluate Redis vectors when Redis 8.4 is stable and available                           |

@@ -1,5 +1,5 @@
 /**
- * Shadow DOM initialization for CodeWeaves chat widget.
+ * Shadow DOM initialization for the Klivo chat widget.
  *
  * Creates an isolated shadow DOM environment with:
  * - Open mode shadow root (assistive tech and audit tools can traverse it)
@@ -20,7 +20,7 @@ import tailwindCSS from "./styles/tailwind.css?inline";
 
 // ── Constants ──────────────────────────────────────────────────────────
 
-const HOST_ID = "codeweaves-widget-host";
+const HOST_ID = "klivo-widget-host";
 const MOUNT_CLASS = "cw-widget-root";
 const MOBILE_BREAKPOINT = 480;
 const FONT_LOAD_TIMEOUT_MS = 3000;
@@ -252,7 +252,7 @@ function setupMutationObservers(hostEl: HTMLElement): void {
         if (!document.body.contains(hostEl)) {
           if (reappendCount >= MAX_REAPPENDS) {
             console.warn(
-              "[CodeWeaves] Host element removed too many times, giving up.",
+              "[Klivo] Host element removed too many times, giving up.",
             );
             bodyObserver?.disconnect();
             return;
@@ -298,7 +298,7 @@ export async function loadCustomFont(
   } catch {
     if (timeoutId !== null) clearTimeout(timeoutId);
     console.warn(
-      `[CodeWeaves] Font "${safeFontFamily}" failed to load, using system font stack: ${SYSTEM_FONT_STACK}`,
+      `[Klivo] Font "${safeFontFamily}" failed to load, using system font stack: ${SYSTEM_FONT_STACK}`,
     );
   }
 }
@@ -381,8 +381,8 @@ export function destroy(): void {
   revealed = false;
 
   // Clear window references
-  window.__codeweaves_loaded = false;
-  delete window.CodeWeaves;
+  window.__klivo_loaded = false;
+  delete window.Klivo;
 }
 
 // ── Anti-FOUC: Reveal widget after config loads (Story 5-4) ──────────
@@ -447,7 +447,7 @@ export function initShadowDom(): ShadowDomResult {
 export function renderInShadow(vnode: ComponentChild): void {
   if (!mountPoint) {
     throw new Error(
-      "[CodeWeaves] Shadow DOM not initialized. Call initShadowDom() first.",
+      "[Klivo] Shadow DOM not initialized. Call initShadowDom() first.",
     );
   }
   render(vnode, mountPoint);

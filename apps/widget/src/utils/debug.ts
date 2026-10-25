@@ -1,14 +1,14 @@
 /**
- * Debug logging utility for CodeWeaves widget.
+ * Debug logging utility for the Klivo widget.
  *
  * Logs are emitted when:
  * - Vite dev mode (`import.meta.env.DEV`) is active, OR
  * - The `data-debug` attribute is present on the script tag
  *
- * All messages are prefixed with [CodeWeaves].
+ * All messages are prefixed with [Klivo].
  */
 
-const PREFIX = '[CodeWeaves]';
+const PREFIX = "[Klivo]";
 
 let debugEnabled = false;
 

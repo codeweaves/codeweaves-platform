@@ -1,4 +1,4 @@
-# CodeWeaves Platform - Documentation Index
+# Klivo Platform - Documentation Index
 
 > Generated: 2026-02-14 | Scan Level: Quick | Mode: Initial Scan
 
@@ -84,6 +84,7 @@
 ### For AI-Assisted Development
 
 When working with AI tools on this codebase:
+
 1. **Start here** - This index provides the entry point to all project documentation
 2. **For API work** - Reference [Architecture - API](./architecture-api.md) + [API Contracts](./api-contracts-api.md)
 3. **For Web UI work** - Reference [Architecture - Web](./architecture-web.md) + [Component Inventory](./component-inventory-web.md)

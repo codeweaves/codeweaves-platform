@@ -4,10 +4,10 @@
   "private": true,
   "scripts": {
     "build": "nest build",
-    "dev": "nest start --watch",
+    "dev": "nest start --watch -p tsconfig.dev.json",
     "start": "nest start",
-    "start:dev": "nest start --watch",
-    "start:debug": "nest start --debug --watch",
+    "start:dev": "nest start --watch -p tsconfig.dev.json",
+    "start:debug": "nest start --debug --watch -p tsconfig.dev.json",
     "start:prod": "node dist/main",
     "lint": "eslint . --max-warnings 0",
     "check-types": "tsc --noEmit",

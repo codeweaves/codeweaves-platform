@@ -1,9 +1,9 @@
 ---
 name: verify
-description: Drive the local Codeweaves stack (Klivo dashboard at localhost:3000, embeddable chat widget, NestJS API) the way a user does and capture proof. Use after any change to apps/web, apps/widget or a user-facing apps/api route, before saying a UI or chat change works, and when asked to verify, reproduce, or show a feature running.
+description: Drive the local Klivo stack (Klivo dashboard at localhost:3000, embeddable chat widget, NestJS API) the way a user does and capture proof. Use after any change to apps/web, apps/widget or a user-facing apps/api route, before saying a UI or chat change works, and when asked to verify, reproduce, or show a feature running.
 ---
 
-# Verify Codeweaves
+# Verify Klivo
 
 One CLI drives everything and prints JSON: `.claude/skills/verify/cw-verify`. It is a small shell wrapper around `scripts/cw-verify.mjs`. Below it is written `cw-verify`. Run `cw-verify --help` for every command.
 

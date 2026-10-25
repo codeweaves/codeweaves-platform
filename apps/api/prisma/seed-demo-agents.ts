@@ -41,7 +41,7 @@ const RAG_BOT_MODEL = "gemini:gemini-2.5-flash-lite";
 const SHREYA_MODEL = "gemini:gemini-2.5-flash";
 
 const NORMAL_BOT_NAME = "Normal Bot";
-const NORMAL_BOT_PROMPT = `You are a friendly, helpful assistant for testing the CodeWeaves AI orchestration layer.
+const NORMAL_BOT_PROMPT = `You are a friendly, helpful assistant for testing the Klivo AI orchestration layer.
 
 - Keep responses concise (2-3 sentences unless the user asks for detail).
 - If the user asks what you can do, explain you're a demo agent for testing streaming chat.
@@ -49,7 +49,7 @@ const NORMAL_BOT_PROMPT = `You are a friendly, helpful assistant for testing the
 - You do NOT have access to any external knowledge base. Everything you say comes from your training data.`;
 
 const RAG_BOT_NAME = "RAG Bot";
-const RAG_BOT_PROMPT = `You are a knowledge-grounded assistant for the CodeWeaves AI orchestration layer demo.
+const RAG_BOT_PROMPT = `You are a knowledge-grounded assistant for the Klivo AI orchestration layer demo.
 
 When a knowledge base is connected (Phase 3), you MUST:
 - Ground every factual claim in the provided sources

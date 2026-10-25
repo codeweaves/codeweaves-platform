@@ -1,4 +1,4 @@
-# CodeWeaves Widget Redesign — Complete Plan
+# Klivo Widget Redesign — Complete Plan
 
 **Based on:** Research from Intercom, Crisp, Tidio, LiveChat, iMessage, WhatsApp, Telegram, Discord, Slack, Material Design, WCAG, and dozens of CSS references.
 
@@ -14,49 +14,49 @@ The actual widget (`apps/widget/src/App.tsx`) is a 33-line skeleton with an emoj
 
 ### 1. Widget Dimensions
 
-| Property | Value | Why |
-|---|---|---|
-| Desktop width | **400px** | HelpCrunch/Intercom standard, slightly wider than current 380px |
-| Desktop height | **580px** | Room for ~8 visible messages |
-| Mobile | **100vw × 100vh** | Full screen on ≤480px, no exceptions |
-| Launcher size | **60px** | Intercom standard: `$button-size: 60px` |
-| Launcher offset | **20px** from bottom + right | Intercom standard: `$button-offset: 20px` |
-| Header height | **64px** | Down from current 80px (wastes space) |
-| Input area min-height | **52px** | Single line, expands up to 6 lines |
-| z-index | **2147483647** | Max z-index, above everything on host site |
+| Property              | Value                        | Why                                                             |
+| --------------------- | ---------------------------- | --------------------------------------------------------------- |
+| Desktop width         | **400px**                    | HelpCrunch/Intercom standard, slightly wider than current 380px |
+| Desktop height        | **580px**                    | Room for ~8 visible messages                                    |
+| Mobile                | **100vw × 100vh**            | Full screen on ≤480px, no exceptions                            |
+| Launcher size         | **60px**                     | Intercom standard: `$button-size: 60px`                         |
+| Launcher offset       | **20px** from bottom + right | Intercom standard: `$button-offset: 20px`                       |
+| Header height         | **64px**                     | Down from current 80px (wastes space)                           |
+| Input area min-height | **52px**                     | Single line, expands up to 6 lines                              |
+| z-index               | **2147483647**               | Max z-index, above everything on host site                      |
 
 ### 2. Typography
 
-| Property | Value | Source |
-|---|---|---|
-| Base body font | **16px** | iOS default 17px SF Pro, Material 16px Roboto, WCAG minimum |
-| Line height (messages) | **1.5** (24px at 16px) | Standard for reading |
-| Header title | **15px, semibold (600)** | Slightly smaller than current 18px |
-| Subtitle / secondary | **13px, regular (400)** | |
-| Timestamps | **12px, regular** | Smallest readable |
-| Conversation starters | **14px** | |
-| Font family | **-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif** | Native system stack, no external font load |
-| Max font variations | **4** (12 / 13 / 14 / 16px) | LearnUI.design rule: max 4 sizes |
+| Property               | Value                                                                 | Source                                                      |
+| ---------------------- | --------------------------------------------------------------------- | ----------------------------------------------------------- |
+| Base body font         | **16px**                                                              | iOS default 17px SF Pro, Material 16px Roboto, WCAG minimum |
+| Line height (messages) | **1.5** (24px at 16px)                                                | Standard for reading                                        |
+| Header title           | **15px, semibold (600)**                                              | Slightly smaller than current 18px                          |
+| Subtitle / secondary   | **13px, regular (400)**                                               |                                                             |
+| Timestamps             | **12px, regular**                                                     | Smallest readable                                           |
+| Conversation starters  | **14px**                                                              |                                                             |
+| Font family            | **-apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif** | Native system stack, no external font load                  |
+| Max font variations    | **4** (12 / 13 / 14 / 16px)                                           | LearnUI.design rule: max 4 sizes                            |
 
 ### 3. Message Bubbles
 
 Based on iMessage (most studied), WhatsApp, and Telegram specs:
 
-| Property | Value | Notes |
-|---|---|---|
-| Padding | **10px 14px** (vertical / horizontal) | iMessage uses 10px 14px |
-| Max width | **80%** of container | Up from current 70% |
-| Border-radius (bot, first) | **18px 18px 18px 4px** | Asymmetric tail bottom-left |
-| Border-radius (bot, middle) | **4px 18px 18px 4px** | Continued group |
-| Border-radius (bot, last) | **4px 18px 18px 18px** | End of group |
-| Border-radius (user, first) | **18px 18px 4px 18px** | Asymmetric tail bottom-right |
-| Border-radius (user, middle) | **18px 4px 4px 18px** | Continued group |
-| Border-radius (user, last) | **18px 4px 18px 18px** | End of group |
-| Same-sender gap | **3px** | Tightly grouped (iMessage/WhatsApp style) |
-| Different-sender gap | **20px** | Clear visual separation |
-| Avatar | **Only on last message in group** | Not on every message |
-| Avatar size | **32px** | Down from current 40px |
-| Avatar gap from bubble | **8px** | |
+| Property                     | Value                                 | Notes                                     |
+| ---------------------------- | ------------------------------------- | ----------------------------------------- |
+| Padding                      | **10px 14px** (vertical / horizontal) | iMessage uses 10px 14px                   |
+| Max width                    | **80%** of container                  | Up from current 70%                       |
+| Border-radius (bot, first)   | **18px 18px 18px 4px**                | Asymmetric tail bottom-left               |
+| Border-radius (bot, middle)  | **4px 18px 18px 4px**                 | Continued group                           |
+| Border-radius (bot, last)    | **4px 18px 18px 18px**                | End of group                              |
+| Border-radius (user, first)  | **18px 18px 4px 18px**                | Asymmetric tail bottom-right              |
+| Border-radius (user, middle) | **18px 4px 4px 18px**                 | Continued group                           |
+| Border-radius (user, last)   | **18px 4px 18px 18px**                | End of group                              |
+| Same-sender gap              | **3px**                               | Tightly grouped (iMessage/WhatsApp style) |
+| Different-sender gap         | **20px**                              | Clear visual separation                   |
+| Avatar                       | **Only on last message in group**     | Not on every message                      |
+| Avatar size                  | **32px**                              | Down from current 40px                    |
+| Avatar gap from bubble       | **8px**                               |                                           |
 
 ### 4. Typing Indicator
 
@@ -73,38 +73,62 @@ Easing: cubic-bezier(0.45, 0.05, 0.55, 0.95)
 
 ```css
 @keyframes cw-typing-bounce {
-  0%, 60%, 100% { transform: translateY(0); }
-  30% { transform: translateY(-6px); }
+  0%,
+  60%,
+  100% {
+    transform: translateY(0);
+  }
+  30% {
+    transform: translateY(-6px);
+  }
 }
 .cw-typing-dot {
-  width: 8px; height: 8px; border-radius: 50%;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
   animation: cw-typing-bounce 1.2s ease-in-out infinite;
 }
-.cw-typing-dot:nth-child(2) { animation-delay: 0.15s; }
-.cw-typing-dot:nth-child(3) { animation-delay: 0.30s; }
+.cw-typing-dot:nth-child(2) {
+  animation-delay: 0.15s;
+}
+.cw-typing-dot:nth-child(3) {
+  animation-delay: 0.3s;
+}
 ```
 
 ### 5. Animations & Transitions
 
-| Animation | Duration | Easing | Notes |
-|---|---|---|---|
-| Widget open (slide up) | **300ms** | `cubic-bezier(0.4, 0, 0.2, 1)` | Material standard ease |
-| Widget close | **250ms** | `ease-out` | Slightly faster than open |
-| Message appear | **200ms** | `ease-out` | Fade + translateY(8px → 0) |
-| Launcher hover | **150ms** | `ease` | scale(1.05) |
-| Launcher click | **100ms** | `ease` | scale(0.95) then open |
-| Bubble prompt appear | **300ms** | `ease-out` | Fade in from below |
-| Input expand | **150ms** | `ease` | Height transition |
-| Typing indicator appear | **200ms** | `ease-out` | Fade in |
+| Animation               | Duration  | Easing                         | Notes                      |
+| ----------------------- | --------- | ------------------------------ | -------------------------- |
+| Widget open (slide up)  | **300ms** | `cubic-bezier(0.4, 0, 0.2, 1)` | Material standard ease     |
+| Widget close            | **250ms** | `ease-out`                     | Slightly faster than open  |
+| Message appear          | **200ms** | `ease-out`                     | Fade + translateY(8px → 0) |
+| Launcher hover          | **150ms** | `ease`                         | scale(1.05)                |
+| Launcher click          | **100ms** | `ease`                         | scale(0.95) then open      |
+| Bubble prompt appear    | **300ms** | `ease-out`                     | Fade in from below         |
+| Input expand            | **150ms** | `ease`                         | Height transition          |
+| Typing indicator appear | **200ms** | `ease-out`                     | Fade in                    |
 
 ```css
 @keyframes cw-slide-up {
-  from { opacity: 0; transform: translateY(20px) scale(0.97); }
-  to   { opacity: 1; transform: translateY(0) scale(1); }
+  from {
+    opacity: 0;
+    transform: translateY(20px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 @keyframes cw-message-in {
-  from { opacity: 0; transform: translateY(8px); }
-  to   { opacity: 1; transform: translateY(0); }
+  from {
+    opacity: 0;
+    transform: translateY(8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 ```
 
@@ -113,6 +137,7 @@ Easing: cubic-bezier(0.45, 0.05, 0.55, 0.95)
 One function `deriveTheme(primary, mode)` produces everything:
 
 **Light mode fixed values (most colors are NOT derived, they're hardcoded neutrals):**
+
 ```
 bodyBg:          #ffffff
 botMessageBg:    #f1f5f9   (slate-100)
@@ -125,6 +150,7 @@ separatorColor:  #f1f5f9   (slate-100)
 ```
 
 **Light mode derived from primary:**
+
 ```
 headerBg:        primary
 headerText:      white (always — primary is always dark enough for white text)
@@ -137,6 +163,7 @@ avatarBg:        primary at 15% opacity
 ```
 
 **Dark mode fixed values:**
+
 ```
 bodyBg:          #0f172a   (slate-900) — NOT #000000
 botMessageBg:    #1e293b   (slate-800)
@@ -149,6 +176,7 @@ headerBg (dark): #1e293b   (slate-800) — override, not primary
 ```
 
 **Dark mode derived from primary:**
+
 ```
 userMessageBg:   primary (same)
 userMessageText: white
@@ -158,6 +186,7 @@ accentHover:     primary lightened by 10%
 ```
 
 **Roundness → border-radius mapping:**
+
 ```
 sharp:   2px (messages), 4px (input/button)
 rounded: 18px (messages, asymmetric), 12px (input), 10px (button)
@@ -166,13 +195,13 @@ pill:    24px (messages), 24px (input), 24px (button)
 
 ### 7. Five Presets (Pre-defined configs)
 
-| Preset | Primary | Mode | Roundness | Vibe |
-|---|---|---|---|---|
-| **Professional** | `#1e293b` (slate-800) | light | rounded | Neutral, works on everything |
-| **Ocean** | `#4f46e5` (indigo-600) | light | rounded | Modern SaaS |
-| **Forest** | `#059669` (emerald-600) | light | rounded | Calm, trustworthy |
-| **Midnight** | `#6366f1` (indigo-500) | dark | rounded | Premium dark |
-| **Custom** | user picks | user picks | user picks | Full control |
+| Preset           | Primary                 | Mode       | Roundness  | Vibe                         |
+| ---------------- | ----------------------- | ---------- | ---------- | ---------------------------- |
+| **Professional** | `#1e293b` (slate-800)   | light      | rounded    | Neutral, works on everything |
+| **Ocean**        | `#4f46e5` (indigo-600)  | light      | rounded    | Modern SaaS                  |
+| **Forest**       | `#059669` (emerald-600) | light      | rounded    | Calm, trustworthy            |
+| **Midnight**     | `#6366f1` (indigo-500)  | dark       | rounded    | Premium dark                 |
+| **Custom**       | user picks              | user picks | user picks | Full control                 |
 
 ### 8. Input Area
 
@@ -189,6 +218,7 @@ New line on: Shift+Enter
 ```
 
 Auto-expand pattern (cleanest CSS-grid trick):
+
 ```css
 .cw-input-wrapper {
   display: grid;
@@ -199,7 +229,11 @@ Auto-expand pattern (cleanest CSS-grid trick):
   visibility: hidden;
   grid-area: 1 / 1 / 2 / 2;
 }
-textarea { grid-area: 1 / 1 / 2 / 2; resize: none; overflow: hidden; }
+textarea {
+  grid-area: 1 / 1 / 2 / 2;
+  resize: none;
+  overflow: hidden;
+}
 ```
 
 ### 9. Header
@@ -218,6 +252,7 @@ Online status dot: 10px circle, position: absolute, bottom-0 right-0 of avatar
 ### 10. Scroll Behavior
 
 Smart scroll — what ChatGPT/Cursor use:
+
 - If user is at bottom (within 100px): auto-scroll to bottom on new message
 - If user has scrolled up: DON'T auto-scroll, show "↓ New messages" pill
 - "New messages" pill: fixed bottom of message area, primary bg, click to scroll down + dismiss
@@ -226,6 +261,7 @@ Smart scroll — what ChatGPT/Cursor use:
 ### 11. Empty State / Welcome Screen
 
 When widget first opens (0 messages, only system greeting):
+
 ```
 Center of message area:
   Bot avatar (48px)
@@ -235,6 +271,7 @@ Center of message area:
 ```
 
 Conversation starter style — pill buttons with chevron:
+
 ```
 Background: white (light) / slate-800 (dark)
 Border: 1px solid slate-200 / slate-700
@@ -248,6 +285,7 @@ Hover: bg slate-50 / slate-700
 ### 12. Markdown in Bot Messages
 
 Support these and nothing more (keep bundle small):
+
 - `**bold**` and `*italic*`
 - `` `inline code` `` — styled with monospace, bg slate-100/slate-800
 - ` ```code block``` ` — full-width, bg slate-900/slate-100, white/dark text, monospace
@@ -273,18 +311,21 @@ Key: Use `all: initial` on the shadow host to prevent host CSS leaking in, then 
 ### 14. Lazy Loading (Two-Phase)
 
 **Phase 1 — Loader (<15KB):**
+
 - Renders only the launcher button
 - Reads config from `data-*` attributes or fetches from API
 - On launcher click → dynamically imports Phase 2
 
 **Phase 2 — Full Widget (~130KB):**
+
 - Chat window, message list, input, markdown parser, emoji picker
 - Lazy loaded on first click only
 
 **Embed script pattern:**
+
 ```html
-<script 
-  src="https://cdn.codeweaves.com/widget.js"
+<script
+  src="https://cdn.getklivo.com/widget.js"
   data-agent-id="abc123"
   data-position="right"
   async
@@ -292,10 +333,11 @@ Key: Use `all: initial` on the shadow host to prevent host CSS leaking in, then 
 ```
 
 **Global API (exposed after load):**
+
 ```javascript
-window.CodeWeaves = {
+window.Klivo = {
   open()          // opens chat window
-  close()         // closes chat window  
+  close()         // closes chat window
   toggle()        // toggles
   sendMessage(text) // programmatically sends a message
   on(event, fn)   // subscribe to events: 'open', 'close', 'message', 'ready'
@@ -306,6 +348,7 @@ window.CodeWeaves = {
 ### 15. Mobile Full-Screen
 
 At `max-width: 480px`:
+
 ```css
 .cw-window {
   position: fixed;
@@ -316,7 +359,9 @@ At `max-width: 480px`:
   /* Account for iOS safe areas */
   padding-bottom: env(safe-area-inset-bottom);
 }
-.cw-launcher { display: none; } /* hide when window is open on mobile */
+.cw-launcher {
+  display: none;
+} /* hide when window is open on mobile */
 ```
 
 Header on mobile: show ← back arrow instead of minimize button.
@@ -324,11 +369,13 @@ Header on mobile: show ← back arrow instead of minimize button.
 ### 16. Dark Mode Detection
 
 ```javascript
-const prefersDark = window.matchMedia('(prefers-color-scheme: dark)');
+const prefersDark = window.matchMedia("(prefers-color-scheme: dark)");
 // If config.mode === 'auto': follow OS
 // If config.mode === 'dark': always dark
 // If config.mode === 'light': always light
-prefersDark.addEventListener('change', e => { if (config.mode === 'auto') applyMode(e.matches ? 'dark' : 'light'); });
+prefersDark.addEventListener("change", (e) => {
+  if (config.mode === "auto") applyMode(e.matches ? "dark" : "light");
+});
 ```
 
 ### 17. Accessibility (WCAG AA)
@@ -361,6 +408,7 @@ Animate in: scale from 0 to 1, 200ms bounce
 ### 19. Sound Notification
 
 Use Web Audio API — no audio file needed, zero KB impact:
+
 ```javascript
 function playNotificationSound() {
   const ctx = new AudioContext();
@@ -369,13 +417,14 @@ function playNotificationSound() {
   oscillator.connect(gain);
   gain.connect(ctx.destination);
   oscillator.frequency.value = 800;
-  oscillator.type = 'sine';
+  oscillator.type = "sine";
   gain.gain.setValueAtTime(0.3, ctx.currentTime);
   gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.3);
   oscillator.start(ctx.currentTime);
   oscillator.stop(ctx.currentTime + 0.3);
 }
 ```
+
 Only plays when widget is minimized/closed and `config.sound.enabled === true`.
 
 ### 20. CSS Class Names (Stable for Custom CSS)
@@ -421,6 +470,7 @@ All classes prefixed `.cw-` so customers can target them:
 ## What Changes in the Agent Editor
 
 ### Remove entirely:
+
 - Individual border-radius sliders for header, user messages, bot messages, input, send button (5 sliders → 1 roundness picker)
 - Individual color pickers for: header text, subtitle, bot avatar bg, bot avatar icon, user avatar bg, user avatar icon, bot message bg, bot message text, input bg, input text, input placeholder, send button icon, timestamp, branding text, branding link (15 color pickers → 0, all derived)
 - Avatar type selector (robot/machine/bot/support icons look developer-y, not professional)
@@ -429,9 +479,10 @@ All classes prefixed `.cw-` so customers can target them:
 - Separate `iconSize` slider
 
 ### Keep:
+
 - Primary color picker (1)
 - Mode: Light / Dark / Auto (3-button)
-- Roundness: Sharp / Rounded / Pill (3-button)  
+- Roundness: Sharp / Rounded / Pill (3-button)
 - Position: Left / Right
 - Custom icon image upload
 - Bubble prompt: text, enabled toggle, delay
@@ -441,6 +492,7 @@ All classes prefixed `.cw-` so customers can target them:
 - Webhook URL, allowed domains (admin only)
 
 ### Add:
+
 - Preset selector: 5 visual cards at the top (Professional / Ocean / Forest / Midnight / Custom)
 - Dark mode toggle as part of preset/mode selection
 - **Advanced section** (collapsed accordion):
@@ -449,6 +501,7 @@ All classes prefixed `.cw-` so customers can target them:
   - Session persistence toggle
 
 ### New simplified editor flow:
+
 ```
 1. Pick a preset (one click, done for most users)
 2. Optionally change primary color if Custom selected
@@ -520,12 +573,14 @@ apps/web/.../agent-editor/
 ## Implementation Order
 
 ### Phase 0 — Schema (do first, everything depends on it)
+
 1. `packages/validation/src/theme.ts` — add `SimplifiedWidgetConfig` type
 2. `packages/validation/src/theme-derive.ts` — `deriveTheme()` function
 3. `packages/validation/src/theme-presets.ts` — 5 presets
 4. `packages/validation/src/theme-migrate.ts` — legacy migration
 
 ### Phase 1 — Widget Rebuild (parallel after Phase 0)
+
 1. CSS file with all `.cw-*` classes and keyframes
 2. `LauncherButton.tsx` + `BubblePrompt.tsx` (loader bundle)
 3. `Header.tsx`
@@ -539,6 +594,7 @@ apps/web/.../agent-editor/
 11. Mobile responsive styles
 
 ### Phase 2 — Editor (parallel with Phase 1)
+
 1. Update `agent-editor-context.tsx` to `SimplifiedWidgetConfig`
 2. New `preset-settings.tsx` section
 3. Simplify `appearance-settings.tsx`
@@ -547,6 +603,7 @@ apps/web/.../agent-editor/
 6. Update `chat-widget-surface.tsx` preview to match new design
 
 ### Phase 3 — API
+
 1. Public widget-config endpoint (GET /public/agents/:id/widget-config)
 2. Theme service: support both old and new schema
 
@@ -554,11 +611,11 @@ apps/web/.../agent-editor/
 
 ## Bundle Size Target
 
-| Bundle | Target | Contents |
-|---|---|---|
-| Loader (initial) | **<15KB** gzipped | Launcher, BubblePrompt, config fetch |
-| Full widget | **<140KB** gzipped | Everything else |
-| Total | **<155KB** | Well under 150KB for full widget |
+| Bundle           | Target             | Contents                             |
+| ---------------- | ------------------ | ------------------------------------ |
+| Loader (initial) | **<15KB** gzipped  | Launcher, BubblePrompt, config fetch |
+| Full widget      | **<140KB** gzipped | Everything else                      |
+| Total            | **<155KB**         | Well under 150KB for full widget     |
 
 Comparison: Crisp ~100KB, LiveChat 256KB, Zendesk 500KB+
 

@@ -4,7 +4,7 @@ import { assertLocalDatabase } from "../../prisma.config";
 // feature branches migrated the shared database by accident.
 const REMOTE =
   "postgresql://postgres.abcdefgh:pw@aws-1-ap-south-1.pooler.supabase.com:5432/postgres";
-const LOCAL = "postgresql://postgres:postgres@localhost:5432/codeweaves";
+const LOCAL = "postgresql://postgres:postgres@localhost:5432/klivo";
 
 /** argv as the Prisma CLI sees it, plus the command under test. */
 const argv = (...command: string[]) => [
@@ -67,15 +67,15 @@ describe("prisma.config assertLocalDatabase", () => {
 
   describe("allows schema-changing commands against a local database", () => {
     it.each([
-      ["localhost", "postgresql://postgres:postgres@localhost:5432/codeweaves"],
-      ["127.0.0.1", "postgresql://postgres:postgres@127.0.0.1:5432/codeweaves"],
+      ["localhost", "postgresql://postgres:postgres@localhost:5432/klivo"],
+      ["127.0.0.1", "postgresql://postgres:postgres@127.0.0.1:5432/klivo"],
       [
         "the compose service name",
-        "postgresql://postgres:postgres@postgres:5432/codeweaves",
+        "postgresql://postgres:postgres@postgres:5432/klivo",
       ],
       [
         "host.docker.internal",
-        "postgresql://postgres:postgres@host.docker.internal:5432/codeweaves",
+        "postgresql://postgres:postgres@host.docker.internal:5432/klivo",
       ],
     ])("permits migrate dev against %s", (_label, url) => {
       expect(() =>
@@ -86,7 +86,7 @@ describe("prisma.config assertLocalDatabase", () => {
     it("permits an IPv6 loopback URL", () => {
       expect(() =>
         assertLocalDatabase(
-          "postgresql://postgres:postgres@[::1]:5432/codeweaves",
+          "postgresql://postgres:postgres@[::1]:5432/klivo",
           argv("migrate", "dev"),
         ),
       ).not.toThrow();

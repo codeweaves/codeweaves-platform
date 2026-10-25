@@ -7,7 +7,7 @@
   "rewrites": [
     {
       "source": "/(.*)",
-      "destination": "/codeweaves-widget.js"
+      "destination": "/klivo-widget.js"
     }
   ],
   "headers": [

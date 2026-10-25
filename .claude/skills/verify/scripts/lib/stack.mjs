@@ -293,7 +293,7 @@ export function dbQuery(sql) {
   return JSON.parse(raw.trim() || '[]');
 }
 
-const WIDGET_BUNDLE = join(REPO, 'apps/widget/dist/codeweaves-widget.js');
+const WIDGET_BUNDLE = join(REPO, 'apps/widget/dist/klivo-widget.js');
 
 function hostPage(agent, prod) {
   const safe = agent.replace(/[^A-Za-z0-9_-]/g, '');

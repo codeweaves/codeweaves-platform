@@ -57,6 +57,8 @@ if (!isDev) {
     ["NEXT_PUBLIC_API_URL", process.env.NEXT_PUBLIC_API_URL ? apiOrigin : null],
     // Uploaded agent images (logos, avatars) are served from storage.
     ["NEXT_PUBLIC_SUPABASE_URL", supabase],
+    // The widget preview loads from here, and the embed snippet points here.
+    ["NEXT_PUBLIC_WIDGET_URL", widget],
   ]) {
     if (!origin)
       console.warn(

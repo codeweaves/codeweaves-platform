@@ -118,7 +118,7 @@ export function BrandingSettings() {
                     onChange={(e) =>
                       updateThemeData("branding.linkUrl", e.target.value)
                     }
-                    placeholder="https://codeweaves.com"
+                    placeholder="https://www.getklivo.com"
                     type="url"
                     className="col-span-2"
                   />

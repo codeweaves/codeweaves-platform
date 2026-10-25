@@ -90,7 +90,7 @@ Do this once per environment that should page someone (staging optional, product
 3. Uptime monitors (3-minute checks):
    - API: `GET https://<api>/health/ready`, expect HTTP 200.
    - Dashboard: `https://<dashboard>/`, expect HTTP 200.
-   - Widget script: the `codeweaves-widget.js` URL customers embed, expect HTTP 200.
+   - Widget script: the `klivo-widget.js` URL customers embed, expect HTTP 200.
    - Widget config endpoint: `GET https://<api>/api/klivo/v1/public/agents/<publicId>/config` for a demo agent we own, expect HTTP 200.
 4. Heartbeats, one per job. Set each period to the job's schedule and a grace period of about one schedule:
 
