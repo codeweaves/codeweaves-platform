@@ -19,6 +19,7 @@ Follow it top to bottom. Every screen in every tool is listed with the answer to
 | Dashboard + widget      | Vercel, 2 new projects, branch `staging`                 | Vercel, 2 new projects, branch `main`                         |
 | Email                   | Resend, new account, `staging.mail.getklivo.com`         | Resend, own account, `mail.getklivo.com`                      |
 | AI keys                 | develop's keys for now (section 5)                       | New, prod limits                                              |
+| Redis                   | Upstash, own account, Singapore (next to the API)        | Upstash, own account, Mumbai (next to the API)                |
 | Dashboard host          | `app-staging.getklivo.com`                               | `app.getklivo.com`                                            |
 | API host name           | `api-staging.getklivo.com`                               | `api.getklivo.com`                                            |
 | Widget host             | `widget-staging.getklivo.com`                            | `widget.getklivo.com`                                         |
@@ -371,6 +372,29 @@ dashboard.sarvam.ai → **API Keys** → create → `SARVAM_API_KEY` (**SECRET**
 
 ---
 
+## 5b. Redis (Upstash)
+
+Staging has its **own Upstash account** (created 2026-11-04). Never share develop's Redis: rate-limit counters and the agent cache would mix across environments, and a tester's traffic could block develop.
+
+**Redis** → **Create Database**:
+
+| Field               | Staging                              | Prod                                                                |
+| ------------------- | ------------------------------------ | ------------------------------------------------------------------- |
+| Name                | `klivo-staging`                      | `klivo-prod`                                                        |
+| Primary region      | **AWS Singapore (`ap-southeast-1`)** | **AWS Mumbai (`ap-south-1`)**                                       |
+| Read regions        | none                                 | none                                                                |
+| Plan                | Free                                 | Free to start; pay-as-you-go when the monthly command limit is near |
+| Eviction (if shown) | On                                   | On                                                                  |
+| TLS (if shown)      | On                                   | On                                                                  |
+
+Why the region differs: Redis goes next to the **API**, not next to the database. The API calls Redis on every chat request (rate-limit check, agent cache). Staging's API runs in Singapore (Render), prod's in Mumbai (Cloud Run). A staging Redis in Mumbai would be as slow as the database it is meant to save trips to.
+
+Database page → **Connect** → the **ioredis** / Redis URL tab → copy the URL that starts with **`rediss://`** (TLS) → `REDIS_URL` (**SECRET**). Not the REST URL and token: the code uses the Redis protocol (ioredis).
+
+Without Redis the API still runs: rate limiting falls back to an in-memory limiter per instance, the agent cache is off, and `/health/ready` reports `degraded`. The same happens if the free plan's command limit runs out mid-test.
+
+---
+
 ## 6. API host
 
 ### 6S. Staging: Render (new account)
@@ -439,37 +463,37 @@ Also needed for prod (from the BCP commitments): the service creation as a scrip
 
 ### 7.1 API (Render for staging, Cloud Run for prod)
 
-| Variable                    | Staging                                                  | Prod                                          |
-| --------------------------- | -------------------------------------------------------- | --------------------------------------------- |
-| `NODE_ENV`                  | `production`                                             | `production`                                  |
-| `APP_ENV`                   | `staging`                                                | `production`                                  |
-| `DATABASE_URL`              | transaction pooler, 6543, `?pgbouncer=true` (**SECRET**) | same, prod project                            |
-| `DIRECT_URL`                | session pooler, 5432 (**SECRET**)                        | same, prod project                            |
-| `SUPABASE_URL`              | Project URL                                              | prod Project URL                              |
-| `SUPABASE_SERVICE_ROLE_KEY` | (**SECRET**)                                             | (**SECRET**)                                  |
-| `CLERK_ISSUER`              | `https://clerk.app-staging.getklivo.com`                 | `https://clerk.getklivo.com`                  |
-| `CLERK_SECRET_KEY`          | `sk_live_...` (**SECRET**)                               | `sk_live_...` (**SECRET**)                    |
-| `DASHBOARD_URL`             | `https://app-staging.getklivo.com`                       | `https://app.getklivo.com`                    |
-| `CORS_ORIGIN`               | `https://app-staging.getklivo.com`                       | `https://app.getklivo.com`                    |
-| `AGENT_SECRET_KEY`          | new (**SECRET**)                                         | new (**SECRET**), copy kept outside Cloud Run |
-| `INTERNAL_API_SECRET`       | new (**SECRET**)                                         | new (**SECRET**)                              |
-| `RESEND_API_KEY`            | staging key (**SECRET**)                                 | prod key (**SECRET**)                         |
-| `EMAIL_FROM`                | `Klivo Staging <noreply@staging.mail.getklivo.com>`      | `Klivo <noreply@mail.getklivo.com>`           |
-| `OPENAI_API_KEY`            | staging key (**SECRET**)                                 | prod key (**SECRET**)                         |
-| `GOOGLE_API_KEY`            | only if used, free tier (**SECRET**)                     | only if used, **paid tier** (**SECRET**)      |
-| `SARVAM_API_KEY`            | only if used (**SECRET**)                                | only if used (**SECRET**)                     |
-| `DEFAULT_AI_MODEL`          | `openai:gpt-4.1-mini`                                    | your choice                                   |
-| `DATA_EXTRACT_POLL_ENABLED` | `false` (cron drives it)                                 | `false`                                       |
-| `SOCKET_IO_REDIS`           | `false`                                                  | `false` while there is one instance           |
-| `REDIS_URL`                 | unset (rate limits run in-process)                       | Upstash, nearest Indian region                |
-| `SENTRY_DSN`                | staging `klivo-api` DSN                                  | `codeweaves` `klivo-api` DSN                  |
-| `SENTRY_ENVIRONMENT`        | `staging`                                                | `production`                                  |
-| `SENTRY_TRACES_SAMPLE_RATE` | `0.1`                                                    | `0.1`                                         |
-| `EVENT_LOG_RETENTION_DAYS`  | `30`                                                     | `0` (keep, decided)                           |
-| `CHAT_TRACE_RETENTION_DAYS` | `30`                                                     | `90`                                          |
-| `SLACK_ALERTS_WEBHOOK_URL`  | unset                                                    | `#klivo-alerts` webhook (**SECRET**)          |
-| `HEARTBEAT_URL_*`           | unset                                                    | Better Stack heartbeats (**SECRET**)          |
-| `ENABLE_DEV_ROUTES`         | **unset. Never `true`.**                                 | **unset. Never `true`.**                      |
+| Variable                    | Staging                                                  | Prod                                           |
+| --------------------------- | -------------------------------------------------------- | ---------------------------------------------- |
+| `NODE_ENV`                  | `production`                                             | `production`                                   |
+| `APP_ENV`                   | `staging`                                                | `production`                                   |
+| `DATABASE_URL`              | transaction pooler, 6543, `?pgbouncer=true` (**SECRET**) | same, prod project                             |
+| `DIRECT_URL`                | session pooler, 5432 (**SECRET**)                        | same, prod project                             |
+| `SUPABASE_URL`              | Project URL                                              | prod Project URL                               |
+| `SUPABASE_SERVICE_ROLE_KEY` | (**SECRET**)                                             | (**SECRET**)                                   |
+| `CLERK_ISSUER`              | `https://clerk.app-staging.getklivo.com`                 | `https://clerk.getklivo.com`                   |
+| `CLERK_SECRET_KEY`          | `sk_live_...` (**SECRET**)                               | `sk_live_...` (**SECRET**)                     |
+| `DASHBOARD_URL`             | `https://app-staging.getklivo.com`                       | `https://app.getklivo.com`                     |
+| `CORS_ORIGIN`               | `https://app-staging.getklivo.com`                       | `https://app.getklivo.com`                     |
+| `AGENT_SECRET_KEY`          | new (**SECRET**)                                         | new (**SECRET**), copy kept outside Cloud Run  |
+| `INTERNAL_API_SECRET`       | new (**SECRET**)                                         | new (**SECRET**)                               |
+| `RESEND_API_KEY`            | staging key (**SECRET**)                                 | prod key (**SECRET**)                          |
+| `EMAIL_FROM`                | `Klivo Staging <noreply@staging.mail.getklivo.com>`      | `Klivo <noreply@mail.getklivo.com>`            |
+| `OPENAI_API_KEY`            | staging key (**SECRET**)                                 | prod key (**SECRET**)                          |
+| `GOOGLE_API_KEY`            | only if used, free tier (**SECRET**)                     | only if used, **paid tier** (**SECRET**)       |
+| `SARVAM_API_KEY`            | only if used (**SECRET**)                                | only if used (**SECRET**)                      |
+| `DEFAULT_AI_MODEL`          | `openai:gpt-4.1-mini`                                    | your choice                                    |
+| `DATA_EXTRACT_POLL_ENABLED` | `false` (cron drives it)                                 | `false`                                        |
+| `SOCKET_IO_REDIS`           | `false`                                                  | `false` while there is one instance            |
+| `REDIS_URL`                 | staging Upstash, Singapore, `rediss://` (**SECRET**)     | prod Upstash, Mumbai, `rediss://` (**SECRET**) |
+| `SENTRY_DSN`                | staging `klivo-api` DSN                                  | `codeweaves` `klivo-api` DSN                   |
+| `SENTRY_ENVIRONMENT`        | `staging`                                                | `production`                                   |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0.1`                                                    | `0.1`                                          |
+| `EVENT_LOG_RETENTION_DAYS`  | `30`                                                     | `0` (keep, decided)                            |
+| `CHAT_TRACE_RETENTION_DAYS` | `30`                                                     | `90`                                           |
+| `SLACK_ALERTS_WEBHOOK_URL`  | unset (Slack alerts are prod only, decided 2026-11-04)   | `#klivo-alerts` webhook (**SECRET**)           |
+| `HEARTBEAT_URL_*`           | unset                                                    | Better Stack heartbeats (**SECRET**)           |
+| `ENABLE_DEV_ROUTES`         | **unset. Never `true`.**                                 | **unset. Never `true`.**                       |
 
 `CORS_ORIGIN` is easy to miss: it is not in `apps/api/.env.example`, and without it the browser blocks every dashboard call.
 
@@ -611,7 +635,7 @@ returns bigint language sql as $$
   );
 $$;
 
--- 3. Jobs. Same schedules as develop.
+-- 3. Jobs. alerts-run is prod only: it posts to Slack, and only prod has the Slack webhook.
 select cron.schedule('data-extraction-run', '* * * * *',   $$select public.call_internal('data-extraction/run')$$);
 select cron.schedule('handover-sweep',      '*/5 * * * *', $$select public.call_internal('handover/sweep')$$);
 select cron.schedule('classifier-run',      '30 19 * * *', $$select public.call_internal('classifier/run')$$);
@@ -655,7 +679,7 @@ Not needed for staging. Listed here so prod setup has one checklist. Code items 
 | Check                                                        | Expected                                                                         |
 | ------------------------------------------------------------ | -------------------------------------------------------------------------------- |
 | `https://api-staging.getklivo.com/health`                    | `"status":"ok"` and `"commit"` = the commit you deployed                         |
-| `https://api-staging.getklivo.com/health/ready`              | `"ok"`, or `"degraded"` (= no Redis, expected on staging)                        |
+| `https://api-staging.getklivo.com/health/ready`              | `"ok"` (`"degraded"` = Redis unreachable; check `REDIS_URL`)                     |
 | Section 1.4 Data API check                                   | **not** 200                                                                      |
 | `https://app-staging.getklivo.com` → sign in with your user  | Dashboard loads. Browser console: no CORS errors.                                |
 | Create an org, invite a second email you own                 | Invitation email from `Klivo Staging` arrives; signing up through the link works |
