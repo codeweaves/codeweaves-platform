@@ -26,6 +26,7 @@ Start with [observability-map.md](observability-map.md) if you do not know where
 | Suspected abuse, LLM bill spike, one agent flooding                                                       | [rate-limits-and-abuse.md](rate-limits-and-abuse.md)       |
 | Database size growing fast, event_logs or chat_traces huge                                                | [log-growth-and-retention.md](log-growth-and-retention.md) |
 | API will not boot after a deploy, or usage numbers dropped after one                                      | [deploys-and-shutdown.md](deploys-and-shutdown.md)         |
+| Setting up a new remote environment (staging for client tests, or prod)                                   | [environment-setup.md](environment-setup.md)               |
 | An alert arrived in `#klivo-alerts` (error rate, cost, unpriced usage, stale cron, Better Stack)          | [alerts.md](alerts.md)                                     |
 
 ## Conventions
