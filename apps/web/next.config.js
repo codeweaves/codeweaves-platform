@@ -29,6 +29,12 @@ const apiOrigin = originOf(
 );
 const clerk = clerkFrontendApi();
 const turnstile = "https://challenges.cloudflare.com"; // Clerk bot protection
+// Clerk's abuse and fraud protection. Production instances load a script and a
+// frame from here; development instances (develop) do not, which is why only
+// staging and prod need it. The hosts use non-443 ports, so connect-src needs `:*`.
+// https://clerk.com/docs/guides/secure/best-practices/csp-headers
+const clerkProtect = "https://*.protect.clerk.com";
+const clerkProtectConnect = "https://*.protect.clerk.com:*";
 const clerkTelemetry = "https://clerk-telemetry.com"; // sent by Clerk development instances
 // Vercel injects its feedback toolbar into preview deployments only.
 const vercelLive =
@@ -76,6 +82,7 @@ const csp = {
     "'unsafe-inline'",
     isDev && "'unsafe-eval'",
     clerk,
+    clerkProtect,
     turnstile,
     vercelLive,
   ],
@@ -88,6 +95,7 @@ const csp = {
     apiOrigin,
     apiSocket,
     clerk,
+    clerkProtectConnect,
     clerkTelemetry,
     sentry,
     supabase,
@@ -95,7 +103,7 @@ const csp = {
   ],
   "media-src": ["'self'", "blob:", "data:"],
   "worker-src": ["'self'", "blob:"],
-  "frame-src": ["'self'", turnstile, widget, vercelLive],
+  "frame-src": ["'self'", turnstile, clerkProtect, widget, vercelLive],
   "object-src": ["'none'"],
   "base-uri": ["'self'"],
   "form-action": ["'self'"],
