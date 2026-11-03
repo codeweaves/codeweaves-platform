@@ -621,8 +621,12 @@ Staging Supabase → **SQL Editor** → run once. Paste `INTERNAL_API_SECRET` in
 -- 1. Secret in Supabase Vault (encrypted at rest).
 select vault.create_secret('<PASTE INTERNAL_API_SECRET>', 'internal_api_secret');
 
--- 2. One helper, so the URL and the secret live in one place.
-create or replace function public.call_internal(path text)
+-- 2. One helper, so the URL and the secret live in one place. In a private schema with
+--    execute revoked, so it can never be called through the Data API even if that is reopened.
+create schema if not exists private;
+revoke all on schema private from public, anon, authenticated;
+
+create or replace function private.call_internal(path text)
 returns bigint language sql as $$
   select net.http_post(
     url := 'https://api-staging.getklivo.com/api/klivo/v1/internal/' || path,
@@ -633,17 +637,18 @@ returns bigint language sql as $$
     ),
     timeout_milliseconds := 5000
   );
-$$;
+$;
+revoke all on function private.call_internal(text) from public, anon, authenticated;
 
 -- 3. Jobs. alerts-run is prod only: it posts to Slack, and only prod has the Slack webhook.
-select cron.schedule('data-extraction-run', '* * * * *',   $$select public.call_internal('data-extraction/run')$$);
-select cron.schedule('handover-sweep',      '*/5 * * * *', $$select public.call_internal('handover/sweep')$$);
-select cron.schedule('classifier-run',      '30 19 * * *', $$select public.call_internal('classifier/run')$$);
-select cron.schedule('fx-run',              '30 17 * * *', $$select public.call_internal('fx/run')$$);
-select cron.schedule('retention-run',       '0 21 * * *',  $$select public.call_internal('retention/run')$$);
+select cron.schedule('data-extraction-run', '* * * * *',   $$select private.call_internal('data-extraction/run')$$);
+select cron.schedule('handover-sweep',      '*/5 * * * *', $$select private.call_internal('handover/sweep')$$);
+select cron.schedule('classifier-run',      '30 19 * * *', $$select private.call_internal('classifier/run')$$);
+select cron.schedule('fx-run',              '30 17 * * *', $$select private.call_internal('fx/run')$$);
+select cron.schedule('retention-run',       '0 21 * * *',  $$select private.call_internal('retention/run')$$);
 ```
 
-**Prod:** change the URL to `https://api.getklivo.com/...` and also add `select cron.schedule('alerts-run', '*/15 * * * *', $$select public.call_internal('alerts/run')$$);`.
+**Prod:** change the URL to `https://api.getklivo.com/...` and also add `select cron.schedule('alerts-run', '*/15 * * * *', $$select private.call_internal('alerts/run')$$);`.
 
 Check after 5 minutes:
 
