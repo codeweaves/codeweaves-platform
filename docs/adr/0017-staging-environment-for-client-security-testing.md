@@ -29,20 +29,20 @@ A third remote environment, **staging**, deployed from a `staging` branch. Code 
 | ------------------ | ---------------------------------------------------------------------------- |
 | API                | New Render account (own workspace), free plan, **Singapore**                 |
 | Database + storage | New Supabase project, free plan, **Mumbai**                                  |
-| Auth               | New Clerk application, production instance on `staging.getklivo.com`         |
+| Auth               | New Clerk application, production instance on `app-staging.getklivo.com`     |
 | Errors             | New Sentry account                                                           |
 | Dashboard + widget | Two new Vercel projects in the existing account, production branch `staging` |
 | Email              | Existing Resend account and domain, separate API key                         |
 | LLM keys           | Separate keys with low spending caps                                         |
 | Cron               | `pg_cron` in the staging Supabase project, same jobs as develop              |
-| Hostnames          | `staging.`, `api-staging.`, `widget-staging.getklivo.com`                    |
+| Hostnames          | `app-staging.`, `api-staging.`, `widget-staging.getklivo.com`                |
 
 Rules that follow:
 
 1. **Fake data only.** No customer data, no copy of develop's database.
 2. Only CI migrates the staging database (ADR-0001 rule 2). `deploy-staging.yml` migrates, seeds the bootstrap super admin, then triggers the Render deploy hook.
 3. Staging changes only when a PR into `staging` merges, so a client's findings refer to a fixed version.
-4. Staging hostnames are never children of the dashboard host (`*.app.getklivo.com`): a cookie scoped to a parent host is sent to its children, and testers deliberately attempt XSS on staging.
+4. Staging hostnames are never children of the dashboard host (`*.app.getklivo.com`): a cookie scoped to a parent host is sent to its children, and testers deliberately attempt XSS on staging. The dashboard host must also equal the Clerk production instance's domain (or sit under it): Clerk rejects sign-in from any other origin, so changing the dashboard host means changing the Clerk domain too.
 5. Keys used during a client test are rotated or revoked when it ends.
 
 Setup steps: `docs/runbooks/environment-setup.md`.
@@ -86,4 +86,4 @@ Setup steps: `docs/runbooks/environment-setup.md`.
 
 ## Open questions
 
-- Whether a Clerk production instance on `staging.getklivo.com` coexists cleanly with the develop and production Clerk instances on the same root domain. Checked by the smoke test in the runbook (sign in to both in one browser).
+- Whether a Clerk production instance on `app-staging.getklivo.com` coexists cleanly with the develop and production Clerk instances on the same root domain. Checked by the smoke test in the runbook (sign in to both in one browser).

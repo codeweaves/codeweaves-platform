@@ -8,20 +8,20 @@ Follow it top to bottom. Every screen in every tool is listed with the answer to
 
 ## The two environments at a glance
 
-|                         | Staging                                     | Prod                                                          |
-| ----------------------- | ------------------------------------------- | ------------------------------------------------------------- |
-| Git branch              | `staging` (exists, created 2026-11-03)      | `main`                                                        |
-| Purpose                 | Client security tests. **Fake data only.**  | Customers                                                     |
-| API host                | Render, **new account**, Singapore, free    | Google Cloud Run, Mumbai (`asia-south1`), see section 6P      |
-| Database + file storage | Supabase, new project, Mumbai, **Free**     | Supabase, new project, Mumbai, **Pro**                        |
-| Login                   | Clerk, new application, production instance | Clerk, new application, production instance                   |
-| Errors                  | Sentry, new account                         | Sentry `codeweaves` org (develop's), environment `production` |
-| Dashboard + widget      | Vercel, 2 new projects, branch `staging`    | Vercel, 2 new projects, branch `main`                         |
-| Email                   | Resend, same account, new key               | Resend, same account, new key                                 |
-| AI keys                 | New, capped                                 | New, prod limits                                              |
-| Dashboard host          | `staging.getklivo.com`                      | `app.getklivo.com`                                            |
-| API host name           | `api-staging.getklivo.com`                  | `api.getklivo.com`                                            |
-| Widget host             | `widget-staging.getklivo.com`               | `widget.getklivo.com`                                         |
+|                         | Staging                                                  | Prod                                                          |
+| ----------------------- | -------------------------------------------------------- | ------------------------------------------------------------- |
+| Git branch              | `staging` (exists, created 2026-11-03)                   | `main`                                                        |
+| Purpose                 | Client security tests. **Fake data only.**               | Customers                                                     |
+| API host                | Render, **new account**, Singapore, free                 | Google Cloud Run, Mumbai (`asia-south1`), see section 6P      |
+| Database + file storage | Supabase, new org in develop's account, Mumbai, **Free** | Supabase, **separate account**, Mumbai, **Pro**               |
+| Login                   | Clerk, new application, production instance              | Clerk, new application, production instance                   |
+| Errors                  | Sentry, new account                                      | Sentry `codeweaves` org (develop's), environment `production` |
+| Dashboard + widget      | Vercel, 2 new projects, branch `staging`                 | Vercel, 2 new projects, branch `main`                         |
+| Email                   | Resend, new account, `staging.mail.getklivo.com`         | Resend, own account, `mail.getklivo.com`                      |
+| AI keys                 | develop's keys for now (section 5)                       | New, prod limits                                              |
+| Dashboard host          | `app-staging.getklivo.com`                               | `app.getklivo.com`                                            |
+| API host name           | `api-staging.getklivo.com`                               | `api.getklivo.com`                                            |
+| Widget host             | `widget-staging.getklivo.com`                            | `widget.getklivo.com`                                         |
 
 Today `app.getklivo.com` and `api.getklivo.com` point at **develop**. Before prod goes live, move develop to other names (for example `dev.getklivo.com`, `api-dev.getklivo.com`).
 
@@ -53,19 +53,24 @@ Code moves `develop` → `staging` → `main` by pull request. Each branch deplo
 
 ### 1.1 New project form
 
-supabase.com → your organization → **New project**.
+**Which account:**
 
-| Field                                                 | Staging                                                                          | Prod                                   |
-| ----------------------------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------- |
-| Organization                                          | your existing one                                                                | your existing one (must be on **Pro**) |
-| Project name                                          | `klivo-staging`                                                                  | `klivo-prod`                           |
-| Database password                                     | **Generate a password** → copy to your note (**SECRET**). It is not shown again. | same                                   |
-| Region                                                | **South Asia (Mumbai)**                                                          | **South Asia (Mumbai)**                |
-| Compute size (if shown)                               | Nano (the only free option)                                                      | Micro (included in Pro)                |
-| **Security options**: "Enable Data API"               | **Uncheck**                                                                      | **Uncheck**                            |
-| "Automatically expose new tables" (if shown)          | **Uncheck**                                                                      | **Uncheck**                            |
-| "Enable automatic RLS" / RLS on new tables (if shown) | Leave **on**                                                                     | Leave **on**                           |
-| Advanced: Postgres type (if shown)                    | **Postgres** (not OrioleDB)                                                      | **Postgres**                           |
+- **Staging:** the same Supabase account as develop. Organization switcher (top left) → **New organization** → name `Klivo Staging`, type Company, plan **Free**. A separate organization keeps access apart: members are added per organization, so anyone given staging access never sees develop's data. The free plan allows **2 active free projects per account** across all its organizations; develop and staging use both.
+- **Prod:** a **separate Supabase account** (decided 2026-11-03), with its own organization on **Pro**. Prod data and billing share no login with develop or staging.
+
+Then, in that organization → **New project**.
+
+| Field                                                 | Staging                                                                          | Prod                                 |
+| ----------------------------------------------------- | -------------------------------------------------------------------------------- | ------------------------------------ |
+| Organization                                          | `Klivo Staging` (new, Free)                                                      | prod account's organization, **Pro** |
+| Project name                                          | `klivo-staging`                                                                  | `klivo-prod`                         |
+| Database password                                     | **Generate a password** → copy to your note (**SECRET**). It is not shown again. | same                                 |
+| Region                                                | **South Asia (Mumbai)**                                                          | **South Asia (Mumbai)**              |
+| Compute size (if shown)                               | Nano (the only free option)                                                      | Micro (included in Pro)              |
+| **Security options**: "Enable Data API"               | **Uncheck**                                                                      | **Uncheck**                          |
+| "Automatically expose new tables" (if shown)          | **Uncheck**                                                                      | **Uncheck**                          |
+| "Enable automatic RLS" / RLS on new tables (if shown) | Leave **on**                                                                     | Leave **on**                         |
+| Advanced: Postgres type (if shown)                    | **Postgres** (not OrioleDB)                                                      | **Postgres**                         |
 
 Why: the app reaches Postgres only through Prisma on the API server. The Data API is a second door into the database that we never use. RLS on new tables does not affect the app, because Prisma connects as the table owner, which RLS does not restrict.
 
@@ -168,16 +173,16 @@ Session token claims, exactly:
 2. The popup asks how to start. Choose **Clone development instance settings**, so 2.2 carries over.
 3. The **Create production instance** screen:
 
-   | Field                                                                          | Staging                      | Prod                    |
-   | ------------------------------------------------------------------------------ | ---------------------------- | ----------------------- |
-   | Application domain (after `https://`)                                          | `staging.getklivo.com`       | `app.getklivo.com`      |
-   | "Is this the primary application for getklivo.com or a secondary application?" | **Secondary application**    | **Primary application** |
-   | Clerk API (Frontend API) host that results                                     | `clerk.staging.getklivo.com` | `clerk.getklivo.com`    |
-   | Verification emails sent from                                                  | `@staging.getklivo.com`      | `@getklivo.com`         |
+   | Field                                                                          | Staging                          | Prod                    |
+   | ------------------------------------------------------------------------------ | -------------------------------- | ----------------------- |
+   | Application domain (after `https://`)                                          | `app-staging.getklivo.com`       | `app.getklivo.com`      |
+   | "Is this the primary application for getklivo.com or a secondary application?" | **Secondary application**        | **Primary application** |
+   | Clerk API (Frontend API) host that results                                     | `clerk.app-staging.getklivo.com` | `clerk.getklivo.com`    |
+   | Verification emails sent from                                                  | `@app-staging.getklivo.com`      | `@getklivo.com`         |
 
    Then **Create Instance**.
 
-   Staging must be **Secondary**. Primary takes `clerk.getklivo.com` and `@getklivo.com`, which belong to prod. If staging took them, prod could not have them without deleting staging's instance. Check the result on the **Domains** page: staging's Frontend API must be `clerk.staging.getklivo.com`.
+   Staging must be **Secondary**. Primary takes `clerk.getklivo.com` and `@getklivo.com`, which belong to prod. If staging took them, prod could not have them without deleting staging's instance. Check the result on the **Domains** page: staging's Frontend API must be `clerk.app-staging.getklivo.com`.
 
 4. Clerk does **not** clone **Paths**, **Integrations** or SSO connections. Open develop's **Paths** page and copy it into the production instance. At minimum: sign-in page = on the application domain, `/sign-in`; sign-up page = `/sign-up`.
 5. In the production instance, open the 2.2 pages again and check each value. Especially **Access mode = Invite-only**, **Device Trust = ON** and the **session token claim**.
@@ -194,11 +199,11 @@ Check the switcher at the top says **Production**.
 
 **Configure** → **API keys** (left sidebar):
 
-| Value                                             | Looks like                           | Goes to                                                             |
-| ------------------------------------------------- | ------------------------------------ | ------------------------------------------------------------------- |
-| Publishable key                                   | `pk_live_...`                        | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (Vercel web)                    |
-| Secret key                                        | `sk_live_...`                        | `CLERK_SECRET_KEY` (**SECRET**), on **both** the API and Vercel web |
-| Frontend API URL (may be under **Show API URLs**) | `https://clerk.staging.getklivo.com` | `CLERK_ISSUER` (API)                                                |
+| Value                                             | Looks like                               | Goes to                                                             |
+| ------------------------------------------------- | ---------------------------------------- | ------------------------------------------------------------------- |
+| Publishable key                                   | `pk_live_...`                            | `NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY` (Vercel web)                    |
+| Secret key                                        | `sk_live_...`                            | `CLERK_SECRET_KEY` (**SECRET**), on **both** the API and Vercel web |
+| Frontend API URL (may be under **Show API URLs**) | `https://clerk.app-staging.getklivo.com` | `CLERK_ISSUER` (API)                                                |
 
 If a key starts with `pk_test_` or `sk_test_`, you are in the Development instance. Switch to Production.
 
@@ -271,25 +276,69 @@ No new account. Prod uses develop's org **`codeweaves`** (EU), the same `klivo-a
 
 ## 4. Resend
 
-Same account for every environment. The free plan allows one sending domain, so all use `mail.getklivo.com`.
+**One Resend account per environment** (decided 2026-11-03). The free plan gives each account **100 emails a day** (3,000 a month) and **one sending domain**. One shared account would let a tester's burst of invitations stop develop email for the day.
+
+| Env     | Resend account                          | Sending domain                                                         | `EMAIL_FROM`                                        |
+| ------- | --------------------------------------- | ---------------------------------------------------------------------- | --------------------------------------------------- |
+| Staging | **new**                                 | `staging.mail.getklivo.com`                                            | `Klivo Staging <noreply@staging.mail.getklivo.com>` |
+| Develop | the existing one                        | `dev.mail.getklivo.com` (moved from `mail.getklivo.com` on 2026-11-03) | `Klivo Dev <noreply@dev.mail.getklivo.com>`         |
+| Prod    | its own; paid plan when volume needs it | `mail.getklivo.com`                                                    | `Klivo <noreply@mail.getklivo.com>`                 |
+
+### 4.1 Sign up
+
+resend.com → **Sign up** with a different email from the develop account. If Resend shows an onboarding screen ("Add an API key", "Send your first email"), skip it: the domain comes first.
+
+### 4.2 Add the domain
+
+**Domains** → **Add Domain**:
+
+| Field                          | Staging                                                                       | Prod                |
+| ------------------------------ | ----------------------------------------------------------------------------- | ------------------- |
+| Name                           | `staging.mail.getklivo.com`                                                   | `mail.getklivo.com` |
+| Region                         | the region closest to India in the list (Tokyo, `ap-northeast-1`, if offered) | same                |
+| Receiving / inbound (if shown) | **off** (we only send)                                                        | off                 |
+
+Resend then lists the DNS records: a **TXT** for DKIM (`resend._domainkey.staging.mail`), an **MX** and a **TXT** for SPF (`send.staging.mail`), and an optional **TXT** for DMARC (`_dmarc.staging.mail`). Add each at GoDaddy (section 9.1). GoDaddy's MX form has a separate **Priority** field: use the priority Resend shows (10). Add the DMARC record too.
+
+Click **Verify DNS Records**. Wait until the domain shows **Verified**.
+
+### 4.3 Domain settings
+
+Open the domain → **Configuration**:
+
+- **Click tracking: OFF.** It rewrites every link in an email through Resend. Our invitation links carry a one-time token; they must reach the dashboard unchanged.
+- **Open tracking: OFF.** Not used, and it adds a tracking pixel to every email.
+
+### 4.4 API key
 
 **API Keys** → **Create API Key**:
 
-| Field      | Staging                                 | Prod                |
-| ---------- | --------------------------------------- | ------------------- |
-| Name       | `staging`                               | `production`        |
-| Permission | **Sending access** (not Full access)    | **Sending access**  |
-| Domain     | `mail.getklivo.com` (not "All domains") | `mail.getklivo.com` |
+| Field      | Staging                                         | Prod                |
+| ---------- | ----------------------------------------------- | ------------------- |
+| Name       | `staging`                                       | `production`        |
+| Permission | **Sending access** (not Full access)            | **Sending access**  |
+| Domain     | `staging.mail.getklivo.com` (not "All domains") | `mail.getklivo.com` |
 
 Copy it now (shown once) → `RESEND_API_KEY` (**SECRET**).
 
-`EMAIL_FROM`: staging `Klivo Staging <noreply@mail.getklivo.com>`, prod `Klivo <noreply@mail.getklivo.com>`.
+**Prod:** check the expected volume before launch. Invitations, handover alerts and notifications all count toward 100 a day on the free plan.
 
-The free plan's **100 emails a day** is shared by all environments. Testers sending many invitations can stop develop email for the day: ask the bank to invite only their testers. **Prod:** check the volume; the paid plan lifts the limit.
+### 4.5 Develop: move from `mail.getklivo.com` to `dev.mail.getklivo.com` (one time, 2026-11-03)
+
+The free plan allows one domain per account, so the old domain goes before the new one is added. Develop email stops for the 5 to 30 minutes until the new domain verifies. Develop only, so that is acceptable.
+
+1. Develop's Resend account → **Domains** → `mail.getklivo.com` → **Delete**.
+2. **Add Domain** → `dev.mail.getklivo.com`, same answers as 4.2 and 4.3. Add its records at GoDaddy (`resend._domainkey.dev.mail`, `send.dev.mail` MX + TXT, `_dmarc.dev.mail`) → **Verify**.
+3. **API Keys** → **Create API Key** → name `develop`, **Sending access**, domain `dev.mail.getklivo.com`. Copy it. A key limited to the deleted domain stops working, so make a new one either way.
+4. Develop Render service → **Environment**: `RESEND_API_KEY` = the new key, `EMAIL_FROM` = `Klivo Dev <noreply@dev.mail.getklivo.com>`. Save and deploy.
+5. Send yourself an invitation on develop. It arrives from `noreply@dev.mail.getklivo.com`.
+6. Delete the old key in Resend. At GoDaddy, delete the old Resend records for `mail` (`resend._domainkey.mail`, `send.mail` MX and TXT, `_dmarc.mail`). Prod's Resend account adds fresh ones when it claims `mail.getklivo.com`.
 
 ---
 
 ## 5. AI provider keys
+
+**Staging today (2026-11-03): uses develop's OpenAI, Gemini and Sarvam keys.** Separate staging keys come later, following the steps below. Until then, a scan of staging spends from develop's accounts, and rotating a key after a test also breaks develop. Keep a budget limit on develop's OpenAI project.
 
 ### OpenAI (required: the default model is OpenAI)
 
@@ -398,14 +447,14 @@ Also needed for prod (from the BCP commitments): the service creation as a scrip
 | `DIRECT_URL`                | session pooler, 5432 (**SECRET**)                        | same, prod project                            |
 | `SUPABASE_URL`              | Project URL                                              | prod Project URL                              |
 | `SUPABASE_SERVICE_ROLE_KEY` | (**SECRET**)                                             | (**SECRET**)                                  |
-| `CLERK_ISSUER`              | `https://clerk.staging.getklivo.com`                     | `https://clerk.getklivo.com`                  |
+| `CLERK_ISSUER`              | `https://clerk.app-staging.getklivo.com`                 | `https://clerk.getklivo.com`                  |
 | `CLERK_SECRET_KEY`          | `sk_live_...` (**SECRET**)                               | `sk_live_...` (**SECRET**)                    |
-| `DASHBOARD_URL`             | `https://staging.getklivo.com`                           | `https://app.getklivo.com`                    |
-| `CORS_ORIGIN`               | `https://staging.getklivo.com`                           | `https://app.getklivo.com`                    |
+| `DASHBOARD_URL`             | `https://app-staging.getklivo.com`                       | `https://app.getklivo.com`                    |
+| `CORS_ORIGIN`               | `https://app-staging.getklivo.com`                       | `https://app.getklivo.com`                    |
 | `AGENT_SECRET_KEY`          | new (**SECRET**)                                         | new (**SECRET**), copy kept outside Cloud Run |
 | `INTERNAL_API_SECRET`       | new (**SECRET**)                                         | new (**SECRET**)                              |
 | `RESEND_API_KEY`            | staging key (**SECRET**)                                 | prod key (**SECRET**)                         |
-| `EMAIL_FROM`                | `Klivo Staging <noreply@mail.getklivo.com>`              | `Klivo <noreply@mail.getklivo.com>`           |
+| `EMAIL_FROM`                | `Klivo Staging <noreply@staging.mail.getklivo.com>`      | `Klivo <noreply@mail.getklivo.com>`           |
 | `OPENAI_API_KEY`            | staging key (**SECRET**)                                 | prod key (**SECRET**)                         |
 | `GOOGLE_API_KEY`            | only if used, free tier (**SECRET**)                     | only if used, **paid tier** (**SECRET**)      |
 | `SARVAM_API_KEY`            | only if used (**SECRET**)                                | only if used (**SECRET**)                     |
@@ -476,19 +525,20 @@ Do this twice: web, then widget.
 3. **Settings** → **Environments** → **Production** → **Branch Tracking** → `staging` (prod: `main`) → Save.
 4. **Settings** → **Environment Variables**: check every variable is ticked for **Production** (that is where the `staging` branch now deploys). Mark `CLERK_SECRET_KEY` and `SENTRY_AUTH_TOKEN` as **Sensitive**.
 5. **Settings** → **Build and Deployment** → **Ignored Build Step** → **Only build production**. Without this, every push to every branch builds a preview in these projects. (Skipped builds still count toward Vercel's daily deployment limit, but use no build minutes.)
-6. **Settings** → **Domains** → **Add Domain** → `staging.getklivo.com` (widget: `widget-staging.getklivo.com`; prod: `app.` / `widget.`). Connect it to **Production**. Vercel shows the exact DNS record. Use that value, not one from memory.
+6. **Settings** → **Domains** → **Add Domain** → `app-staging.getklivo.com` (widget: `widget-staging.getklivo.com`; prod: `app.` / `widget.`). Connect it to **Production**. Vercel shows the exact DNS record. Use that value, not one from memory.
 7. **Deployments** → latest → **⋯** → **Redeploy**, so the build uses the right branch and variables.
 
 ---
 
 ## 9. DNS records (at your provider for `getklivo.com`)
 
-| Name                                                                                                        | Type  | Value                                       | From          |
-| ----------------------------------------------------------------------------------------------------------- | ----- | ------------------------------------------- | ------------- |
-| `staging`                                                                                                   | CNAME | as shown by Vercel                          | Vercel web    |
-| `widget-staging`                                                                                            | CNAME | as shown by Vercel                          | Vercel widget |
-| `api-staging`                                                                                               | CNAME | `klivo-api-staging.onrender.com` (as shown) | Render        |
-| `clerk.staging`, `accounts.staging`, `clkmail.staging`, `clk._domainkey.staging`, `clk2._domainkey.staging` | CNAME | as shown on Clerk → Domains                 | Clerk         |
+| Name                                                                                                                            | Type     | Value                                       | From          |
+| ------------------------------------------------------------------------------------------------------------------------------- | -------- | ------------------------------------------- | ------------- |
+| `app-staging`                                                                                                                   | CNAME    | as shown by Vercel                          | Vercel web    |
+| `widget-staging`                                                                                                                | CNAME    | as shown by Vercel                          | Vercel widget |
+| `api-staging`                                                                                                                   | CNAME    | `klivo-api-staging.onrender.com` (as shown) | Render        |
+| `clerk.app-staging`, `accounts.app-staging`, `clkmail.app-staging`, `clk._domainkey.app-staging`, `clk2._domainkey.app-staging` | CNAME    | as shown on Clerk → Domains                 | Clerk         |
+| `resend._domainkey.staging.mail`, `send.staging.mail` (MX + TXT), `_dmarc.staging.mail`                                         | TXT / MX | as shown on Resend → Domains                | Resend        |
 
 Prod: the same set without `-staging` / `.staging`, with Cloud Run's custom-domain records for `api` instead of Render.
 
@@ -498,13 +548,13 @@ DNS for `getklivo.com` is at **GoDaddy** (nameservers `ns65.domaincontrol.com`, 
 
 1. godaddy.com → sign in → **My Products** → next to `getklivo.com` click **DNS** (or **Manage DNS**).
 2. **DNS Records** tab → **Add New Record**.
-3. **Type:** CNAME. **Name:** only the part before `.getklivo.com` (`clerk.staging`, not `clerk.staging.getklivo.com`; GoDaddy adds the domain itself, and the full name would become `clerk.staging.getklivo.com.getklivo.com`). **Value:** copy exactly from the tool. **TTL:** default (1 hour).
+3. **Type:** CNAME. **Name:** only the part before `.getklivo.com` (`clerk.app-staging`, not `clerk.app-staging.getklivo.com`; GoDaddy adds the domain itself, and the full name would become `clerk.app-staging.getklivo.com.getklivo.com`). **Value:** copy exactly from the tool. **TTL:** default (1 hour).
 4. **Save.** Repeat for every record.
 
 ### 9.2 Check a record is live
 
 ```powershell
-nslookup -type=CNAME clerk.staging.getklivo.com
+nslookup -type=CNAME clerk.app-staging.getklivo.com
 ```
 
 Live when the output has a `canonical name = <the value you entered>` line. Usually 5 to 30 minutes at GoDaddy; tools allow up to 48 hours.
@@ -607,7 +657,7 @@ Not needed for staging. Listed here so prod setup has one checklist. Code items 
 | `https://api-staging.getklivo.com/health`                    | `"status":"ok"` and `"commit"` = the commit you deployed                         |
 | `https://api-staging.getklivo.com/health/ready`              | `"ok"`, or `"degraded"` (= no Redis, expected on staging)                        |
 | Section 1.4 Data API check                                   | **not** 200                                                                      |
-| `https://staging.getklivo.com` → sign in with your user      | Dashboard loads. Browser console: no CORS errors.                                |
+| `https://app-staging.getklivo.com` → sign in with your user  | Dashboard loads. Browser console: no CORS errors.                                |
 | Create an org, invite a second email you own                 | Invitation email from `Klivo Staging` arrives; signing up through the link works |
 | Sign in as the invited user on a **different browser**       | Asked for an emailed code once (Device Trust), then signed in                    |
 | Create an agent → widget preview → send a message            | Reply streams; OpenAI `klivo-staging` usage shows the call                       |
@@ -620,6 +670,6 @@ Not needed for staging. Listed here so prod setup has one checklist. Code items 
 
 ## 14. After a client test
 
-- Revoke or rotate: OpenAI, Gemini and Resend keys, the Sentry token, the Render deploy hook.
+- Revoke or rotate: OpenAI, Gemini and Resend keys (staging Resend account), the Sentry token, the Render deploy hook. While staging uses develop's AI keys, rotating them means updating develop too.
 - Free Supabase projects pause after a week without activity. Resume from the dashboard before the next test.
 - Keep the Clerk app, the Render service and the Vercel projects. The next client test reuses them.
