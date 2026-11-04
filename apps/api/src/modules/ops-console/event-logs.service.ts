@@ -4,6 +4,7 @@ import type { EventLogListQuery } from "@repo/validation";
 import { PrismaService } from "../../services/prisma.service";
 import {
   isSensitiveKey,
+  LLM_PAYLOAD_LIMITS,
   redact,
   sanitizeHeaders,
 } from "../../common/events/redaction.util";
@@ -226,8 +227,11 @@ export class EventLogsService {
         : null,
       requestUrl: scrubUrl(row.requestUrl),
       requestHeaders: stripHeaders(row.requestHeaders),
-      requestPayload: redact(row.requestPayload),
-      responsePayload: redact(row.responsePayload),
+      // Read with the largest write bound: rows were already size-capped when
+      // written, so this only re-strips sensitive keys and never cuts an AI
+      // call's prompt or reply short.
+      requestPayload: redact(row.requestPayload, 0, LLM_PAYLOAD_LIMITS),
+      responsePayload: redact(row.responsePayload, 0, LLM_PAYLOAD_LIMITS),
       metadata: redact(row.metadata),
     };
   }

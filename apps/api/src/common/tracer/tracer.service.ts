@@ -6,6 +6,8 @@ import {
   sanitizeHeaders,
   capJson,
   maskSessionInUrl,
+  DEFAULT_PAYLOAD_LIMITS,
+  type PayloadLimits,
 } from "../events/redaction.util";
 import type { EventLogInput } from "../events/event-log.types";
 import {
@@ -15,14 +17,18 @@ import {
 } from "../../modules/pii/mask-pii";
 
 /**
- * Same caps as redact() applies right after (2000 chars per string, 50 items
- * per array, depth 6), so masking never spends work on text that is then cut.
+ * Same caps as redact() applies right after (per string, per array, depth 6),
+ * so masking never spends work on text that is then cut.
  */
-const LOG_MASK_LIMITS: MaskLimits = {
-  maxStringLength: 2000,
-  maxArrayLength: 50,
-  maxDepth: 8,
-};
+function maskLimitsFor(limits: PayloadLimits): MaskLimits {
+  return {
+    maxStringLength: limits.maxStringLength,
+    maxArrayLength: limits.maxArrayLength,
+    maxDepth: 8,
+  };
+}
+
+const LOG_MASK_LIMITS = maskLimitsFor(DEFAULT_PAYLOAD_LIMITS);
 
 /** Entries per lookup cache. Cleared, not grown, past this. */
 const AGENT_ORG_CACHE_MAX = 10_000;
@@ -128,11 +134,23 @@ export class TracerService {
       // This is the single writer of every event_logs row, so every channel
       // and every route is covered, including ones added later.
       const requestHeaders = sanitizeHeaders(input.requestHeaders);
+      // Large payloads (a whole AI prompt, ~3 ms to mask at 36 KB) are masked
+      // on a later turn of the event loop, not on the caller's request tick.
+      // The request context was read above, so it is kept.
+      if (input.payloadLimits) {
+        await new Promise<void>((resolve) => setImmediate(resolve));
+      }
+      const payloadLimits = input.payloadLimits ?? DEFAULT_PAYLOAD_LIMITS;
+      const payloadMaskLimits = input.payloadLimits
+        ? maskLimitsFor(input.payloadLimits)
+        : LOG_MASK_LIMITS;
       const requestPayload = capJson(
-        maskPiiDeep(input.requestPayload, LOG_MASK_LIMITS),
+        maskPiiDeep(input.requestPayload, payloadMaskLimits),
+        payloadLimits,
       );
       const responsePayload = capJson(
-        maskPiiDeep(input.responsePayload, LOG_MASK_LIMITS),
+        maskPiiDeep(input.responsePayload, payloadMaskLimits),
+        payloadLimits,
       );
       const metadata = input.metadata
         ? capJson(maskPiiDeep(input.metadata, LOG_MASK_LIMITS))

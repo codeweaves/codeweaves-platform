@@ -1,5 +1,7 @@
 import { EventChannel, EventDirection } from "@prisma/client";
 
+import type { PayloadLimits } from "./redaction.util";
+
 /**
  * Input to `TracerService.logEvent()`. Everything except `channel` + `eventName`
  * is optional; actor/org/correlation are auto-filled from the request context
@@ -41,4 +43,11 @@ export interface EventLogInput {
   errorMessage?: string;
 
   metadata?: Record<string, unknown>;
+
+  /**
+   * Size limits for the request/response payloads. Defaults to
+   * DEFAULT_PAYLOAD_LIMITS; AI model calls pass LLM_PAYLOAD_LIMITS so the
+   * whole prompt and reply are kept.
+   */
+  payloadLimits?: PayloadLimits;
 }

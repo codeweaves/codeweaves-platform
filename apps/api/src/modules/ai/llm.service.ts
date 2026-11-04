@@ -7,6 +7,7 @@ import { ConfigService } from "@nestjs/config";
 import {
   APICallError,
   generateText,
+  RetryError,
   stepCountIs,
   streamText,
   type LanguageModelUsage,
@@ -19,6 +20,10 @@ const DEFAULT_MAX_TOOL_STEPS = 3;
 import type { EventChannel, UsageFeature } from "@prisma/client";
 import { AiSdkService, parseModelId } from "./ai-sdk.service";
 import { ProviderEventLogger } from "../../common/events/provider.logger";
+import {
+  LLM_PAYLOAD_LIMITS,
+  parseResponseBody,
+} from "../../common/events/redaction.util";
 import { UsageMeterService } from "../usage/usage-meter.service";
 
 /**
@@ -94,18 +99,28 @@ export class LlmService {
     return "INTERNAL";
   }
 
-  /** Compact, safe request descriptor for the event log (never the full prompt). */
+  /**
+   * The full request as sent to the model, for the event log: every setting,
+   * the tool names, the messages and the system prompt (ADR-0005: full bodies
+   * stay; TracerService masks PII before writing).
+   */
   private describeRequest(
     request: LlmCompletionRequest,
   ): Record<string, unknown> {
     return {
       modelId: request.modelId,
       feature: request.feature,
-      messageCount: request.messages?.length ?? 0,
-      systemPromptChars: request.systemPrompt?.length ?? 0,
       temperature: request.temperature,
       maxTokens: request.maxTokens,
-      hasTools: !!request.tools,
+      topP: request.topP,
+      frequencyPenalty: request.frequencyPenalty,
+      presencePenalty: request.presencePenalty,
+      tools: request.tools ? Object.keys(request.tools) : undefined,
+      maxSteps: request.tools
+        ? (request.maxSteps ?? DEFAULT_MAX_TOOL_STEPS)
+        : undefined,
+      messages: request.messages,
+      systemPrompt: request.systemPrompt,
     };
   }
 
@@ -167,6 +182,12 @@ export class LlmService {
         agentId: request.agentId,
         sessionId: request.sessionId,
         requestPayload: this.describeRequest(request),
+        responsePayload: describeResponse(
+          result.text,
+          result.finishReason,
+          result.steps,
+        ),
+        payloadLimits: LLM_PAYLOAD_LIMITS,
         latencyMs,
         metadata: {
           model: request.modelId,
@@ -196,9 +217,10 @@ export class LlmService {
         agentId: request.agentId,
         sessionId: request.sessionId,
         requestPayload: this.describeRequest(request),
+        ...describeProviderError(err),
+        payloadLimits: LLM_PAYLOAD_LIMITS,
         latencyMs: Math.round(performance.now() - startedAt),
         success: false,
-        errorMessage: err instanceof Error ? err.message : String(err),
       });
       throw this.wrapError(err);
     }
@@ -242,9 +264,19 @@ export class LlmService {
       ? AbortSignal.any([request.abortSignal, timeoutController.signal])
       : timeoutController.signal;
 
+    // The provider's own error. `textStream` does not throw it: the SDK hands
+    // it to `onError` and the stream just ends, so awaiting the results then
+    // throws a generic NoOutputGeneratedError ("No output generated"). Keep
+    // the first real error so the log and the caller get the true cause
+    // (e.g. 429 credit_balance_exhausted).
+    let providerError: unknown;
+
     // `streamText` returns synchronously — the actual HTTP request starts lazily
     // when you begin iterating the textStream (or await one of the promises).
     const streamResult = streamText({
+      onError: ({ error }) => {
+        providerError ??= error;
+      },
       model,
       system: request.systemPrompt,
       messages: request.messages,
@@ -277,6 +309,10 @@ export class LlmService {
       resolveCompletion = resolve;
       rejectCompletion = reject;
     });
+    // Most callers read only the stream and never await `completion`; without
+    // a handler its rejection would be an unhandled rejection. Awaiters still
+    // see the rejection.
+    void completion.catch(() => undefined);
 
     const requestedModel = request.modelId;
     // Capture a bound reference to wrapError so the generator below doesn't
@@ -316,6 +352,11 @@ export class LlmService {
           }
         }
 
+        // A provider error after a finished step (e.g. the reply after a tool
+        // call hits a 429) does not reject: the SDK resolves with the steps it
+        // has and finishReason "other". It is still a failed call.
+        if (providerError !== undefined) throw providerError;
+
         // Stream drained without errors. Pull final metadata (these promises
         // resolve once the upstream sends the `finish` event).
         const [usage, finishReason, providerMetadata] = await Promise.all([
@@ -353,6 +394,9 @@ export class LlmService {
           );
         }
 
+        // Resolved by now: the stream has finished.
+        const text = await streamResult.text;
+
         providerLog.log({
           channel: streamEventChannel,
           eventName: "LLM_COMPLETION_COMPLETED",
@@ -361,6 +405,8 @@ export class LlmService {
           agentId: streamAgentId,
           sessionId: streamSessionId,
           requestPayload: streamRequestPayload,
+          responsePayload: describeResponse(text, finishReason, steps),
+          payloadLimits: LLM_PAYLOAD_LIMITS,
           latencyMs: totalMs,
           metadata: {
             model: requestedModel,
@@ -385,8 +431,6 @@ export class LlmService {
         };
 
         // Now resolve the completion promise so the caller can persist usage.
-        // We need the full text too, so pull that (already resolved at this point).
-        const text = await streamResult.text;
         resolveCompletion({
           text,
           usage: normalisedUsage,
@@ -397,7 +441,8 @@ export class LlmService {
           retryCount: 0,
         });
       } catch (err) {
-        const wrapped = wrapError(err);
+        const cause = providerError ?? err;
+        const wrapped = wrapError(cause);
         providerLog.log({
           channel: streamEventChannel,
           eventName: "LLM_COMPLETION_FAILED",
@@ -406,17 +451,19 @@ export class LlmService {
           agentId: streamAgentId,
           sessionId: streamSessionId,
           requestPayload: streamRequestPayload,
+          ...describeProviderError(cause),
+          payloadLimits: LLM_PAYLOAD_LIMITS,
           latencyMs: Math.round(performance.now() - startedAt),
           success: false,
-          errorMessage: wrapped.message,
         });
-        // Emit an error chunk so SSE subscribers see the failure, then reject
-        // the completion promise so awaiters unblock.
+        // Reject the completion promise BEFORE yielding the error chunk:
+        // consumers stop at that chunk (the widget controller throws on it),
+        // which returns this generator at the yield, so nothing after it runs.
+        rejectCompletion(wrapped);
         yield {
           type: "error",
           error: wrapped.message,
         };
-        rejectCompletion(wrapped);
       } finally {
         clearTimeout(timeoutHandle);
         // Cut off after tokens arrived (error, timeout, or the visitor left and
@@ -487,6 +534,62 @@ export class LlmService {
 // ============================================================================
 // Helpers — kept as free functions so they're trivially testable.
 // ============================================================================
+
+/** The parts of an AI SDK step the event log keeps. */
+interface LoggedStep {
+  toolCalls?: ReadonlyArray<{ toolName: string; input?: unknown }>;
+  toolResults?: ReadonlyArray<{ toolName: string; output?: unknown }>;
+}
+
+/**
+ * The model's reply for the event log: the final text, why it stopped, and
+ * every tool call and tool result across the steps of a tool loop.
+ */
+export function describeResponse(
+  text: string,
+  finishReason: string,
+  steps: ReadonlyArray<LoggedStep> | undefined,
+): Record<string, unknown> {
+  const toolCalls = (steps ?? []).flatMap((s) =>
+    (s.toolCalls ?? []).map((c) => ({ toolName: c.toolName, input: c.input })),
+  );
+  const toolResults = (steps ?? []).flatMap((s) =>
+    (s.toolResults ?? []).map((r) => ({
+      toolName: r.toolName,
+      output: r.output,
+    })),
+  );
+  return {
+    text,
+    finishReason,
+    ...(toolCalls.length > 0 ? { toolCalls } : {}),
+    ...(toolResults.length > 0 ? { toolResults } : {}),
+  };
+}
+
+/**
+ * What the provider actually answered on a failed call, for the event log:
+ * its HTTP status and its error body (e.g. 429 with
+ * `{ error: { code: "credit_balance_exhausted" } }`). The SDK wraps retried
+ * failures in a RetryError; the last attempt's error is the one that counts.
+ */
+export function describeProviderError(err: unknown): {
+  responseStatus?: number;
+  responsePayload?: unknown;
+  errorMessage: string;
+} {
+  const cause = RetryError.isInstance(err) ? err.lastError : err;
+  if (APICallError.isInstance(cause)) {
+    return {
+      responseStatus: cause.statusCode,
+      responsePayload: parseResponseBody(cause.responseBody) ?? cause.data,
+      errorMessage: cause.message,
+    };
+  }
+  return {
+    errorMessage: cause instanceof Error ? cause.message : String(cause),
+  };
+}
 
 /**
  * Provider-specific request options that affect latency / output shape.
