@@ -88,16 +88,21 @@ function foldScript(s: string): string {
  * kept so line-start rules still work. The original text is never changed.
  */
 export function normalizeForScan(text: string): string {
-  return foldScript(text)
-    .replace(INVISIBLE, "")
-    .toLowerCase()
-    .replace(CONFUSABLE_RE, (c) => CONFUSABLES[c] ?? c)
-    .replace(/[\u2018\u2019\u02BC\u0060\u00B4]/g, "'")
-    .replace(/[\u201C\u201D\u00AB\u00BB]/g, '"')
-    .replace(/\b(?:[a-z][ .\-_*]){3,}[a-z]\b/g, (m) =>
-      m.replace(/[ .\-_*]/g, ""),
-    )
-    .replace(/[ \t\f\v\u00A0]+/g, " ");
+  return (
+    foldScript(text)
+      .replace(INVISIBLE, "")
+      .toLowerCase()
+      .replace(CONFUSABLE_RE, (c) => CONFUSABLES[c] ?? c)
+      .replace(/[\u2018\u2019\u02BC\u0060\u00B4]/g, "'")
+      .replace(/[\u201C\u201D\u00AB\u00BB]/g, '"')
+      // Three or more single letters in a row ("a l l", "i.g.n.o.r.e"). Three,
+      // not four: a 3-letter "a l l" left unjoined let a fully spaced attack
+      // through (red-team run, 2026-11-04). Only the scan copy changes.
+      .replace(/\b(?:[a-z][ .\-_*]){2,}[a-z]\b/g, (m) =>
+        m.replace(/[ .\-_*]/g, ""),
+      )
+      .replace(/[ \t\f\v\u00A0]+/g, " ")
+  );
 }
 
 // --- Shared vocabulary -------------------------------------------------------
@@ -177,6 +182,20 @@ function rule(id: string, weight: number, source: string): InjectionRule {
  * hit; 0.4 only counts in combination.
  */
 export const INJECTION_RULES: readonly InjectionRule[] = [
+  // A sentence letter-spaced with single separators everywhere joins into one
+  // run ("ignoreallpreviousinstructions", "ignoreallprevious instructions").
+  // The verb is always glued to the next word, which ordinary text never does,
+  // so the glued start is the signal. Only the last gap may be a space.
+  rule(
+    "letter_spaced_override",
+    1.0,
+    `(?:ignore|disregard|forget)(?:(?:all|any|the|your)(?:previous|prior|earlier|above)?|previous|prior|earlier|above) ?(?:instructions?|prompts?|rules)`,
+  ),
+  rule(
+    "letter_spaced_prompt_request",
+    1.0,
+    `(?:show|print|reveal|tell|give|repeat)(?:me)?(?:your|the)(?:system|hidden|initial|full|secret) ?prompt`,
+  ),
   // "ignore all previous instructions", "disregard your system prompt"
   rule(
     "override_instructions",
