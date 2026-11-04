@@ -24,6 +24,7 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | [0015](0015-zod-4-with-zod-3-patch-semantics.md)                | Zod 4, with Zod 3 PATCH semantics kept            | Accepted | 2026-10-26 |
 | [0016](0016-theme-patch-field-by-field.md)                      | Theme writes: field-by-field PATCH, one at a time | Accepted | 2026-10-26 |
 | [0017](0017-staging-environment-for-client-security-testing.md) | Staging environment for client security testing   | Accepted | 2026-11-03 |
+| [0018](0018-ai-guardrails-local-heuristics-and-canary.md)       | AI guardrails: local heuristics and a canary      | Proposed | 2026-11-04 |
 
 ## When to write one
 
