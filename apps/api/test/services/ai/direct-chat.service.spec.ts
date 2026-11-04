@@ -199,6 +199,63 @@ describe("DirectChatService", () => {
       expect(callArg.systemPrompt).toContain("KB content here");
     });
 
+    describe("conduct and scope rules (red-team run 2026-11-04)", () => {
+      const reply = {
+        text: "ok",
+        usage: {
+          inputTokens: 50,
+          outputTokens: 5,
+          totalTokens: 55,
+          cachedInputTokens: 0,
+          reasoningTokens: undefined,
+        },
+        cost: 0.0002,
+        model: "gpt-4o-mini",
+        finishReason: "stop",
+        latencyMs: 200,
+        retryCount: 0,
+      };
+
+      async function systemPromptFor(agent: Agent): Promise<string> {
+        mockLlm.generateCompletion.mockResolvedValue(reply);
+        await service.send({
+          agent,
+          chatSessionId: "sess-1",
+          newUserMessage: "Hi",
+        });
+        return mockLlm.generateCompletion.mock.calls[0]![0]
+          .systemPrompt as string;
+      }
+
+      it("adds the conduct block after the operator prompt, before the closing reminder", async () => {
+        const prompt = await systemPromptFor(mockAgent);
+        const conduct = prompt.indexOf("[CONDUCT]");
+        expect(conduct).toBeGreaterThan(prompt.indexOf("You are helpful."));
+        expect(conduct).toBeLessThan(prompt.indexOf("[SECURITY REMINDER]"));
+        // Angry or abusive visitors: apologise, offer a person, no sales.
+        expect(prompt).toMatch(/apologi[sz]e/i);
+        expect(prompt).toMatch(
+          /would like to speak with someone from (?:the|our) team/i,
+        );
+        expect(prompt).toMatch(/do not ask for their name or contact details/i);
+        // Scope: own knowledge is off limits outside the business.
+        expect(prompt).toMatch(
+          /do not answer from your own general knowledge/i,
+        );
+      });
+
+      it("routes off-topic questions to the fallback phrase, with no 'general' loophole", async () => {
+        const prompt = await systemPromptFor({
+          ...mockAgent,
+          fallbackPhrases: ["Please contact our team for that."],
+        } as Agent);
+        expect(prompt).toContain("- Please contact our team for that.");
+        expect(prompt).not.toMatch(/even partial or general/i);
+        expect(prompt).toMatch(/not about this business/i);
+        expect(prompt).toMatch(/word for word and nothing else/i);
+      });
+    });
+
     it("uses HybridContextStrategy when agent config sets contextStrategy=hybrid", async () => {
       const hybridAgent = {
         ...mockAgent,

@@ -447,6 +447,16 @@ describe("HandoverService", () => {
       // Must never let the bot impersonate a human.
       expect(text.toLowerCase()).toContain("never claim to be a human");
     });
+
+    it("offers a person to a frustrated visitor first, and connects only on agreement", () => {
+      const text = service.offerInstruction();
+      // A frustrated or abusive visitor is ASKED; an explicit ask connects at once.
+      expect(text).toMatch(/frustrated[^.]*ask whether they would like/i);
+      expect(text).toMatch(
+        /explicitly asks? for a human[^.]*call `connect_to_human` straight away/i,
+      );
+      expect(text).not.toMatch(/do not wait to be asked/i);
+    });
   });
 
   describe("buildConnectTool", () => {

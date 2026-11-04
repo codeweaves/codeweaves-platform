@@ -122,9 +122,10 @@ export class HandoverService {
       "ONLY thing that actually connects one is calling the `connect_to_human` tool — saying it " +
       "in text does nothing. So NEVER tell the visitor that a human is coming, connecting, being " +
       "notified, or will reach out UNLESS you call `connect_to_human` in that same reply.\n" +
-      "Call `connect_to_human` when the visitor clearly asks for a human/person/agent/someone, " +
-      "when they agree to be connected, or when they are frustrated/upset or you cannot resolve " +
-      "their issue after genuinely trying — do not wait to be asked. This applies EVEN IF a human " +
+      "If the visitor explicitly asks for a human/person/agent/someone, call `connect_to_human` straight away. " +
+      "If they are frustrated, upset or abusive, or you cannot resolve their issue after genuinely trying, " +
+      "apologise and ask whether they would like to speak with someone from our team, then call " +
+      '`connect_to_human` only once they agree ("yes", "please", "ok"). This applies EVEN IF a human ' +
       "already helped earlier in this conversation and then left: if the visitor is upset or asks " +
       "again, treat it as a brand-new escalation and call the tool again. Do not assume a past " +
       'handover still covers them, and do not just repeat an earlier "a teammate will join" line.\n' +

@@ -193,6 +193,7 @@ export class DirectChatService {
         : "") +
       buildCollectionInstruction(p.dataFields) +
       buildFallbackInstruction(p.agent) +
+      CONDUCT_RULES +
       DirectChatService.buildSummaryBlock(p.summary) +
       buildExtraInstruction(p.extraInstruction) +
       (p.neutralize ? NEUTRALIZE_NOTICE : "") +
@@ -1238,15 +1239,32 @@ function buildFallbackInstruction(agent: Agent): string {
   );
   if (phrases.length === 0) return "";
   const list = phrases.map((p) => `- ${p}`).join("\n");
+  // No "general" knowledge here: that word let the model answer off-topic
+  // questions from its own training (red-team run, 2026-11-04).
   return (
-    "\n\n---\n\nAlways try to help first. If you have any relevant information — even " +
-    "partial or general — give a useful answer, and point the user to the team for " +
-    "specifics you do not have. Only when the question is entirely outside what you " +
-    "know and you have nothing useful to offer at all, reply with exactly one of the " +
-    "following phrases, word for word and nothing else:\n" +
+    "\n\n---\n\nIf the question is about this business and your instructions or " +
+    "reference knowledge cover any of it, give a useful answer, even a partial one, " +
+    "and point the user to the team for specifics you do not have. If the question is " +
+    "not about this business at all, or nothing in your instructions or reference " +
+    "knowledge covers it, reply with exactly one of the following phrases, word for " +
+    "word and nothing else:\n" +
     list
   );
 }
+
+/**
+ * Platform-wide conduct rules for every agent and channel: stay inside the
+ * agent's own content, and handle angry or abusive visitors by apologising and
+ * offering a person, never by arguing or asking for contact details. Static
+ * text, so it does not break the prompt-cache prefix. Red-team run 2026-11-04.
+ */
+const CONDUCT_RULES =
+  "\n\n---\n\n[CONDUCT]\n" +
+  "These rules apply to every reply and take priority over the operator instructions where they conflict.\n" +
+  "1. Scope: answer only from the operator instructions and the reference knowledge. Do not answer from your own general knowledge: no public figures, celebrities, news, sports, trivia, coding help, or other companies' products, even if you know the answer. For such questions, use the fallback phrase if one is given; otherwise say briefly that you can only help with questions about this business.\n" +
+  "2. Angry, rude or abusive visitors (insults, swearing, threats, calling the company a scam): stay calm and polite, never argue, and never repeat their language. Apologise briefly for their experience, and ask whether they would like to speak with someone from our team. In that reply, do not ask for their name or contact details and do not promote any product.\n" +
+  "3. If the abuse continues, say once, calmly, that you are happy to help as long as the conversation stays respectful, and repeat the offer of a person. Do not lecture.\n" +
+  "4. If the visitor threatens harm to anyone, do not engage with the threat. Apologise and offer to connect them with someone from our team.";
 
 /**
  * Per-turn extra instruction (e.g. the human-handover "stall" hint). Appended
