@@ -5,6 +5,8 @@ import {
   safeMeta,
   maskSessionId,
   maskSessionInUrl,
+  LLM_PAYLOAD_LIMITS,
+  parseResponseBody,
 } from "../../../src/common/events/redaction.util";
 
 describe("x-device-id header", () => {
@@ -175,6 +177,44 @@ describe("redaction.util", () => {
       expect(out._truncated).toBe(true);
       expect(typeof out._bytes).toBe("number");
       expect(typeof out.preview).toBe("string");
+    });
+
+    it("keeps a whole AI prompt and history under the LLM limits", () => {
+      const payload = {
+        systemPrompt: "p".repeat(30_000),
+        messages: Array.from({ length: 80 }, (_, i) => ({
+          role: "user",
+          content: `message ${i}`,
+        })),
+      };
+      expect(capJson(payload, LLM_PAYLOAD_LIMITS)).toEqual(payload);
+    });
+
+    it("still redacts secrets under the LLM limits", () => {
+      expect(
+        capJson({ apiKey: "sk-live", text: "hi" }, LLM_PAYLOAD_LIMITS),
+      ).toEqual({ apiKey: "[REDACTED]", text: "hi" });
+    });
+
+    it("still truncates past the LLM byte cap", () => {
+      const out = capJson(
+        { parts: Array.from({ length: 5 }, () => "z".repeat(90_000)) },
+        LLM_PAYLOAD_LIMITS,
+      ) as { _truncated?: boolean; preview: string };
+      expect(out._truncated).toBe(true);
+      // An oversized AI call keeps its first 256 KB, not 1,000 chars.
+      expect(out.preview.length).toBe(LLM_PAYLOAD_LIMITS.truncatedPreviewChars);
+    });
+  });
+
+  describe("parseResponseBody", () => {
+    it("parses a JSON body, keeps a text body and skips an empty one", () => {
+      expect(parseResponseBody('{"error":{"code":"x"}}')).toEqual({
+        error: { code: "x" },
+      });
+      expect(parseResponseBody("Bad Gateway")).toBe("Bad Gateway");
+      expect(parseResponseBody("")).toBeUndefined();
+      expect(parseResponseBody(undefined)).toBeUndefined();
     });
   });
 

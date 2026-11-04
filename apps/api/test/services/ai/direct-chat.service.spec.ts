@@ -380,6 +380,31 @@ describe("DirectChatService", () => {
       expect(errorChunk.error).toBe("upstream 500");
     });
 
+    it("saves the failed turn's trace even when the consumer stops at the error chunk", async () => {
+      mockLlm.streamCompletion.mockResolvedValue({
+        stream: tokenStream([
+          { type: "error", error: "You have no credits remaining." },
+        ]),
+      });
+
+      // The widget controller throws on the error chunk, which returns the
+      // generator at that yield.
+      for await (const chunk of service.stream({
+        agent: mockAgent,
+        chatSessionId: "sess-1",
+        newUserMessage: "Hi",
+      })) {
+        if (chunk.type === "error") break;
+      }
+
+      expect(traceContext.end).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          error: "You have no credits remaining.",
+        }),
+      );
+    });
+
     it("marks abort signal as ABORTED code", async () => {
       mockLlm.streamCompletion.mockImplementation(() => {
         const err = new Error("Request aborted");

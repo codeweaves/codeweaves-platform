@@ -1097,18 +1097,21 @@ export class DirectChatService {
         isAbort ? "llm.aborted" : "llm.failed",
         err instanceof Error ? err : new Error(errorMsg),
       );
-      yield {
-        type: "error",
-        error: errorMsg,
-        code: isAbort ? "ABORTED" : undefined,
-      };
-
+      // End the trace BEFORE yielding: consumers stop at the error chunk (the
+      // widget controller throws on it), which returns this generator at the
+      // yield, so code after it never runs. `settled` is already true, so the
+      // `finally` below would not end it either: the failed turn was lost.
       void trace.end({
         success: false,
         error: errorMsg,
         response: finalTextBuffer || undefined,
         model: finalModel ?? undefined,
       });
+      yield {
+        type: "error",
+        error: errorMsg,
+        code: isAbort ? "ABORTED" : undefined,
+      };
     } finally {
       if (!settled) {
         // The consumer abandoned the generator before it finished or errored —
