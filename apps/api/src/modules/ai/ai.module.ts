@@ -2,6 +2,7 @@ import { Module } from "@nestjs/common";
 
 import { PrismaModule } from "../prisma.module";
 import { DataExtractionModule } from "../data-extraction.module";
+import { GuardrailService } from "../guardrails/guardrail.service";
 
 import { AiSdkModule } from "./ai-sdk.module";
 import { ContextAssemblyService } from "./context-assembly.service";
@@ -24,6 +25,7 @@ import { SummaryRefreshService } from "./summary-refresh.service";
   providers: [
     ContextAssemblyService,
     DirectChatService,
+    GuardrailService,
     HybridContextStrategy,
     PromptTemplateService,
     SummarizationService,
@@ -33,6 +35,7 @@ import { SummaryRefreshService } from "./summary-refresh.service";
     AiSdkModule,
     ContextAssemblyService,
     DirectChatService,
+    GuardrailService,
     HybridContextStrategy,
     PromptTemplateService,
     SummarizationService,
