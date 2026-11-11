@@ -138,6 +138,7 @@
       "version": "0.0.0",
       "dependencies": {
         "@preact/signals": "2.11.3",
+        "@repo/validation": "workspace:*",
         "preact": "10.29.8",
         "socket.io-client": "4.8.4",
       },

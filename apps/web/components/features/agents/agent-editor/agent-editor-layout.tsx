@@ -405,6 +405,11 @@ function AgentEditorContent() {
         formData.handoverEmailRecipients,
         savedFormData.handoverEmailRecipients,
       );
+      putIfChanged(
+        "capturePageUrl",
+        formData.capturePageUrl,
+        savedFormData.capturePageUrl,
+      );
 
       // Save agent config and theme in parallel. Skip the agent PATCH
       // entirely when only a sub-resource (theme, knowledge, fields) changed.
@@ -490,6 +495,7 @@ function AgentEditorContent() {
             humanConnectedLabel: formData.humanConnectedLabel.trim() || null,
             handoverEmailEnabled: formData.handoverEmailEnabled,
             handoverEmailRecipients: formData.handoverEmailRecipients,
+            capturePageUrl: formData.capturePageUrl,
           };
 
           const newKnowledge = formData.knowledgeContent.trim()

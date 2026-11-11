@@ -1,4 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { sanitizePageUrl } from "@repo/validation";
 import {
   ConflictException,
   ForbiddenException,
@@ -229,6 +230,35 @@ describe("HandoverService", () => {
       expect(service.stallInstruction(null).toLowerCase()).toContain(
         "never claim to be human",
       );
+    });
+  });
+
+  describe("onVisitorMessageWhilePaused", () => {
+    it("stores the visitor message with its page URL (ADR-0020)", async () => {
+      mockPrisma.chatSession.update.mockResolvedValue({});
+
+      await service.onVisitorMessageWhilePaused(
+        ctx,
+        "my email is a@b.com",
+        sanitizePageUrl("https://s.com/pricing"),
+      );
+
+      expect(mockPrisma.chatMessage.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          role: "USER",
+          content: "my email is a@b.com",
+          pageUrl: "https://s.com/pricing",
+        }),
+      });
+    });
+
+    it("stores no page URL when none is passed", async () => {
+      mockPrisma.chatSession.update.mockResolvedValue({});
+
+      await service.onVisitorMessageWhilePaused(ctx, "hello");
+
+      const [arg] = mockPrisma.chatMessage.create.mock.calls[0];
+      expect(arg.data).not.toHaveProperty("pageUrl");
     });
   });
 

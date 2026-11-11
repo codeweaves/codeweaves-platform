@@ -250,6 +250,7 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
         agent: {
           select: {
             organizationId: true,
+            capturePageUrl: true,
             dataFields: {
               orderBy: { order: "asc" },
               select: { key: true, label: true, type: true, description: true },
@@ -258,9 +259,9 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
         },
         messages: {
           orderBy: { createdAt: "asc" },
-          select: { role: true, content: true },
+          select: { role: true, content: true, pageUrl: true },
         },
-        collectedData: { select: { data: true } },
+        collectedData: { select: { data: true, pageUrl: true } },
       },
     });
 
@@ -320,6 +321,20 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     );
     const merged = this.crypto.encryptFieldValues({ ...existing, ...values });
 
+    // The page where the lead was given (ADR-0020), matched on the RAW
+    // (tokenised) values because the stored messages hold the same tokens.
+    // A match always wins: it is the earliest message holding a value, so it
+    // stays put as the chat grows, and it corrects an earlier fallback guess.
+    // A fallback guess only fills an empty slot, so a resumed chat never moves
+    // a stored page to wherever the visitor went later.
+    const found = session.agent.capturePageUrl
+      ? findLeadPageUrl(session.messages, rawValues)
+      : null;
+    const pageUrl =
+      found && (found.matched || !session.collectedData?.pageUrl)
+        ? found.pageUrl
+        : null;
+
     const now = new Date();
     await this.prisma.collectedData.upsert({
       where: { chatSessionId },
@@ -328,10 +343,12 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
         chatSessionId,
         data: merged as Prisma.InputJsonValue,
         extractedAt: now,
+        pageUrl,
       },
       update: {
         data: merged as Prisma.InputJsonValue,
         extractedAt: now,
+        ...(pageUrl ? { pageUrl } : {}),
       },
     });
 
@@ -370,6 +387,84 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     const parsed = raw ? parseInt(raw, 10) : NaN;
     return Number.isFinite(parsed) && parsed >= 0 ? parsed : fallback;
   }
+}
+
+/** A lead page, and whether a captured value was found in that message. */
+export interface LeadPage {
+  pageUrl: string;
+  /** False = no message held a value; this is the visitor's latest page. */
+  matched: boolean;
+}
+
+/**
+ * The page the visitor was on when they gave the captured values: the page of
+ * the first USER message that contains one of `values`. When no message
+ * contains one (the visitor wrote it in another form, or the model reworded
+ * it), fall back to the visitor's latest message that has a page, with
+ * `matched: false`. Null when no USER message has a page (switch was off, or a
+ * channel with no page).
+ */
+export function findLeadPageUrl(
+  messages: ReadonlyArray<{
+    role: string;
+    content: string;
+    pageUrl: string | null;
+  }>,
+  values: Record<string, unknown>,
+): LeadPage | null {
+  const matchers = Object.values(values).flatMap(valueMatcher);
+
+  let latest: string | null = null;
+  for (const m of messages) {
+    if (m.role !== "USER" || !m.pageUrl) continue;
+    if (matchers.some((matches) => matches(m.content))) {
+      return { pageUrl: m.pageUrl, matched: true };
+    }
+    latest = m.pageUrl;
+  }
+  return latest ? { pageUrl: latest, matched: false } : null;
+}
+
+/** Phone numbers and other values made only of digits and separators. */
+const NUMBER_LIKE = /^[+\d\s\-().]+$/;
+/** A run of digits, allowing the separators people type inside numbers. */
+const DIGIT_RUN = /\d(?:[\s\-().]*\d)*/g;
+
+/**
+ * How to find one captured value in a message:
+ *   - Number-like values (5+ digits) compare digits only, so "98765 43210"
+ *     matches "9876543210".
+ *   - Text values must appear as a whole word or phrase, ignoring case, so
+ *     "Ann" does not match "planning". Text shorter than 3 characters and
+ *     booleans are skipped: they would match almost anything.
+ */
+function valueMatcher(value: unknown): Array<(content: string) => boolean> {
+  const text =
+    typeof value === "string"
+      ? value.trim()
+      : typeof value === "number"
+        ? String(value)
+        : "";
+  const digits = text.replace(/\D/g, "");
+
+  if (NUMBER_LIKE.test(text) && digits.length >= 5) {
+    return [
+      (content) =>
+        (content.match(DIGIT_RUN) ?? []).some(
+          (run) => run.replace(/\D/g, "") === digits,
+        ),
+    ];
+  }
+  if (text.length < 3) return [];
+
+  const phrase = text
+    .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+    .replace(/\s+/g, "\\s+");
+  const pattern = new RegExp(
+    `(?<![\\p{L}\\p{N}])${phrase}(?![\\p{L}\\p{N}])`,
+    "iu",
+  );
+  return [(content) => pattern.test(content)];
 }
 
 /** Map a stored DataFieldType to the JSON primitive the extractor emits. */

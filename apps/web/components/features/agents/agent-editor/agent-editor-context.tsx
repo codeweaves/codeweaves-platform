@@ -101,6 +101,8 @@ export interface AgentFormData {
    */
   handoverEmailEnabled: boolean;
   handoverEmailRecipients: string[];
+  /** Record the page the visitor was on when they gave their details. */
+  capturePageUrl: boolean;
 }
 
 interface AgentEditorContextType {
@@ -490,6 +492,7 @@ export function agentToFormData(
     humanConnectedLabel: agent.humanConnectedLabel ?? "",
     handoverEmailEnabled: agent.handoverEmailEnabled ?? false,
     handoverEmailRecipients: agent.handoverEmailRecipients ?? [],
+    capturePageUrl: agent.capturePageUrl ?? false,
   };
 }
 

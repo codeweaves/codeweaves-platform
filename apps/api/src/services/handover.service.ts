@@ -13,6 +13,7 @@ import {
   type HandoverState,
 } from "@prisma/client";
 import { tool, jsonSchema } from "ai";
+import type { CleanPageUrl } from "@repo/validation";
 import { PrismaService } from "./prisma.service";
 import { RealtimeService } from "./realtime.service";
 import { NotificationService } from "./notification.service";
@@ -364,6 +365,8 @@ export class HandoverService {
   async onVisitorMessageWhilePaused(
     ctx: HandoverCtx,
     content: string,
+    /** Already gated + cleaned, see ChatService.pageUrlToStore (ADR-0020). */
+    pageUrl?: CleanPageUrl | null,
   ): Promise<void> {
     try {
       const msg = await this.prisma.chatMessage.create({
@@ -372,6 +375,7 @@ export class HandoverService {
           agentId: ctx.agentId,
           sessionSource: ctx.source,
           role: "USER",
+          ...(pageUrl ? { pageUrl } : {}),
           // Same PII floor as the bot path: DESTROY-tier (Aadhaar/card/...) is
           // masked and VAULT-tier (bank/DOB/PAN/IFSC) is tokenised into the
           // encrypted vault, on every channel, including while a human handles.

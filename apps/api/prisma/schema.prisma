@@ -294,6 +294,10 @@ model Agent {
   // login email. Non-empty = exactly these addresses (e.g. a shared support
   // inbox that has no dashboard login). Capped at 20 by the DTO.
   handoverEmailRecipients String[]           @default([])
+  // Record the page the visitor was on with each message, and the page where
+  // they gave their lead details (CollectedData.pageUrl). The widget sends the
+  // page automatically; this switch decides if we store it. See ADR-0020.
+  capturePageUrl          Boolean            @default(false)
   systemPrompt            String?            @db.Text
   welcomeMessage          String?
   theme                   AgentTheme?
@@ -428,6 +432,13 @@ model CollectedData {
 
   /// When the extractor last wrote this row.
   extractedAt DateTime @default(now())
+
+  /// The page where the visitor gave their first detail: the page of the
+  /// first visitor message that holds a captured value (else their latest
+  /// page, as a guess that a later real match replaces). Null when the
+  /// agent's capturePageUrl switch was off, or for channels with no page
+  /// (WhatsApp). Cleaned by sanitizePageUrl. See ADR-0020.
+  pageUrl String? @db.VarChar(2048)
 
   createdAt DateTime @default(now())
   updatedAt DateTime @updatedAt
@@ -659,6 +670,10 @@ model ChatMessage {
   role          MessageRole
   content       String              @db.Text
   metadata      Json?
+  /// The page the visitor was on when they sent this message (USER rows from
+  /// the web widget only, and only when the agent's capturePageUrl switch is
+  /// on). Cleaned by sanitizePageUrl: origin + path + utm_* tags. ADR-0020.
+  pageUrl       String?             @db.VarChar(2048)
   createdAt     DateTime            @default(now())
   metrics       ChatMessageMetrics?
 
