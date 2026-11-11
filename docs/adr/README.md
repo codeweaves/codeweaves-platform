@@ -26,6 +26,7 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | [0017](0017-staging-environment-for-client-security-testing.md) | Staging environment for client security testing   | Accepted | 2026-11-03 |
 | [0018](0018-ai-guardrails-local-heuristics-and-canary.md)       | AI guardrails: local heuristics and a canary      | Proposed | 2026-11-04 |
 | [0019](0019-full-ai-model-calls-in-event-logs.md)               | Full AI model calls in event_logs                 | Accepted | 2026-11-04 |
+| [0020](0020-lead-page-url.md)                                   | Lead page URL                                     | Accepted | 2026-11-11 |
 
 ## When to write one
 

@@ -1,4 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { sanitizePageUrl } from "@repo/validation";
 import { NotFoundException } from "@nestjs/common";
 import { ChatService } from "../../../src/services/chat.service";
 import { PrismaService } from "../../../src/services/prisma.service";
@@ -429,6 +430,64 @@ describe("ChatService", () => {
         expect(transactionArg).toHaveLength(3);
       });
 
+      it("stores the cleaned page URL on a widget user message when the agent switch is on (ADR-0020)", async () => {
+        mockPrismaService.agent.findUniqueOrThrow.mockResolvedValue({
+          ...MOCK_FULL_AGENT,
+          capturePageUrl: true,
+        });
+        mockPrismaService.chatSession.create.mockResolvedValue({
+          ...mockSession,
+          source: "WIDGET",
+        });
+
+        await service.sendMessage({
+          ...baseDto,
+          source: "WIDGET",
+          pageUrl: "https://shop.com/demo?utm_source=google&ref=abc",
+        });
+
+        expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            role: "USER",
+            pageUrl: "https://shop.com/demo?utm_source=google",
+          }),
+        });
+      });
+
+      const userMessageData = () =>
+        mockPrismaService.chatMessage.create.mock.calls.find(
+          ([arg]: [{ data: { role: string } }]) => arg.data.role === "USER",
+        )?.[0].data;
+
+      it("does not store the page URL when the agent switch is off", async () => {
+        mockPrismaService.chatSession.create.mockResolvedValue({
+          ...mockSession,
+          source: "WIDGET",
+        });
+
+        await service.sendMessage({
+          ...baseDto,
+          source: "WIDGET",
+          pageUrl: "https://shop.com/demo",
+        });
+
+        expect(userMessageData()).not.toHaveProperty("pageUrl");
+      });
+
+      it("does not store the page URL for a non-widget chat (dashboard preview)", async () => {
+        mockPrismaService.agent.findUniqueOrThrow.mockResolvedValue({
+          ...MOCK_FULL_AGENT,
+          capturePageUrl: true,
+        });
+
+        await service.sendMessage({
+          ...baseDto,
+          pageUrl: "https://app.example.com/agents/1/edit",
+        });
+
+        expect(userMessageData()).not.toHaveProperty("pageUrl");
+      });
+
       it("should not store messages if the LLM call fails", async () => {
         mockDirectChatService.send.mockRejectedValue(
           new Error("provider down"),
@@ -626,9 +685,55 @@ describe("ChatService", () => {
             id: true,
             aiConfig: true,
             organizationId: true,
+            capturePageUrl: true,
           },
         });
       });
+    });
+  });
+
+  describe("pageUrlToStore (ADR-0020)", () => {
+    const on = { capturePageUrl: true };
+    const widget = { source: "WIDGET" as const };
+
+    it("returns the cleaned URL for a widget chat when the agent switch is on", () => {
+      expect(
+        ChatService.pageUrlToStore(
+          on,
+          widget,
+          "https://shop.com/pricing?email=a@b.com&utm_source=fb#top",
+        ),
+      ).toBe("https://shop.com/pricing?utm_source=fb");
+    });
+
+    it("drops the URL when the agent switch is off", () => {
+      expect(
+        ChatService.pageUrlToStore(
+          { capturePageUrl: false },
+          widget,
+          "https://shop.com/pricing",
+        ),
+      ).toBeNull();
+    });
+
+    it.each(["DEMO", "WHATSAPP"] as const)(
+      "drops the URL for a %s chat, which has no visitor page",
+      (source) => {
+        expect(
+          ChatService.pageUrlToStore(
+            on,
+            { source },
+            "https://shop.com/pricing",
+          ),
+        ).toBeNull();
+      },
+    );
+
+    it("returns null when the switch is on but nothing usable was sent", () => {
+      expect(ChatService.pageUrlToStore(on, widget, undefined)).toBeNull();
+      expect(
+        ChatService.pageUrlToStore(on, widget, "javascript:alert(1)"),
+      ).toBeNull();
     });
   });
 
@@ -652,6 +757,22 @@ describe("ChatService", () => {
         },
       });
       expect(result).toEqual(mockMsg);
+    });
+
+    it("stores the page URL when one is passed (ADR-0020)", async () => {
+      mockPrismaService.chatMessage.create.mockResolvedValue({ id: "msg-1" });
+
+      await service.saveUserMessage(
+        { id: "session-db-id", agentId: "agent-1", source: "WIDGET" as const },
+        "Hello",
+        undefined,
+        undefined,
+        sanitizePageUrl("https://shop.com/pricing"),
+      );
+
+      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ pageUrl: "https://shop.com/pricing" }),
+      });
     });
   });
 

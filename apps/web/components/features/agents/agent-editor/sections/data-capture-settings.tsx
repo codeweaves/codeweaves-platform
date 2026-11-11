@@ -1,61 +1,69 @@
-'use client';
+"use client";
 
-import { Plus, X } from 'lucide-react';
+import { Plus, X } from "lucide-react";
 import {
   DATA_FIELD_TYPES,
   MAX_DATA_FIELDS,
   type DataFieldType,
-} from '@repo/validation';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Button } from '@/components/ui/button';
-import { ToggleRow } from '../toggle-row';
+} from "@repo/validation";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Button } from "@/components/ui/button";
+import { ToggleRow } from "../toggle-row";
 import {
   Select,
   SelectContent,
   SelectItem,
   SelectTrigger,
   SelectValue,
-} from '@/components/ui/select';
-import {
-  useAgentEditor,
-  type EditorDataField,
-} from '../agent-editor-context';
-import { FormSection } from '../form-section';
+} from "@/components/ui/select";
+import { useAgentEditor, type EditorDataField } from "../agent-editor-context";
+import { FormSection } from "../form-section";
 
 /** Friendly labels for each stored field type. */
 const TYPE_LABELS: Record<DataFieldType, string> = {
-  STRING: 'Text',
-  NUMBER: 'Number',
-  BOOLEAN: 'Yes / No',
-  DATE: 'Date',
-  EMAIL: 'Email',
-  PHONE: 'Phone',
+  STRING: "Text",
+  NUMBER: "Number",
+  BOOLEAN: "Yes / No",
+  DATE: "Date",
+  EMAIL: "Email",
+  PHONE: "Phone",
 };
 
 /** Derive a safe machine key from a human label. May be empty for odd input. */
 function slugify(label: string): string {
   return label
     .toLowerCase()
-    .replace(/[^a-z0-9]+/g, '_')
-    .replace(/^[^a-z]+/, '') // keys must start with a letter
-    .replace(/_+$/g, '');
+    .replace(/[^a-z0-9]+/g, "_")
+    .replace(/^[^a-z]+/, "") // keys must start with a letter
+    .replace(/_+$/g, "");
 }
 
 export function DataCaptureSettings() {
-  const { formData, updateFormData, fieldErrors, setFieldErrors, clearFieldError } =
-    useAgentEditor();
+  const {
+    formData,
+    updateFormData,
+    fieldErrors,
+    setFieldErrors,
+    clearFieldError,
+  } = useAgentEditor();
 
   const fields = formData.dataFields;
 
   const setFields = (next: EditorDataField[]) =>
-    updateFormData('dataFields', next);
+    updateFormData("dataFields", next);
 
   const addField = () => {
     if (fields.length >= MAX_DATA_FIELDS) return;
     setFields([
       ...fields,
-      { key: '', label: '', type: 'STRING', required: false, description: null },
+      {
+        key: "",
+        label: "",
+        type: "STRING",
+        required: false,
+        description: null,
+      },
     ]);
   };
 
@@ -65,7 +73,7 @@ export function DataCaptureSettings() {
     setFieldErrors(
       Object.fromEntries(
         Object.entries(fieldErrors).filter(
-          ([k]) => !k.startsWith('dataFields.'),
+          ([k]) => !k.startsWith("dataFields."),
         ),
       ),
     );
@@ -75,7 +83,7 @@ export function DataCaptureSettings() {
     const field = fields[index];
     if (!field) return;
     // Keep the key in sync with the label until the user hand-edits the key.
-    const wasAuto = field.key === '' || field.key === slugify(field.label);
+    const wasAuto = field.key === "" || field.key === slugify(field.label);
     const next = fields.map((f, i) =>
       i === index
         ? { ...f, label: value, key: wasAuto ? slugify(value) : f.key }
@@ -87,7 +95,7 @@ export function DataCaptureSettings() {
   };
 
   const updateKey = (index: number, value: string) => {
-    const sanitized = value.toLowerCase().replace(/[^a-z0-9_]/g, '_');
+    const sanitized = value.toLowerCase().replace(/[^a-z0-9_]/g, "_");
     setFields(
       fields.map((f, i) => (i === index ? { ...f, key: sanitized } : f)),
     );
@@ -110,12 +118,13 @@ export function DataCaptureSettings() {
         info={
           <>
             <p>
-              Define the fields to pull out of a chat, e.g. name, email and phone for
-              a sales bot, or an employee ID for HR.
+              Define the fields to pull out of a chat, e.g. name, email and
+              phone for a sales bot, or an employee ID for HR.
             </p>
             <p>
-              Capture runs automatically in the background <strong>after</strong> a
-              conversation ends, so it never slows down replies.
+              Capture runs automatically in the background{" "}
+              <strong>after</strong> a conversation ends, so it never slows down
+              replies.
             </p>
             <p>Leave empty to collect nothing.</p>
           </>
@@ -181,7 +190,7 @@ export function DataCaptureSettings() {
                     <Select
                       value={field.type}
                       onValueChange={(v) =>
-                        updateField(index, 'type', v as DataFieldType)
+                        updateField(index, "type", v as DataFieldType)
                       }
                     >
                       <SelectTrigger className="w-full">
@@ -200,19 +209,15 @@ export function DataCaptureSettings() {
 
                 <div className="space-y-1">
                   <Label className="text-xs font-medium">
-                    Hint{' '}
+                    Hint{" "}
                     <span className="font-normal text-muted-foreground">
                       (optional)
                     </span>
                   </Label>
                   <Input
-                    value={field.description ?? ''}
+                    value={field.description ?? ""}
                     onChange={(e) =>
-                      updateField(
-                        index,
-                        'description',
-                        e.target.value || null,
-                      )
+                      updateField(index, "description", e.target.value || null)
                     }
                     placeholder="Helps extraction, e.g. the 6-digit order number"
                     maxLength={500}
@@ -225,12 +230,14 @@ export function DataCaptureSettings() {
                     label="Required"
                     info={
                       <p>
-                        The agent will politely ask for this if the visitor doesn&apos;t
-                        provide it on their own.
+                        The agent will politely ask for this if the visitor
+                        doesn&apos;t provide it on their own.
                       </p>
                     }
                     checked={field.required}
-                    onChange={(checked) => updateField(index, 'required', checked)}
+                    onChange={(checked) =>
+                      updateField(index, "required", checked)
+                    }
                   />
                 </div>
               </div>
@@ -248,6 +255,33 @@ export function DataCaptureSettings() {
             )}
           </div>
         </div>
+      </FormSection>
+
+      <FormSection
+        title="Lead Page"
+        description="Where the visitor was when they shared their details."
+      >
+        <ToggleRow
+          id="capturePageUrl"
+          label="Record the page"
+          description="Adds a Page column to Collected Data and the CSV export."
+          info={
+            <>
+              <p>
+                The widget sends the page address with each message. Nothing to
+                add to your website.
+              </p>
+              <p>
+                We keep the page address and ad campaign tags (utm_source,
+                utm_campaign and similar). Anything else after the &quot;?&quot;
+                is removed, because it can hold private data.
+              </p>
+              <p>Website chats only. WhatsApp chats have no page.</p>
+            </>
+          }
+          checked={formData.capturePageUrl}
+          onChange={(v) => updateFormData("capturePageUrl", v)}
+        />
       </FormSection>
     </div>
   );

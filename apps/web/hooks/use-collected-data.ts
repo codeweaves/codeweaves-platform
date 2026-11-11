@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useMutation, useQuery } from '@tanstack/react-query';
-import { useApiClient } from '@/lib/api-client';
-import { useAuth } from '@/hooks/use-auth';
+import { useMutation, useQuery } from "@tanstack/react-query";
+import { useApiClient } from "@/lib/api-client";
+import { useAuth } from "@/hooks/use-auth";
 
 /** A column in the collected-data view: the JSON key + a display label. */
 export interface CollectedDataColumn {
@@ -15,11 +15,15 @@ export interface CollectedDataRow {
   chatSessionId: string;
   data: Record<string, unknown>;
   extractedAt: string;
+  /** Page where the visitor gave these details (ADR-0020). */
+  pageUrl: string | null;
 }
 
 /** Paginated collected-data view returned by the backend. */
 export interface CollectedDataView {
   columns: CollectedDataColumn[];
+  /** Show the fixed "Page" column. */
+  showPageUrl: boolean;
   rows: CollectedDataRow[];
   total: number;
   page: number;
@@ -30,7 +34,7 @@ export interface CollectedDataParams {
   page?: number; // 1-based
   limit?: number;
   /** Sort direction for the "Captured at" column. Defaults to 'desc' server-side. */
-  sortOrder?: 'asc' | 'desc';
+  sortOrder?: "asc" | "desc";
 }
 
 /**
@@ -47,16 +51,16 @@ export function useCollectedData(
   const api = useApiClient();
 
   const queryParams = new URLSearchParams();
-  if (params.page) queryParams.set('page', String(params.page));
-  if (params.limit) queryParams.set('limit', String(params.limit));
-  if (params.sortOrder) queryParams.set('sortOrder', params.sortOrder);
+  if (params.page) queryParams.set("page", String(params.page));
+  if (params.limit) queryParams.set("limit", String(params.limit));
+  if (params.sortOrder) queryParams.set("sortOrder", params.sortOrder);
   const queryString = queryParams.toString();
 
   return useQuery<CollectedDataView>({
-    queryKey: ['collected-data', agentId, params],
+    queryKey: ["collected-data", agentId, params],
     queryFn: () =>
       api.get(
-        `/agents/${agentId}/data-fields/collected${queryString ? `?${queryString}` : ''}`,
+        `/agents/${agentId}/data-fields/collected${queryString ? `?${queryString}` : ""}`,
       ),
     enabled: isAuthenticated && !authLoading && Boolean(agentId),
     // Paging and sorting change the key, so without this the table empties and
@@ -80,19 +84,19 @@ export function useCollectedData(
 export function useExportCollectedData(agentId: string | undefined) {
   const api = useApiClient();
 
-  return useMutation<string, Error, { sortOrder?: 'asc' | 'desc' } | void>({
+  return useMutation<string, Error, { sortOrder?: "asc" | "desc" } | void>({
     mutationFn: (options) => {
-      if (!agentId) throw new Error('No agent selected');
+      if (!agentId) throw new Error("No agent selected");
 
       const qs = new URLSearchParams();
-      if (options?.sortOrder) qs.set('sortOrder', options.sortOrder);
+      if (options?.sortOrder) qs.set("sortOrder", options.sortOrder);
       // Undefined in exotic runtimes; the API falls back to UTC.
       const timeZone = Intl.DateTimeFormat().resolvedOptions().timeZone;
-      if (timeZone) qs.set('tz', timeZone);
+      if (timeZone) qs.set("tz", timeZone);
 
       return api.download(
         `/agents/${agentId}/data-fields/collected/export?${qs.toString()}`,
-        'collected-data.csv',
+        "collected-data.csv",
       );
     },
   });

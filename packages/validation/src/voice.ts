@@ -3,6 +3,7 @@
  * Zod schemas for voice-related input validation
  */
 import { z } from "zod";
+import { pageUrlInputSchema } from "./chat.js";
 
 // ============================================
 // Voice Error Codes
@@ -101,6 +102,8 @@ export const voiceConversationSchema = z.object({
   languageHint: supportedLanguageEnum.optional(),
   source: z.enum(["DEMO", "WIDGET", "WHATSAPP"]).optional(),
   durationMs: recordingDurationMs,
+  // The page the visitor is on (ADR-0020); see sendMessageSchema.pageUrl.
+  pageUrl: pageUrlInputSchema,
 });
 
 export type VoiceConversationDto = z.infer<typeof voiceConversationSchema>;

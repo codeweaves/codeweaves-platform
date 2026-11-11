@@ -18,6 +18,9 @@ export * from "./contrast.js";
 // Re-export chat schemas and types
 export * from "./chat.js";
 
+// Visitor page URL cleaning (ADR-0020)
+export * from "./page-url.js";
+
 // Re-export analytics schemas and types
 export * from "./analytics.js";
 
@@ -355,6 +358,8 @@ export const updateAgentSchema = z
     humanConnectedLabel: z.string().max(160).nullable().optional(),
     handoverEmailEnabled: z.boolean().optional(),
     handoverEmailRecipients: handoverEmailRecipientsSchema.optional(),
+    // --- Data capture ---
+    capturePageUrl: z.boolean().optional(),
   })
   .refine(
     (data) =>
@@ -374,7 +379,8 @@ export const updateAgentSchema = z
       data.showTalkToHumanButton !== undefined ||
       data.humanConnectedLabel !== undefined ||
       data.handoverEmailEnabled !== undefined ||
-      data.handoverEmailRecipients !== undefined,
+      data.handoverEmailRecipients !== undefined ||
+      data.capturePageUrl !== undefined,
     { message: "At least one field must be provided" },
   );
 

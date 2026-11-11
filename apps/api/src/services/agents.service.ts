@@ -346,6 +346,9 @@ export class AgentsService {
           ...(dto.handoverEmailRecipients !== undefined && {
             handoverEmailRecipients: dto.handoverEmailRecipients,
           }),
+          ...(dto.capturePageUrl !== undefined && {
+            capturePageUrl: dto.capturePageUrl,
+          }),
         },
         include: { organization: { select: { id: true, name: true } } },
       });
@@ -524,6 +527,7 @@ export class AgentsService {
         humanTakeoverEnabled: true,
         showTalkToHumanButton: true,
         humanConnectedLabel: true,
+        capturePageUrl: true,
       },
     });
 
@@ -568,6 +572,10 @@ export class AgentsService {
         showTalkToHumanButton:
           agent.humanTakeoverEnabled && agent.showTalkToHumanButton,
         humanConnectedLabel: agent.humanConnectedLabel,
+        // "Record the page" (ADR-0020): the widget sends the visitor's page
+        // with each message only when this is true. The API still drops the
+        // page when the switch is off, because a request can come from anywhere.
+        capturePageUrl: agent.capturePageUrl,
         // Revision of the chat-start privacy notice (null = notice off). The
         // widget stores the hash it consented to and asks again on change,
         // and sends it back with a GRANT so the server can refuse a stale one.
@@ -648,6 +656,13 @@ export class AgentsService {
       permission: "Agent:UpdateIntegration",
       label: "integration settings",
       fields: ["aiConfig", "allowedDomains"],
+    },
+    {
+      // Lives in the Data Capture section, beside the data fields, so it needs
+      // the same permission as editing those fields.
+      permission: "AgentDataField:Update",
+      label: "data-capture settings",
+      fields: ["capturePageUrl"],
     },
   ];
 

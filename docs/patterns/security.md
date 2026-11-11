@@ -27,3 +27,13 @@ ADR-0018. Code: `apps/api/src/modules/guardrails/`, called from `DirectChatServi
 **Logging.** One `event_logs` row per trigger (`AI_GUARDRAIL_INPUT_BLOCKED`, `_INPUT_NEUTRALIZED`, `_HISTORY_NEUTRALIZED`, `_OUTPUT_BLOCKED`): rule ids, score, agent, organisation, session. No visitor or model text. Fire-and-forget, never throws. No `audit_logs` row. `AI_GUARDRAILS_MODE=monitor` logs without blocking.
 
 **Limits.** Heuristics miss paraphrased or new attacks; the canary misses a paraphrased or partial prompt leak; knowledge is delimited but not scanned; the summariser and data extractor read visitor text without these checks.
+
+## Visitor page URL (ADR-0020)
+
+**Rule.** A page URL in a request is untrusted input. It is stored only through `sanitizePageUrl` (`packages/validation/src/page-url.ts`), only when the agent's `capturePageUrl` switch is on, and only for website widget chats (`ChatService.pageUrlToStore`). Storage code takes the `CleanPageUrl` type, so a raw value cannot be stored.
+
+`sanitizePageUrl` keeps the origin, the path and the five `utm_*` tags, and drops everything else: other query parameters and the `#fragment` (sites put emails, tokens and password-reset links there) and `user:pass@`. Only `http`/`https` is accepted, so a stored value can never be a `javascript:` or `data:` URL.
+
+The widget sends the page only when the switch is on (`agent.capturePageUrl` in the widget config), and cleans it first with the same function, imported from `@repo/validation/page-url` (`currentPageUrl` in `apps/widget/src/utils/url.ts`). So when the switch is off, the page never leaves the browser, and private parts never leave it at all.
+
+The request field (`pageUrlInputSchema`) turns a bad value into "no page" instead of rejecting the message. The dashboard (`PageUrlCell` in `collected-data-view.tsx`) parses the value again and renders a link only for `http`/`https`, with `rel="noopener noreferrer"`.
