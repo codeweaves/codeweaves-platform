@@ -148,15 +148,15 @@ Why no Google login: a production instance needs our own Google OAuth credential
 
 You are now in the new app's **Development** instance. Open the develop Clerk app in another tab and compare page by page. These are the settings the code depends on:
 
-| Page (left sidebar, under Configure)                       | Setting                                                      | Value                          | Why                                             |
-| ---------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------ | ----------------------------------------------- |
-| **User & authentication** → Email                          | Sign up with email, Require email address, Verify at sign-up | ON, same as develop            | Invitations are by email                        |
-| **User & authentication** → Password                       | Sign up with password / sign in with password                | **ON**                         | Our sign-in page uses email + password          |
-| **User & authentication** → Phone, Username                |                                                              | OFF                            | Not used                                        |
-| **Access mode** (may also be called Restrictions)          | Mode                                                         | **Invite-only** (`restricted`) | Sign-up works only through an invitation link   |
-| **Protections**                                            | **Device Trust**                                             | **ON** (Clerk's default)       | See below                                       |
-| **Sessions** → Customize session token → **Claims** editor | paste the JSON below, **Save**                               |                                | The API reads `email` from the token (ADR-0008) |
-| **Multi-factor**                                           |                                                              | OFF, same as develop           | Our sign-in page cannot do a second step yet    |
+| Page (left sidebar, under Configure)                       | Setting                                                      | Value                           | Why                                             |
+| ---------------------------------------------------------- | ------------------------------------------------------------ | ------------------------------- | ----------------------------------------------- |
+| **User & authentication** → Email                          | Sign up with email, Require email address, Verify at sign-up | ON, same as develop             | Invitations are by email                        |
+| **User & authentication** → Password                       | Sign up with password / sign in with password                | **ON**                          | Our sign-in page uses email + password          |
+| **User & authentication** → Phone, Username                |                                                              | OFF                             | Not used                                        |
+| **Access mode** (may also be called Restrictions)          | Mode                                                         | **Invite-only** (`restricted`)  | Sign-up works only through an invitation link   |
+| **Protections**                                            | **Device Trust**                                             | **OFF** (Clerk's default is ON) | See below                                       |
+| **Sessions** → Customize session token → **Claims** editor | paste the JSON below, **Save**                               |                                 | The API reads `email` from the token (ADR-0008) |
+| **Multi-factor**                                           |                                                              | OFF, same as develop            | Our sign-in page cannot do a second step yet    |
 
 Session token claims, exactly:
 
@@ -166,7 +166,7 @@ Session token claims, exactly:
 }
 ```
 
-**Device Trust stays ON (decided 2026-11-03).** Clerk turns it on by default for apps created after 14 Nov 2025. It asks for an email code the first time someone signs in with a password on a new device. Our custom sign-in page originally handled only a finished sign-in (`apps/web/app/(auth)/sign-in/page.tsx`), which shows "Could not complete sign-in (status: needs_client_trust)". **The sign-in code must handle Device Trust (and MFA) before anyone can sign in to this environment.** That work is on its own branch; check it is deployed before the smoke test (section 13).
+**Turn Device Trust OFF.** Clerk turns it on by default for apps created after 14 Nov 2025. It asks for an email code the first time someone signs in with a password on a new device. Our custom sign-in page (`apps/web/app/(auth)/sign-in/page.tsx`) does not support that step. If Device Trust is on, sign-in fails with "Could not complete sign-in (status: needs_client_trust)". Check that it is off before the smoke test (section 13).
 
 ### 2.3 Create the production instance
 
@@ -186,7 +186,7 @@ Session token claims, exactly:
    Staging must be **Secondary**. Primary takes `clerk.getklivo.com` and `@getklivo.com`, which belong to prod. If staging took them, prod could not have them without deleting staging's instance. Check the result on the **Domains** page: staging's Frontend API must be `clerk.app-staging.getklivo.com`.
 
 4. Clerk does **not** clone **Paths**, **Integrations** or SSO connections. Open develop's **Paths** page and copy it into the production instance. At minimum: sign-in page = on the application domain, `/sign-in`; sign-up page = `/sign-up`.
-5. In the production instance, open the 2.2 pages again and check each value. Especially **Access mode = Invite-only**, **Device Trust = ON** and the **session token claim**.
+5. In the production instance, open the 2.2 pages again and check each value. Especially **Access mode = Invite-only**, **Device Trust = OFF** and the **session token claim**.
 
 ### 2.4 DNS for Clerk
 
@@ -666,7 +666,7 @@ The every-minute job also keeps the free Render service awake, so staging never 
 Not needed for staging. Listed here so prod setup has one checklist. Code items are fixes in the repo, not console steps.
 
 - [ ] Supabase **Pro**, daily backups on; run one **restore test**.
-- [ ] Clerk sign-in handles **Device Trust and MFA** (code). Needed for staging too, so it ships before the staging test.
+- [ ] Clerk sign-in handles **MFA** (code). Needed for staging too, so it ships before the staging test.
 - [ ] Storage bucket **private** with signed links (code: `supabase-storage.service.ts` uses public links).
 - [ ] Widget **allowed domains default-deny** (code: `widget-cors.middleware.ts` allows every site when the list is empty).
 - [ ] Nightly copy of uploaded files (Supabase backups do not include Storage).
@@ -688,7 +688,7 @@ Not needed for staging. Listed here so prod setup has one checklist. Code items 
 | Section 1.4 Data API check                                   | **not** 200                                                                      |
 | `https://app-staging.getklivo.com` → sign in with your user  | Dashboard loads. Browser console: no CORS errors.                                |
 | Create an org, invite a second email you own                 | Invitation email from `Klivo Staging` arrives; signing up through the link works |
-| Sign in as the invited user on a **different browser**       | Asked for an emailed code once (Device Trust), then signed in                    |
+| Sign in as the invited user on a **different browser**       | Signed in with email and password. No emailed code (Device Trust is off)         |
 | Create an agent → widget preview → send a message            | Reply streams; OpenAI `klivo-staging` usage shows the call                       |
 | Upload an agent logo                                         | Image shows                                                                      |
 | Sentry → `klivo-api` → Issues → filter environment `staging` | Only real errors                                                                 |
