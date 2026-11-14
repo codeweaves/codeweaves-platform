@@ -41,7 +41,7 @@ We store the limit on the organization and check it after each new conversation.
 Rules that follow:
 
 - `ChatService` calls `ConversationLimitService.checkAfterNewConversation(agentId)` after it creates a WIDGET or WHATSAPP session. It does not await the call. The check catches all its errors, and `ChatService` adds a second catch as a backstop.
-- The check does as little as it can. First it reads the organization's limit, and stops when there is none. Then it reads the alerts already sent for this limit, and stops when all three are sent. Only then does it count, and the count stops at the limit, so it never reads more rows than the limit.
+- The check does as little as it can. First it reads the organization's limit, and stops when there is none. Then it reads the alerts already sent for this limit, and stops when all three are sent. Only then does it count. The count has no cap, because the alert email reports it and sales may bill from it. It must be the real number even when an alert goes out late, after a retried send or a jump past the limit. Above the limit, the email shows the real usage (for example 17,050 of 17,000) and 0 left.
 - The unique key decides who sends. Two conversations that cross a threshold at the same moment both try to insert the alert row. Only one insert succeeds, and only that call sends the email.
 - One call sends at most one email, for the highest threshold it inserted. A jump from 40% to 100% records all three rows and sends one 100% email.
 - Recipients are users with an active `platform.super_admin` assignment, at most 20.
@@ -73,7 +73,7 @@ Rules that follow:
 
 **Good:** O(1). The check reads one number, with no count over `chat_sessions`.
 
-**Rejected for now because:** the counter can drift from the real rows. A failed increment, a session deleted by the retention sweep or by an erasure request, or a bug in one channel would make the number wrong, and we would need a repair job to fix it. The count with a cap and an early skip is cheap enough today.
+**Rejected for now because:** the counter can drift from the real rows. A failed increment, a session deleted by the retention sweep or by an erasure request, or a bug in one channel would make the number wrong, and we would need a repair job to fix it. The count with an early skip is cheap enough today.
 
 **Revisit if:** the count becomes a measurable cost. A counter can then sit beside the count, with the count as the check.
 

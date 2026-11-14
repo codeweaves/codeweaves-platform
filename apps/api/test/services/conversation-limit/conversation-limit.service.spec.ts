@@ -299,7 +299,7 @@ describe("ConversationLimitService", () => {
       expect(mockEmail.send).not.toHaveBeenCalled();
     });
 
-    it("counts only WIDGET and WHATSAPP sessions since the limit was set, capped at the limit", async () => {
+    it("counts only WIDGET and WHATSAPP sessions since the limit was set, with no cap", async () => {
       used = 10;
 
       await service.checkAfterNewConversation(AGENT_ID);
@@ -310,7 +310,62 @@ describe("ConversationLimitService", () => {
           source: { in: ["WIDGET", "WHATSAPP"] },
           createdAt: { gte: SET_AT },
         },
-        take: 100,
+      });
+    });
+
+    // Sales may bill from the alert, so a late alert must carry the real
+    // count, not the limit.
+    it("reports the real count above the limit when the 100% alert goes out late", async () => {
+      org = { ...org!, conversationLimit: 17000 };
+      used = 16000;
+      await service.checkAfterNewConversation(AGENT_ID); // 50 and 90 sent
+
+      // The 100% send fails once; the retry happens 50 conversations later.
+      used = 17000;
+      providerDown = true;
+      await service.checkAfterNewConversation(AGENT_ID);
+      providerDown = false;
+      used = 17050;
+      await service.checkAfterNewConversation(AGENT_ID);
+
+      expect(mockTemplates.render).toHaveBeenLastCalledWith(
+        "CONVERSATION_LIMIT_ALERT",
+        expect.objectContaining({
+          thresholdPercent: "100",
+          conversationsUsed: "17,050",
+          conversationLimit: "17,000",
+          conversationsRemaining: "0",
+        }),
+      );
+      expect(sentEvents().at(-1)?.[1]).toMatchObject({
+        metadata: {
+          threshold: 100,
+          conversationsUsed: 17050,
+          conversationLimit: 17000,
+        },
+      });
+      expect(alerts.find((a) => a.threshold === 100)).toMatchObject({
+        conversationsUsed: 17050,
+      });
+    });
+
+    it("reports the real count when usage jumps far past the limit at once", async () => {
+      org = { ...org!, conversationLimit: 4 };
+      used = 5;
+
+      await service.checkAfterNewConversation(AGENT_ID);
+
+      expect(mockTemplates.render).toHaveBeenCalledWith(
+        "CONVERSATION_LIMIT_ALERT",
+        expect.objectContaining({
+          thresholdPercent: "100",
+          conversationsUsed: "5",
+          conversationLimit: "4",
+          conversationsRemaining: "0",
+        }),
+      );
+      expect(sentEvents()[0]?.[1]).toMatchObject({
+        metadata: { conversationsUsed: 5, conversationLimit: 4 },
       });
     });
 

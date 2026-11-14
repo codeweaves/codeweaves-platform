@@ -160,8 +160,11 @@ export class ConversationLimitService {
    *   2. The alerts already sent for this limit (unique index). All three sent:
    *      stop. Without this step, an organization past 100% would pay for a
    *      count on every conversation for the rest of the contract.
-   *   3. A count of sessions, capped at the limit (`take`), so the database
-   *      never counts more rows than the limit even far past 100%.
+   *   3. A count of sessions. It is not capped: the alert reports this number
+   *      and sales may bill from it, so it must be the real count even when the
+   *      alert goes out late (a retried send, or a jump past the limit). A cap
+   *      would only save work while usage is above the limit and the 100%
+   *      alert is still unsent, a short window that step 2 then closes.
    *   4. Only on a crossing: insert the alert rows, read the recipients, send.
    * We check the alert rows instead of caching state in memory because the API
    * runs on several instances and a cache would need its own invalidation when
@@ -201,7 +204,6 @@ export class ConversationLimitService {
 
       const used = await this.prisma.chatSession.count({
         where: usageWhere(org.id, limitSetAt),
-        take: limit,
       });
 
       const due = CONVERSATION_LIMIT_THRESHOLDS.filter(
