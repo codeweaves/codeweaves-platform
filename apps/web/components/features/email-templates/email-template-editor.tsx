@@ -1,20 +1,20 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { toast } from 'sonner';
-import { Loader2, Mail, Save } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { Input } from '@/components/ui/input';
-import { Label } from '@/components/ui/label';
-import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { toast } from "sonner";
+import { Loader2, Mail, Save } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Label } from "@/components/ui/label";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
-import { cn } from '@/lib/utils';
-import { useUnsavedChangesWarning } from '@/hooks/use-unsaved-changes-warning';
+} from "@/components/ui/tooltip";
+import { cn } from "@/lib/utils";
+import { useUnsavedChangesWarning } from "@/hooks/use-unsaved-changes-warning";
 import {
   renderTemplatePreview,
   useEmailTemplate,
@@ -22,7 +22,7 @@ import {
   useUpdateEmailTemplate,
   type EmailTemplateDetail,
   type EmailTemplateVariable,
-} from '@/hooks/use-email-templates';
+} from "@/hooks/use-email-templates";
 
 /** Debounce on the preview so typing stays smooth on a large body. */
 const PREVIEW_DEBOUNCE_MS = 300;
@@ -79,13 +79,15 @@ export function EmailTemplateEditor() {
                   type="button"
                   onClick={() => setPickedKey(t.key)}
                   className={cn(
-                    'flex w-full items-start gap-2.5 px-3 py-3 text-left transition-colors',
-                    selectedKey === t.key ? 'bg-accent' : 'hover:bg-accent/50',
+                    "flex w-full items-start gap-2.5 px-3 py-3 text-left transition-colors",
+                    selectedKey === t.key ? "bg-accent" : "hover:bg-accent/50",
                   )}
                 >
                   <Mail className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
                   <span className="min-w-0 flex-1">
-                    <span className="block truncate text-sm font-medium">{t.name}</span>
+                    <span className="block truncate text-sm font-medium">
+                      {t.name}
+                    </span>
                     {t.description && (
                       <span className="mt-0.5 block text-xs leading-snug text-muted-foreground">
                         {t.description}
@@ -153,9 +155,11 @@ function TemplateForm({ template }: { template: EmailTemplateDetail }) {
     update.mutate(
       { key: template.key, subject, html },
       {
-        onSuccess: () => toast.success('Template saved'),
+        onSuccess: () => toast.success("Template saved"),
         onError: (err: unknown) =>
-          toast.error(err instanceof Error ? err.message : 'Could not save template'),
+          toast.error(
+            err instanceof Error ? err.message : "Could not save template",
+          ),
       },
     );
   }, [dirty, update, template.key, subject, html]);
@@ -198,11 +202,7 @@ function TemplateForm({ template }: { template: EmailTemplateDetail }) {
             />
           </div>
           <Button onClick={onSave} disabled={!dirty || update.isPending}>
-            {update.isPending ? (
-              <Loader2 className="animate-spin" />
-            ) : (
-              <Save />
-            )}
+            {update.isPending ? <Loader2 className="animate-spin" /> : <Save />}
             Save
           </Button>
         </div>
@@ -250,7 +250,11 @@ function TemplateForm({ template }: { template: EmailTemplateDetail }) {
         </TabsContent>
 
         <TabsContent value="preview" className="min-h-0 flex-1 p-4 pt-3">
-          <TemplatePreview html={html} variables={template.variables} />
+          <TemplatePreview
+            html={html}
+            variables={template.variables}
+            layout={template.layout}
+          />
         </TabsContent>
       </Tabs>
     </div>
@@ -269,9 +273,11 @@ function TemplateForm({ template }: { template: EmailTemplateDetail }) {
 function TemplatePreview({
   html,
   variables,
+  layout,
 }: {
   html: string;
   variables: EmailTemplateVariable[];
+  layout: EmailTemplateDetail["layout"];
 }) {
   // Intentionally LAGS the prop — see useDebouncedValue. This is not derived
   // state that should be computed inline: re-rendering the iframe on every
@@ -279,8 +285,8 @@ function TemplatePreview({
   const debounced = useDebouncedValue(html, PREVIEW_DEBOUNCE_MS);
 
   const rendered = useMemo(
-    () => renderTemplatePreview(debounced, variables),
-    [debounced, variables],
+    () => renderTemplatePreview(debounced, variables, layout),
+    [debounced, variables, layout],
   );
 
   return (
