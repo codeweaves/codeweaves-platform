@@ -18,28 +18,52 @@
  */
 export const TEMPLATE_VARIABLES = {
   HANDOVER_REQUESTED: [
-    { key: 'orgName', label: 'Organization name', sample: 'Acme Corp' },
-    { key: 'agentName', label: 'Agent name', sample: 'Support Bot' },
+    { key: "orgName", label: "Organization name", sample: "Acme Corp" },
+    { key: "agentName", label: "Agent name", sample: "Support Bot" },
     // Filled by NotificationService, not the producer. Links by notification id
     // (which grants nothing without a login) rather than by session id — see
     // NotificationService.deepLink for why that distinction matters.
     {
-      key: 'conversationUrl',
-      label: 'Link to the chat',
-      sample: 'https://app.klivo.ai/dashboard/inbox?n=1f0c…',
+      key: "conversationUrl",
+      label: "Link to the chat",
+      sample: "https://app.klivo.ai/dashboard/inbox?n=1f0c…",
     },
   ],
   TEAM_INVITATION: [
-    { key: 'orgName', label: 'Organization name', sample: 'Acme Corp' },
-    { key: 'actionUrl', label: 'Accept-invite link', sample: 'https://app.klivo.ai/signup?token=abc123' },
-    { key: 'actionLabel', label: 'Button label', sample: 'Set Your Password' },
-    { key: 'expiresIn', label: 'Expiry text', sample: '7 days' },
+    { key: "orgName", label: "Organization name", sample: "Acme Corp" },
+    {
+      key: "actionUrl",
+      label: "Accept-invite link",
+      sample: "https://app.klivo.ai/signup?token=abc123",
+    },
+    { key: "actionLabel", label: "Button label", sample: "Set Your Password" },
+    { key: "expiresIn", label: "Expiry text", sample: "7 days" },
+  ],
+  // Sent to every super admin at 50, 90 and 100 percent of an organization's
+  // conversation limit (ADR-0022). Numbers arrive as display strings.
+  CONVERSATION_LIMIT_ALERT: [
+    { key: "orgName", label: "Organization name", sample: "Acme Corp" },
+    { key: "thresholdPercent", label: "Alert level (percent)", sample: "90" },
+    { key: "conversationsUsed", label: "Conversations used", sample: "15,300" },
+    { key: "conversationLimit", label: "Conversation limit", sample: "17,000" },
+    {
+      key: "conversationsRemaining",
+      label: "Conversations left",
+      sample: "1,700",
+    },
+    {
+      key: "organizationUrl",
+      label: "Link to the organization",
+      sample: "https://app.klivo.ai/dashboard/organizations/1f0c…",
+    },
   ],
 } as const;
 
 export type EmailTemplateKey = keyof typeof TEMPLATE_VARIABLES;
 
-export const EMAIL_TEMPLATE_KEYS = Object.keys(TEMPLATE_VARIABLES) as EmailTemplateKey[];
+export const EMAIL_TEMPLATE_KEYS = Object.keys(
+  TEMPLATE_VARIABLES,
+) as EmailTemplateKey[];
 
 export function isEmailTemplateKey(value: string): value is EmailTemplateKey {
   return Object.prototype.hasOwnProperty.call(TEMPLATE_VARIABLES, value);
@@ -53,6 +77,10 @@ export function templateVariables(
 }
 
 /** `{ orgName: 'Acme Corp', ... }` — used to render the editor preview. */
-export function templateSampleVars(key: EmailTemplateKey): Record<string, string> {
-  return Object.fromEntries(TEMPLATE_VARIABLES[key].map((v) => [v.key, v.sample]));
+export function templateSampleVars(
+  key: EmailTemplateKey,
+): Record<string, string> {
+  return Object.fromEntries(
+    TEMPLATE_VARIABLES[key].map((v) => [v.key, v.sample]),
+  );
 }

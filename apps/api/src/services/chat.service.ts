@@ -8,6 +8,7 @@ import { PiiDetectionService } from "../modules/pii/pii-detection.service";
 import { PiiTokenizerService } from "../modules/pii/pii-tokenizer.service";
 import { HandoverService } from "./handover.service";
 import { ConsentService } from "./consent.service";
+import { ConversationLimitService } from "./conversation-limit.service";
 import type { VisitorIdentity } from "./web-visitor";
 import {
   sanitizePageUrl,
@@ -46,7 +47,31 @@ export class ChatService {
     private readonly piiTokenizer: PiiTokenizerService,
     private readonly widgetLog: WidgetEventLogger,
     private readonly consentService: ConsentService,
+    private readonly conversationLimit: ConversationLimitService,
   ) {}
+
+  /**
+   * Usage alerts for the organization's conversation limit (ADR-0022). Not
+   * awaited: the check never throws, and the limit must never slow a chat.
+   * DEMO previews do not count as conversations.
+   */
+  private afterNewConversation(agentId: string, source: ChatSource): void {
+    if (source === "DEMO") return;
+    // The check catches its own errors. This catch is the backstop: an
+    // unhandled rejection would crash the Node process.
+    void this.conversationLimit
+      .checkAfterNewConversation(agentId)
+      .catch((err: unknown) => {
+        this.log.warn(
+          "afterNewConversation",
+          "conversation limit check failed",
+          {
+            agentId,
+            err: err instanceof Error ? err.message : String(err),
+          },
+        );
+      });
+  }
 
   /**
    * True when a human teammate has taken over this session — the AI must NOT
@@ -322,6 +347,7 @@ export class ChatService {
         consentId,
       },
     });
+    this.afterNewConversation(agentId, source);
     if (source === "WIDGET") {
       this.widgetLog.logSessionStarted({
         agentId,
@@ -371,7 +397,7 @@ export class ChatService {
       });
     }
 
-    return this.prisma.chatSession.create({
+    const session = await this.prisma.chatSession.create({
       data: {
         agentId,
         sessionId: randomUUID(),
@@ -379,6 +405,8 @@ export class ChatService {
         visitorId: visitorKey,
       },
     });
+    this.afterNewConversation(agentId, source);
+    return session;
   }
 
   /** Client IP from the proxy-derived req.ip only (see utils/client-ip). */

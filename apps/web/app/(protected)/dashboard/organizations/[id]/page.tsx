@@ -1,20 +1,21 @@
-'use client';
+"use client";
 
-import { useEffect, useState } from 'react';
-import { useParams, useRouter } from 'next/navigation';
-import { AlertCircle, ArrowLeft, Calendar, Trash2, Users } from 'lucide-react';
-import { usePermissions } from '@/hooks/use-permissions';
-import { useOrganization } from '@/hooks/use-organizations';
-import { Button } from '@/components/ui/button';
-import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Skeleton } from '@/components/ui/skeleton';
-import { DeleteOrganizationDialog } from '@/components/features/organizations/delete-organization-dialog';
+import { useEffect, useState } from "react";
+import { useParams, useRouter } from "next/navigation";
+import { AlertCircle, ArrowLeft, Calendar, Trash2, Users } from "lucide-react";
+import { usePermissions } from "@/hooks/use-permissions";
+import { useOrganization } from "@/hooks/use-organizations";
+import { Button } from "@/components/ui/button";
+import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import { Skeleton } from "@/components/ui/skeleton";
+import { DeleteOrganizationDialog } from "@/components/features/organizations/delete-organization-dialog";
+import { OrganizationContractCard } from "@/components/features/organizations/organization-contract-card";
 
 function formatDate(dateString: string) {
-  return new Date(dateString).toLocaleDateString('en-US', {
-    year: 'numeric',
-    month: 'long',
-    day: 'numeric',
+  return new Date(dateString).toLocaleDateString("en-US", {
+    year: "numeric",
+    month: "long",
+    day: "numeric",
   });
 }
 
@@ -22,21 +23,28 @@ export default function OrganizationDetailPage() {
   const router = useRouter();
   const params = useParams<{ id: string }>();
   const { can, isLoading: profileLoading } = usePermissions();
-  const { data: org, isLoading: orgLoading, isError } = useOrganization(params.id);
+  const {
+    data: org,
+    isLoading: orgLoading,
+    isError,
+  } = useOrganization(params.id);
   const [deleteOpen, setDeleteOpen] = useState(false);
 
   // SUPER_ADMIN only — both ADMIN and SUPER_ADMIN are platform-level roles
   // (no org of their own), but rename/delete are intentionally narrowed to
   // SUPER_ADMIN to keep the destructive action gated.
-  const canDelete = can('Organization:Delete');
+  const canDelete = can("Organization:Delete");
+  // Without Read the card is not rendered, so its request never fires.
+  const canReadContract = can("OrganizationContract:Read");
+  const canEditContract = can("OrganizationContract:Update");
 
   useEffect(() => {
-    if (!profileLoading && !can('Organization:ReadAll')) {
-      router.replace('/dashboard');
+    if (!profileLoading && !can("Organization:ReadAll")) {
+      router.replace("/dashboard");
     }
   }, [profileLoading, can, router]);
 
-  if (profileLoading || !can('Organization:ReadAll')) {
+  if (profileLoading || !can("Organization:ReadAll")) {
     return null;
   }
 
@@ -46,7 +54,7 @@ export default function OrganizationDetailPage() {
         <Button
           variant="ghost"
           size="sm"
-          onClick={() => router.push('/dashboard/organizations')}
+          onClick={() => router.push("/dashboard/organizations")}
         >
           <ArrowLeft className="h-4 w-4" />
           Back to Organizations
@@ -58,7 +66,9 @@ export default function OrganizationDetailPage() {
       ) : isError ? (
         <div className="flex flex-col items-center justify-center py-12 text-center">
           <AlertCircle className="h-12 w-12 text-destructive/50" />
-          <h2 className="mt-4 text-lg font-semibold">Failed to load organization</h2>
+          <h2 className="mt-4 text-lg font-semibold">
+            Failed to load organization
+          </h2>
           <p className="text-muted-foreground mt-2">
             Something went wrong. Please try again later.
           </p>
@@ -66,7 +76,7 @@ export default function OrganizationDetailPage() {
             variant="outline"
             size="sm"
             className="mt-4"
-            onClick={() => router.push('/dashboard/organizations')}
+            onClick={() => router.push("/dashboard/organizations")}
           >
             Back to Organizations
           </Button>
@@ -76,7 +86,9 @@ export default function OrganizationDetailPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div>
               <h1 className="text-2xl font-bold tracking-tight">{org.name}</h1>
-              <p className="text-muted-foreground font-mono text-sm">{org.slug}</p>
+              <p className="text-muted-foreground font-mono text-sm">
+                {org.slug}
+              </p>
             </div>
             {canDelete && (
               <Button
@@ -108,11 +120,20 @@ export default function OrganizationDetailPage() {
                 <Calendar className="h-4 w-4 text-muted-foreground" />
               </CardHeader>
               <CardContent>
-                <div className="text-2xl font-bold">{formatDate(org.createdAt)}</div>
+                <div className="text-2xl font-bold">
+                  {formatDate(org.createdAt)}
+                </div>
                 <p className="text-xs text-muted-foreground">Creation date</p>
               </CardContent>
             </Card>
           </div>
+
+          {canReadContract && (
+            <OrganizationContractCard
+              organizationId={org.id}
+              canEdit={canEditContract}
+            />
+          )}
 
           <div className="grid gap-4 md:grid-cols-2">
             <Card>
@@ -153,7 +174,7 @@ export default function OrganizationDetailPage() {
           onOpenChange={setDeleteOpen}
           organizationId={org.id}
           organizationName={org.name}
-          onDeleted={() => router.replace('/dashboard/organizations')}
+          onDeleted={() => router.replace("/dashboard/organizations")}
         />
       )}
     </div>

@@ -14,6 +14,7 @@ import {
   ConsentService,
   ConsentRequiredException,
 } from "../../../src/services/consent.service";
+import { ConversationLimitService } from "../../../src/services/conversation-limit.service";
 
 describe("ChatService", () => {
   let service: ChatService;
@@ -116,6 +117,7 @@ describe("ChatService", () => {
   };
 
   const mockConsentService = { assertConsented: jest.fn() };
+  const mockConversationLimit = { checkAfterNewConversation: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -128,6 +130,7 @@ describe("ChatService", () => {
         { provide: HandoverService, useValue: mockHandoverService },
         { provide: WidgetEventLogger, useValue: mockWidgetLog },
         { provide: ConsentService, useValue: mockConsentService },
+        { provide: ConversationLimitService, useValue: mockConversationLimit },
         PiiDetectionService,
         { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
       ],
@@ -138,6 +141,10 @@ describe("ChatService", () => {
 
     // Consent mode off by default: the gate lets every session through.
     mockConsentService.assertConsented.mockResolvedValue(null);
+    // The limit check is fire-and-forget and resolves with no value.
+    mockConversationLimit.checkAfterNewConversation.mockResolvedValue(
+      undefined,
+    );
 
     // resetMocks wipes inline impls; (re)apply the passthrough each test.
     mockPiiTokenizer.redactForStorage.mockImplementation(
@@ -360,6 +367,119 @@ describe("ChatService", () => {
       });
       expect(mockPrismaService.chatSession.create).toHaveBeenCalled();
       expect(result).toBe(fresh);
+    });
+  });
+
+  describe("conversation limit hook (ADR-0022)", () => {
+    const PHONE = "15551234567";
+
+    it.each(["WIDGET", "WHATSAPP"] as const)(
+      "checks the limit after a new %s session",
+      async (source) => {
+        mockPrismaService.chatSession.create.mockResolvedValue({
+          ...mockSession,
+          source,
+        });
+
+        await service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, source);
+
+        expect(
+          mockConversationLimit.checkAfterNewConversation,
+        ).toHaveBeenCalledTimes(1);
+        expect(
+          mockConversationLimit.checkAfterNewConversation,
+        ).toHaveBeenCalledWith(MOCK_AGENT_ID);
+      },
+    );
+
+    it("checks the limit after a new server-keyed WhatsApp session", async () => {
+      mockPrismaService.chatSession.findFirst.mockResolvedValue(null);
+      mockPrismaService.chatSession.create.mockResolvedValue({
+        ...mockSession,
+        source: "WHATSAPP",
+      });
+
+      await service.resolveOrCreateVisitorSession(
+        MOCK_AGENT_ID,
+        "WHATSAPP",
+        PHONE,
+      );
+
+      expect(
+        mockConversationLimit.checkAfterNewConversation,
+      ).toHaveBeenCalledWith(MOCK_AGENT_ID);
+    });
+
+    it("does not check the limit for a DEMO preview session", async () => {
+      await service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, "DEMO");
+
+      expect(mockPrismaService.chatSession.create).toHaveBeenCalled();
+      expect(
+        mockConversationLimit.checkAfterNewConversation,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("does not check the limit when an existing session is reused", async () => {
+      mockPrismaService.chatSession.findFirst.mockResolvedValue({
+        ...mockSession,
+        source: "WIDGET",
+      });
+
+      await service.resolveOrCreateSession(
+        MOCK_AGENT_ID,
+        MOCK_SESSION_ID,
+        "WIDGET",
+      );
+
+      expect(
+        mockConversationLimit.checkAfterNewConversation,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("does not check the limit when the consent gate refuses the session", async () => {
+      mockConsentService.assertConsented.mockRejectedValue(
+        new ConsentRequiredException(),
+      );
+
+      await expect(
+        service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, "WIDGET"),
+      ).rejects.toBeInstanceOf(ConsentRequiredException);
+      expect(
+        mockConversationLimit.checkAfterNewConversation,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("does not wait for the check before returning the session", async () => {
+      // A check that never settles must not hold up session creation.
+      mockConversationLimit.checkAfterNewConversation.mockReturnValue(
+        new Promise(() => {}),
+      );
+      mockPrismaService.chatSession.create.mockResolvedValue({
+        ...mockSession,
+        source: "WIDGET",
+      });
+
+      await expect(
+        service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, "WIDGET"),
+      ).resolves.toMatchObject({ source: "WIDGET" });
+    });
+
+    it("returns the session even when the check rejects", async () => {
+      mockConversationLimit.checkAfterNewConversation.mockRejectedValue(
+        new Error("db down"),
+      );
+      mockPrismaService.chatSession.findFirst.mockResolvedValue(null);
+      const created = { ...mockSession, source: "WHATSAPP" };
+      mockPrismaService.chatSession.create.mockResolvedValue(created);
+
+      await expect(
+        service.resolveOrCreateVisitorSession(MOCK_AGENT_ID, "WHATSAPP", PHONE),
+      ).resolves.toBe(created);
+      await expect(
+        service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, "WIDGET"),
+      ).resolves.toBeDefined();
+      // Let the rejected promise settle inside the backstop catch.
+      await new Promise((resolve) => setImmediate(resolve));
     });
   });
 
