@@ -174,12 +174,43 @@ model Organization {
   notifications   Notification[]
   roleAssignments UserRoleAssignment[]
   usageRecords    UsageRecord[]
+
+  /// Contract details, platform staff only (ADR-0022). The start date is shown
+  /// for reference and never used in counting.
+  contractStartDate         DateTime?                @map("contract_start_date") @db.Date
+  /// Conversations this organization may use. Null = no limit. Alert only:
+  /// reaching it never stops the agents.
+  conversationLimit         Int?                     @map("conversation_limit")
+  /// Stamped by the API every time the limit is set. Usage counts conversations
+  /// created since this moment, so a new limit starts a fresh count.
+  conversationLimitSetAt    DateTime?                @map("conversation_limit_set_at")
+  conversationLimitAlerts   ConversationLimitAlert[]
+
   createdAt       DateTime             @default(now())
   updatedAt       DateTime             @updatedAt
   deletedAt       DateTime?
 
   @@index([slug])
   @@map("organizations")
+}
+
+/// One row per usage alert sent (50, 90 or 100 percent) for one limit. The
+/// unique key makes each alert fire exactly once per limit, even when two
+/// conversations cross the line at the same moment (ADR-0022).
+model ConversationLimitAlert {
+  id             String       @id @default(uuid())
+  organizationId String       @map("organization_id")
+  organization   Organization @relation(fields: [organizationId], references: [id], onDelete: Cascade)
+  /// Which limit this alert belongs to: the organization's limitSetAt.
+  limitSetAt     DateTime     @map("limit_set_at")
+  /// 50, 90 or 100.
+  threshold      Int
+  conversationLimit Int       @map("conversation_limit")
+  conversationsUsed Int       @map("conversations_used")
+  createdAt      DateTime     @default(now()) @map("created_at")
+
+  @@unique([organizationId, limitSetAt, threshold])
+  @@map("conversation_limit_alerts")
 }
 
 model User {
