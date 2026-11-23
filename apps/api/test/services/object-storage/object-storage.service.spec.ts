@@ -176,16 +176,35 @@ describe("ObjectStorageService", () => {
   describe("remove()", () => {
     it("does nothing for an empty key list", async () => {
       const service = await build();
-      await service.remove("klivo-assets", []);
+      await expect(service.remove("klivo-assets", [])).resolves.toEqual({
+        removed: [],
+        failed: [],
+      });
       expect(send).not.toHaveBeenCalled();
       expect(mockProviderLog.log).not.toHaveBeenCalled();
+    });
+
+    it("logs on the channel the caller names (INTERNAL for the daily cleanup)", async () => {
+      const service = await build();
+
+      await service.remove("klivo-assets", ["a"], "INTERNAL");
+
+      expect(mockProviderLog.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          channel: "INTERNAL",
+          eventName: "STORAGE_REMOVE_COMPLETED",
+        }),
+      );
     });
 
     it("sends one DeleteObject per key (works on every S3 provider)", async () => {
       const service = await build();
       const keys = Array.from({ length: 10 }, (_, i) => `k${i}`);
 
-      await service.remove("klivo-assets", keys);
+      await expect(service.remove("klivo-assets", keys)).resolves.toEqual({
+        removed: keys,
+        failed: [],
+      });
 
       expect(send).toHaveBeenCalledTimes(10);
       const sent = send.mock.calls.map(([cmd]) => {
@@ -218,7 +237,7 @@ describe("ObjectStorageService", () => {
 
       await expect(
         service.remove("klivo-assets", ["a", "b", "c"]),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ removed: ["a", "c"], failed: ["b"] });
 
       expect(send).toHaveBeenCalledTimes(3);
       expect(mockProviderLog.log).toHaveBeenCalledWith(
@@ -235,7 +254,7 @@ describe("ObjectStorageService", () => {
 
       await expect(
         service.remove("agent_assets", ["old/a.png", "old/b.png"]),
-      ).resolves.toBeUndefined();
+      ).resolves.toEqual({ removed: [], failed: ["old/a.png", "old/b.png"] });
 
       expect(send).not.toHaveBeenCalled();
       expect(mockProviderLog.log).toHaveBeenCalledWith(

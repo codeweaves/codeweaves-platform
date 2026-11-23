@@ -6,6 +6,7 @@ import {
 } from "@nestjs/common";
 import { Prisma } from "@prisma/client";
 import { PrismaService } from "./prisma.service";
+import { FilesService } from "./files.service";
 import { AgentLoggerService } from "../common/logger/agent.logger";
 import { AppLogger } from "../common/logger/app-logger";
 import type { CurrentUserData } from "../decorators/current-user.decorator";
@@ -65,6 +66,7 @@ export class AgentThemesService {
     private readonly prisma: PrismaService,
     private readonly agentLogger: AgentLoggerService,
     private readonly catalog: PermissionCatalogService,
+    private readonly files: FilesService,
   ) {}
 
   async getTheme(agentId: string, user: CurrentUserData) {
@@ -108,6 +110,13 @@ export class AgentThemesService {
         // Judge what will actually be stored: a caller without the consent
         // permission cannot change the notice, so their copy of it is irrelevant.
         this.assertConsentValid(safeConfig);
+        // A live theme must never point at an upload that no longer exists.
+        await this.files.assertNewUploadsExist(tx, {
+          agentId,
+          organizationId: agent.organizationId,
+          previousConfig: existing?.config,
+          newConfig: safeConfig,
+        });
         // Store the consent section fully defaulted, so the stored wording is
         // exactly what the widget shows and the consent rows snapshot.
         const jsonConfig = toJsonValue(withNormalizedConsent(safeConfig));
@@ -127,6 +136,13 @@ export class AgentThemesService {
       previousConfig,
       safeConfig,
       agent.organizationId,
+    );
+    this.releaseDroppedFiles(
+      agentId,
+      agent.organizationId,
+      previousConfig,
+      theme.config,
+      user,
     );
     this.log.info("updateTheme", "theme replaced", {
       agentId,
@@ -189,6 +205,12 @@ export class AgentThemesService {
       // After the merge: a PATCH can turn the notice on in one call and set
       // the link in another, so only the merged result can be judged.
       this.assertConsentValid(merged);
+      await this.files.assertNewUploadsExist(tx, {
+        agentId,
+        organizationId: agent.organizationId,
+        previousConfig: existing?.config,
+        newConfig: merged,
+      });
       const jsonConfig = toJsonValue(withNormalizedConsent(merged));
 
       return tx.agentTheme.upsert({
@@ -205,6 +227,13 @@ export class AgentThemesService {
       previousConfig,
       theme.config,
       agent.organizationId,
+    );
+    this.releaseDroppedFiles(
+      agentId,
+      agent.organizationId,
+      previousConfig,
+      theme.config,
+      user,
     );
     this.log.info("patchTheme", "theme patched", {
       agentId,
@@ -251,12 +280,41 @@ export class AgentThemesService {
       resetConfig,
       agent.organizationId,
     );
+    this.releaseDroppedFiles(
+      agentId,
+      agent.organizationId,
+      previousConfig,
+      theme.config,
+      user,
+    );
     this.log.info("resetTheme", "theme reset to default", {
       agentId,
       version: theme.version,
     });
 
     return { config: theme.config as WidgetTheme, version: theme.version };
+  }
+
+  /**
+   * Delete the uploaded files this write stopped using (a replaced or removed
+   * logo, or every image on a reset). Uploading never deletes anything: the
+   * live widget keeps the old image until the theme is saved. Not awaited, so
+   * a save never waits on storage, and it never throws (see FilesService).
+   */
+  private releaseDroppedFiles(
+    agentId: string,
+    organizationId: string,
+    previousConfig: unknown,
+    newConfig: unknown,
+    user: CurrentUserData,
+  ): void {
+    void this.files.removeFilesDroppedFromTheme({
+      agentId,
+      organizationId,
+      previousConfig,
+      newConfig,
+      userId: user.id,
+    });
   }
 
   /**

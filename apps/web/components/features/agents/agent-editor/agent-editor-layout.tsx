@@ -537,8 +537,10 @@ function AgentEditorContent() {
 
       markSaved(formData, themeData);
       toast.success("Changes saved successfully");
-    } catch {
+    } catch (err) {
       toast.error("Failed to save changes", {
+        // The API's reason, e.g. an uploaded image that must be uploaded again.
+        description: err instanceof Error ? err.message : undefined,
         action: {
           label: "Retry",
           onClick: () => handleSaveRef.current?.(),
