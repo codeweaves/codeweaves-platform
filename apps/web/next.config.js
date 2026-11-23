@@ -40,7 +40,8 @@ const clerkTelemetry = "https://clerk-telemetry.com"; // sent by Clerk developme
 const vercelLive =
   process.env.VERCEL_ENV === "preview" ? "https://vercel.live" : null;
 const sentry = originOf(process.env.NEXT_PUBLIC_SENTRY_DSN);
-const supabase = originOf(process.env.NEXT_PUBLIC_SUPABASE_URL);
+// Public address of uploaded files (STORAGE_PUBLIC_BASE_URL on the API).
+const storage = originOf(process.env.NEXT_PUBLIC_STORAGE_PUBLIC_URL);
 const widget = originOf(process.env.NEXT_PUBLIC_WIDGET_URL);
 const apiSocket = apiOrigin?.replace(/^http/, "ws");
 const clerkImages = "https://img.clerk.com"; // user avatars
@@ -62,7 +63,7 @@ if (!isDev) {
     ["NEXT_PUBLIC_CLERK_PUBLISHABLE_KEY", clerk],
     ["NEXT_PUBLIC_API_URL", process.env.NEXT_PUBLIC_API_URL ? apiOrigin : null],
     // Uploaded agent images (logos, avatars) are served from storage.
-    ["NEXT_PUBLIC_SUPABASE_URL", supabase],
+    ["NEXT_PUBLIC_STORAGE_PUBLIC_URL", storage],
     // The widget preview loads from here, and the embed snippet points here.
     ["NEXT_PUBLIC_WIDGET_URL", widget],
   ]) {
@@ -89,7 +90,7 @@ const csp = {
   "style-src": ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
   "font-src": ["'self'", "data:", "https://fonts.gstatic.com"],
   // Images: our own files and uploads (storage), plus Clerk avatars and widgets.
-  "img-src": ["'self'", "data:", "blob:", supabase, clerk, clerkImages],
+  "img-src": ["'self'", "data:", "blob:", storage, clerk, clerkImages],
   "connect-src": [
     "'self'",
     apiOrigin,
@@ -98,7 +99,6 @@ const csp = {
     clerkProtectConnect,
     clerkTelemetry,
     sentry,
-    supabase,
     vercelLive,
   ],
   "media-src": ["'self'", "blob:", "data:"],

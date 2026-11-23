@@ -5,7 +5,7 @@ import { CryptoService } from "../common/crypto/crypto.service";
 import { TracerService } from "../common/tracer/tracer.service";
 import { PrismaService } from "./prisma.service";
 import { countMessagesBySession } from "../utils/message-counts";
-import { SupabaseStorageService } from "./supabase-storage.service";
+import { ObjectStorageService } from "./object-storage.service";
 
 /** Row counts removed per table — returned to the caller as proof of erasure. */
 export interface VisitorErasureResult {
@@ -104,7 +104,7 @@ export class PurgeService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly tracer: TracerService,
-    private readonly storage: SupabaseStorageService,
+    private readonly storage: ObjectStorageService,
     private readonly crypto: CryptoService,
   ) {}
 
@@ -468,8 +468,9 @@ export class PurgeService {
       ).count;
     }
 
-    // 3) Files: best-effort storage cleanup first (warns, never throws),
-    //    then the rows.
+    // 3) Files: storage cleanup first, then the rows. Cleanup is best effort
+    //    (failures are logged in event_logs), but it throws when storage is
+    //    not configured at all, so rows are never dropped with no attempt.
     const files = await this.prisma.file.findMany({
       where: { organizationId },
       select: { bucket: true, storageKey: true },

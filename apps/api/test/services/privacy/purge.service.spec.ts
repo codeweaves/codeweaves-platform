@@ -4,7 +4,7 @@ import { PurgeService } from "../../../src/services/purge.service";
 import { PrismaService } from "../../../src/services/prisma.service";
 import { TracerService } from "../../../src/common/tracer/tracer.service";
 import { CryptoService } from "../../../src/common/crypto/crypto.service";
-import { SupabaseStorageService } from "../../../src/services/supabase-storage.service";
+import { ObjectStorageService } from "../../../src/services/object-storage.service";
 
 describe("PurgeService", () => {
   let service: PurgeService;
@@ -57,7 +57,7 @@ describe("PurgeService", () => {
         PurgeService,
         { provide: PrismaService, useValue: mockPrisma },
         { provide: TracerService, useValue: mockTracer },
-        { provide: SupabaseStorageService, useValue: mockStorage },
+        { provide: ObjectStorageService, useValue: mockStorage },
         { provide: CryptoService, useValue: mockCrypto },
       ],
     }).compile();
