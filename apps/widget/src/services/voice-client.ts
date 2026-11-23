@@ -8,6 +8,7 @@
  */
 
 import { getDeviceId } from "../utils/device-id";
+import { currentPageUrl } from "../utils/url";
 import { getSessionId } from "./session-manager";
 
 // ── Types (mirrors backend voice-stream.interface.ts) ──
@@ -169,6 +170,9 @@ function buildFormData(params: {
   // browser WebM recordings usually carry no duration.
   if (params.durationMs !== undefined)
     formData.append("durationMs", String(Math.round(params.durationMs)));
+  // The page the visitor is on (ADR-0020), same as the text chat requests.
+  const pageUrl = currentPageUrl();
+  if (pageUrl) formData.append("pageUrl", pageUrl);
   return formData;
 }
 

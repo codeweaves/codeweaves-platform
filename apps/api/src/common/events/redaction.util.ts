@@ -16,6 +16,37 @@ const MAX_BYTES = (() => {
   return Number.isFinite(n) && n > 0 ? n : 32_768;
 })();
 
+/** How much of a payload a row keeps: per string, per array, and in total. */
+export interface PayloadLimits {
+  maxStringLength: number;
+  maxArrayLength: number;
+  maxBytes: number;
+  /** Characters of serialized JSON kept when a payload is over maxBytes. */
+  truncatedPreviewChars: number;
+}
+
+export const DEFAULT_PAYLOAD_LIMITS: PayloadLimits = {
+  maxStringLength: 2000,
+  maxArrayLength: 50,
+  maxBytes: MAX_BYTES,
+  truncatedPreviewChars: 1000,
+};
+
+/**
+ * AI model calls. The prompt, the messages and the reply are the evidence of
+ * what the model was asked and what it said (ADR-0005: full bodies stay), so
+ * they are kept whole up to a much larger bound. A chat turn with knowledge
+ * and history is about 20-40 KB; the default 2,000-char string cut would
+ * leave only the start of the system prompt.
+ */
+export const LLM_PAYLOAD_LIMITS: PayloadLimits = {
+  maxStringLength: 100_000,
+  maxArrayLength: 500,
+  maxBytes: 262_144,
+  // An oversized AI call keeps its first 256 KB as text, not 1,000 chars.
+  truncatedPreviewChars: 262_144,
+};
+
 // Header names we NEVER persist (lowercased). Auth + signature headers.
 export const SENSITIVE_HEADERS = new Set([
   "authorization",
@@ -162,18 +193,25 @@ export function sanitizeHeaders(
  * Deep-redact sensitive keys and reduce binary blobs to metadata. Returns a new
  * structure — never mutates the input. Depth/breadth capped to bound cost.
  */
-export function redact(value: unknown, depth = 0): unknown {
+export function redact(
+  value: unknown,
+  depth = 0,
+  limits: PayloadLimits = DEFAULT_PAYLOAD_LIMITS,
+): unknown {
   if (value == null) return value;
   if (Buffer.isBuffer(value) || value instanceof Uint8Array) {
     return { _binary: true, bytes: (value as Uint8Array).byteLength };
   }
   if (typeof value === "string") {
-    return value.length > 2000 ? `${value.slice(0, 2000)}…` : value;
+    const max = limits.maxStringLength;
+    return value.length > max ? `${value.slice(0, max)}…` : value;
   }
   if (typeof value !== "object") return value;
   if (depth > 6) return "[depth-capped]";
   if (Array.isArray(value)) {
-    return value.slice(0, 50).map((v) => redact(v, depth + 1));
+    return value
+      .slice(0, limits.maxArrayLength)
+      .map((v) => redact(v, depth + 1, limits));
   }
   // Prototype-pollution guard: a remote payload can carry an own "__proto__"
   // (JSON.parse creates it as a real key). Those keys are attack payloads,
@@ -191,9 +229,22 @@ export function redact(value: unknown, depth = 0): unknown {
           ? "[REDACTED]"
           : SESSION_ID_KEYS.has(k.toLowerCase()) && typeof v === "string"
             ? maskSessionId(v)
-            : redact(v, depth + 1),
+            : redact(v, depth + 1, limits),
       ]),
   );
+}
+
+/**
+ * A provider's raw response body as a log payload: parsed JSON when it is
+ * JSON (so the row is queryable), the text as-is otherwise.
+ */
+export function parseResponseBody(body: string | undefined): unknown {
+  if (!body) return undefined;
+  try {
+    return JSON.parse(body) as unknown;
+  } catch {
+    return body;
+  }
 }
 
 /**
@@ -201,20 +252,23 @@ export function redact(value: unknown, depth = 0): unknown {
  * for null/undefined input (so the caller omits the column — passing raw `null`
  * to a Prisma Json field is an error, it needs Prisma.DbNull).
  */
-export function capJson(value: unknown): unknown {
+export function capJson(
+  value: unknown,
+  limits: PayloadLimits = DEFAULT_PAYLOAD_LIMITS,
+): unknown {
   if (value === undefined || value === null) return undefined;
-  const red = redact(value);
+  const red = redact(value, 0, limits);
   let json: string;
   try {
     json = JSON.stringify(red);
   } catch {
     return { _unserializable: true };
   }
-  if (json.length > MAX_BYTES) {
+  if (json.length > limits.maxBytes) {
     return {
       _truncated: true,
       _bytes: json.length,
-      preview: json.slice(0, 1000),
+      preview: json.slice(0, limits.truncatedPreviewChars),
     };
   }
   return red;

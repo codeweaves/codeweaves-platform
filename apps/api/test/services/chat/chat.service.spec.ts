@@ -1,4 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { sanitizePageUrl } from "@repo/validation";
 import { NotFoundException } from "@nestjs/common";
 import { ChatService } from "../../../src/services/chat.service";
 import { PrismaService } from "../../../src/services/prisma.service";
@@ -13,6 +14,7 @@ import {
   ConsentService,
   ConsentRequiredException,
 } from "../../../src/services/consent.service";
+import { ConversationLimitService } from "../../../src/services/conversation-limit.service";
 
 describe("ChatService", () => {
   let service: ChatService;
@@ -115,6 +117,7 @@ describe("ChatService", () => {
   };
 
   const mockConsentService = { assertConsented: jest.fn() };
+  const mockConversationLimit = { checkAfterNewConversation: jest.fn() };
 
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
@@ -127,6 +130,7 @@ describe("ChatService", () => {
         { provide: HandoverService, useValue: mockHandoverService },
         { provide: WidgetEventLogger, useValue: mockWidgetLog },
         { provide: ConsentService, useValue: mockConsentService },
+        { provide: ConversationLimitService, useValue: mockConversationLimit },
         PiiDetectionService,
         { provide: PiiTokenizerService, useValue: mockPiiTokenizer },
       ],
@@ -137,6 +141,10 @@ describe("ChatService", () => {
 
     // Consent mode off by default: the gate lets every session through.
     mockConsentService.assertConsented.mockResolvedValue(null);
+    // The limit check is fire-and-forget and resolves with no value.
+    mockConversationLimit.checkAfterNewConversation.mockResolvedValue(
+      undefined,
+    );
 
     // resetMocks wipes inline impls; (re)apply the passthrough each test.
     mockPiiTokenizer.redactForStorage.mockImplementation(
@@ -362,6 +370,119 @@ describe("ChatService", () => {
     });
   });
 
+  describe("conversation limit hook (ADR-0022)", () => {
+    const PHONE = "15551234567";
+
+    it.each(["WIDGET", "WHATSAPP"] as const)(
+      "checks the limit after a new %s session",
+      async (source) => {
+        mockPrismaService.chatSession.create.mockResolvedValue({
+          ...mockSession,
+          source,
+        });
+
+        await service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, source);
+
+        expect(
+          mockConversationLimit.checkAfterNewConversation,
+        ).toHaveBeenCalledTimes(1);
+        expect(
+          mockConversationLimit.checkAfterNewConversation,
+        ).toHaveBeenCalledWith(MOCK_AGENT_ID);
+      },
+    );
+
+    it("checks the limit after a new server-keyed WhatsApp session", async () => {
+      mockPrismaService.chatSession.findFirst.mockResolvedValue(null);
+      mockPrismaService.chatSession.create.mockResolvedValue({
+        ...mockSession,
+        source: "WHATSAPP",
+      });
+
+      await service.resolveOrCreateVisitorSession(
+        MOCK_AGENT_ID,
+        "WHATSAPP",
+        PHONE,
+      );
+
+      expect(
+        mockConversationLimit.checkAfterNewConversation,
+      ).toHaveBeenCalledWith(MOCK_AGENT_ID);
+    });
+
+    it("does not check the limit for a DEMO preview session", async () => {
+      await service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, "DEMO");
+
+      expect(mockPrismaService.chatSession.create).toHaveBeenCalled();
+      expect(
+        mockConversationLimit.checkAfterNewConversation,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("does not check the limit when an existing session is reused", async () => {
+      mockPrismaService.chatSession.findFirst.mockResolvedValue({
+        ...mockSession,
+        source: "WIDGET",
+      });
+
+      await service.resolveOrCreateSession(
+        MOCK_AGENT_ID,
+        MOCK_SESSION_ID,
+        "WIDGET",
+      );
+
+      expect(
+        mockConversationLimit.checkAfterNewConversation,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("does not check the limit when the consent gate refuses the session", async () => {
+      mockConsentService.assertConsented.mockRejectedValue(
+        new ConsentRequiredException(),
+      );
+
+      await expect(
+        service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, "WIDGET"),
+      ).rejects.toBeInstanceOf(ConsentRequiredException);
+      expect(
+        mockConversationLimit.checkAfterNewConversation,
+      ).not.toHaveBeenCalled();
+    });
+
+    it("does not wait for the check before returning the session", async () => {
+      // A check that never settles must not hold up session creation.
+      mockConversationLimit.checkAfterNewConversation.mockReturnValue(
+        new Promise(() => {}),
+      );
+      mockPrismaService.chatSession.create.mockResolvedValue({
+        ...mockSession,
+        source: "WIDGET",
+      });
+
+      await expect(
+        service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, "WIDGET"),
+      ).resolves.toMatchObject({ source: "WIDGET" });
+    });
+
+    it("returns the session even when the check rejects", async () => {
+      mockConversationLimit.checkAfterNewConversation.mockRejectedValue(
+        new Error("db down"),
+      );
+      mockPrismaService.chatSession.findFirst.mockResolvedValue(null);
+      const created = { ...mockSession, source: "WHATSAPP" };
+      mockPrismaService.chatSession.create.mockResolvedValue(created);
+
+      await expect(
+        service.resolveOrCreateVisitorSession(MOCK_AGENT_ID, "WHATSAPP", PHONE),
+      ).resolves.toBe(created);
+      await expect(
+        service.resolveOrCreateSession(MOCK_AGENT_ID, undefined, "WIDGET"),
+      ).resolves.toBeDefined();
+      // Let the rejected promise settle inside the backstop catch.
+      await new Promise((resolve) => setImmediate(resolve));
+    });
+  });
+
   describe("sendMessage", () => {
     const baseDto = {
       chatInput: "Hello, AI!",
@@ -427,6 +548,64 @@ describe("ChatService", () => {
         const transactionArg = mockPrismaService.$transaction.mock.calls[0][0];
         expect(Array.isArray(transactionArg)).toBe(true);
         expect(transactionArg).toHaveLength(3);
+      });
+
+      it("stores the cleaned page URL on a widget user message when the agent switch is on (ADR-0020)", async () => {
+        mockPrismaService.agent.findUniqueOrThrow.mockResolvedValue({
+          ...MOCK_FULL_AGENT,
+          capturePageUrl: true,
+        });
+        mockPrismaService.chatSession.create.mockResolvedValue({
+          ...mockSession,
+          source: "WIDGET",
+        });
+
+        await service.sendMessage({
+          ...baseDto,
+          source: "WIDGET",
+          pageUrl: "https://shop.com/demo?utm_source=google&ref=abc",
+        });
+
+        expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
+          data: expect.objectContaining({
+            role: "USER",
+            pageUrl: "https://shop.com/demo?utm_source=google",
+          }),
+        });
+      });
+
+      const userMessageData = () =>
+        mockPrismaService.chatMessage.create.mock.calls.find(
+          ([arg]: [{ data: { role: string } }]) => arg.data.role === "USER",
+        )?.[0].data;
+
+      it("does not store the page URL when the agent switch is off", async () => {
+        mockPrismaService.chatSession.create.mockResolvedValue({
+          ...mockSession,
+          source: "WIDGET",
+        });
+
+        await service.sendMessage({
+          ...baseDto,
+          source: "WIDGET",
+          pageUrl: "https://shop.com/demo",
+        });
+
+        expect(userMessageData()).not.toHaveProperty("pageUrl");
+      });
+
+      it("does not store the page URL for a non-widget chat (dashboard preview)", async () => {
+        mockPrismaService.agent.findUniqueOrThrow.mockResolvedValue({
+          ...MOCK_FULL_AGENT,
+          capturePageUrl: true,
+        });
+
+        await service.sendMessage({
+          ...baseDto,
+          pageUrl: "https://app.example.com/agents/1/edit",
+        });
+
+        expect(userMessageData()).not.toHaveProperty("pageUrl");
       });
 
       it("should not store messages if the LLM call fails", async () => {
@@ -626,9 +805,55 @@ describe("ChatService", () => {
             id: true,
             aiConfig: true,
             organizationId: true,
+            capturePageUrl: true,
           },
         });
       });
+    });
+  });
+
+  describe("pageUrlToStore (ADR-0020)", () => {
+    const on = { capturePageUrl: true };
+    const widget = { source: "WIDGET" as const };
+
+    it("returns the cleaned URL for a widget chat when the agent switch is on", () => {
+      expect(
+        ChatService.pageUrlToStore(
+          on,
+          widget,
+          "https://shop.com/pricing?email=a@b.com&utm_source=fb#top",
+        ),
+      ).toBe("https://shop.com/pricing?utm_source=fb");
+    });
+
+    it("drops the URL when the agent switch is off", () => {
+      expect(
+        ChatService.pageUrlToStore(
+          { capturePageUrl: false },
+          widget,
+          "https://shop.com/pricing",
+        ),
+      ).toBeNull();
+    });
+
+    it.each(["DEMO", "WHATSAPP"] as const)(
+      "drops the URL for a %s chat, which has no visitor page",
+      (source) => {
+        expect(
+          ChatService.pageUrlToStore(
+            on,
+            { source },
+            "https://shop.com/pricing",
+          ),
+        ).toBeNull();
+      },
+    );
+
+    it("returns null when the switch is on but nothing usable was sent", () => {
+      expect(ChatService.pageUrlToStore(on, widget, undefined)).toBeNull();
+      expect(
+        ChatService.pageUrlToStore(on, widget, "javascript:alert(1)"),
+      ).toBeNull();
     });
   });
 
@@ -652,6 +877,22 @@ describe("ChatService", () => {
         },
       });
       expect(result).toEqual(mockMsg);
+    });
+
+    it("stores the page URL when one is passed (ADR-0020)", async () => {
+      mockPrismaService.chatMessage.create.mockResolvedValue({ id: "msg-1" });
+
+      await service.saveUserMessage(
+        { id: "session-db-id", agentId: "agent-1", source: "WIDGET" as const },
+        "Hello",
+        undefined,
+        undefined,
+        sanitizePageUrl("https://shop.com/pricing"),
+      );
+
+      expect(mockPrismaService.chatMessage.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({ pageUrl: "https://shop.com/pricing" }),
+      });
     });
   });
 

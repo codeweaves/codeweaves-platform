@@ -1,6 +1,7 @@
 import { Test, TestingModule } from "@nestjs/testing";
 import { TracerService } from "../../../src/common/tracer/tracer.service";
 import { PrismaService } from "../../../src/services/prisma.service";
+import { LLM_PAYLOAD_LIMITS } from "../../../src/common/events/redaction.util";
 import {
   requestContextStorage,
   RequestContext,
@@ -202,6 +203,33 @@ describe("TracerService", () => {
         mockPrismaService.eventLog.create.mock.calls[0][0].data,
       );
       expect(saved).not.toContain("4111 11");
+    });
+
+    it("keeps a whole AI prompt with the LLM payload limits, and still masks it", async () => {
+      mockPrismaService.eventLog.create.mockResolvedValue({});
+      const systemPrompt = `${"rule ".repeat(2000)}card 4111 1111 1111 1111`;
+      await service.logEvent({
+        channel: "WIDGET",
+        eventName: "LLM_COMPLETION_COMPLETED",
+        requestPayload: { systemPrompt },
+        payloadLimits: LLM_PAYLOAD_LIMITS,
+      });
+      const saved = mockPrismaService.eventLog.create.mock.calls[0][0].data
+        .requestPayload as { systemPrompt: string };
+      expect(saved.systemPrompt.startsWith("rule ".repeat(2000))).toBe(true);
+      expect(saved.systemPrompt).not.toContain("4111 11");
+    });
+
+    it("cuts long strings at 2,000 chars by default", async () => {
+      mockPrismaService.eventLog.create.mockResolvedValue({});
+      await service.logEvent({
+        channel: "DASHBOARD",
+        eventName: "DASHBOARD_HTTP_POST",
+        requestPayload: { content: "x".repeat(10_000) },
+      });
+      const saved = mockPrismaService.eventLog.create.mock.calls[0][0].data
+        .requestPayload as { content: string };
+      expect(saved.content.length).toBeLessThanOrEqual(2001);
     });
 
     it("writes an event_logs row and auto-fills actor/org/correlation from context", async () => {

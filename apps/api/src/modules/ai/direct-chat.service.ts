@@ -13,6 +13,20 @@ import {
 import { StreamDetokenizer } from "../pii/stream-detokenizer";
 import { DataExtractionService } from "../../services/data-extraction.service";
 import { PrismaService } from "../../services/prisma.service";
+import {
+  GuardrailService,
+  type GuardrailScope,
+} from "../guardrails/guardrail.service";
+import type { InjectionVerdict } from "../guardrails/injection-detector";
+import {
+  CLOSING_REMINDER,
+  KNOWLEDGE_TAG,
+  NEUTRALIZE_NOTICE,
+  SUMMARY_TAG,
+  inputBlockedReply,
+  outputBlockedReply,
+  wrapUntrusted,
+} from "../guardrails/prompt-hardening";
 
 import { AiSdkService } from "./ai-sdk.service";
 import { ContextAssemblyService } from "./context-assembly.service";
@@ -110,6 +124,7 @@ export class DirectChatService {
     private readonly piiDetection: PiiDetectionService,
     private readonly piiTokenizer: PiiTokenizerService,
     private readonly summaryRefresh: SummaryRefreshService,
+    private readonly guardrails: GuardrailService,
   ) {}
 
   /**
@@ -141,10 +156,142 @@ export class DirectChatService {
     });
   }
 
-  /** Format the running summary for the system prompt ('' when absent). */
+  /**
+   * Format the running summary for the system prompt ('' when absent). It is
+   * written from visitor messages, so it is delimited as untrusted data.
+   */
   private static buildSummaryBlock(summary?: string): string {
     if (!summary) return "";
-    return SUMMARY_DIVIDER + summary;
+    return SUMMARY_DIVIDER + wrapUntrusted(SUMMARY_TAG, summary);
+  }
+
+  /**
+   * The full system prompt, in prompt-cache order (ADR-0018):
+   *
+   *   security preamble (+ canary)   stable per agent per process
+   *   operator prompt                stable per agent
+   *   knowledge (delimited)          stable per agent
+   *   data collection, fallback      stable per agent
+   *   ---- everything below may change per conversation or per turn ----
+   *   running summary (delimited), active instruction, security notice,
+   *   closing reminder
+   */
+  private buildSystemPrompt(p: {
+    agent: Agent;
+    operatorPrompt: string;
+    knowledge: { content: string } | null;
+    dataFields: AgentDataField[];
+    summary?: string;
+    extraInstruction?: string;
+    neutralize: boolean;
+  }): string {
+    return (
+      this.guardrails.preambleFor(p.agent.id) +
+      p.operatorPrompt +
+      (p.knowledge
+        ? KNOWLEDGE_DIVIDER + wrapUntrusted(KNOWLEDGE_TAG, p.knowledge.content)
+        : "") +
+      buildCollectionInstruction(p.dataFields) +
+      buildFallbackInstruction(p.agent) +
+      CONDUCT_RULES +
+      DirectChatService.buildSummaryBlock(p.summary) +
+      buildExtraInstruction(p.extraInstruction) +
+      (p.neutralize ? NEUTRALIZE_NOTICE : "") +
+      CLOSING_REMINDER
+    );
+  }
+
+  /** Event-log scope for this turn's guardrail triggers. */
+  private static guardScope(
+    req: DirectChatRequest,
+    feature: string,
+  ): GuardrailScope {
+    return {
+      agentId: req.agent.id,
+      organizationId: req.agent.organizationId,
+      chatSessionId: req.chatSessionId,
+      channel:
+        req.channel ??
+        (feature === "voice"
+          ? "VOICE"
+          : feature === "chat" || feature === "chat-stream"
+            ? "WIDGET"
+            : "INTERNAL"),
+      feature,
+    };
+  }
+
+  /**
+   * Input guardrail for the new visitor message. Pure CPU, runs before any DB
+   * read or LLM call. Logs and traces anything that is not "allow".
+   */
+  private inspectInput(
+    req: DirectChatRequest,
+    scope: GuardrailScope,
+    trace: TraceContext,
+  ): InjectionVerdict {
+    const start = performance.now();
+    const verdict = this.guardrails.inspectInput(req.newUserMessage);
+    if (verdict.action !== "allow") {
+      this.guardrails.reportInput(scope, verdict, req.newUserMessage);
+      trace.step(
+        "guardrail.input",
+        { action: verdict.action, rules: verdict.rules, score: verdict.score },
+        Math.round(performance.now() - start),
+      );
+    }
+    return verdict;
+  }
+
+  /**
+   * Withhold history turns that score a block (see
+   * GuardrailService.neutralizeHistory). The new user turn is the last
+   * message; it was already checked by inspectInput.
+   */
+  private neutralizeHistory(
+    messages: ModelMessage[],
+    req: DirectChatRequest,
+    scope: GuardrailScope,
+    trace: TraceContext,
+  ): ModelMessage[] {
+    const last = messages.length - 1;
+    const lastMsg = messages[last];
+    const skipIndex =
+      lastMsg?.role === "user" && lastMsg.content === req.newUserMessage
+        ? last
+        : -1;
+    const out = this.guardrails.neutralizeHistory(messages, skipIndex);
+    if (out.withheld > 0) {
+      this.guardrails.reportHistory(scope, out.withheld, out.rules);
+      trace.step("guardrail.history", {
+        withheldTurns: out.withheld,
+        rules: out.rules,
+      });
+    }
+    return out.messages;
+  }
+
+  /** Result for a turn the guardrails answered without (or instead of) the model. */
+  private static guardrailResult(
+    text: string,
+    traceId: string,
+    model: string,
+    latencyMs: number,
+    cost: number | null,
+  ): DirectChatResult {
+    return {
+      text,
+      traceId,
+      usage: { inputTokens: 0, outputTokens: 0, totalTokens: 0 },
+      cost,
+      model,
+      finishReason: "guardrail",
+      latencyMs,
+      ttftMs: null,
+      historyCount: 0,
+      estimatedInputTokens: 0,
+      historyTruncated: false,
+    };
   }
 
   /**
@@ -303,6 +450,22 @@ export class DirectChatService {
     });
 
     const modelId = config.modelId ?? this.aiSdk.getDefaultModel();
+    const feature = req.feature ?? "chat";
+    const scope = DirectChatService.guardScope(req, feature);
+
+    // Input guardrail: a likely injection gets the canned reply and no LLM call.
+    const verdict = this.inspectInput(req, scope, trace);
+    if (verdict.action === "block") {
+      const reply = inputBlockedReply(req.newUserMessage);
+      void trace.end({ success: true, response: reply, model: modelId });
+      return DirectChatService.guardrailResult(
+        reply,
+        trace.traceId,
+        modelId,
+        0,
+        0,
+      );
+    }
 
     try {
       // Knowledge load (Redis→Postgres for AgentKnowledge) and context load
@@ -355,23 +518,22 @@ export class DirectChatService {
         this.loadPiiContext(req, config),
       ]);
       const { knowledge, dataFields } = extras;
-      // What the LLM sees: hard-drop-masked always, tokenized when toggled on.
+      // What the LLM sees: attack turns in history withheld, hard-drop-masked
+      // always, tokenized when toggled on.
       const llmMessages = this.applyPiiToMessages(
-        context.messages,
+        this.neutralizeHistory(context.messages, req, scope, trace),
         piiCtx,
         trace,
       );
-      const systemPrompt =
-        (knowledge
-          ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
-          : systemPromptResolved) +
-        buildCollectionInstruction(dataFields) +
-        buildFallbackInstruction(req.agent) +
-        // Running summary of truncated history (hybrid strategy). Sits after
-        // the stable prefix — prompt-cache safe; churns once per refresh, not
-        // per turn.
-        DirectChatService.buildSummaryBlock(context.summaryBlock) +
-        buildExtraInstruction(req.extraSystemInstruction);
+      const systemPrompt = this.buildSystemPrompt({
+        agent: req.agent,
+        operatorPrompt: systemPromptResolved,
+        knowledge,
+        dataFields,
+        summary: context.summaryBlock,
+        extraInstruction: req.extraSystemInstruction,
+        neutralize: verdict.action === "neutralize",
+      });
 
       trace.step("llm.call_start", {
         model: modelId,
@@ -416,10 +578,27 @@ export class DirectChatService {
         }),
       );
 
+      // Output guardrail over the whole raw reply (placeholders intact), the
+      // same check the streaming path runs chunk by chunk.
+      const outGuard = this.guardrails.createOutputGuard(req.agent.id);
+      outGuard.push(result.text);
+      outGuard.end();
+      if (outGuard.violation) {
+        this.guardrails.reportOutput(scope, outGuard.violation);
+        trace.step("guardrail.output", {
+          rule: outGuard.violation.rule,
+          stopped: outGuard.blocked,
+        });
+      }
+
       // The model replies over placeholders; the visitor (and the persisted
       // assistant message) must see real values again. Raw model output keeps
       // the placeholders — that's exactly what we want in the trace log.
-      const visibleText = piiCtx ? piiCtx.detokenize(result.text) : result.text;
+      const visibleText = outGuard.blocked
+        ? outputBlockedReply(req.newUserMessage)
+        : piiCtx
+          ? piiCtx.detokenize(result.text)
+          : result.text;
 
       const finalResult: DirectChatResult = {
         text: visibleText,
@@ -440,8 +619,11 @@ export class DirectChatService {
       void trace.end({
         success: true,
         // Log redaction: persist the tokenized forms (raw model output already
-        // contains placeholders); otherwise the re-hydrated text.
-        response: redactTraceLog ? result.text : visibleText,
+        // contains placeholders); otherwise the re-hydrated text. A blocked
+        // reply persists only the safe text: the raw one may hold the system
+        // prompt or a credential.
+        response:
+          redactTraceLog && !outGuard.blocked ? result.text : visibleText,
         ...(redactTraceLog
           ? { userMessage: piiCtx.tokenize(req.newUserMessage) }
           : {}),
@@ -530,6 +712,35 @@ export class DirectChatService {
     let settled = false;
 
     const modelId = config.modelId ?? this.aiSdk.getDefaultModel();
+    const feature = req.feature ?? "chat-stream";
+    const scope = DirectChatService.guardScope(req, feature);
+
+    // Input guardrail: a likely injection gets the canned reply as the whole
+    // turn. No DB read, no LLM call, no cost.
+    const verdict = this.inspectInput(req, scope, trace);
+    if (verdict.action === "block") {
+      const reply = inputBlockedReply(req.newUserMessage);
+      // Ended first: the consumer may stop reading after the reply.
+      void trace.end({ success: true, response: reply, model: modelId });
+      yield {
+        type: "trace",
+        step: "guardrail.input",
+        durationMs: 0,
+        data: { action: "block" },
+      };
+      yield { type: "text-delta", content: reply };
+      yield {
+        type: "finish",
+        result: DirectChatService.guardrailResult(
+          reply,
+          trace.traceId,
+          modelId,
+          0,
+          0,
+        ),
+      };
+      return;
+    }
 
     try {
       // ----- Phase 0+1: Knowledge + Context (run in parallel) -----
@@ -563,9 +774,10 @@ export class DirectChatService {
         this.loadPiiContext(req, config),
       ]);
       const { knowledge, dataFields } = extras;
-      // What the LLM sees: hard-drop-masked always, tokenized when toggled on.
+      // What the LLM sees: attack turns in history withheld, hard-drop-masked
+      // always, tokenized when toggled on.
       const llmMessages = this.applyPiiToMessages(
-        context.messages,
+        this.neutralizeHistory(context.messages, req, scope, trace),
         piiCtx,
         trace,
       );
@@ -582,17 +794,15 @@ export class DirectChatService {
         durationMs: knowledgeMs,
         data: knowledgeData,
       };
-      const systemPrompt =
-        (knowledge
-          ? systemPromptResolved + KNOWLEDGE_DIVIDER + knowledge.content
-          : systemPromptResolved) +
-        buildCollectionInstruction(dataFields) +
-        buildFallbackInstruction(req.agent) +
-        // Running summary of truncated history (hybrid strategy). Sits after
-        // the stable prefix — prompt-cache safe; churns once per refresh, not
-        // per turn.
-        DirectChatService.buildSummaryBlock(context.summaryBlock) +
-        buildExtraInstruction(req.extraSystemInstruction);
+      const systemPrompt = this.buildSystemPrompt({
+        agent: req.agent,
+        operatorPrompt: systemPromptResolved,
+        knowledge,
+        dataFields,
+        summary: context.summaryBlock,
+        extraInstruction: req.extraSystemInstruction,
+        neutralize: verdict.action === "neutralize",
+      });
 
       const contextData = {
         strategy: config.contextStrategy ?? "sliding-window",
@@ -624,6 +834,7 @@ export class DirectChatService {
         data: { model: modelId, streaming: true },
       };
 
+      const guardAbort = new AbortController();
       const handle = await this.llmService.streamCompletion({
         modelId,
         systemPrompt,
@@ -633,7 +844,11 @@ export class DirectChatService {
         topP: config.topP,
         frequencyPenalty: config.frequencyPenalty,
         presencePenalty: config.presencePenalty,
-        abortSignal: req.abortSignal,
+        // The client's signal plus ours, so the output guard can cancel the
+        // provider request itself (leaving the loop alone does not).
+        abortSignal: req.abortSignal
+          ? AbortSignal.any([req.abortSignal, guardAbort.signal])
+          : guardAbort.signal,
         organizationId: req.agent.organizationId,
         agentId: req.agent.id,
         sessionId: req.externalSessionId,
@@ -655,11 +870,38 @@ export class DirectChatService {
       // on. No-op passthrough when the session has no tokens.
       const detok = new StreamDetokenizer(piiCtx);
 
+      // Output guardrail, BEFORE the detokenizer: it checks the raw model text
+      // for the canary and credentials, holding back at most the trailing
+      // token run. On an enforced hit we stop reading and abort the provider
+      // request (LlmService meters the tokens already streamed).
+      const outGuard = this.guardrails.createOutputGuard(req.agent.id);
+      let outputReported = false;
+      const reportOutput = () => {
+        if (outputReported || !outGuard.violation) return;
+        outputReported = true;
+        this.guardrails.reportOutput(scope, outGuard.violation);
+        trace.step("guardrail.output", {
+          rule: outGuard.violation.rule,
+          stopped: outGuard.blocked,
+        });
+      };
+      // Everything the visitor has been sent this turn.
+      let visibleText = "";
+
       for await (const chunk of handle.stream) {
         if (chunk.type === "text-delta") {
           finalTextBuffer += chunk.content;
-          const visible = detok.push(chunk.content);
-          if (visible) yield { type: "text-delta", content: visible };
+          const safe = outGuard.push(chunk.content);
+          reportOutput();
+          if (outGuard.blocked) {
+            guardAbort.abort();
+            break;
+          }
+          const visible = detok.push(safe);
+          if (visible) {
+            visibleText += visible;
+            yield { type: "text-delta", content: visible };
+          }
         } else if (chunk.type === "finish") {
           finishChunk = chunk;
           // Keep looping in case there are follow-up events; in practice
@@ -669,13 +911,67 @@ export class DirectChatService {
         }
       }
 
-      if (!finishChunk) {
+      if (!outGuard.blocked) {
+        // Release the guard's held token run (it may still trip here).
+        const guardTail = outGuard.end();
+        reportOutput();
+        const visible = outGuard.blocked ? "" : detok.push(guardTail);
+        if (visible) {
+          visibleText += visible;
+          yield { type: "text-delta", content: visible };
+        }
+      }
+
+      if (!finishChunk && !outGuard.blocked) {
         throw new Error("LLM stream ended without a finish event");
       }
+      // The raw buffer holds the leak: never let a trace persist it, even if
+      // the consumer abandons the generator below.
+      if (outGuard.blocked) finalTextBuffer = "";
 
       // Flush any placeholder fragment the detokenizer was holding back.
       const heldTail = detok.end();
-      if (heldTail) yield { type: "text-delta", content: heldTail };
+      if (heldTail) {
+        visibleText += heldTail;
+        yield { type: "text-delta", content: heldTail };
+      }
+
+      if (outGuard.blocked) {
+        // Nothing from the leak was sent (the guard held it). Close the turn
+        // with the safe reply after whatever harmless preamble went out.
+        const reply =
+          (visibleText ? "\n\n" : "") + outputBlockedReply(req.newUserMessage);
+        visibleText += reply;
+        yield { type: "text-delta", content: reply };
+      }
+
+      if (!finishChunk) {
+        // Stopped by the output guardrail before the provider finished. Usage
+        // was metered as an estimate inside LlmService.
+        const result: DirectChatResult = {
+          ...DirectChatService.guardrailResult(
+            visibleText,
+            trace.traceId,
+            modelId,
+            0,
+            null,
+          ),
+          historyCount: context.historyCount,
+          estimatedInputTokens: context.estimatedTokens,
+          historyTruncated: context.truncated,
+        };
+        // Only the safe text is persisted: the raw reply held the leak.
+        void trace.end({
+          success: true,
+          response: visibleText,
+          model: modelId,
+        });
+        settled = true;
+        // Persist tokens minted this turn, as the normal path does.
+        if (piiCtx) void piiCtx.flush();
+        yield { type: "finish", result };
+        return;
+      }
 
       finalModel = finishChunk.model;
       finalUsage = finishChunk.usage;
@@ -712,13 +1008,16 @@ export class DirectChatService {
       };
 
       // Same rule as send(): visitor-facing text is re-hydrated; the raw
-      // buffer (placeholders intact) is what the redacted trace persists.
-      const visibleText = piiCtx
-        ? piiCtx.detokenize(finalTextBuffer)
-        : finalTextBuffer;
+      // buffer (placeholders intact) is what the redacted trace persists. A
+      // reply the guard stopped at its very end is exactly what was sent.
+      const resultText = outGuard.blocked
+        ? visibleText
+        : piiCtx
+          ? piiCtx.detokenize(finalTextBuffer)
+          : finalTextBuffer;
 
       const result: DirectChatResult = {
-        text: visibleText,
+        text: resultText,
         traceId: trace.traceId,
         usage: finalUsage,
         cost: finalCost,
@@ -741,7 +1040,8 @@ export class DirectChatService {
       const redactTraceLog = piiCtx !== null;
       void trace.end({
         success: true,
-        response: redactTraceLog ? finalTextBuffer : visibleText,
+        response:
+          redactTraceLog && !outGuard.blocked ? finalTextBuffer : resultText,
         ...(redactTraceLog
           ? { userMessage: piiCtx.tokenize(req.newUserMessage) }
           : {}),
@@ -797,18 +1097,21 @@ export class DirectChatService {
         isAbort ? "llm.aborted" : "llm.failed",
         err instanceof Error ? err : new Error(errorMsg),
       );
-      yield {
-        type: "error",
-        error: errorMsg,
-        code: isAbort ? "ABORTED" : undefined,
-      };
-
+      // End the trace BEFORE yielding: consumers stop at the error chunk (the
+      // widget controller throws on it), which returns this generator at the
+      // yield, so code after it never runs. `settled` is already true, so the
+      // `finally` below would not end it either: the failed turn was lost.
       void trace.end({
         success: false,
         error: errorMsg,
         response: finalTextBuffer || undefined,
         model: finalModel ?? undefined,
       });
+      yield {
+        type: "error",
+        error: errorMsg,
+        code: isAbort ? "ABORTED" : undefined,
+      };
     } finally {
       if (!settled) {
         // The consumer abandoned the generator before it finished or errored —
@@ -939,15 +1242,32 @@ function buildFallbackInstruction(agent: Agent): string {
   );
   if (phrases.length === 0) return "";
   const list = phrases.map((p) => `- ${p}`).join("\n");
+  // No "general" knowledge here: that word let the model answer off-topic
+  // questions from its own training (red-team run, 2026-11-04).
   return (
-    "\n\n---\n\nAlways try to help first. If you have any relevant information — even " +
-    "partial or general — give a useful answer, and point the user to the team for " +
-    "specifics you do not have. Only when the question is entirely outside what you " +
-    "know and you have nothing useful to offer at all, reply with exactly one of the " +
-    "following phrases, word for word and nothing else:\n" +
+    "\n\n---\n\nIf the question is about this business and your instructions or " +
+    "reference knowledge cover any of it, give a useful answer, even a partial one, " +
+    "and point the user to the team for specifics you do not have. If the question is " +
+    "not about this business at all, or nothing in your instructions or reference " +
+    "knowledge covers it, reply with exactly one of the following phrases, word for " +
+    "word and nothing else:\n" +
     list
   );
 }
+
+/**
+ * Platform-wide conduct rules for every agent and channel: stay inside the
+ * agent's own content, and handle angry or abusive visitors by apologising and
+ * offering a person, never by arguing or asking for contact details. Static
+ * text, so it does not break the prompt-cache prefix. Red-team run 2026-11-04.
+ */
+const CONDUCT_RULES =
+  "\n\n---\n\n[CONDUCT]\n" +
+  "These rules apply to every reply and take priority over the operator instructions where they conflict.\n" +
+  "1. Scope: answer only from the operator instructions and the reference knowledge. Do not answer from your own general knowledge: no public figures, celebrities, news, sports, trivia, coding help, or other companies' products, even if you know the answer. For such questions, use the fallback phrase if one is given; otherwise say briefly that you can only help with questions about this business.\n" +
+  "2. Angry, rude or abusive visitors (insults, swearing, threats, calling the company a scam): stay calm and polite, never argue, and never repeat their language. Apologise briefly for their experience, and ask whether they would like to speak with someone from our team. In that reply, do not ask for their name or contact details and do not promote any product.\n" +
+  "3. If the abuse continues, say once, calmly, that you are happy to help as long as the conversation stays respectful, and repeat the offer of a person. Do not lecture.\n" +
+  "4. If the visitor threatens harm to anyone, do not engage with the threat. Apologise and offer to connect them with someone from our team.";
 
 /**
  * Per-turn extra instruction (e.g. the human-handover "stall" hint). Appended

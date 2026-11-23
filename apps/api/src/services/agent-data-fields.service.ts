@@ -1,20 +1,17 @@
-import {
-  Injectable,
-  NotFoundException,
-} from '@nestjs/common';
-import { type AgentDataField } from '@prisma/client';
-import { type UpdateDataFieldsDto } from '@repo/validation';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { type AgentDataField } from "@prisma/client";
+import { type UpdateDataFieldsDto } from "@repo/validation";
 
-import { AgentCacheService } from '../common/cache/agent-cache.service';
-import { CryptoService } from '../common/crypto/crypto.service';
-import { AppLogger } from '../common/logger/app-logger';
-import { TracerService } from '../common/tracer/tracer.service';
-import type { CurrentUserData } from '../decorators/current-user.decorator';
+import { AgentCacheService } from "../common/cache/agent-cache.service";
+import { CryptoService } from "../common/crypto/crypto.service";
+import { AppLogger } from "../common/logger/app-logger";
+import { TracerService } from "../common/tracer/tracer.service";
+import type { CurrentUserData } from "../decorators/current-user.decorator";
 
-import { PrismaService } from './prisma.service';
-import { isOrgScoped } from '../utils/tenant-filter';
-import { CSV_BOM, csvFilenameSegment, csvRow } from '../utils/csv';
-import { createTimestampFormatter, resolveTimeZone } from '../utils/datetime';
+import { PrismaService } from "./prisma.service";
+import { isOrgScoped } from "../utils/tenant-filter";
+import { CSV_BOM, csvFilenameSegment, csvRow } from "../utils/csv";
+import { createTimestampFormatter, resolveTimeZone } from "../utils/datetime";
 
 /** A column in the collected-data table: the JSON key plus its display label. */
 interface CollectedDataColumn {
@@ -72,7 +69,7 @@ export class AgentDataFieldsService {
     await this.assertAgentAccess(agentId, user);
     return this.prisma.agentDataField.findMany({
       where: { agentId },
-      orderBy: { order: 'asc' },
+      orderBy: { order: "asc" },
     });
   }
 
@@ -110,14 +107,14 @@ export class AgentDataFieldsService {
       }
       return tx.agentDataField.findMany({
         where: { agentId },
-        orderBy: { order: 'asc' },
+        orderBy: { order: "asc" },
       });
     });
 
     // Field defs are read on the chat hot path (collection prompt), so bust the
     // agent cache after the write.
     await this.agentCache.invalidate(agentId);
-    this.log.info('replaceAll', 'data-capture fields replaced', {
+    this.log.info("replaceAll", "data-capture fields replaced", {
       agentId,
       fieldCount: fields.length,
     });
@@ -125,7 +122,7 @@ export class AgentDataFieldsService {
     // data-governance change. Store keys/labels/types only, never captured values.
     await this.tracer.logAuditEvent(
       agentId,
-      'AGENT_DATA_FIELDS_UPDATED',
+      "AGENT_DATA_FIELDS_UPDATED",
       {
         response: {
           fieldCount: fields.length,
@@ -153,15 +150,22 @@ export class AgentDataFieldsService {
     user: CurrentUserData,
     page = 1,
     limit = AgentDataFieldsService.COLLECTED_DATA_DEFAULT_LIMIT,
-    sortOrder: 'asc' | 'desc' = 'desc',
+    sortOrder: "asc" | "desc" = "desc",
   ): Promise<{
     columns: Array<{ key: string; label: string }>;
-    rows: Array<{ chatSessionId: string; data: unknown; extractedAt: Date }>;
+    /** Show the fixed "Page" column (ADR-0020). */
+    showPageUrl: boolean;
+    rows: Array<{
+      chatSessionId: string;
+      data: unknown;
+      extractedAt: Date;
+      pageUrl: string | null;
+    }>;
     total: number;
     page: number;
     limit: number;
   }> {
-    await this.assertAgentAccess(agentId, user);
+    const agent = await this.assertAgentAccess(agentId, user);
 
     const safeLimit = Math.min(
       Math.max(limit, 1),
@@ -170,15 +174,19 @@ export class AgentDataFieldsService {
     const safePage = Math.max(page, 1);
     const skip = (safePage - 1) * safeLimit;
 
-    const columns = await this.buildColumns(agentId);
-
-    const [rows, total] = await Promise.all([
+    const [columns, rows, total] = await Promise.all([
+      this.buildColumns(agentId),
       this.prisma.collectedData.findMany({
         where: { agentId },
         orderBy: { extractedAt: sortOrder },
         skip,
         take: safeLimit,
-        select: { chatSessionId: true, data: true, extractedAt: true },
+        select: {
+          chatSessionId: true,
+          data: true,
+          extractedAt: true,
+          pageUrl: true,
+        },
       }),
       this.prisma.collectedData.count({ where: { agentId } }),
     ]);
@@ -193,7 +201,20 @@ export class AgentDataFieldsService {
       ),
     }));
 
-    return { columns, rows: decryptedRows, total, page: safePage, limit: safeLimit };
+    // "Page" column (ADR-0020): while the switch is on, and after it is turned
+    // off for rows that still hold a page. Decided from this page's rows, so
+    // the table costs no extra query.
+    const showPageUrl =
+      agent.capturePageUrl || rows.some((row) => row.pageUrl !== null);
+
+    return {
+      columns,
+      showPageUrl,
+      rows: decryptedRows,
+      total,
+      page: safePage,
+      limit: safeLimit,
+    };
   }
 
   /**
@@ -214,15 +235,18 @@ export class AgentDataFieldsService {
   async prepareCollectedDataExport(
     agentId: string,
     user: CurrentUserData,
-    sortOrder: 'asc' | 'desc' = 'desc',
+    sortOrder: "asc" | "desc" = "desc",
     timeZone?: string,
   ): Promise<{ filename: string; stream: AsyncGenerator<string> }> {
     const agent = await this.assertAgentAccess(agentId, user);
-    const columns = await this.buildColumns(agentId);
+    const [columns, showPageUrl] = await Promise.all([
+      this.buildColumns(agentId),
+      this.hasPageUrlColumn(agent),
+    ]);
     const zone = resolveTimeZone(timeZone);
 
     const date = new Date().toISOString().slice(0, 10);
-    const filename = `collected-data-${csvFilenameSegment(agent.name, 'agent')}-${date}.csv`;
+    const filename = `collected-data-${csvFilenameSegment(agent.name, "agent")}-${date}.csv`;
 
     return {
       filename,
@@ -230,6 +254,7 @@ export class AgentDataFieldsService {
         agentId,
         agent.organizationId,
         columns,
+        showPageUrl,
         sortOrder,
         zone,
         user,
@@ -250,7 +275,8 @@ export class AgentDataFieldsService {
     agentId: string,
     organizationId: string,
     columns: CollectedDataColumn[],
-    sortOrder: 'asc' | 'desc',
+    showPageUrl: boolean,
+    sortOrder: "asc" | "desc",
     timeZone: string,
     user: CurrentUserData,
   ): AsyncGenerator<string> {
@@ -265,29 +291,35 @@ export class AgentDataFieldsService {
       // BOM first, then the header. The zone is named in the header so the file
       // is self-describing once it has been mailed on to someone else.
       yield CSV_BOM +
-        csvRow([...columns.map((c) => c.label), `Captured At (${timeZone})`]);
+        csvRow([
+          ...columns.map((c) => c.label),
+          ...(showPageUrl ? ["Page URL"] : []),
+          `Captured At (${timeZone})`,
+        ]);
 
       for (;;) {
         const batch = await this.prisma.collectedData.findMany({
           where: { agentId },
-          orderBy: [{ extractedAt: sortOrder }, { id: 'asc' }],
+          orderBy: [{ extractedAt: sortOrder }, { id: "asc" }],
           take: AgentDataFieldsService.EXPORT_BATCH_SIZE,
           ...(cursor && { cursor: { id: cursor }, skip: 1 }),
           select: {
             id: true,
             data: true,
             extractedAt: true,
+            pageUrl: true,
           },
         });
         if (batch.length === 0) break;
 
-        let chunk = '';
+        let chunk = "";
         for (const row of batch) {
           const values = this.crypto.decryptFieldValues(
             row.data as Record<string, unknown> | null,
           );
           chunk += csvRow([
             ...columns.map((c) => values[c.key]),
+            ...(showPageUrl ? [row.pageUrl] : []),
             formatTimestamp(row.extractedAt),
           ]);
           rowCount += 1;
@@ -315,7 +347,7 @@ export class AgentDataFieldsService {
       try {
         await this.tracer.logAuditEvent(
           agentId,
-          'COLLECTED_DATA_EXPORTED',
+          "COLLECTED_DATA_EXPORTED",
           {
             response: {
               rowCount,
@@ -329,12 +361,12 @@ export class AgentDataFieldsService {
           { organizationId, agentId },
         );
       } catch (error) {
-        this.log.warn('streamCollectedDataCsv', 'export audit log failed', {
+        this.log.warn("streamCollectedDataCsv", "export audit log failed", {
           agentId,
           error: error instanceof Error ? error.message : String(error),
         });
       }
-      this.log.info('streamCollectedDataCsv', 'collected-data CSV exported', {
+      this.log.info("streamCollectedDataCsv", "collected-data CSV exported", {
         agentId,
         rowCount,
         truncated,
@@ -364,7 +396,7 @@ export class AgentDataFieldsService {
 
     const fields = await this.prisma.agentDataField.findMany({
       where: { agentId },
-      orderBy: { order: 'asc' },
+      orderBy: { order: "asc" },
       select: { key: true, label: true },
     });
 
@@ -378,9 +410,27 @@ export class AgentDataFieldsService {
       if (!seen.has(key)) columns.push({ key, label: key });
     }
     columns.sort((a, b) =>
-      a.label.localeCompare(b.label, undefined, { sensitivity: 'base' }),
+      a.label.localeCompare(b.label, undefined, { sensitivity: "base" }),
     );
     return columns;
+  }
+
+  /**
+   * Whether the CSV export has the "Page URL" column (ADR-0020): while the
+   * agent's switch is on, and also after it is turned off if any row still
+   * holds a page, so stored data is never left out of an export. The lookup
+   * only runs when the switch is off; an export reads every row anyway.
+   */
+  private async hasPageUrlColumn(agent: {
+    id: string;
+    capturePageUrl: boolean;
+  }): Promise<boolean> {
+    if (agent.capturePageUrl) return true;
+    const row = await this.prisma.collectedData.findFirst({
+      where: { agentId: agent.id, pageUrl: { not: null } },
+      select: { id: true },
+    });
+    return row !== null;
   }
 
   /**
@@ -392,7 +442,12 @@ export class AgentDataFieldsService {
   private async assertAgentAccess(
     agentId: string,
     user: CurrentUserData,
-  ): Promise<{ id: string; organizationId: string; name: string }> {
+  ): Promise<{
+    id: string;
+    organizationId: string;
+    name: string;
+    capturePageUrl: boolean;
+  }> {
     const agent = await this.prisma.agent.findFirst({
       where: {
         id: agentId,
@@ -401,10 +456,15 @@ export class AgentDataFieldsService {
           organizationId: user.organizationId!,
         }),
       },
-      select: { id: true, organizationId: true, name: true },
+      select: {
+        id: true,
+        organizationId: true,
+        name: true,
+        capturePageUrl: true,
+      },
     });
     if (!agent) {
-      throw new NotFoundException('Agent not found');
+      throw new NotFoundException("Agent not found");
     }
     return agent;
   }

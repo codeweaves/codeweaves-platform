@@ -45,6 +45,9 @@ export const PROVIDERS = {
   META_WHATSAPP: "META_WHATSAPP",
   RESEND: "RESEND",
   CLERK: "CLERK",
+  /** File storage over the S3 API (ADR-0023); vendor is in the payload. */
+  STORAGE: "STORAGE",
+  /** Storage before ADR-0023. Kept for old rows. */
   SUPABASE: "SUPABASE",
   FRANKFURTER: "FRANKFURTER",
   SLACK: "SLACK",

@@ -532,6 +532,32 @@ describe("PublicChatController", () => {
       );
     });
 
+    it("stores the cleaned page URL with the user message when the agent switch is on (ADR-0020)", async () => {
+      setupStreamingMocks();
+      mockChatService.resolveAgent.mockResolvedValue({
+        ...mockAgent,
+        capturePageUrl: true,
+      });
+
+      await controller.stream(
+        {
+          ...dto,
+          pageUrl:
+            "https://shop.com/pricing?utm_campaign=diwali&token=secret#faq",
+        },
+        createMockRequest(),
+        createMockResponse(),
+      );
+
+      expect(mockChatService.saveUserMessage).toHaveBeenCalledWith(
+        mockSession,
+        dto.chatInput,
+        expect.any(String),
+        "org-1",
+        "https://shop.com/pricing?utm_campaign=diwali",
+      );
+    });
+
     it("should use ChatService for DB operations (P3) — fire-and-forget user save + assistant save", async () => {
       setupStreamingMocks();
       const req = createMockRequest();
@@ -541,12 +567,14 @@ describe("PublicChatController", () => {
 
       // User message persisted fire-and-forget with a pre-generated UUID (3rd
       // arg). 4th arg = organizationId, passed because PII redaction is always
-      // on → storage tokenises VAULT-tier PII.
+      // on → storage tokenises VAULT-tier PII. 5th arg = page URL: null, the
+      // agent's capturePageUrl switch is off.
       expect(mockChatService.saveUserMessage).toHaveBeenCalledWith(
         mockSession,
         dto.chatInput,
         expect.any(String),
         "org-1",
+        null,
       );
 
       expect(mockChatService.saveAssistantMessage).toHaveBeenCalledWith(

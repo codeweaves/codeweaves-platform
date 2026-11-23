@@ -96,6 +96,12 @@ export const STALE_CRON_RULES: ReadonlyArray<{
     eventName: "FX_RATE_RUN_COMPLETED",
     maxAgeMs: 26 * HOUR,
   },
+  {
+    job: "file-cleanup",
+    label: "Uploaded file cleanup",
+    eventName: "FILE_CLEANUP_RUN_COMPLETED",
+    maxAgeMs: 26 * HOUR,
+  },
 ];
 
 /** Start of the current IST day, as a UTC instant. */

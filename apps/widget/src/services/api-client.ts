@@ -10,6 +10,7 @@
 import type { SendMessageResponse } from "../types";
 import type { ConsentNoticeView } from "./consent";
 import { getDeviceId } from "../utils/device-id";
+import { currentPageUrl } from "../utils/url";
 import { WidgetApiError, mapResponseError } from "./api-errors";
 import { fetchWithRetry } from "./fetch-utils";
 import {
@@ -92,6 +93,7 @@ export async function sendMessage(
       agentId,
       sessionId: resolvedSessionId,
       source: "WIDGET",
+      pageUrl: currentPageUrl(),
     }),
   });
 
@@ -264,6 +266,7 @@ export async function streamMessage(
     sessionId: resolvedSessionId,
     source: "WIDGET",
     recentHistory: recentHistory ?? [],
+    pageUrl: currentPageUrl(),
   };
 
   // Use longer timeout for streaming connections (90s) — the initial connection

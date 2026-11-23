@@ -1,4 +1,5 @@
 import { Test, TestingModule } from "@nestjs/testing";
+import { sanitizePageUrl } from "@repo/validation";
 import {
   ConflictException,
   ForbiddenException,
@@ -232,6 +233,35 @@ describe("HandoverService", () => {
     });
   });
 
+  describe("onVisitorMessageWhilePaused", () => {
+    it("stores the visitor message with its page URL (ADR-0020)", async () => {
+      mockPrisma.chatSession.update.mockResolvedValue({});
+
+      await service.onVisitorMessageWhilePaused(
+        ctx,
+        "my email is a@b.com",
+        sanitizePageUrl("https://s.com/pricing"),
+      );
+
+      expect(mockPrisma.chatMessage.create).toHaveBeenCalledWith({
+        data: expect.objectContaining({
+          role: "USER",
+          content: "my email is a@b.com",
+          pageUrl: "https://s.com/pricing",
+        }),
+      });
+    });
+
+    it("stores no page URL when none is passed", async () => {
+      mockPrisma.chatSession.update.mockResolvedValue({});
+
+      await service.onVisitorMessageWhilePaused(ctx, "hello");
+
+      const [arg] = mockPrisma.chatMessage.create.mock.calls[0];
+      expect(arg.data).not.toHaveProperty("pageUrl");
+    });
+  });
+
   describe("raiseRequested", () => {
     it("flips NONE → REQUESTED, writes a system line, and emits", async () => {
       mockPrisma.chatSession.updateMany.mockResolvedValue({ count: 1 });
@@ -446,6 +476,16 @@ describe("HandoverService", () => {
       expect(text.toLowerCase()).toContain("frustrated");
       // Must never let the bot impersonate a human.
       expect(text.toLowerCase()).toContain("never claim to be a human");
+    });
+
+    it("offers a person to a frustrated visitor first, and connects only on agreement", () => {
+      const text = service.offerInstruction();
+      // A frustrated or abusive visitor is ASKED; an explicit ask connects at once.
+      expect(text).toMatch(/frustrated[^.]*ask whether they would like/i);
+      expect(text).toMatch(
+        /explicitly asks? for a human[^.]*call `connect_to_human` straight away/i,
+      );
+      expect(text).not.toMatch(/do not wait to be asked/i);
     });
   });
 

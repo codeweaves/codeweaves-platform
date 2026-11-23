@@ -25,6 +25,7 @@ export class CryptoService implements OnModuleInit {
   private derivedHmacKey!: Buffer;
   private visitorIpHmacKey!: Buffer;
   private visitorDeviceHmacKey!: Buffer;
+  private guardrailCanaryHmacKey!: Buffer;
 
   constructor(private configService: ConfigService) {}
 
@@ -52,6 +53,10 @@ export class CryptoService implements OnModuleInit {
     // Separate domain for the web visitor identity (the widget's device ID).
     this.visitorDeviceHmacKey = createHmac("sha256", this.key)
       .update("visitor-device-hash-v1")
+      .digest();
+    // Separate domain for AI guardrail canaries (ADR-0018).
+    this.guardrailCanaryHmacKey = createHmac("sha256", this.key)
+      .update("guardrail-canary-v1")
       .digest();
     this.log.info("onModuleInit", "CryptoService initialized");
   }
@@ -121,6 +126,20 @@ export class CryptoService implements OnModuleInit {
       .digest("hex");
     // 32 hex chars = 128 bits — collision-safe at any realistic visitor count.
     return `${VISITOR_HASH_PREFIX}${digest.slice(0, 32)}`;
+  }
+
+  /**
+   * An agent's guardrail canary (ADR-0018): 16 lower-case hex chars (64 bits)
+   * that open its system prompt. Keyed, so nobody can predict it; per agent,
+   * so one tenant's canary says nothing about another's; and the same on
+   * every instance and after every restart, so the system-prompt prefix stays
+   * cacheable by the LLM provider.
+   */
+  guardrailCanary(agentId: string): string {
+    return createHmac("sha256", this.guardrailCanaryHmacKey)
+      .update(agentId)
+      .digest("hex")
+      .slice(0, 16);
   }
 
   /**

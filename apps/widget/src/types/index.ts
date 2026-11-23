@@ -38,6 +38,8 @@ export interface AgentConfig {
   showTalkToHumanButton?: boolean;
   /** Shown to the visitor when a teammate connects (also the button's tooltip fallback). */
   humanConnectedLabel?: string | null;
+  /** Send the visitor's page with each message (ADR-0020). */
+  capturePageUrl?: boolean;
   /**
    * Revision (SHA-256) of the chat-start privacy notice, or null when the
    * notice is off. The widget remembers which revision the visitor accepted.

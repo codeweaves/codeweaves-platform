@@ -1,8 +1,8 @@
-'use client';
+"use client";
 
-import { useMutation, useQuery, useQueryClient } from '@tanstack/react-query';
-import { useApiClient } from '@/lib/api-client';
-import { useAuth } from '@/hooks/use-auth';
+import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useApiClient } from "@/lib/api-client";
+import { useAuth } from "@/hooks/use-auth";
 
 export interface EmailTemplateVariable {
   key: string;
@@ -22,6 +22,9 @@ export interface EmailTemplateSummary {
 export interface EmailTemplateDetail extends EmailTemplateSummary {
   html: string;
   variables: EmailTemplateVariable[];
+  /** The fixed frame (logo header, footer) the API puts around the body.
+   *  Missing when an older API answers. */
+  layout?: { before: string; after: string };
 }
 
 /**
@@ -32,8 +35,8 @@ export function useEmailTemplates() {
   const { isAuthenticated } = useAuth();
   const api = useApiClient();
   return useQuery<EmailTemplateSummary[]>({
-    queryKey: ['email-templates'],
-    queryFn: () => api.get('/email-templates'),
+    queryKey: ["email-templates"],
+    queryFn: () => api.get("/email-templates"),
     enabled: isAuthenticated,
     staleTime: 5 * 60_000,
   });
@@ -44,7 +47,7 @@ export function useEmailTemplate(key: string | null) {
   const { isAuthenticated } = useAuth();
   const api = useApiClient();
   return useQuery<EmailTemplateDetail>({
-    queryKey: ['email-templates', key],
+    queryKey: ["email-templates", key],
     queryFn: () => api.get(`/email-templates/${key}`),
     enabled: isAuthenticated && !!key,
   });
@@ -64,8 +67,8 @@ export function useUpdateEmailTemplate() {
       html: string;
     }) => api.patch(`/email-templates/${key}`, { subject, html }),
     onSuccess: (_data, { key }) => {
-      qc.invalidateQueries({ queryKey: ['email-templates', key] });
-      qc.invalidateQueries({ queryKey: ['email-templates'], exact: true });
+      qc.invalidateQueries({ queryKey: ["email-templates", key] });
+      qc.invalidateQueries({ queryKey: ["email-templates"], exact: true });
     },
   });
 }
@@ -82,22 +85,28 @@ export function useUpdateEmailTemplate() {
 export function renderTemplatePreview(
   html: string,
   variables: EmailTemplateVariable[],
+  layout: { before: string; after: string } | undefined,
 ): string {
   const samples = new Map(variables.map((v) => [v.key, v.sample]));
-  return html.replace(
+  const body = html.replace(
     /\{\{\s*([a-zA-Z][a-zA-Z0-9_]*)\s*\}\}/g,
     (_match, name: string) => {
       const value = samples.get(name);
-      return value === undefined ? '' : escapeHtml(value);
+      return value === undefined ? "" : escapeHtml(value);
     },
   );
+  // Same join as EmailTemplateService.render, so the preview shows the logo
+  // header and footer exactly as a real send does.
+  // The web app and the API deploy separately. An older API sends no layout,
+  // and the preview then shows the body alone instead of crashing.
+  return (layout?.before ?? "") + body + (layout?.after ?? "");
 }
 
 function escapeHtml(value: string): string {
   return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
+    .replace(/&/g, "&amp;")
+    .replace(/</g, "&lt;")
+    .replace(/>/g, "&gt;")
+    .replace(/"/g, "&quot;")
+    .replace(/'/g, "&#39;");
 }

@@ -1,6 +1,9 @@
 import { Test } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
-import { DataExtractionService } from "../../../src/services/data-extraction.service";
+import {
+  DataExtractionService,
+  findLeadPageUrl,
+} from "../../../src/services/data-extraction.service";
 import { PrismaService } from "../../../src/services/prisma.service";
 import { AiClassifierService } from "../../../src/common/ai/ai-classifier.service";
 import { InternalEventLogger } from "../../../src/common/events/internal.logger";
@@ -182,6 +185,91 @@ describe("DataExtractionService", () => {
           }),
         }),
       );
+    });
+
+    describe("lead page URL (ADR-0020)", () => {
+      const pagedSession = (overrides: Record<string, unknown> = {}) =>
+        baseSession({
+          agent: { ...baseSession().agent, capturePageUrl: true },
+          messages: [
+            { role: "USER", content: "hello", pageUrl: "https://s.com/" },
+            { role: "ASSISTANT", content: "hi", pageUrl: null },
+            {
+              role: "USER",
+              content: "my email is a@b.com",
+              pageUrl: "https://s.com/pricing",
+            },
+            { role: "USER", content: "bye", pageUrl: "https://s.com/blog" },
+          ],
+          ...overrides,
+        });
+
+      beforeEach(() => {
+        mockAi.extractFields.mockResolvedValue({ email: "a@b.com" });
+        mockPrisma.collectedData.upsert.mockResolvedValue({});
+      });
+
+      it("stores the page of the message that held the captured value", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue(pagedSession());
+
+        await service.extractForSession(sessionId);
+
+        const arg = mockPrisma.collectedData.upsert.mock.calls[0][0];
+        expect(arg.create.pageUrl).toBe("https://s.com/pricing");
+        expect(arg.update.pageUrl).toBe("https://s.com/pricing");
+      });
+
+      it("a fallback guess never moves a page that is already stored", async () => {
+        // The value is not in any message, so the result is only a guess.
+        mockAi.extractFields.mockResolvedValue({ email: "other@x.com" });
+        mockPrisma.chatSession.findUnique.mockResolvedValue(
+          pagedSession({
+            collectedData: { data: {}, pageUrl: "https://s.com/landing" },
+          }),
+        );
+
+        await service.extractForSession(sessionId);
+
+        const arg = mockPrisma.collectedData.upsert.mock.calls[0][0];
+        expect(arg.update).not.toHaveProperty("pageUrl");
+      });
+
+      it("a real match replaces a stored fallback guess", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue(
+          pagedSession({
+            collectedData: { data: {}, pageUrl: "https://s.com/blog" },
+          }),
+        );
+
+        await service.extractForSession(sessionId);
+
+        const arg = mockPrisma.collectedData.upsert.mock.calls[0][0];
+        expect(arg.update.pageUrl).toBe("https://s.com/pricing");
+      });
+
+      it("stores the latest page as a guess when the slot is empty and nothing matches", async () => {
+        mockAi.extractFields.mockResolvedValue({ email: "other@x.com" });
+        mockPrisma.chatSession.findUnique.mockResolvedValue(pagedSession());
+
+        await service.extractForSession(sessionId);
+
+        const arg = mockPrisma.collectedData.upsert.mock.calls[0][0];
+        expect(arg.create.pageUrl).toBe("https://s.com/blog");
+      });
+
+      it("stores no page when the agent switch is off", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue(
+          pagedSession({
+            agent: { ...baseSession().agent, capturePageUrl: false },
+          }),
+        );
+
+        await service.extractForSession(sessionId);
+
+        const arg = mockPrisma.collectedData.upsert.mock.calls[0][0];
+        expect(arg.create.pageUrl).toBeNull();
+        expect(arg.update).not.toHaveProperty("pageUrl");
+      });
     });
 
     it("returns 'empty' and writes nothing when no values are found", async () => {
@@ -483,5 +571,139 @@ describe("DataExtractionService", () => {
 
       expect(mockHeartbeat.ping).not.toHaveBeenCalled();
     });
+  });
+});
+
+describe("findLeadPageUrl (ADR-0020)", () => {
+  const user = (content: string, pageUrl: string | null) => ({
+    role: "USER",
+    content,
+    pageUrl,
+  });
+  const hit = (pageUrl: string) => ({ pageUrl, matched: true });
+  const guess = (pageUrl: string) => ({ pageUrl, matched: false });
+
+  it("returns the page of the first visitor message holding a value", () => {
+    expect(
+      findLeadPageUrl(
+        [
+          user("hi", "https://s.com/"),
+          user("call me on 98765 43210", "https://s.com/contact"),
+          user("again 9876543210", "https://s.com/later"),
+        ],
+        { phone: "9876543210" },
+      ),
+    ).toEqual(hit("https://s.com/contact"));
+  });
+
+  it("matches a phone typed with dashes", () => {
+    expect(
+      findLeadPageUrl(
+        [
+          user("hi", "https://s.com/a"),
+          user("98765-43210", "https://s.com/pricing"),
+          user("bye", "https://s.com/contact"),
+        ],
+        { phone: "9876543210" },
+      ),
+    ).toEqual(hit("https://s.com/pricing"));
+  });
+
+  it("does not match part of a longer number", () => {
+    expect(
+      findLeadPageUrl(
+        [
+          user("ref 9876543210", "https://s.com/a"),
+          user("ok", "https://s.com/b"),
+        ],
+        { pin: "43210" },
+      ),
+    ).toEqual(guess("https://s.com/b"));
+  });
+
+  it("matches text ignoring case, and plain numbers", () => {
+    expect(
+      findLeadPageUrl(
+        [
+          user("hi", "https://s.com/a"),
+          user("ME@X.COM, 42 seats", "https://s.com/b"),
+        ],
+        { email: "me@x.com" },
+      ),
+    ).toEqual(hit("https://s.com/b"));
+    expect(
+      findLeadPageUrl(
+        [
+          user("hi", "https://s.com/a"),
+          user("we need 1500 units", "https://s.com/b"),
+        ],
+        { qty: 1500 },
+      ),
+    ).toEqual(hit("https://s.com/b"));
+  });
+
+  it("matches text only as a whole word", () => {
+    expect(
+      findLeadPageUrl(
+        [
+          user("planning a trip yesterday", "https://s.com/blog"),
+          user("I am Ann", "https://s.com/contact"),
+        ],
+        { name: "Ann", consent: "yes" },
+      ),
+    ).toEqual(hit("https://s.com/contact"));
+  });
+
+  it("matches a multi-word value across extra spaces", () => {
+    expect(
+      findLeadPageUrl(
+        [
+          user("hi", "https://s.com/a"),
+          user("name: Ravi   Kumar", "https://s.com/b"),
+        ],
+        { name: "Ravi Kumar" },
+      ),
+    ).toEqual(hit("https://s.com/b"));
+  });
+
+  it("matches PII tokens, because messages and raw values use the same tokens", () => {
+    expect(
+      findLeadPageUrl(
+        [
+          user("hi", "https://s.com/a"),
+          user("pan [PAN_1]", "https://s.com/kyc"),
+        ],
+        { pan: "[PAN_1]" },
+      ),
+    ).toEqual(hit("https://s.com/kyc"));
+  });
+
+  it("falls back to the latest visitor page, marked as a guess, when no message holds a value", () => {
+    expect(
+      findLeadPageUrl(
+        [
+          user("hi", "https://s.com/a"),
+          { role: "ASSISTANT", content: "ok", pageUrl: null },
+          user("my name is Ravi Kumar", "https://s.com/b"),
+          user("thanks", null),
+        ],
+        { name: "R. Kumar-Singh" },
+      ),
+    ).toEqual(guess("https://s.com/b"));
+  });
+
+  it("skips values too short to match safely, and booleans", () => {
+    expect(
+      findLeadPageUrl(
+        [user("no", "https://s.com/a"), user("ok then", "https://s.com/b")],
+        { answer: "no", agreed: true },
+      ),
+    ).toEqual(guess("https://s.com/b"));
+  });
+
+  it("returns null when no visitor message has a page", () => {
+    expect(
+      findLeadPageUrl([user("a@b.com", null)], { email: "a@b.com" }),
+    ).toBeNull();
   });
 });

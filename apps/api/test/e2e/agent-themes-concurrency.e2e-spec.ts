@@ -2,6 +2,7 @@ import { execSync } from "child_process";
 import { join } from "path";
 import { AccessScope, Role } from "@prisma/client";
 import { AgentThemesService } from "../../src/services/agent-themes.service";
+import type { FilesService } from "../../src/services/files.service";
 import { PrismaService } from "../../src/services/prisma.service";
 import type { AgentLoggerService } from "../../src/common/logger/agent.logger";
 import type { PermissionCatalogService } from "../../src/common/rbac/permission-catalog.service";
@@ -70,7 +71,12 @@ describe("AgentThemesService concurrent writes (Postgres)", () => {
       resolvePermissions: () =>
         new Set(["AgentTheme:UpdateBranding", "AgentTheme:UpdateConsent"]),
     } as unknown as PermissionCatalogService;
-    service = new AgentThemesService(prisma, logger, catalog);
+    // File cleanup after a save is not what these tests measure.
+    const files = {
+      removeFilesDroppedFromTheme: jest.fn().mockResolvedValue(undefined),
+      assertNewUploadsExist: jest.fn().mockResolvedValue(undefined),
+    } as unknown as FilesService;
+    service = new AgentThemesService(prisma, logger, catalog, files);
   });
 
   it("does not hold up rows that reference the agent while a theme write is locked", async () => {

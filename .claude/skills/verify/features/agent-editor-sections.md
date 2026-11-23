@@ -12,7 +12,8 @@ The sections inside the agent editor. Each writes either agent-level columns (sa
 - `section-classification` (agent): topic categories (max 24, duplicates rejected ignoring case) and supported languages. Proven: categories.
 - `section-appearance` (theme): tabs Chat Icon and Bubble Prompt. Proven: launcher position and bubble color.
 - `section-voice` (agent): Enable Voice, STT and TTS providers, voice picker with preview. Proven.
-- `section-data-capture`, `section-branding`, `section-integration`, `section-whatsapp`: super admin only for the seeded roles. Not yet driven.
+- `section-data-capture` (agent): data fields, plus the "Lead Page" switch `Record the page` (`agents.capturePageUrl`, ADR-0020). Super admin only for the seeded roles. Proven 2026-11-11: fields, switch, lead page in Collected Data and CSV.
+- `section-branding`, `section-integration`, `section-whatsapp`: super admin only for the seeded roles. Not yet driven.
 
 ## How to get to it (user POV)
 
@@ -47,6 +48,13 @@ Preconditions:
   2. `browser click --role combobox --name "Voice"` and pick `--role option --name "Aditya male"`.
   3. `Play voice preview` sends `POST /voices/preview` (201).
   4. Save. `agents.voiceEnabled` is true and `voiceConfig` has `ttsProvider` sarvam and `ttsVoiceId` aditya. The widget's next load shows the mic.
+- **Data Capture and lead page (ADR-0020).** As `superadmin`. Start the stack with `DATA_EXTRACT_DEBOUNCE_MS=5000 DATA_EXTRACT_POLL_MS=5000` exported, so the lead job runs in seconds.
+  1. `Add Field` twice. Fill the labels with `browser fill --css 'input[placeholder="e.g. Email address"] >> nth=0' --value "Name"` (then `nth=1`, "Email"). Click `switch "Record the page"`. Save. `agents.capturePageUrl` is true.
+  2. The host page serves any path: `browser goto --page spa "http://localhost:5180/home?agent=<publicId>&utm_source=x"`, click `button "Open chat widget"`, `widget send --page spa`. A reload starts a new conversation, so to move pages inside one chat, change the address the way a single-page app does: `browser eval --page spa --js "history.pushState({}, '', '/pricing?agent=<publicId>&utm_campaign=y&token=z')"`. Give the name there, then the email on a third address.
+  3. `chat_messages.pageUrl` holds each USER message's page with `utm_*` kept and other query parameters and the fragment removed. After the lead job, `collected_data.pageUrl` is the page of the first detail.
+  4. `/dashboard/collected-data`, pick the agent: a `Page` column shows the path; the link `title` is the full address. `Export CSV` has a `Page URL` column.
+  5. Switch off and save: a new widget message stores `pageUrl` null.
+  6. Restore: `Remove field <Label>` for each field (buttons are named by label), switch off, save.
 - **Restore.** Run `Reset to Defaults` in the editor (theme), then `cw-verify seed` (agent fields, knowledge and categories on the editor agent).
 - **Proof.** Save a snapshot per section under `.verify/artifacts/agent-editor-sections/`, plus the DB rows and widget screenshots.
 

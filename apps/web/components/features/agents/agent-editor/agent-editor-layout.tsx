@@ -405,6 +405,11 @@ function AgentEditorContent() {
         formData.handoverEmailRecipients,
         savedFormData.handoverEmailRecipients,
       );
+      putIfChanged(
+        "capturePageUrl",
+        formData.capturePageUrl,
+        savedFormData.capturePageUrl,
+      );
 
       // Save agent config and theme in parallel. Skip the agent PATCH
       // entirely when only a sub-resource (theme, knowledge, fields) changed.
@@ -490,6 +495,7 @@ function AgentEditorContent() {
             humanConnectedLabel: formData.humanConnectedLabel.trim() || null,
             handoverEmailEnabled: formData.handoverEmailEnabled,
             handoverEmailRecipients: formData.handoverEmailRecipients,
+            capturePageUrl: formData.capturePageUrl,
           };
 
           const newKnowledge = formData.knowledgeContent.trim()
@@ -531,8 +537,10 @@ function AgentEditorContent() {
 
       markSaved(formData, themeData);
       toast.success("Changes saved successfully");
-    } catch {
+    } catch (err) {
       toast.error("Failed to save changes", {
+        // The API's reason, e.g. an uploaded image that must be uploaded again.
+        description: err instanceof Error ? err.message : undefined,
         action: {
           label: "Retry",
           onClick: () => handleSaveRef.current?.(),

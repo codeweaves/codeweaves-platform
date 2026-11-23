@@ -2,6 +2,7 @@ import { Test, TestingModule } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
 import { AiClassifierService } from "../../../src/common/ai/ai-classifier.service";
 import { ProviderEventLogger } from "../../../src/common/events/provider.logger";
+import { LLM_PAYLOAD_LIMITS } from "../../../src/common/events/redaction.util";
 import { UsageMeterService } from "../../../src/modules/usage/usage-meter.service";
 
 const mockMeter = { record: jest.fn() };
@@ -169,6 +170,8 @@ describe("AiClassifierService", () => {
           provider: "OPENAI",
           organizationId: "org-1",
           agentId: "agent-1",
+          // Visitor erasure finds event_logs rows by session (ADR-0005).
+          sessionId: "cs-1",
         }),
       );
     });
@@ -229,6 +232,83 @@ describe("AiClassifierService", () => {
       mockJsonResponse(null, 500);
       const result = await svc.categorize("hi", ["Pricing"]);
       expect(result).toBeNull();
+    });
+
+    it("logs the full request and the provider's error body on a non-2xx response", async () => {
+      const svc = await makeService("sk-test");
+      const body = {
+        error: {
+          message: "You have no credits remaining.",
+          type: "insufficient_quota",
+          code: "credit_balance_exhausted",
+        },
+      };
+      global.fetch = jest.fn().mockResolvedValue({
+        ok: false,
+        status: 429,
+        text: jest.fn().mockResolvedValue(JSON.stringify(body)),
+      }) as unknown as typeof fetch;
+
+      await svc.categorize("hi", ["Pricing"]);
+
+      const event = mockProviderLog.log.mock.calls[0][0];
+      expect(event).toEqual(
+        expect.objectContaining({
+          eventName: "OPENAI_CLASSIFICATION_FAILED",
+          success: false,
+          responseStatus: 429,
+          responsePayload: body,
+          errorMessage: "You have no credits remaining.",
+          payloadLimits: LLM_PAYLOAD_LIMITS,
+        }),
+      );
+      expect(event.requestPayload.messages).toEqual([
+        expect.objectContaining({ role: "system" }),
+        expect.objectContaining({ role: "user" }),
+      ]);
+    });
+
+    it("logs a model refusal as a failed call with the full response", async () => {
+      const svc = await makeService("sk-test");
+      mockRefusal("Refusing for safety reasons.");
+
+      await svc.categorize("hi", ["Pricing"]);
+
+      expect(mockProviderLog.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: false,
+          errorMessage: "model refused",
+          responsePayload: {
+            choices: [{ message: { refusal: "Refusing for safety reasons." } }],
+          },
+        }),
+      );
+    });
+
+    it("logs the full response of a successful call", async () => {
+      const svc = await makeService("sk-test");
+      mockJsonResponse({ category: "Pricing", confidence: "high" });
+
+      await svc.categorize("hi", ["Pricing"]);
+
+      expect(mockProviderLog.log).toHaveBeenCalledWith(
+        expect.objectContaining({
+          success: true,
+          responseStatus: 200,
+          responsePayload: {
+            choices: [
+              {
+                message: {
+                  content: JSON.stringify({
+                    category: "Pricing",
+                    confidence: "high",
+                  }),
+                },
+              },
+            ],
+          },
+        }),
+      );
     });
 
     it("returns null when fetch throws (network error / timeout)", async () => {

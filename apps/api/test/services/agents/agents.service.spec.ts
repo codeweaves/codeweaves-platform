@@ -153,6 +153,7 @@ describe("AgentsService", () => {
     "Agent:UpdatePrompt",
     "Agent:UpdateHandover",
     "Agent:UpdateIntegration",
+    "AgentDataField:Update",
   ];
   let grantedPermissions = new Set<string>(ALL_SECTIONS);
 
@@ -482,6 +483,24 @@ describe("AgentsService", () => {
         service.update(agentId, { allowedDomains: ["example.com"] }, adminUser),
       ).rejects.toThrow(/integration settings/);
       expect(mockPrismaService.agent.update).not.toHaveBeenCalled();
+    });
+
+    it("denies the page-URL switch without AgentDataField:Update (ADR-0020)", async () => {
+      grantedPermissions = new Set(["Agent:Update"]);
+      await expect(
+        service.update(agentId, { capturePageUrl: true }, adminUser),
+      ).rejects.toThrow(/data-capture settings/);
+      expect(mockPrismaService.agent.update).not.toHaveBeenCalled();
+    });
+
+    it("saves the page-URL switch when AgentDataField:Update is held", async () => {
+      grantedPermissions = new Set(["Agent:Update", "AgentDataField:Update"]);
+      await service.update(agentId, { capturePageUrl: true }, adminUser);
+      expect(mockPrismaService.agent.update).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({ capturePageUrl: true }),
+        }),
+      );
     });
 
     it("allows each section once its permission is held", async () => {
@@ -1218,8 +1237,33 @@ describe("AgentsService", () => {
           humanTakeoverEnabled: true,
           showTalkToHumanButton: true,
           humanConnectedLabel: true,
+          capturePageUrl: true,
         },
       });
+    });
+
+    it("tells the widget whether to send the visitor's page (ADR-0020), and the ETag changes with it", async () => {
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue(null);
+      mockPrismaService.agent.findFirst.mockResolvedValueOnce({
+        id: agentId,
+        name: "A",
+        allowedDomains: [],
+        capturePageUrl: false,
+      });
+      const off = await service.getWidgetConfig(publicId);
+
+      mockPrismaService.agent.findFirst.mockResolvedValueOnce({
+        id: agentId,
+        name: "A",
+        allowedDomains: [],
+        capturePageUrl: true,
+      });
+      const on = await service.getWidgetConfig(publicId);
+
+      expect(off.config.agent.capturePageUrl).toBe(false);
+      expect(on.config.agent.capturePageUrl).toBe(true);
+      // A switch change must reach widgets that cached the old config.
+      expect(on.etag).not.toBe(off.etag);
     });
 
     it("sends the notice hash only when the privacy notice is live", async () => {

@@ -36,6 +36,8 @@ export interface Agent {
   /** Email the team on a handover request. Recipients empty = whole org. */
   handoverEmailEnabled: boolean;
   handoverEmailRecipients: string[];
+  /** Store the visitor's page with each message and each lead (ADR-0020). */
+  capturePageUrl: boolean;
   createdAt: string;
   updatedAt: string;
 }

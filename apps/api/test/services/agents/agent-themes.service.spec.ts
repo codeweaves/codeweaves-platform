@@ -8,6 +8,7 @@ import { AgentThemesService } from "../../../src/services/agent-themes.service";
 import { PermissionCatalogService } from "../../../src/common/rbac/permission-catalog.service";
 import { PrismaService } from "../../../src/services/prisma.service";
 import { AgentLoggerService } from "../../../src/common/logger/agent.logger";
+import { FilesService } from "../../../src/services/files.service";
 import { Role, AccessScope } from "@prisma/client";
 import type { CurrentUserData } from "../../../src/decorators/current-user.decorator";
 import {
@@ -37,6 +38,11 @@ describe("AgentThemesService", () => {
     logThemeUpdated: jest.fn(),
     logThemeReset: jest.fn(),
     logConsentNoticeUpdated: jest.fn(),
+  };
+
+  const mockFiles = {
+    removeFilesDroppedFromTheme: jest.fn(),
+    assertNewUploadsExist: jest.fn(),
   };
 
   const orgId = "123e4567-e89b-12d3-a456-426614174000";
@@ -139,6 +145,7 @@ describe("AgentThemesService", () => {
         },
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: AgentLoggerService, useValue: mockAgentLogger },
+        { provide: FilesService, useValue: mockFiles },
       ],
     }).compile();
 
@@ -848,6 +855,165 @@ describe("AgentThemesService", () => {
       return expect(service.resetTheme(agentId, adminUser)).rejects.toThrow(
         NotFoundException,
       );
+    });
+  });
+
+  describe("uploaded files the save stops using", () => {
+    const oldLogo =
+      "https://cdn.example.com/agent-assets/o/a/header-logo/1-old.png";
+    const newLogo =
+      "https://cdn.example.com/agent-assets/o/a/header-logo/2-new.png";
+    const withLogo = (url?: string): WidgetTheme => ({
+      ...defaultWidgetTheme,
+      header: { ...defaultWidgetTheme.header, logoUrl: url },
+    });
+
+    beforeEach(() => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(mockAgent);
+      mockFiles.removeFilesDroppedFromTheme.mockResolvedValue(undefined);
+    });
+
+    it("full save: hands the stored and the saved config to the file cleanup", async () => {
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: withLogo(oldLogo),
+      });
+      mockPrismaService.agentTheme.upsert.mockImplementation(
+        ({ update }: { update: { config: unknown } }) => ({
+          id: "theme-id",
+          agentId,
+          config: update.config,
+          version: 2,
+        }),
+      );
+
+      await service.updateTheme(agentId, withLogo(newLogo), adminUser);
+
+      expect(mockFiles.removeFilesDroppedFromTheme).toHaveBeenCalledTimes(1);
+      const arg = mockFiles.removeFilesDroppedFromTheme.mock.calls[0][0];
+      expect(arg).toMatchObject({
+        agentId,
+        organizationId: orgId,
+        userId: adminUser.id,
+      });
+      expect(arg.previousConfig.header.logoUrl).toBe(oldLogo);
+      expect(arg.newConfig.header.logoUrl).toBe(newLogo);
+    });
+
+    it("field-by-field save: passes the merged result, not the partial", async () => {
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: withLogo(oldLogo),
+      });
+      mockPrismaService.agentTheme.upsert.mockImplementation(
+        ({ update }: { update: { config: unknown } }) => ({
+          id: "theme-id",
+          agentId,
+          config: update.config,
+          version: 3,
+        }),
+      );
+
+      await service.patchTheme(
+        agentId,
+        { header: { title: "New title" } },
+        adminUser,
+      );
+
+      const arg = mockFiles.removeFilesDroppedFromTheme.mock.calls[0][0];
+      // The logo is untouched by this PATCH, so it is still in the new config
+      // and the cleanup will not treat it as dropped.
+      expect(arg.previousConfig.header.logoUrl).toBe(oldLogo);
+      expect(arg.newConfig.header.logoUrl).toBe(oldLogo);
+      expect(arg.newConfig.header.title).toBe("New title");
+    });
+
+    it("reset: passes the stored config and the defaults", async () => {
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: withLogo(oldLogo),
+      });
+      mockPrismaService.agentTheme.upsert.mockResolvedValue({
+        id: "theme-id",
+        agentId,
+        config: defaultWidgetTheme,
+        version: 5,
+      });
+
+      await service.resetTheme(agentId, adminUser);
+
+      const arg = mockFiles.removeFilesDroppedFromTheme.mock.calls[0][0];
+      expect(arg.previousConfig.header.logoUrl).toBe(oldLogo);
+      expect(arg.newConfig).toEqual(defaultWidgetTheme);
+    });
+
+    it("does not wait for the cleanup: a slow storage delete never delays the save", async () => {
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: withLogo(oldLogo),
+      });
+      mockPrismaService.agentTheme.upsert.mockResolvedValue({
+        id: "theme-id",
+        agentId,
+        config: withLogo(newLogo),
+        version: 2,
+      });
+      mockFiles.removeFilesDroppedFromTheme.mockReturnValue(
+        new Promise(() => undefined),
+      );
+
+      await expect(
+        service.updateTheme(agentId, withLogo(newLogo), adminUser),
+      ).resolves.toMatchObject({ version: 2 });
+    });
+
+    it("checks new uploads inside the locked write, for both save paths", async () => {
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: withLogo(oldLogo),
+      });
+      mockPrismaService.agentTheme.upsert.mockImplementation(
+        ({ update }: { update: { config: unknown } }) => ({
+          id: "theme-id",
+          agentId,
+          config: update.config,
+          version: 2,
+        }),
+      );
+
+      await service.updateTheme(agentId, withLogo(newLogo), adminUser);
+      await service.patchTheme(
+        agentId,
+        { header: { logoUrl: newLogo } },
+        adminUser,
+      );
+
+      expect(mockFiles.assertNewUploadsExist).toHaveBeenCalledTimes(2);
+      for (const [tx, arg] of mockFiles.assertNewUploadsExist.mock.calls) {
+        expect(tx).toBe(mockPrismaService);
+        expect(arg).toMatchObject({ agentId, organizationId: orgId });
+        expect(arg.previousConfig.header.logoUrl).toBe(oldLogo);
+        expect(arg.newConfig.header.logoUrl).toBe(newLogo);
+      }
+    });
+
+    it("stores nothing when the save adds an upload that no longer exists", async () => {
+      mockPrismaService.agentTheme.findUnique.mockResolvedValue({
+        config: withLogo(oldLogo),
+      });
+      mockFiles.assertNewUploadsExist.mockRejectedValue(
+        new BadRequestException("An uploaded image is no longer available."),
+      );
+
+      await expect(
+        service.updateTheme(agentId, withLogo(newLogo), adminUser),
+      ).rejects.toThrow(BadRequestException);
+      expect(mockPrismaService.agentTheme.upsert).not.toHaveBeenCalled();
+      expect(mockFiles.removeFilesDroppedFromTheme).not.toHaveBeenCalled();
+    });
+
+    it("runs no cleanup when the save is refused", async () => {
+      mockPrismaService.agent.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.updateTheme(agentId, withLogo(newLogo), adminUser),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockFiles.removeFilesDroppedFromTheme).not.toHaveBeenCalled();
     });
   });
 

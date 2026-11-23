@@ -10,6 +10,7 @@ import {
 } from "../services/theme-engine";
 import { revealWidget } from "../shadow-dom";
 import { isDomainAllowed } from "../utils/domain-validator";
+import { setPageUrlCapture } from "../utils/url";
 import { debug, warn } from "../utils/debug";
 import { initApiClient } from "../services/api-client";
 import { initVoiceClient } from "../services/voice-client";
@@ -180,6 +181,7 @@ export function Widget({ agentId, apiBaseUrl = "", hostElement }: WidgetProps) {
           initApiClient(apiBaseUrl);
           initVoiceClient(apiBaseUrl);
           initSession(agentId);
+          setPageUrlCapture(result.agent.capturePageUrl === true);
 
           // Reload / tab close = new session (matches `session-manager.ts`'s
           // in-memory-only behaviour). The chat history is intentionally NOT

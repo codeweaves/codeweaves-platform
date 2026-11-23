@@ -6,6 +6,7 @@
   // the watcher there was nothing to emit. Each now owns its own folder and its
   // own incremental state.
   "compilerOptions": {
-    "outDir": "./dist-dev"
+    "outDir": "./dist-dev",
+    "tsBuildInfoFile": "./dist-dev/tsconfig.dev.tsbuildinfo"
   }
 }

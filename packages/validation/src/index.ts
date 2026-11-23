@@ -18,6 +18,9 @@ export * from "./contrast.js";
 // Re-export chat schemas and types
 export * from "./chat.js";
 
+// Visitor page URL cleaning (ADR-0020)
+export * from "./page-url.js";
+
 // Re-export analytics schemas and types
 export * from "./analytics.js";
 
@@ -200,6 +203,47 @@ export const updateOrganizationSchema = z
 
 export type UpdateOrganizationDto = z.infer<typeof updateOrganizationSchema>;
 
+/** Highest conversation limit staff can set. A typo guard, not a business cap. */
+export const CONVERSATION_LIMIT_MAX = 100_000_000;
+
+/**
+ * Platform staff set an organization's contract start date and conversation
+ * limit (ADR-0022). `null` clears a field. Sending `conversationLimit` always
+ * restarts the usage count, even when the number is unchanged.
+ */
+export const updateOrganizationContractSchema = z
+  .object({
+    // z.iso.date() is strict YYYY-MM-DD and rejects days that do not exist
+    // (2026-02-30), including the leap-year rule.
+    contractStartDate: z.iso
+      .date("Contract start date must be a real date in YYYY-MM-DD format")
+      .nullable()
+      .optional(),
+    conversationLimit: z
+      .number("Conversation limit must be a number")
+      .int("Conversation limit must be a whole number")
+      .min(1, "Conversation limit must be at least 1")
+      .max(
+        CONVERSATION_LIMIT_MAX,
+        `Conversation limit must be at most ${CONVERSATION_LIMIT_MAX}`,
+      )
+      .nullable()
+      .optional(),
+  })
+  .refine(
+    (data) =>
+      data.contractStartDate !== undefined ||
+      data.conversationLimit !== undefined,
+    {
+      message:
+        "At least one field (contractStartDate or conversationLimit) must be provided",
+    },
+  );
+
+export type UpdateOrganizationContractDto = z.infer<
+  typeof updateOrganizationContractSchema
+>;
+
 // ============================================
 // Agent Management Schemas
 // ============================================
@@ -355,6 +399,8 @@ export const updateAgentSchema = z
     humanConnectedLabel: z.string().max(160).nullable().optional(),
     handoverEmailEnabled: z.boolean().optional(),
     handoverEmailRecipients: handoverEmailRecipientsSchema.optional(),
+    // --- Data capture ---
+    capturePageUrl: z.boolean().optional(),
   })
   .refine(
     (data) =>
@@ -374,7 +420,8 @@ export const updateAgentSchema = z
       data.showTalkToHumanButton !== undefined ||
       data.humanConnectedLabel !== undefined ||
       data.handoverEmailEnabled !== undefined ||
-      data.handoverEmailRecipients !== undefined,
+      data.handoverEmailRecipients !== undefined ||
+      data.capturePageUrl !== undefined,
     { message: "At least one field must be provided" },
   );
 

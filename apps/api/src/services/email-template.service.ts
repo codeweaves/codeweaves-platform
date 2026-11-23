@@ -1,11 +1,16 @@
-import { Injectable, NotFoundException } from '@nestjs/common';
-import { PrismaService } from './prisma.service';
-import { AppLogger } from '../common/logger/app-logger';
+import { Injectable, NotFoundException } from "@nestjs/common";
+import { ConfigService } from "@nestjs/config";
+import { PrismaService } from "./prisma.service";
+// escapeHtml: templates are written by a SUPER_ADMIN, but the VALUES put into
+// them come from outside (agent, organization, visitor names). Escaping stops an
+// org named `<script>` or `"><img onerror=…>` from injecting markup, including
+// inside attributes like `href="{{conversationUrl}}"`.
+import { buildEmailLayout, escapeHtml } from "./email-layout";
+import { AppLogger } from "../common/logger/app-logger";
 import {
   type EmailTemplateKey,
-  isEmailTemplateKey,
   templateVariables,
-} from './email-template.registry';
+} from "./email-template.registry";
 
 /** How long a fetched template stays cached. Copy changes ~never; this keeps a
  *  DB round-trip off every send. A dashboard edit busts the key immediately. */
@@ -27,26 +32,6 @@ interface CachedTemplate {
 }
 
 /**
- * Escape a value before it lands inside template HTML.
- *
- * Templates are authored by a SUPER_ADMIN, but the VALUES substituted into them
- * come from the outside world — an agent name, an organization name, a visitor
- * name. Without this, an org called `<script>…` or an agent named
- * `"><img onerror=…>` would inject markup into every email built from that
- * template (and, more immediately, into the preview iframe). Escaping the five
- * significant characters also covers attribute contexts like
- * `href="{{conversationUrl}}"`, because `"` can no longer close the attribute.
- */
-function escapeHtml(value: string): string {
-  return value
-    .replace(/&/g, '&amp;')
-    .replace(/</g, '&lt;')
-    .replace(/>/g, '&gt;')
-    .replace(/"/g, '&quot;')
-    .replace(/'/g, '&#39;');
-}
-
-/**
  * Defence in depth for values that land in an `href`. Everything we substitute
  * today is server-built, but a `javascript:`/`data:` URL reaching an anchor is
  * the classic way a "harmless string" becomes execution, so anything that isn't
@@ -54,7 +39,7 @@ function escapeHtml(value: string): string {
  */
 function sanitizeUrlValue(value: string): string {
   const trimmed = value.trim();
-  return /^(https?:|mailto:)/i.test(trimmed) ? trimmed : '#';
+  return /^(https?:|mailto:)/i.test(trimmed) ? trimmed : "#";
 }
 
 /**
@@ -67,7 +52,38 @@ export class EmailTemplateService {
   private readonly log = new AppLogger(EmailTemplateService.name);
   private readonly cache = new Map<string, CachedTemplate>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  private readonly dashboardUrl: string;
+  /** The fixed logo header + footer. It depends only on config and on the
+   *  year in the copyright line, so it is rebuilt once a year, not per send. */
+  private cachedLayout: { year: number; before: string; after: string } | null =
+    null;
+
+  constructor(
+    private readonly prisma: PrismaService,
+    config: ConfigService,
+  ) {
+    const configured = config.get<string>("DASHBOARD_URL");
+    this.dashboardUrl = configured || "http://localhost:3000";
+    // The email logo is served from the dashboard origin. Without this the
+    // logo in every sent email points at localhost and shows as broken.
+    if (!configured && config.get<string>("NODE_ENV") === "production") {
+      this.log.warn(
+        "constructor",
+        "DASHBOARD_URL is not set, so the logo in every email points at localhost",
+      );
+    }
+  }
+
+  private get layout(): { before: string; after: string } {
+    const year = new Date().getFullYear();
+    if (this.cachedLayout?.year !== year) {
+      this.cachedLayout = {
+        year,
+        ...buildEmailLayout(this.dashboardUrl, undefined, year),
+      };
+    }
+    return { before: this.cachedLayout.before, after: this.cachedLayout.after };
+  }
 
   /**
    * Render a template to a ready-to-send email.
@@ -88,18 +104,25 @@ export class EmailTemplateService {
 
     const substitute = (source: string, escape: boolean): string =>
       source.replace(PLACEHOLDER_RE, (_match, name: string) => {
-        if (!allowed.has(name)) return '';
+        if (!allowed.has(name)) return "";
         const raw = vars[name];
-        if (raw === null || raw === undefined) return '';
-        const value = /url$/i.test(name) ? sanitizeUrlValue(String(raw)) : String(raw);
+        if (raw === null || raw === undefined) return "";
+        const value = /url$/i.test(name)
+          ? sanitizeUrlValue(String(raw))
+          : String(raw);
         return escape ? escapeHtml(value) : value;
       });
 
-    const html = substitute(template.html, true);
+    // The DB row is only the BODY. The frame (logo, footer) is fixed in code
+    // and joined by concatenation, so body text is never scanned again.
+    const { before, after } = this.layout;
+    const html = before + substitute(template.html, true) + after;
     // The subject is a plain-text header — HTML-escaping it would put a literal
     // `&amp;` in the inbox. Strip CR/LF instead: that is the only injection that
     // matters for a header (it would let a value forge extra headers).
-    const subject = substitute(template.subject, false).replace(/[\r\n]+/g, ' ').trim();
+    const subject = substitute(template.subject, false)
+      .replace(/[\r\n]+/g, " ")
+      .trim();
 
     return { subject, html, text: htmlToText(html) };
   }
@@ -115,7 +138,10 @@ export class EmailTemplateService {
     });
     if (!row) {
       // Seeded by migration, so this means drift between code and DB.
-      this.log.error('load', `email template '${key}' is missing from the database`);
+      this.log.error(
+        "load",
+        `email template '${key}' is missing from the database`,
+      );
       throw new NotFoundException(`Email template '${key}' not found`);
     }
 
@@ -138,7 +164,7 @@ export class EmailTemplateService {
    *  needs it and the bodies are large. */
   async listForEditor() {
     return this.prisma.emailTemplate.findMany({
-      orderBy: { name: 'asc' },
+      orderBy: { name: "asc" },
       select: {
         key: true,
         name: true,
@@ -154,7 +180,8 @@ export class EmailTemplateService {
   async getForEditor(key: EmailTemplateKey) {
     const row = await this.prisma.emailTemplate.findUnique({ where: { key } });
     if (!row) throw new NotFoundException(`Email template '${key}' not found`);
-    return { ...row, variables: templateVariables(key) };
+    // `layout` lets the editor preview draw the same frame a real send gets.
+    return { ...row, variables: templateVariables(key), layout: this.layout };
   }
 
   /**
@@ -173,7 +200,8 @@ export class EmailTemplateService {
       where: { key },
       select: { subject: true, html: true },
     });
-    if (!before) throw new NotFoundException(`Email template '${key}' not found`);
+    if (!before)
+      throw new NotFoundException(`Email template '${key}' not found`);
 
     const row = await this.prisma.emailTemplate.update({
       where: { key },
@@ -185,28 +213,6 @@ export class EmailTemplateService {
     this.invalidate(key);
 
     return { row, before };
-  }
-
-  /** Render arbitrary (unsaved) HTML for the editor's live preview. Used only
-   *  by the SUPER_ADMIN preview path; never by a real send. */
-  renderPreview(
-    key: string,
-    html: string,
-    subject: string,
-    vars: Record<string, string>,
-  ): { subject: string; html: string } {
-    if (!isEmailTemplateKey(key)) return { subject, html };
-    const allowed = new Set(templateVariables(key).map((v) => v.key));
-    const substitute = (source: string, escape: boolean): string =>
-      source.replace(PLACEHOLDER_RE, (_m, name: string) => {
-        if (!allowed.has(name)) return '';
-        const value = vars[name] ?? '';
-        return escape ? escapeHtml(value) : value;
-      });
-    return {
-      subject: substitute(subject, false).replace(/[\r\n]+/g, ' ').trim(),
-      html: substitute(html, true),
-    };
   }
 }
 
@@ -230,32 +236,32 @@ export function htmlToText(html: string): string {
   // than a regex: a regex "tag remover" is inherently bypassable, and this is a
   // text/plain generator on already-escaped input (not a security boundary), so
   // this is about producing clean text.
-  let text = stripTagBlocks(stripTagBlocks(html, 'script'), 'style');
+  let text = stripTagBlocks(stripTagBlocks(html, "script"), "style");
   let prev: string;
 
   // Turn block/line-break tags into newlines before stripping the rest.
   text = text
-    .replace(/<br\s*\/?>/gi, '\n')
-    .replace(/<\/(p|div|h[1-6]|li|tr)[^>]*>/gi, '\n');
+    .replace(/<br\s*\/?>/gi, "\n")
+    .replace(/<\/(p|div|h[1-6]|li|tr)[^>]*>/gi, "\n");
 
   // Strip all remaining tags, looping until stable.
   do {
     prev = text;
-    text = text.replace(/<[^>]*>/g, '');
+    text = text.replace(/<[^>]*>/g, "");
   } while (text !== prev);
 
   return text
-    .replace(/&nbsp;/g, ' ')
-    .replace(/&lt;/g, '<')
-    .replace(/&gt;/g, '>')
+    .replace(/&nbsp;/g, " ")
+    .replace(/&lt;/g, "<")
+    .replace(/&gt;/g, ">")
     .replace(/&quot;/g, '"')
     .replace(/&#39;/g, "'")
-    .replace(/&amp;/g, '&')
-    .replace(/[ \t]+/g, ' ')
-    .replace(/\n{3,}/g, '\n\n')
-    .split('\n')
+    .replace(/&amp;/g, "&")
+    .replace(/[ \t]+/g, " ")
+    .replace(/\n{3,}/g, "\n\n")
+    .split("\n")
     .map((line) => line.trim())
-    .join('\n')
+    .join("\n")
     .trim();
 }
 
@@ -272,9 +278,9 @@ export function htmlToText(html: string): string {
  */
 function stripTagBlocks(input: string, tag: string): string {
   const lower = input.toLowerCase();
-  const openNeedle = '<' + tag;
-  const closeNeedle = '</' + tag;
-  let out = '';
+  const openNeedle = "<" + tag;
+  const closeNeedle = "</" + tag;
+  let out = "";
   let i = 0;
 
   for (;;) {
@@ -283,7 +289,12 @@ function stripTagBlocks(input: string, tag: string): string {
     let open = lower.indexOf(openNeedle, i);
     while (open !== -1) {
       const after = lower[open + openNeedle.length];
-      if (after === undefined || after === '>' || after === '/' || /\s/.test(after)) {
+      if (
+        after === undefined ||
+        after === ">" ||
+        after === "/" ||
+        /\s/.test(after)
+      ) {
         break;
       }
       open = lower.indexOf(openNeedle, open + 1);
@@ -293,7 +304,7 @@ function stripTagBlocks(input: string, tag: string): string {
     out += input.slice(i, open);
     const close = lower.indexOf(closeNeedle, open);
     if (close === -1) return out; // Unclosed block → drop the remainder entirely.
-    const gt = input.indexOf('>', close);
+    const gt = input.indexOf(">", close);
     i = gt === -1 ? input.length : gt + 1;
   }
 }

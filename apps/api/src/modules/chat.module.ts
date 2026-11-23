@@ -8,6 +8,7 @@ import { PublicConsentController } from "../controllers/public/public-consent.co
 import { PrismaModule } from "./prisma.module";
 import { AiModule } from "./ai/ai.module";
 import { HandoverModule } from "./handover.module";
+import { ConversationLimitModule } from "./conversation-limit.module";
 
 @Module({
   // AiModule gives us DirectChatService, which serves every reply (ChatService
@@ -15,7 +16,9 @@ import { HandoverModule } from "./handover.module";
   // PublicChatController the HandoverService for
   // the AI-pause / keyword-trigger / stall hooks on the chat hot-path.
   // ConsentService lives here because ChatService gates new sessions on it.
-  imports: [PrismaModule, AiModule, HandoverModule],
+  // ConversationLimitModule: ChatService fires the usage-alert check after
+  // each new WIDGET/WHATSAPP session (ADR-0022).
+  imports: [PrismaModule, AiModule, HandoverModule, ConversationLimitModule],
   controllers: [PublicChatController, PublicConsentController],
   providers: [
     ChatService,

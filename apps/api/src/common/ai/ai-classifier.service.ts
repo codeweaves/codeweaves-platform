@@ -3,6 +3,10 @@ import { ConfigService } from "@nestjs/config";
 import type { UsageFeature } from "@prisma/client";
 import { ProviderEventLogger } from "../events/provider.logger";
 import {
+  LLM_PAYLOAD_LIMITS,
+  parseResponseBody,
+} from "../events/redaction.util";
+import {
   UsageMeterService,
   type UsageScope,
 } from "../../modules/usage/usage-meter.service";
@@ -378,13 +382,61 @@ export class AiClassifierService {
     maxTokens = 64,
   ): Promise<T | null> {
     const eventBase = `OPENAI_${schemaName.toUpperCase()}`;
-    // The conversation's org and agent, so each call is attributable in the
-    // event log. A cron pass covers many orgs; its own run row has none.
+    // The conversation's org, agent and session, so each call is attributable
+    // in the event log. A cron pass covers many orgs; its own run row has
+    // none. The session matters most: the row holds the visitor's words, and
+    // visitor erasure finds rows by session (ADR-0005).
     const scope = {
       organizationId: meterAs.scope?.organizationId ?? undefined,
       agentId: meterAs.scope?.agentId ?? undefined,
+      sessionId: meterAs.scope?.chatSessionId ?? undefined,
     };
     const start = performance.now();
+    const requestBody = {
+      model: this.model,
+      // Low temperature keeps the classifier deterministic. We don't need
+      // creative writing — we need consistent labels for analytics buckets.
+      temperature: 0,
+      // Structured outputs can be slightly longer than free-text. 64 is
+      // plenty for a single classification label; callers extracting
+      // several fields pass a larger cap.
+      max_tokens: maxTokens,
+      messages: [
+        { role: "system", content: system },
+        { role: "user", content: user },
+      ],
+      response_format: {
+        type: "json_schema",
+        json_schema: {
+          name: schemaName,
+          strict: true,
+          schema,
+        },
+      },
+    };
+    // Every outcome logs the full request and the provider's full answer
+    // (ADR-0005: full bodies stay; TracerService masks PII before writing).
+    const logCall = (
+      outcome: {
+        responseStatus?: number;
+        responsePayload?: unknown;
+        errorMessage?: string;
+      },
+      success: boolean,
+    ) =>
+      this.providerLog.log({
+        channel: "INTERNAL",
+        eventName: `${eventBase}_${success ? "COMPLETED" : "FAILED"}`,
+        direction: "OUTBOUND",
+        provider: "OPENAI",
+        ...scope,
+        requestUrl: this.endpoint,
+        requestPayload: requestBody,
+        ...outcome,
+        payloadLimits: LLM_PAYLOAD_LIMITS,
+        latencyMs: Math.round(performance.now() - start),
+        success,
+      });
     try {
       const res = await fetch(this.endpoint, {
         method: "POST",
@@ -392,28 +444,7 @@ export class AiClassifierService {
           "Content-Type": "application/json",
           Authorization: `Bearer ${this.apiKey!}`,
         },
-        body: JSON.stringify({
-          model: this.model,
-          // Low temperature keeps the classifier deterministic. We don't need
-          // creative writing — we need consistent labels for analytics buckets.
-          temperature: 0,
-          // Structured outputs can be slightly longer than free-text. 64 is
-          // plenty for a single classification label; callers extracting
-          // several fields pass a larger cap.
-          max_tokens: maxTokens,
-          messages: [
-            { role: "system", content: system },
-            { role: "user", content: user },
-          ],
-          response_format: {
-            type: "json_schema",
-            json_schema: {
-              name: schemaName,
-              strict: true,
-              schema,
-            },
-          },
-        }),
+        body: JSON.stringify(requestBody),
         // 15s is generous for a single-message classification — anything
         // slower than this means the provider is degraded; failing fast lets
         // the worker move on to other sessions.
@@ -425,19 +456,15 @@ export class AiClassifierService {
         this.logger.warn(
           `Classifier HTTP ${res.status}: ${body.slice(0, 200)}`,
         );
-        this.providerLog.log({
-          channel: "INTERNAL",
-          eventName: `${eventBase}_FAILED`,
-          direction: "OUTBOUND",
-          provider: "OPENAI",
-          ...scope,
-          requestUrl: this.endpoint,
-          requestPayload: { model: this.model, schema: schemaName },
-          responseStatus: res.status,
-          latencyMs: Math.round(performance.now() - start),
-          success: false,
-          errorMessage: `HTTP ${res.status}`,
-        });
+        const parsed = parseResponseBody(body);
+        logCall(
+          {
+            responseStatus: res.status,
+            responsePayload: parsed,
+            errorMessage: providerErrorMessage(parsed) ?? `HTTP ${res.status}`,
+          },
+          false,
+        );
         return null;
       }
 
@@ -474,24 +501,30 @@ export class AiClassifierService {
         // OpenAI's safety system returned a refusal instead of content.
         // Don't bury — this is rare enough to log loudly so it's investigated.
         this.logger.warn(`Classifier refused: ${message.refusal}`);
+        logCall(
+          {
+            responseStatus: res.status,
+            responsePayload: json,
+            errorMessage: "model refused",
+          },
+          false,
+        );
         return null;
       }
       if (!message?.content) {
         this.logger.warn("Classifier returned no content.");
+        logCall(
+          {
+            responseStatus: res.status,
+            responsePayload: json,
+            errorMessage: "model returned no content",
+          },
+          false,
+        );
         return null;
       }
 
-      this.providerLog.log({
-        channel: "INTERNAL",
-        eventName: `${eventBase}_COMPLETED`,
-        direction: "OUTBOUND",
-        provider: "OPENAI",
-        ...scope,
-        requestUrl: this.endpoint,
-        requestPayload: { model: this.model, schema: schemaName },
-        responseStatus: res.status,
-        latencyMs: Math.round(performance.now() - start),
-      });
+      logCall({ responseStatus: res.status, responsePayload: json }, true);
 
       try {
         return JSON.parse(message.content) as T;
@@ -507,18 +540,10 @@ export class AiClassifierService {
       this.logger.warn(
         `Classifier call failed: ${err instanceof Error ? err.message : "unknown"}`,
       );
-      this.providerLog.log({
-        channel: "INTERNAL",
-        eventName: `${eventBase}_FAILED`,
-        direction: "OUTBOUND",
-        provider: "OPENAI",
-        ...scope,
-        requestUrl: this.endpoint,
-        requestPayload: { model: this.model, schema: schemaName },
-        latencyMs: Math.round(performance.now() - start),
-        success: false,
-        errorMessage: err instanceof Error ? err.message : String(err),
-      });
+      logCall(
+        { errorMessage: err instanceof Error ? err.message : String(err) },
+        false,
+      );
       return null;
     }
   }
@@ -556,4 +581,14 @@ const NO_VALUE_SENTINELS = new Set([
 function isNoValue(value: string): boolean {
   const v = value.trim().toLowerCase();
   return v === "" || NO_VALUE_SENTINELS.has(v);
+}
+
+/**
+ * The provider's own error text from an OpenAI-style error body
+ * (`{ error: { message } }`), so the row says why, not just "HTTP 429".
+ */
+function providerErrorMessage(body: unknown): string | undefined {
+  if (typeof body !== "object" || body === null) return undefined;
+  const error = (body as { error?: { message?: unknown } }).error;
+  return typeof error?.message === "string" ? error.message : undefined;
 }

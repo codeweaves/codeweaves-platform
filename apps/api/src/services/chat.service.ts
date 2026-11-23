@@ -8,9 +8,19 @@ import { PiiDetectionService } from "../modules/pii/pii-detection.service";
 import { PiiTokenizerService } from "../modules/pii/pii-tokenizer.service";
 import { HandoverService } from "./handover.service";
 import { ConsentService } from "./consent.service";
+import { ConversationLimitService } from "./conversation-limit.service";
 import type { VisitorIdentity } from "./web-visitor";
-import type { SendMessageDto } from "@repo/validation";
-import type { ChatSession, Prisma, HandoverReason } from "@prisma/client";
+import {
+  sanitizePageUrl,
+  type CleanPageUrl,
+  type SendMessageDto,
+} from "@repo/validation";
+import type {
+  ChatSession,
+  ChatSource,
+  Prisma,
+  HandoverReason,
+} from "@prisma/client";
 import type { ChatMessageMetadata } from "./chat-metadata.interface";
 import { MessageMetricsService } from "./message-metrics.service";
 import { detectFallback } from "../utils/fallback-detection";
@@ -37,7 +47,31 @@ export class ChatService {
     private readonly piiTokenizer: PiiTokenizerService,
     private readonly widgetLog: WidgetEventLogger,
     private readonly consentService: ConsentService,
+    private readonly conversationLimit: ConversationLimitService,
   ) {}
+
+  /**
+   * Usage alerts for the organization's conversation limit (ADR-0022). Not
+   * awaited: the check never throws, and the limit must never slow a chat.
+   * DEMO previews do not count as conversations.
+   */
+  private afterNewConversation(agentId: string, source: ChatSource): void {
+    if (source === "DEMO") return;
+    // The check catches its own errors. This catch is the backstop: an
+    // unhandled rejection would crash the Node process.
+    void this.conversationLimit
+      .checkAfterNewConversation(agentId)
+      .catch((err: unknown) => {
+        this.log.warn(
+          "afterNewConversation",
+          "conversation limit check failed",
+          {
+            agentId,
+            err: err instanceof Error ? err.message : String(err),
+          },
+        );
+      });
+  }
 
   /**
    * True when a human teammate has taken over this session — the AI must NOT
@@ -58,6 +92,8 @@ export class ChatService {
     session: HandoverSession,
     organizationId: string,
     content: string,
+    /** Already gated + cleaned, see {@link ChatService.pageUrlToStore}. */
+    pageUrl?: CleanPageUrl | null,
   ): Promise<void> {
     await this.handoverService.onVisitorMessageWhilePaused(
       {
@@ -68,6 +104,7 @@ export class ChatService {
         organizationId,
       },
       content,
+      pageUrl,
     );
   }
 
@@ -173,12 +210,28 @@ export class ChatService {
         id: true,
         aiConfig: true,
         organizationId: true,
+        capturePageUrl: true,
       },
     });
     if (!agent) {
       throw new NotFoundException("Agent not found or inactive");
     }
     return agent;
+  }
+
+  /**
+   * The page URL to store on a visitor message (ADR-0020): the cleaned URL
+   * when the agent has `capturePageUrl` on and the chat is a website widget
+   * chat, else null. Other sources (dashboard preview, WhatsApp) have no
+   * visitor page, so whatever they send is dropped.
+   */
+  static pageUrlToStore(
+    agent: { capturePageUrl: boolean },
+    session: { source: ChatSource },
+    rawPageUrl: string | undefined,
+  ): CleanPageUrl | null {
+    if (!agent.capturePageUrl || session.source !== "WIDGET") return null;
+    return sanitizePageUrl(rawPageUrl);
   }
 
   // Hard session lifetime, measured from createdAt (NOT lastMessageAt). A
@@ -294,6 +347,7 @@ export class ChatService {
         consentId,
       },
     });
+    this.afterNewConversation(agentId, source);
     if (source === "WIDGET") {
       this.widgetLog.logSessionStarted({
         agentId,
@@ -343,7 +397,7 @@ export class ChatService {
       });
     }
 
-    return this.prisma.chatSession.create({
+    const session = await this.prisma.chatSession.create({
       data: {
         agentId,
         sessionId: randomUUID(),
@@ -351,6 +405,8 @@ export class ChatService {
         visitorId: visitorKey,
       },
     });
+    this.afterNewConversation(agentId, source);
+    return session;
   }
 
   /** Client IP from the proxy-derived req.ip only (see utils/client-ip). */
@@ -373,6 +429,8 @@ export class ChatService {
     content: string,
     id?: string,
     organizationId?: string,
+    /** Already gated + cleaned, see {@link ChatService.pageUrlToStore}. */
+    pageUrl?: CleanPageUrl | null,
   ) {
     return this.prisma.chatMessage.create({
       data: {
@@ -386,6 +444,7 @@ export class ChatService {
           session.id,
           organizationId,
         ),
+        ...(pageUrl ? { pageUrl } : {}),
       },
     });
   }
@@ -577,6 +636,7 @@ export class ChatService {
         session,
         fullAgent.organizationId,
         dto.chatInput,
+        ChatService.pageUrlToStore(fullAgent, session, dto.pageUrl),
       );
       const pausedMetadata: ChatMessageMetadata = {
         streamingMode: "direct",
@@ -642,6 +702,7 @@ export class ChatService {
         ? fullAgent.organizationId
         : undefined,
     );
+    const pageUrl = ChatService.pageUrlToStore(fullAgent, session, dto.pageUrl);
     const [userMessage, assistantMessage] = await this.prisma.$transaction([
       this.prisma.chatMessage.create({
         data: {
@@ -650,6 +711,7 @@ export class ChatService {
           sessionSource: session.source,
           role: "USER",
           content: storedUserContent,
+          ...(pageUrl ? { pageUrl } : {}),
         },
       }),
       this.prisma.chatMessage.create({

@@ -1,6 +1,7 @@
 import { Test } from "@nestjs/testing";
 import { ConfigService } from "@nestjs/config";
-import { APICallError } from "ai";
+import { APICallError, NoOutputGeneratedError, RetryError } from "ai";
+import { LLM_PAYLOAD_LIMITS } from "../../../src/common/events/redaction.util";
 import { LlmService } from "../../../src/modules/ai/llm.service";
 import { AiSdkService } from "../../../src/modules/ai/ai-sdk.service";
 import { ProviderEventLogger } from "../../../src/common/events/provider.logger";
@@ -521,6 +522,205 @@ describe("LlmService", () => {
       }
       await expect(handle.completion).rejects.toThrow();
       expect(mockMeter.record).not.toHaveBeenCalled();
+    });
+  });
+
+  describe("event log payloads (ADR-0005: full bodies, masked at write)", () => {
+    const creditError = () =>
+      new APICallError({
+        message: "You have no credits remaining.",
+        url: "https://api.openai.com/v1/chat/completions",
+        requestBodyValues: {},
+        statusCode: 429,
+        responseBody: JSON.stringify({
+          error: {
+            message: "You have no credits remaining.",
+            type: "insufficient_quota",
+            code: "credit_balance_exhausted",
+          },
+        }),
+      });
+
+    const loggedEvent = (eventName: string) =>
+      mockProviderLog.log.mock.calls
+        .map((c) => c[0] as Record<string, unknown>)
+        .find((e) => e.eventName === eventName);
+
+    it("logs the full request and the reply of a streamed call", async () => {
+      mockedStreamText.mockReturnValue(makeStreamResult(["Hello ", "world"]));
+      const handle = await service.streamCompletion(baseRequest);
+      // eslint-disable-next-line @typescript-eslint/no-unused-vars
+      for await (const _c of handle.stream) {
+        // drain
+      }
+
+      const event = loggedEvent("LLM_COMPLETION_COMPLETED");
+      expect(event?.requestPayload).toEqual(
+        expect.objectContaining({
+          modelId: "openai:gpt-4o-mini",
+          temperature: 0.7,
+          maxTokens: 500,
+          systemPrompt: "You are helpful.",
+          messages: [{ role: "user", content: "Hi" }],
+        }),
+      );
+      expect(event?.responsePayload).toEqual({
+        text: "Hello world",
+        finishReason: "stop",
+      });
+      expect(event?.payloadLimits).toBe(LLM_PAYLOAD_LIMITS);
+    });
+
+    it("logs the provider status and error body when a stream fails, not the generic SDK error", async () => {
+      // The real SDK: the provider error goes to onError, textStream ends
+      // quietly, and the result promises reject with NoOutputGeneratedError.
+      mockedStreamText.mockImplementation(((opts: {
+        onError?: (e: { error: unknown }) => void;
+      }) => {
+        const noOutput = () =>
+          Promise.reject(
+            new NoOutputGeneratedError({
+              message: "No output generated. Check the stream for errors.",
+            }),
+          );
+        return {
+          get textStream() {
+            // No text arrives: the error ends the stream.
+            // eslint-disable-next-line require-yield
+            return (async function* () {
+              opts.onError?.({ error: creditError() });
+            })();
+          },
+          get usage() {
+            return noOutput();
+          },
+          get finishReason() {
+            return noOutput();
+          },
+          get providerMetadata() {
+            return noOutput();
+          },
+        };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+
+      const handle = await service.streamCompletion(baseRequest);
+      const out: Array<{ type: string; error?: string }> = [];
+      for await (const c of handle.stream) out.push(c);
+      await expect(handle.completion).rejects.toBeInstanceOf(APICallError);
+
+      expect(out.find((c) => c.type === "error")?.error).toBe(
+        "You have no credits remaining.",
+      );
+      const event = loggedEvent("LLM_COMPLETION_FAILED");
+      expect(event).toEqual(
+        expect.objectContaining({
+          success: false,
+          responseStatus: 429,
+          errorMessage: "You have no credits remaining.",
+          responsePayload: {
+            error: expect.objectContaining({
+              code: "credit_balance_exhausted",
+            }),
+          },
+        }),
+      );
+      expect(event?.requestPayload).toEqual(
+        expect.objectContaining({ systemPrompt: "You are helpful." }),
+      );
+    });
+
+    it("treats a provider error after a finished step as a failed call", async () => {
+      // SDK behaviour: with one step recorded, a later error does not reject;
+      // the promises resolve with finishReason "other".
+      mockedStreamText.mockImplementation(((opts: {
+        onError?: (e: { error: unknown }) => void;
+      }) => {
+        const result = makeStreamResult(["Let me check. "]);
+        return {
+          ...result,
+          get textStream() {
+            return (async function* () {
+              yield "Let me check. ";
+              opts.onError?.({ error: creditError() });
+            })();
+          },
+          finishReason: Promise.resolve("other"),
+        };
+        // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      }) as any);
+
+      const handle = await service.streamCompletion(baseRequest);
+      const out: Array<{ type: string }> = [];
+      for await (const c of handle.stream) out.push(c);
+
+      expect(out.map((c) => c.type)).toEqual(["text-delta", "error"]);
+      expect(loggedEvent("LLM_COMPLETION_COMPLETED")).toBeUndefined();
+      expect(loggedEvent("LLM_COMPLETION_FAILED")).toEqual(
+        expect.objectContaining({ responseStatus: 429 }),
+      );
+      await expect(handle.completion).rejects.toBeInstanceOf(APICallError);
+    });
+
+    it("settles completion even when the consumer stops at the error chunk", async () => {
+      mockedStreamText.mockReturnValue(
+        makeStreamResult([], new Error("upstream boom")),
+      );
+      const handle = await service.streamCompletion(baseRequest);
+      for await (const c of handle.stream) {
+        if (c.type === "error") break;
+      }
+      await expect(handle.completion).rejects.toThrow("upstream boom");
+    });
+
+    it("unwraps a RetryError to the last provider answer on a failed generate", async () => {
+      mockedGenerateText.mockRejectedValue(
+        new RetryError({
+          message: "Failed after 3 attempts.",
+          reason: "maxRetriesExceeded",
+          errors: [creditError(), creditError()],
+        }),
+      );
+      await expect(service.generateCompletion(baseRequest)).rejects.toThrow();
+
+      expect(loggedEvent("LLM_COMPLETION_FAILED")).toEqual(
+        expect.objectContaining({
+          responseStatus: 429,
+          responsePayload: {
+            error: expect.objectContaining({ type: "insufficient_quota" }),
+          },
+        }),
+      );
+    });
+
+    it("logs every tool call and result of a tool loop", async () => {
+      mockGenerate({
+        text: "Connecting you now.",
+        finishReason: "stop",
+        usage: { inputTokens: 10, outputTokens: 5, totalTokens: 15 },
+        steps: [
+          {
+            usage: { inputTokens: 5, outputTokens: 2, totalTokens: 7 },
+            toolCalls: [
+              { toolName: "connect_to_human", input: { reason: "asked" } },
+            ],
+            toolResults: [
+              { toolName: "connect_to_human", output: { ok: true } },
+            ],
+          },
+          { usage: { inputTokens: 5, outputTokens: 3, totalTokens: 8 } },
+        ],
+      });
+      await service.generateCompletion(baseRequest);
+
+      expect(loggedEvent("LLM_COMPLETION_COMPLETED")?.responsePayload).toEqual({
+        text: "Connecting you now.",
+        finishReason: "stop",
+        toolCalls: [
+          { toolName: "connect_to_human", input: { reason: "asked" } },
+        ],
+        toolResults: [{ toolName: "connect_to_human", output: { ok: true } }],
+      });
     });
   });
 });

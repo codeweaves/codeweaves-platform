@@ -1,24 +1,64 @@
-'use client';
+"use client";
 
-import { useCallback, useEffect, useMemo, useState } from 'react';
-import type { ColumnDef } from '@tanstack/react-table';
-import { toast } from 'sonner';
-import { AlertCircle, Database, Download, Loader2, RefreshCw } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useState } from "react";
+import type { ColumnDef } from "@tanstack/react-table";
+import { toast } from "sonner";
+import {
+  AlertCircle,
+  Database,
+  Download,
+  Loader2,
+  RefreshCw,
+} from "lucide-react";
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableFetchParams,
-} from '@/components/ui/data-table';
-import { Button } from '@/components/ui/button';
-import { Label } from '@/components/ui/label';
-import { SearchableSelect } from '@/components/ui/searchable-select';
-import { useAgents } from '@/hooks/use-agents';
+} from "@/components/ui/data-table";
+import { Button } from "@/components/ui/button";
+import { Label } from "@/components/ui/label";
+import { SearchableSelect } from "@/components/ui/searchable-select";
+import { useAgents } from "@/hooks/use-agents";
 import {
   useCollectedData,
   useExportCollectedData,
   type CollectedDataRow,
-} from '@/hooks/use-collected-data';
-import { formatDate, formatTimeAgo } from '@/lib/utils';
+} from "@/hooks/use-collected-data";
+import { formatDate, formatTimeAgo } from "@/lib/utils";
+
+/**
+ * The page where the lead was given: the path as a link, the full address on
+ * hover. The server stores only cleaned http(s) URLs, but the value still came
+ * from a visitor's browser, so it is parsed again here and rendered as plain
+ * text unless it is http(s). That keeps a `javascript:` URL from ever becoming
+ * a link.
+ */
+function PageUrlCell({ url }: { url: string | null }) {
+  if (!url) return <span className="text-muted-foreground">-</span>;
+  let parsed: URL | null = null;
+  try {
+    parsed = new URL(url);
+  } catch {
+    parsed = null;
+  }
+  if (
+    !parsed ||
+    (parsed.protocol !== "http:" && parsed.protocol !== "https:")
+  ) {
+    return <span className="block max-w-xs truncate">{url}</span>;
+  }
+  return (
+    <a
+      href={parsed.href}
+      target="_blank"
+      rel="noopener noreferrer"
+      title={parsed.href}
+      className="block max-w-xs truncate text-primary underline-offset-4 hover:underline"
+    >
+      {parsed.pathname}
+    </a>
+  );
+}
 
 /**
  * Collected-data viewer: pick an agent (required), then see one row per
@@ -32,8 +72,8 @@ export function CollectedDataView() {
   // Role-scoped agent list for the selector (backend enforces who sees what).
   const { data: agentsData, isLoading: agentsLoading } = useAgents({
     limit: 100,
-    sortBy: 'name',
-    sortOrder: 'asc',
+    sortBy: "name",
+    sortOrder: "asc",
   });
   const agents = agentsData?.data ?? [];
 
@@ -41,16 +81,16 @@ export function CollectedDataView() {
     page: 0,
     pageSize: 10,
     sorting: [],
-    search: '',
+    search: "",
     filters: {},
   });
 
   // Only the "Captured" column is sortable; map its sort state to the API.
-  const capturedSort = fetchParams.sorting.find((s) => s.id === '__capturedAt');
+  const capturedSort = fetchParams.sorting.find((s) => s.id === "__capturedAt");
   const sortOrder = capturedSort
     ? capturedSort.desc
-      ? 'desc'
-      : 'asc'
+      ? "desc"
+      : "asc"
     : undefined;
 
   const { data, isError, isLoading, refetch, isFetching, dataUpdatedAt } =
@@ -81,7 +121,7 @@ export function CollectedDataView() {
       {
         onSuccess: (filename) => toast.success(`Downloaded ${filename}`),
         onError: (error) =>
-          toast.error(error.message || 'Could not export collected data'),
+          toast.error(error.message || "Could not export collected data"),
       },
     );
   }, [exportCsv, sortOrder]);
@@ -99,14 +139,23 @@ export function CollectedDataView() {
       enableSorting: false,
       cell: ({ row }) => {
         const value = row.original.data?.[col.key];
-        if (value === null || value === undefined || value === '') {
+        if (value === null || value === undefined || value === "") {
           return <span className="text-muted-foreground">-</span>;
         }
         return <span>{String(value)}</span>;
       },
     }));
+    if (data?.showPageUrl) {
+      cols.push({
+        id: "__pageUrl",
+        header: "Page",
+        accessorFn: (row) => row.pageUrl,
+        enableSorting: false,
+        cell: ({ row }) => <PageUrlCell url={row.original.pageUrl} />,
+      });
+    }
     cols.push({
-      id: '__capturedAt',
+      id: "__capturedAt",
       header: ({ column }) => (
         <DataTableColumnHeader column={column} title="Captured" />
       ),
@@ -119,7 +168,7 @@ export function CollectedDataView() {
       ),
     });
     return cols;
-  }, [data?.columns]);
+  }, [data?.columns, data?.showPageUrl]);
 
   return (
     <div className="space-y-6">
@@ -135,7 +184,7 @@ export function CollectedDataView() {
             }))}
             value={agentId}
             onValueChange={(v) => setAgentId(v || undefined)}
-            placeholder={agentsLoading ? 'Loading agents…' : 'Select an agent'}
+            placeholder={agentsLoading ? "Loading agents…" : "Select an agent"}
             searchPlaceholder="Search agents…"
             emptyMessage="No agents found"
             triggerClassName="w-full"
@@ -164,7 +213,7 @@ export function CollectedDataView() {
             >
               {/* No margin — Button owns the icon-to-label gap. */}
               <RefreshCw
-                className={`size-4 ${isFetching ? 'animate-spin' : ''}`}
+                className={`size-4 ${isFetching ? "animate-spin" : ""}`}
               />
               Refresh
             </Button>
@@ -175,8 +224,8 @@ export function CollectedDataView() {
               disabled={!hasRows || exportCsv.isPending}
               title={
                 hasRows
-                  ? 'Download every captured row as a CSV'
-                  : 'Nothing captured yet'
+                  ? "Download every captured row as a CSV"
+                  : "Nothing captured yet"
               }
             >
               {exportCsv.isPending ? (
@@ -231,7 +280,7 @@ export function CollectedDataView() {
                   disabled={isFetching}
                 >
                   <RefreshCw
-                    className={`size-3 ${isFetching ? 'animate-spin' : ''}`}
+                    className={`size-3 ${isFetching ? "animate-spin" : ""}`}
                   />
                   Try again
                 </Button>

@@ -63,6 +63,9 @@ const PROVIDER_OPTIONS = [
   "META_WHATSAPP",
   "RESEND",
   "CLERK",
+  // File storage over the S3 API, any vendor. SUPABASE stays for rows written
+  // before storage moved to the S3 API.
+  "STORAGE",
   "SUPABASE",
   "FRANKFURTER",
 ].map((p) => ({ label: p, value: p }));

@@ -1,35 +1,40 @@
-'use client';
+"use client";
 
-import { useCallback, useMemo, useState } from 'react';
-import type { ColumnDef } from '@tanstack/react-table';
-import { AlertCircle, Building2, Loader2, Pencil, RefreshCw, Trash2 } from 'lucide-react';
+import { useCallback, useMemo, useState } from "react";
+import Link from "next/link";
+import type { ColumnDef } from "@tanstack/react-table";
+import {
+  AlertCircle,
+  Building2,
+  Loader2,
+  Pencil,
+  RefreshCw,
+  Trash2,
+} from "lucide-react";
 import {
   DataTable,
   DataTableColumnHeader,
   type DataTableFetchParams,
-} from '@/components/ui/data-table';
-import { Button } from '@/components/ui/button';
+} from "@/components/ui/data-table";
+import { Button } from "@/components/ui/button";
 import {
   Tooltip,
   TooltipContent,
   TooltipProvider,
   TooltipTrigger,
-} from '@/components/ui/tooltip';
-import {
-  useOrganizations,
-  type Organization,
-} from '@/hooks/use-organizations';
-import { usePermissions } from '@/hooks/use-permissions';
-import { formatDate } from '@/lib/utils';
-import { DeleteOrganizationDialog } from './delete-organization-dialog';
-import { RenameOrganizationDialog } from './rename-organization-dialog';
-import { toast } from 'sonner';
+} from "@/components/ui/tooltip";
+import { useOrganizations, type Organization } from "@/hooks/use-organizations";
+import { usePermissions } from "@/hooks/use-permissions";
+import { formatDate } from "@/lib/utils";
+import { DeleteOrganizationDialog } from "./delete-organization-dialog";
+import { RenameOrganizationDialog } from "./rename-organization-dialog";
+import { toast } from "sonner";
 
 const SORTABLE_COLUMNS: Record<string, string> = {
-  name: 'name',
-  createdAt: 'createdAt',
-  usersCount: 'usersCount',
-  agentsCount: 'agentsCount',
+  name: "name",
+  createdAt: "createdAt",
+  usersCount: "usersCount",
+  agentsCount: "agentsCount",
 };
 
 interface OrganizationsDataTableProps {
@@ -43,7 +48,7 @@ export function OrganizationsDataTable({
     page: 0,
     pageSize: 20,
     sorting: [],
-    search: '',
+    search: "",
     filters: {},
   });
   const [deleteTarget, setDeleteTarget] = useState<Organization | null>(null);
@@ -54,42 +59,63 @@ export function OrganizationsDataTable({
   // under it) to platform.super_admin. Match that here so we never render a
   // button the server will 403. Cosmetic only; the API is the boundary.
   const { roleKeys } = usePermissions();
-  const canMutate = roleKeys.includes('platform.super_admin');
+  const canMutate = roleKeys.includes("platform.super_admin");
   const showActionsColumn = canMutate;
 
   const columns = useMemo<ColumnDef<Organization, unknown>[]>(() => {
     const base: ColumnDef<Organization, unknown>[] = [
       {
-        accessorKey: 'name',
+        accessorKey: "name",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Name" />
         ),
+        // The name opens the organization page, the same way an agent's name
+        // opens the agent in the agents table.
         cell: ({ row }) => (
-          <span className="block max-w-xs break-all font-semibold py-1">{row.getValue('name')}</span>
+          <Link
+            href={`/dashboard/organizations/${row.original.id}`}
+            className="block max-w-xs break-all py-1 font-semibold text-primary hover:underline"
+          >
+            {row.getValue("name")}
+          </Link>
         ),
       },
       {
-        id: 'agentsCount',
+        id: "agentsCount",
         accessorFn: (row) => row._count.agents,
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Agents" className="justify-center" />
+          <DataTableColumnHeader
+            column={column}
+            title="Agents"
+            className="justify-center"
+          />
         ),
-        cell: ({ row }) => <div className="text-center py-1">{row.original._count.agents}</div>,
+        cell: ({ row }) => (
+          <div className="text-center py-1">{row.original._count.agents}</div>
+        ),
       },
       {
-        id: 'usersCount',
+        id: "usersCount",
         accessorFn: (row) => row._count.users,
         header: ({ column }) => (
-          <DataTableColumnHeader column={column} title="Users" className="justify-center" />
+          <DataTableColumnHeader
+            column={column}
+            title="Users"
+            className="justify-center"
+          />
         ),
-        cell: ({ row }) => <div className="text-center py-1">{row.original._count.users}</div>,
+        cell: ({ row }) => (
+          <div className="text-center py-1">{row.original._count.users}</div>
+        ),
       },
       {
-        accessorKey: 'createdAt',
+        accessorKey: "createdAt",
         header: ({ column }) => (
           <DataTableColumnHeader column={column} title="Created" />
         ),
-        cell: ({ row }) => <div className="py-1">{formatDate(row.getValue('createdAt'))}</div>,
+        cell: ({ row }) => (
+          <div className="py-1">{formatDate(row.getValue("createdAt"))}</div>
+        ),
       },
     ];
 
@@ -98,7 +124,7 @@ export function OrganizationsDataTable({
     return [
       ...base,
       {
-        id: 'actions',
+        id: "actions",
         header: () => <div className="text-center">Actions</div>,
         enableSorting: false,
         cell: ({ row }) => {
@@ -144,14 +170,15 @@ export function OrganizationsDataTable({
   const sortField = fetchParams.sorting[0];
   const sortBy = sortField
     ? (SORTABLE_COLUMNS[sortField.id] ?? sortField.id)
-    : 'createdAt';
-  const sortOrder = sortField ? (sortField.desc ? 'desc' : 'asc') : 'desc';
+    : "createdAt";
+  const sortOrder = sortField ? (sortField.desc ? "desc" : "asc") : "desc";
 
   const { data, isLoading, isError, refetch, isFetching } = useOrganizations({
     page: fetchParams.page + 1, // API is 1-based
     limit: fetchParams.pageSize,
     search: fetchParams.search || undefined,
-    sortBy: sortBy as 'name' | 'slug' | 'createdAt' | 'usersCount' | 'agentsCount',
+    sortBy: sortBy as
+      "name" | "slug" | "createdAt" | "usersCount" | "agentsCount",
     sortOrder,
   });
 
@@ -159,7 +186,8 @@ export function OrganizationsDataTable({
     setFetchParams(params);
   }, []);
 
-  const isEmpty = !isLoading && !isError && data?.meta.total === 0 && !fetchParams.search;
+  const isEmpty =
+    !isLoading && !isError && data?.meta.total === 0 && !fetchParams.search;
 
   if (isEmpty && emptyAction) {
     return (
@@ -196,14 +224,18 @@ export function OrganizationsDataTable({
           renderEmpty: () => (
             <div className="flex h-32 flex-col items-center justify-center gap-2">
               <AlertCircle className="size-6 text-destructive" />
-              <span className="text-sm text-muted-foreground">Failed to load organizations</span>
+              <span className="text-sm text-muted-foreground">
+                Failed to load organizations
+              </span>
               <Button
                 variant="outline"
                 size="sm"
                 onClick={() => refetch()}
                 disabled={isFetching}
               >
-                <RefreshCw className={`size-3 ${isFetching ? 'animate-spin' : ''}`} />
+                <RefreshCw
+                  className={`size-3 ${isFetching ? "animate-spin" : ""}`}
+                />
                 Try again
               </Button>
             </div>
@@ -212,8 +244,8 @@ export function OrganizationsDataTable({
         onFetch={handleFetch}
         initialPageSize={10}
         searchConfig={{
-          placeholder: 'Search organizations...',
-          searchKey: 'search',
+          placeholder: "Search organizations...",
+          searchKey: "search",
         }}
         showHeader={false}
         hideSelectionCount
@@ -227,7 +259,7 @@ export function OrganizationsDataTable({
           organizationName={deleteTarget.name}
           onDeleted={(result) => {
             toast.success(
-              `Deleted "${result.name}". ${result.cascadedAgents} agent${result.cascadedAgents === 1 ? '' : 's'} and ${result.cascadedUsers} member${result.cascadedUsers === 1 ? '' : 's'} affected.`,
+              `Deleted "${result.name}". ${result.cascadedAgents} agent${result.cascadedAgents === 1 ? "" : "s"} and ${result.cascadedUsers} member${result.cascadedUsers === 1 ? "" : "s"} affected.`,
             );
             setDeleteTarget(null);
           }}

@@ -15,11 +15,28 @@
         "types": "./dist/index.d.cts",
         "default": "./dist/index.cjs"
       }
+    },
+    "./page-url": {
+      "import": {
+        "types": "./dist/page-url.d.ts",
+        "default": "./dist/page-url.js"
+      },
+      "require": {
+        "types": "./dist/page-url.d.cts",
+        "default": "./dist/page-url.cjs"
+      }
+    }
+  },
+  "typesVersions": {
+    "*": {
+      "page-url": [
+        "./dist/page-url.d.ts"
+      ]
     }
   },
   "scripts": {
-    "build": "tsup src/index.ts --format cjs,esm --dts",
-    "dev": "tsup src/index.ts --format cjs,esm --dts --watch",
+    "build": "tsup src/index.ts src/page-url.ts --format cjs,esm --dts",
+    "dev": "tsup src/index.ts src/page-url.ts --format cjs,esm --dts --watch",
     "check-types": "tsc --noEmit",
     "lint": "eslint . --max-warnings 0"
   },

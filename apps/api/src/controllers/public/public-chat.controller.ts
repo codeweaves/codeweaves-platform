@@ -321,6 +321,7 @@ export class PublicChatController {
             organizationId: fullAgent.organizationId,
           },
           dto.chatInput,
+          ChatService.pageUrlToStore(agent, session, dto.pageUrl),
         );
         if (!closed) {
           res.write(
@@ -358,6 +359,7 @@ export class PublicChatController {
           ChatService.isPiiRedactionEnabled(agent.aiConfig)
             ? agent.organizationId
             : undefined,
+          ChatService.pageUrlToStore(agent, session, dto.pageUrl),
         )
         .catch((err) => {
           this.log.warn(

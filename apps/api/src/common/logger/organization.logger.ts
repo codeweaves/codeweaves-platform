@@ -1,5 +1,5 @@
-import { Injectable } from '@nestjs/common';
-import { TracerService } from '../tracer/tracer.service';
+import { Injectable } from "@nestjs/common";
+import { TracerService } from "../tracer/tracer.service";
 
 @Injectable()
 export class OrganizationLoggerService {
@@ -8,7 +8,7 @@ export class OrganizationLoggerService {
   async logOrganizationCreated(orgId: string, data: Record<string, unknown>) {
     await this.tracer.logAuditEvent(
       orgId,
-      'ORGANIZATION_CREATED',
+      "ORGANIZATION_CREATED",
       this.tracer.mergeJsonResponse({ response: data }),
     );
   }
@@ -19,7 +19,7 @@ export class OrganizationLoggerService {
   ) {
     await this.tracer.logAuditEvent(
       orgId,
-      'ORGANIZATION_CREATION_FAILED',
+      "ORGANIZATION_CREATION_FAILED",
       this.tracer.mergeJsonResponse(data),
     );
   }
@@ -31,7 +31,7 @@ export class OrganizationLoggerService {
   ) {
     await this.tracer.logAuditEvent(
       orgId,
-      'ORGANIZATION_CREATION_EXCEPTION',
+      "ORGANIZATION_CREATION_EXCEPTION",
       this.tracer.mergeJsonResponse(
         { error: { message: String(error) } },
         data,
@@ -42,7 +42,7 @@ export class OrganizationLoggerService {
   async logOrganizationUpdated(orgId: string, data: Record<string, unknown>) {
     await this.tracer.logAuditEvent(
       orgId,
-      'ORGANIZATION_UPDATED',
+      "ORGANIZATION_UPDATED",
       this.tracer.mergeJsonResponse({ response: data }),
     );
   }
@@ -54,7 +54,7 @@ export class OrganizationLoggerService {
   ) {
     await this.tracer.logAuditEvent(
       orgId,
-      'ORGANIZATION_UPDATE_EXCEPTION',
+      "ORGANIZATION_UPDATE_EXCEPTION",
       this.tracer.mergeJsonResponse(
         { error: { message: String(error) } },
         data,
@@ -62,10 +62,23 @@ export class OrganizationLoggerService {
     );
   }
 
+  /** Contract start date or conversation limit changed (ADR-0022). */
+  async logOrganizationContractUpdated(
+    orgId: string,
+    data: Record<string, unknown>,
+  ) {
+    await this.tracer.logAuditEvent(
+      orgId,
+      "ORGANIZATION_CONTRACT_UPDATED",
+      this.tracer.mergeJsonResponse(data),
+      { organizationId: orgId },
+    );
+  }
+
   async logOrganizationDeleted(orgId: string, data: Record<string, unknown>) {
     await this.tracer.logAuditEvent(
       orgId,
-      'ORGANIZATION_DELETED',
+      "ORGANIZATION_DELETED",
       this.tracer.mergeJsonResponse({ response: data }),
     );
   }

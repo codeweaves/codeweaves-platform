@@ -42,6 +42,8 @@ export enum Resource {
   Usage = "Usage",
   /** The provider price list. Platform-only. */
   Price = "Price",
+  /** An organization's contract date and conversation limit (ADR-0022). Platform-only. */
+  OrganizationContract = "OrganizationContract",
 }
 
 export enum Action {

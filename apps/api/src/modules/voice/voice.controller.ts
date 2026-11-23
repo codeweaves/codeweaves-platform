@@ -583,6 +583,7 @@ export class VoiceController {
         session,
         fullAgent.organizationId,
         sttResult.transcript,
+        ChatService.pageUrlToStore(fullAgent, session, dto.pageUrl),
       );
       if (!res.writableEnded) {
         res.write(
@@ -605,6 +606,7 @@ export class VoiceController {
       ChatService.isPiiRedactionEnabled(fullAgent.aiConfig)
         ? fullAgent.organizationId
         : undefined,
+      ChatService.pageUrlToStore(fullAgent, session, dto.pageUrl),
     );
     res.setHeader("X-Message-Id", userMessage.id);
     res.write(JSON.stringify(transcriptionChunk) + "\n");
