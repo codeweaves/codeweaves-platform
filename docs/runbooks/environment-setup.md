@@ -678,7 +678,7 @@ select cron.schedule('handover-sweep',      '*/5 * * * *', $$select private.call
 select cron.schedule('classifier-run',      '30 19 * * *', $$select private.call_internal('classifier/run')$$);
 select cron.schedule('fx-run',              '30 17 * * *', $$select private.call_internal('fx/run')$$);
 select cron.schedule('retention-run',       '0 21 * * *',  $$select private.call_internal('retention/run')$$);
-select cron.schedule('file-cleanup',        '0 22 * * *',  $$select private.call_internal('files/cleanup')$$);
+select cron.schedule('file-cleanup',        '30 19 * * *', $$select private.call_internal('files/cleanup')$$);  -- 1 AM IST
 ```
 
 **Prod:** change the URL to `https://api.getklivo.com/...` and also add `select cron.schedule('alerts-run', '*/15 * * * *', $$select private.call_internal('alerts/run')$$);`.
