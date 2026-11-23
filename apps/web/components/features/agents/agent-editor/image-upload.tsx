@@ -1,10 +1,10 @@
-'use client';
+"use client";
 
-import { useState, useCallback, useRef } from 'react';
-import { X } from 'lucide-react';
-import { Button } from '@/components/ui/button';
-import { cn } from '@/lib/utils';
-import { useApiClient } from '@/lib/api-client';
+import { useState, useCallback, useRef } from "react";
+import { X } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { cn } from "@/lib/utils";
+import { useApiClient } from "@/lib/api-client";
 
 interface ImageUploadProps {
   value?: string;
@@ -15,7 +15,7 @@ interface ImageUploadProps {
   accept?: string;
   label?: string;
   hint?: string;
-  previewShape?: 'circle' | 'square' | 'rounded';
+  previewShape?: "circle" | "square" | "rounded";
   className?: string;
 }
 
@@ -25,10 +25,10 @@ export function ImageUpload({
   onRemove,
   agentId,
   purpose,
-  accept = 'image/*',
+  accept = "image/*",
   label,
   hint,
-  previewShape = 'circle',
+  previewShape = "circle",
   className,
 }: ImageUploadProps) {
   const api = useApiClient();
@@ -38,11 +38,11 @@ export function ImageUpload({
   const [error, setError] = useState<string | null>(null);
 
   const shapeClass =
-    previewShape === 'circle'
-      ? 'rounded-full'
-      : previewShape === 'rounded'
-        ? 'rounded-lg'
-        : 'rounded-none';
+    previewShape === "circle"
+      ? "rounded-full"
+      : previewShape === "rounded"
+        ? "rounded-lg"
+        : "rounded-none";
 
   const handleFileChange = useCallback(
     async (e: React.ChangeEvent<HTMLInputElement>) => {
@@ -67,13 +67,11 @@ export function ImageUpload({
       } catch (err: unknown) {
         URL.revokeObjectURL(localUrl);
         setPreview(value);
-        setError(
-          err instanceof Error ? err.message : 'Upload failed',
-        );
+        setError(err instanceof Error ? err.message : "Upload failed");
       } finally {
         setUploading(false);
         // Reset input so same file can be re-selected
-        if (inputRef.current) inputRef.current.value = '';
+        if (inputRef.current) inputRef.current.value = "";
       }
     },
     [api, agentId, purpose, value, onUpload],
@@ -88,10 +86,8 @@ export function ImageUpload({
   const displayUrl = preview || value;
 
   return (
-    <div className={cn('space-y-3', className)}>
-      {label && (
-        <span className="text-sm font-medium">{label}</span>
-      )}
+    <div className={cn("space-y-3", className)}>
+      {label && <span className="text-sm font-medium">{label}</span>}
 
       <input
         ref={inputRef}
@@ -107,7 +103,7 @@ export function ImageUpload({
           <img
             src={displayUrl}
             alt="Preview"
-            className={cn('h-10 w-10 object-cover', shapeClass)}
+            className={cn("h-10 w-10 object-cover", shapeClass)}
           />
           <div className="flex-1">
             <span className="text-sm text-muted-foreground">Preview</span>
@@ -116,16 +112,15 @@ export function ImageUpload({
             variant="ghost"
             size="icon"
             onClick={handleRemove}
+            aria-label={label ? `Remove ${label}` : "Remove image"}
             className="h-8 w-8 cursor-pointer text-destructive hover:text-destructive"
           >
-            <X className="h-4 w-4" />
+            <X className="h-4 w-4" aria-hidden="true" />
           </Button>
         </div>
       )}
 
-      {uploading && (
-        <p className="text-xs text-muted-foreground">Uploading…</p>
-      )}
+      {uploading && <p className="text-xs text-muted-foreground">Uploading…</p>}
       {error && <p className="text-xs text-destructive">{error}</p>}
       {hint && !error && !uploading && (
         <p className="text-xs text-muted-foreground">{hint}</p>

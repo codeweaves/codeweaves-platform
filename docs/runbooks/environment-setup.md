@@ -392,6 +392,8 @@ Without Redis the API still runs: rate limiting falls back to an in-memory limit
 
 The API reaches storage only through the S3 API (ADR-0023). Staging (and local, develop) use the Supabase project's own Storage through its S3 endpoint; prod uses Cloudflare R2.
 
+**Local never uses develop's bucket** (ADR-0024): the local database holds copies of develop's file rows, and local deletes would remove develop's live images. Local uses `agent_assets_local` in the develop project.
+
 ### Staging (and develop): Supabase Storage over S3
 
 1. The project → **Storage** → check a **public** bucket `agent_assets` exists (create it if not).
@@ -676,6 +678,7 @@ select cron.schedule('handover-sweep',      '*/5 * * * *', $$select private.call
 select cron.schedule('classifier-run',      '30 19 * * *', $$select private.call_internal('classifier/run')$$);
 select cron.schedule('fx-run',              '30 17 * * *', $$select private.call_internal('fx/run')$$);
 select cron.schedule('retention-run',       '0 21 * * *',  $$select private.call_internal('retention/run')$$);
+select cron.schedule('file-cleanup',        '0 22 * * *',  $$select private.call_internal('files/cleanup')$$);
 ```
 
 **Prod:** change the URL to `https://api.getklivo.com/...` and also add `select cron.schedule('alerts-run', '*/15 * * * *', $$select private.call_internal('alerts/run')$$);`.

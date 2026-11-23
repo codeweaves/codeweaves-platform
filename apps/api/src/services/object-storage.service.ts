@@ -5,7 +5,14 @@ import {
   PutObjectCommand,
   S3Client,
 } from "@aws-sdk/client-s3";
+import type { EventChannel } from "@prisma/client";
 import { ProviderEventLogger } from "../common/events/provider.logger";
+
+/** Which keys a `remove()` call deleted, and which it could not. */
+export interface RemoveResult {
+  removed: string[];
+  failed: string[];
+}
 
 /** Parallel single-object deletes. See `remove()` for why not DeleteObjects. */
 const DELETE_CONCURRENCY = 8;
@@ -94,6 +101,11 @@ export class ObjectStorageService implements OnModuleInit {
     this.logger.log(`ObjectStorageService initialized (vendor=${this.vendor})`);
   }
 
+  /** Public address of stored objects (STORAGE_PUBLIC_BASE_URL, no trailing slash). Empty when not configured. */
+  get publicBase(): string {
+    return this.publicBaseUrl;
+  }
+
   /** The bucket new objects go to. Recorded on each file row. */
   get bucket(): string {
     return this.bucketName;
@@ -165,8 +177,10 @@ export class ObjectStorageService implements OnModuleInit {
    *
    * Throws only when storage is not configured at all, so callers stop before
    * deleting rows that would then point at nothing. Otherwise best effort:
-   * failures are logged and never thrown, so a storage outage cannot block
-   * deleting the rows.
+   * failures are logged and never thrown, so a storage outage cannot block the
+   * caller. The result says which keys are gone, so a caller that must not
+   * lose track of an object (the file cleanup) keeps the rows of failed keys
+   * and retries them.
    *
    * A bucket other than the configured one (rows written before a provider
    * move) cannot be reached with this config. That is logged as a failure,
@@ -177,15 +191,19 @@ export class ObjectStorageService implements OnModuleInit {
    * Google Cloud Storage's S3 API does not support the batch call. Deleting a
    * key that does not exist succeeds on every provider.
    */
-  async remove(bucket: string, keys: string[]): Promise<void> {
-    if (keys.length === 0) return;
+  async remove(
+    bucket: string,
+    keys: string[],
+    channel: EventChannel = "DASHBOARD",
+  ): Promise<RemoveResult> {
+    if (keys.length === 0) return { removed: [], failed: [] };
 
     const client = this.ensureClient();
 
     if (bucket !== this.bucketName) {
       const errorMessage = `${keys.length} object(s) are in bucket "${bucket}", which this storage config cannot reach; run scripts/copy-files-to-object-storage.ts`;
       this.providerLog.log({
-        channel: "DASHBOARD",
+        channel,
         eventName: "STORAGE_REMOVE_FAILED",
         direction: "OUTBOUND",
         provider: PROVIDER_LABEL,
@@ -194,11 +212,13 @@ export class ObjectStorageService implements OnModuleInit {
         errorMessage,
       });
       this.logger.warn(`Storage remove skipped: ${errorMessage}`);
-      return;
+      return { removed: [], failed: [...keys] };
     }
 
     const start = performance.now();
     const failures: string[] = [];
+    const removed: string[] = [];
+    const failed: string[] = [];
     for (let i = 0; i < keys.length; i += DELETE_CONCURRENCY) {
       const batch = keys.slice(i, i + DELETE_CONCURRENCY);
       const results = await Promise.allSettled(
@@ -208,11 +228,15 @@ export class ObjectStorageService implements OnModuleInit {
           ),
         ),
       );
-      results.forEach((r) => {
+      results.forEach((r, j) => {
+        const key = batch[j]!;
         if (r.status === "rejected") {
+          failed.push(key);
           failures.push(
             r.reason instanceof Error ? r.reason.message : String(r.reason),
           );
+        } else {
+          removed.push(key);
         }
       });
     }
@@ -222,7 +246,7 @@ export class ObjectStorageService implements OnModuleInit {
       : undefined;
 
     this.providerLog.log({
-      channel: "DASHBOARD",
+      channel,
       eventName: errorMessage
         ? "STORAGE_REMOVE_FAILED"
         : "STORAGE_REMOVE_COMPLETED",
@@ -241,6 +265,7 @@ export class ObjectStorageService implements OnModuleInit {
     if (errorMessage) {
       this.logger.warn(`Storage remove failed: ${errorMessage}`);
     }
+    return { removed, failed };
   }
 
   /**

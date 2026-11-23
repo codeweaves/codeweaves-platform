@@ -1,6 +1,6 @@
 # ADR-0023: File storage over the S3 API, Cloudflare R2 first
 
-- **Status:** Accepted
+- **Status:** Accepted. Decision 7 for local (shared bucket) superseded by [ADR-0024](0024-local-storage-bucket-separate-from-develop.md)
 - **Date:** 2026-11-20
 - **Deciders:** Dhruv (leave Supabase Storage in production, use Cloudflare R2 there, the code must not change when the provider changes; develop and staging stay on their free Supabase Storage through the S3 API until prod, so no card is on file before it is needed). Implementation details (S3 API, own public domain, single-object deletes) chosen during the build.
 
