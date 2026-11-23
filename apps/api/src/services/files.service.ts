@@ -2,21 +2,33 @@ import {
   Injectable,
   BadRequestException,
   NotFoundException,
-} from '@nestjs/common';
-import { PrismaService } from './prisma.service';
-import { SupabaseStorageService } from './supabase-storage.service';
-import { AppLogger } from '../common/logger/app-logger';
-import { TracerService } from '../common/tracer/tracer.service';
-import type { CurrentUserData } from '../decorators/current-user.decorator';
-import { isOrgScoped } from '../utils/tenant-filter';
+} from "@nestjs/common";
+import { PrismaService } from "./prisma.service";
+import { ObjectStorageService } from "./object-storage.service";
+import { AppLogger } from "../common/logger/app-logger";
+import { TracerService } from "../common/tracer/tracer.service";
+import type { CurrentUserData } from "../decorators/current-user.decorator";
+import { isOrgScoped } from "../utils/tenant-filter";
 
-const BUCKET = 'agent_assets';
+// Key prefix for agent branding images inside the storage bucket.
+const KEY_PREFIX = "agent-assets";
 export const MAX_FILE_SIZE = 2 * 1024 * 1024; // 2 MB
 // Raster image types only. SVG is deliberately excluded: it is an active
 // document (can carry <script>) and, served inline from the public bucket,
 // yields stored XSS in the storage origin on direct navigation.
-const ALLOWED_MIME_TYPES = ['image/png', 'image/jpeg', 'image/gif', 'image/webp'];
-const ALLOWED_PURPOSES = ['header-logo', 'bot-avatar', 'user-avatar', 'icon-image', 'brand-logo'];
+const ALLOWED_MIME_TYPES = [
+  "image/png",
+  "image/jpeg",
+  "image/gif",
+  "image/webp",
+];
+const ALLOWED_PURPOSES = [
+  "header-logo",
+  "bot-avatar",
+  "user-avatar",
+  "icon-image",
+  "brand-logo",
+];
 
 /**
  * Detect an image's true type from its magic bytes. The client-supplied
@@ -38,12 +50,12 @@ function detectImageMime(buffer: Buffer): string | null {
     buffer[6] === 0x1a &&
     buffer[7] === 0x0a
   ) {
-    return 'image/png';
+    return "image/png";
   }
 
   // JPEG: FF D8 FF
   if (buffer[0] === 0xff && buffer[1] === 0xd8 && buffer[2] === 0xff) {
-    return 'image/jpeg';
+    return "image/jpeg";
   }
 
   // GIF: "GIF87a" / "GIF89a"
@@ -53,7 +65,7 @@ function detectImageMime(buffer: Buffer): string | null {
     buffer[2] === 0x46 &&
     buffer[3] === 0x38
   ) {
-    return 'image/gif';
+    return "image/gif";
   }
 
   // WEBP: "RIFF" .... "WEBP"
@@ -67,7 +79,7 @@ function detectImageMime(buffer: Buffer): string | null {
     buffer[10] === 0x42 &&
     buffer[11] === 0x50
   ) {
-    return 'image/webp';
+    return "image/webp";
   }
 
   return null;
@@ -85,7 +97,7 @@ export class FilesService {
 
   constructor(
     private readonly prisma: PrismaService,
-    private readonly storage: SupabaseStorageService,
+    private readonly storage: ObjectStorageService,
     private readonly tracer: TracerService,
   ) {}
 
@@ -94,7 +106,7 @@ export class FilesService {
     params: UploadAgentAssetParams,
   ) {
     const { agentId, purpose, user } = params;
-    this.log.debug('uploadAgentAsset', 'uploading agent asset', {
+    this.log.debug("uploadAgentAsset", "uploading agent asset", {
       agentId,
       purpose,
       mimeType: file?.mimetype,
@@ -108,10 +120,10 @@ export class FilesService {
 
     // Validate file
     if (!file) {
-      throw new BadRequestException('No file provided');
+      throw new BadRequestException("No file provided");
     }
     if (file.size > MAX_FILE_SIZE) {
-      throw new BadRequestException('File size exceeds 2MB limit');
+      throw new BadRequestException("File size exceeds 2MB limit");
     }
     // Sniff the real content type from magic bytes rather than trusting the
     // client-supplied Content-Type. The detected type becomes authoritative for
@@ -120,7 +132,7 @@ export class FilesService {
     const detectedMime = detectImageMime(file.buffer);
     if (!detectedMime || !ALLOWED_MIME_TYPES.includes(detectedMime)) {
       throw new BadRequestException(
-        `Unsupported or unverifiable file type. Allowed: ${ALLOWED_MIME_TYPES.join(', ')}`,
+        `Unsupported or unverifiable file type. Allowed: ${ALLOWED_MIME_TYPES.join(", ")}`,
       );
     }
 
@@ -134,17 +146,12 @@ export class FilesService {
     });
     const entityId = theme?.id ?? agentId;
 
-    // Delete previous file with same entity + purpose (replace pattern)
-    await this.deletePreviousFile(entityId, purpose);
-
     // Build storage key
     const timestamp = Date.now();
-    const safeFileName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, '_');
-    const storageKey = `${agent.organizationId}/${agentId}/${purpose}/${timestamp}-${safeFileName}`;
+    const safeFileName = file.originalname.replace(/[^a-zA-Z0-9._-]/g, "_");
+    const storageKey = `${KEY_PREFIX}/${agent.organizationId}/${agentId}/${purpose}/${timestamp}-${safeFileName}`;
 
-    // Upload to Supabase Storage
     const publicUrl = await this.storage.upload(
-      BUCKET,
       storageKey,
       file.buffer,
       detectedMime,
@@ -158,8 +165,8 @@ export class FilesService {
         sizeBytes: file.size,
         storageKey,
         publicUrl,
-        bucket: BUCKET,
-        entityType: 'agent-theme',
+        bucket: this.storage.bucket,
+        entityType: "agent-theme",
         entityId,
         purpose,
         organizationId: agent.organizationId,
@@ -167,14 +174,18 @@ export class FilesService {
       },
     });
 
-    this.log.info('uploadAgentAsset', 'file uploaded', {
+    // Replace pattern: drop the earlier file for this slot only after the new
+    // one is stored and recorded, so a failed upload keeps the old image.
+    await this.deletePreviousFiles(entityId, purpose, fileRecord.id);
+
+    this.log.info("uploadAgentAsset", "file uploaded", {
       fileId: fileRecord.id,
       agentId,
       purpose,
     });
     await this.tracer.logAuditEvent(
       agentId,
-      'AGENT_FILE_UPLOADED',
+      "AGENT_FILE_UPLOADED",
       {
         response: {
           fileId: fileRecord.id,
@@ -207,7 +218,7 @@ export class FilesService {
     });
 
     if (!file) {
-      throw new NotFoundException('File not found');
+      throw new NotFoundException("File not found");
     }
 
     // Remove from storage
@@ -216,10 +227,10 @@ export class FilesService {
     // Delete DB record
     await this.prisma.file.delete({ where: { id: fileId } });
 
-    this.log.info('deleteFile', 'file deleted', { fileId, agentId });
+    this.log.info("deleteFile", "file deleted", { fileId, agentId });
     await this.tracer.logAuditEvent(
       agentId,
-      'AGENT_FILE_DELETED',
+      "AGENT_FILE_DELETED",
       {
         response: {
           fileId,
@@ -232,19 +243,25 @@ export class FilesService {
     );
   }
 
-  private async deletePreviousFile(entityId: string, purpose: string) {
-    const existing = await this.prisma.file.findFirst({
+  private async deletePreviousFiles(
+    entityId: string,
+    purpose: string,
+    keepFileId: string,
+  ) {
+    const previous = await this.prisma.file.findMany({
       where: {
-        entityType: 'agent-theme',
+        entityType: "agent-theme",
         entityId,
         purpose,
+        id: { not: keepFileId },
       },
+      select: { id: true, bucket: true, storageKey: true },
     });
 
-    if (existing) {
+    for (const existing of previous) {
       await this.storage.remove(existing.bucket, [existing.storageKey]);
       await this.prisma.file.delete({ where: { id: existing.id } });
-      this.log.info('deletePreviousFile', 'replaced previous file', {
+      this.log.info("deletePreviousFiles", "replaced previous file", {
         fileId: existing.id,
         purpose,
       });
@@ -263,7 +280,7 @@ export class FilesService {
     });
 
     if (!agent) {
-      throw new NotFoundException('Agent not found');
+      throw new NotFoundException("Agent not found");
     }
 
     return agent;

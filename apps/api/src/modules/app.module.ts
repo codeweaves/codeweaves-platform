@@ -32,7 +32,7 @@ import { PiiModule } from "./pii/pii.module";
 import { RedisModule } from "../common/redis/redis.module";
 import { SentryModule } from "../common/sentry/sentry.module";
 import { RbacModule } from "../common/rbac/rbac.module";
-import { SupabaseStorageModule } from "./supabase-storage.module";
+import { ObjectStorageModule } from "./object-storage.module";
 import { UsageModule } from "./usage/usage.module";
 import { OpsConsoleModule } from "./ops-console/ops-console.module";
 import { MonitoringModule } from "./monitoring/monitoring.module";
@@ -84,7 +84,7 @@ import { AllExceptionsFilter } from "../filters/all-exceptions.filter";
     RedisModule,
     SentryModule,
     RbacModule,
-    SupabaseStorageModule,
+    ObjectStorageModule,
     UsageModule,
     OpsConsoleModule,
     MonitoringModule,

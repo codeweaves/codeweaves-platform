@@ -1,6 +1,6 @@
 # ADR-0002: Production hosting and region
 
-- **Status:** Accepted
+- **Status:** Accepted. Production storage superseded by [ADR-0023](0023-s3-api-object-storage.md)
 - **Date:** 2026-09-16
 - **Deciders:** Dhruv
 

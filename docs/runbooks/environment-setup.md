@@ -8,21 +8,22 @@ Follow it top to bottom. Every screen in every tool is listed with the answer to
 
 ## The two environments at a glance
 
-|                         | Staging                                                  | Prod                                                          |
-| ----------------------- | -------------------------------------------------------- | ------------------------------------------------------------- |
-| Git branch              | `staging` (exists, created 2026-11-03)                   | `main`                                                        |
-| Purpose                 | Client security tests. **Fake data only.**               | Customers                                                     |
-| API host                | Render, **new account**, Singapore, free                 | Google Cloud Run, Mumbai (`asia-south1`), see section 6P      |
-| Database + file storage | Supabase, new org in develop's account, Mumbai, **Free** | Supabase, **separate account**, Mumbai, **Pro**               |
-| Login                   | Clerk, new application, production instance              | Clerk, new application, production instance                   |
-| Errors                  | Sentry, new account                                      | Sentry `codeweaves` org (develop's), environment `production` |
-| Dashboard + widget      | Vercel, 2 new projects, branch `staging`                 | Vercel, 2 new projects, branch `main`                         |
-| Email                   | Resend, new account, `staging.mail.getklivo.com`         | Resend, own account, `mail.getklivo.com`                      |
-| AI keys                 | develop's keys for now (section 5)                       | New, prod limits                                              |
-| Redis                   | Upstash, own account, Singapore (next to the API)        | Upstash, own account, Mumbai (next to the API)                |
-| Dashboard host          | `app-staging.getklivo.com`                               | `app.getklivo.com`                                            |
-| API host name           | `api-staging.getklivo.com`                               | `api.getklivo.com`                                            |
-| Widget host             | `widget-staging.getklivo.com`                            | `widget.getklivo.com`                                         |
+|                    | Staging                                                  | Prod                                                          |
+| ------------------ | -------------------------------------------------------- | ------------------------------------------------------------- |
+| Git branch         | `staging` (exists, created 2026-11-03)                   | `main`                                                        |
+| Purpose            | Client security tests. **Fake data only.**               | Customers                                                     |
+| API host           | Render, **new account**, Singapore, free                 | Google Cloud Run, Mumbai (`asia-south1`), see section 6P      |
+| Database           | Supabase, new org in develop's account, Mumbai, **Free** | Supabase, **separate account**, Mumbai, **Pro**               |
+| File storage       | Supabase Storage via S3 API, bucket `agent_assets` (5c)  | Cloudflare R2, bucket `klivo-assets-prod` (5c), ADR-0023      |
+| Login              | Clerk, new application, production instance              | Clerk, new application, production instance                   |
+| Errors             | Sentry, new account                                      | Sentry `codeweaves` org (develop's), environment `production` |
+| Dashboard + widget | Vercel, 2 new projects, branch `staging`                 | Vercel, 2 new projects, branch `main`                         |
+| Email              | Resend, new account, `staging.mail.getklivo.com`         | Resend, own account, `mail.getklivo.com`                      |
+| AI keys            | develop's keys for now (section 5)                       | New, prod limits                                              |
+| Redis              | Upstash, own account, Singapore (next to the API)        | Upstash, own account, Mumbai (next to the API)                |
+| Dashboard host     | `app-staging.getklivo.com`                               | `app.getklivo.com`                                            |
+| API host name      | `api-staging.getklivo.com`                               | `api.getklivo.com`                                            |
+| Widget host        | `widget-staging.getklivo.com`                            | `widget.getklivo.com`                                         |
 
 Today `app.getklivo.com` and `api.getklivo.com` point at **develop**. Before prod goes live, move develop to other names (for example `dev.getklivo.com`, `api-dev.getklivo.com`).
 
@@ -89,21 +90,19 @@ Click **Create new project**. Wait until it shows **Healthy** (1 to 2 minutes).
 
 Compare with the develop Render service → **Environment**: develop uses the same pattern.
 
-### 1.3 Project URL and service key
+### 1.3 Project URL and publishable key (for the check only)
 
-1. **Project Settings** (gear icon, bottom left) → **Data API** → copy **Project URL** → `SUPABASE_URL` (API) and `NEXT_PUBLIC_SUPABASE_URL` (dashboard).
-2. **Project Settings** → **API Keys**. Use the **same key type as develop** (look at develop's `SUPABASE_SERVICE_ROLE_KEY` on Render):
-   - starts with `eyJ` → **Legacy API keys** tab → **service_role** → **Reveal** → copy.
-   - starts with `sb_secret_` → **Secret keys** section → reveal or create → copy.
-   - → `SUPABASE_SERVICE_ROLE_KEY` (**SECRET**). It bypasses every database rule. API only. Never in Vercel.
-3. On the same page, copy the **publishable** (or legacy **anon**) key into your note. You need it only for the check in 1.4. It goes nowhere else.
+The app does not use any Supabase key. Files are on Cloudflare R2 (section 5c, ADR-0023). You need these two values only for the check in 1.4. They go into no env var.
+
+1. **Project Settings** (gear icon, bottom left) → **Data API** → copy **Project URL** into your note.
+2. **Project Settings** → **API Keys** → copy the **publishable** (or legacy **anon**) key into your note.
 
 ### 1.4 Prove the Data API is closed
 
 If you unchecked it in 1.1, check it anyway. On develop the toggle once showed OFF while the API still answered.
 
 ```sh
-curl -s -o /dev/null -w "%{http_code}\n" "<SUPABASE_URL>/rest/v1/agents?select=id" -H "apikey: <publishable or anon key>"
+curl -s -o /dev/null -w "%{http_code}\n" "<Project URL>/rest/v1/agents?select=id" -H "apikey: <publishable or anon key>"
 ```
 
 - Expected: **not 200** (503 or 404 = closed). Before the first deploy there is no `agents` table yet, so run it again after section 10.
@@ -111,13 +110,7 @@ curl -s -o /dev/null -w "%{http_code}\n" "<SUPABASE_URL>/rest/v1/agents?select=i
 
 ### 1.5 Storage bucket
 
-**Storage** → **New bucket**:
-
-| Field                                  | Value                                                                                                   |
-| -------------------------------------- | ------------------------------------------------------------------------------------------------------- |
-| Name                                   | `agent_assets` (exact, with the underscore)                                                             |
-| Public bucket                          | **ON** (logos and avatars use public links today; making it private is a prod code fix, see section 12) |
-| Restrict file upload size / MIME types | leave off (the API checks uploads)                                                                      |
+None. Files are on Cloudflare R2, see section 5c.
 
 ### 1.6 Extensions for cron
 
@@ -395,6 +388,37 @@ Without Redis the API still runs: rate limiting falls back to an in-memory limit
 
 ---
 
+## 5c. File storage
+
+The API reaches storage only through the S3 API (ADR-0023). Staging (and local, develop) use the Supabase project's own Storage through its S3 endpoint; prod uses Cloudflare R2.
+
+### Staging (and develop): Supabase Storage over S3
+
+1. The project → **Storage** → check a **public** bucket `agent_assets` exists (create it if not).
+2. **Storage** → **S3** (configuration) → turn on the S3 protocol, then **New access key**. Copy both values; the secret is shown once.
+3. Values for section 7: `STORAGE_PROVIDER=SUPABASE`, `STORAGE_ENDPOINT=https://<ref>.supabase.co/storage/v1/s3`, `STORAGE_REGION` = the project region (`ap-south-1` for Mumbai), `STORAGE_FORCE_PATH_STYLE=true`, `STORAGE_BUCKET=agent_assets`, `STORAGE_PUBLIC_BASE_URL=https://<ref>.supabase.co/storage/v1/object/public/agent_assets`, and `NEXT_PUBLIC_STORAGE_PUBLIC_URL=https://<ref>.supabase.co` on the dashboard.
+
+### Prod: Cloudflare R2
+
+The API reaches storage only through the S3 API (ADR-0023). These steps are for R2; any S3-compatible provider works with the same env vars.
+
+1. Cloudflare dashboard (the account that holds `getklivo.com`) → **R2 Object Storage** → **Create bucket**.
+   - Name: `klivo-assets-staging` or `klivo-assets-prod`.
+   - Location: **Automatic**, or the **Asia-Pacific** hint. This is best effort only; R2 cannot pin data to India (ADR-0023).
+   - Default storage class: **Standard**.
+2. The bucket → **Settings** → **Custom Domains** → **Connect Domain** → `assets-staging.getklivo.com` or `assets.getklivo.com`. Leave the **r2.dev** public URL **disabled**: files are served only from our domain.
+3. **R2 Object Storage** → **Manage API tokens** → **Create API token**:
+   - Permissions: **Object Read & Write**.
+   - Specify bucket(s): **only** this environment's bucket.
+   - TTL: forever.
+   - Copy **Access Key ID**, **Secret Access Key** and the **S3 endpoint** (`https://<account-id>.r2.cloudflarestorage.com`). The secret is shown once.
+4. Put the values in section 7: `STORAGE_*` on the API, `NEXT_PUBLIC_STORAGE_PUBLIC_URL` on the dashboard.
+5. Every environment has its own bucket and token: `klivo-assets-local`, `klivo-assets-dev` (`assets-dev.getklivo.com`), `klivo-assets-staging`, `klivo-assets-prod`. For local, skip the custom domain: bucket → **Settings** → **Public Development URL** → enable, and use that `https://pub-....r2.dev` URL as `STORAGE_PUBLIC_BASE_URL` in `apps/api/.env` and `NEXT_PUBLIC_STORAGE_PUBLIC_URL` in `apps/web/.env.local`. Without `STORAGE_*` the API still starts; only image upload is off.
+6. Moving an environment that already has files (develop, from Supabase): after the deploy, from `apps/api` with that environment's `DATABASE_URL` and `STORAGE_*`, run `bunx tsx scripts/copy-files-to-object-storage.ts` (dry run), check the list, then run it again with `--apply`.
+7. Check after the first deploy: upload a logo in the agent editor. The image must load from `https://assets...getklivo.com/agent-assets/...`, and `event_logs` must show `STORAGE_UPLOAD_COMPLETED` with provider `R2`.
+
+---
+
 ## 6. API host
 
 ### 6S. Staging: Render (new account)
@@ -463,37 +487,43 @@ Also needed for prod (from the BCP commitments): the service creation as a scrip
 
 ### 7.1 API (Render for staging, Cloud Run for prod)
 
-| Variable                    | Staging                                                  | Prod                                           |
-| --------------------------- | -------------------------------------------------------- | ---------------------------------------------- |
-| `NODE_ENV`                  | `production`                                             | `production`                                   |
-| `APP_ENV`                   | `staging`                                                | `production`                                   |
-| `DATABASE_URL`              | transaction pooler, 6543, `?pgbouncer=true` (**SECRET**) | same, prod project                             |
-| `DIRECT_URL`                | session pooler, 5432 (**SECRET**)                        | same, prod project                             |
-| `SUPABASE_URL`              | Project URL                                              | prod Project URL                               |
-| `SUPABASE_SERVICE_ROLE_KEY` | (**SECRET**)                                             | (**SECRET**)                                   |
-| `CLERK_ISSUER`              | `https://clerk.app-staging.getklivo.com`                 | `https://clerk.getklivo.com`                   |
-| `CLERK_SECRET_KEY`          | `sk_live_...` (**SECRET**)                               | `sk_live_...` (**SECRET**)                     |
-| `DASHBOARD_URL`             | `https://app-staging.getklivo.com`                       | `https://app.getklivo.com`                     |
-| `CORS_ORIGIN`               | `https://app-staging.getklivo.com`                       | `https://app.getklivo.com`                     |
-| `AGENT_SECRET_KEY`          | new (**SECRET**)                                         | new (**SECRET**), copy kept outside Cloud Run  |
-| `INTERNAL_API_SECRET`       | new (**SECRET**)                                         | new (**SECRET**)                               |
-| `RESEND_API_KEY`            | staging key (**SECRET**)                                 | prod key (**SECRET**)                          |
-| `EMAIL_FROM`                | `Klivo Staging <noreply@staging.mail.getklivo.com>`      | `Klivo <noreply@mail.getklivo.com>`            |
-| `OPENAI_API_KEY`            | staging key (**SECRET**)                                 | prod key (**SECRET**)                          |
-| `GOOGLE_API_KEY`            | only if used, free tier (**SECRET**)                     | only if used, **paid tier** (**SECRET**)       |
-| `SARVAM_API_KEY`            | only if used (**SECRET**)                                | only if used (**SECRET**)                      |
-| `DEFAULT_AI_MODEL`          | `openai:gpt-4.1-mini`                                    | your choice                                    |
-| `DATA_EXTRACT_POLL_ENABLED` | `false` (cron drives it)                                 | `false`                                        |
-| `SOCKET_IO_REDIS`           | `false`                                                  | `false` while there is one instance            |
-| `REDIS_URL`                 | staging Upstash, Singapore, `rediss://` (**SECRET**)     | prod Upstash, Mumbai, `rediss://` (**SECRET**) |
-| `SENTRY_DSN`                | staging `klivo-api` DSN                                  | `codeweaves` `klivo-api` DSN                   |
-| `SENTRY_ENVIRONMENT`        | `staging`                                                | `production`                                   |
-| `SENTRY_TRACES_SAMPLE_RATE` | `0.1`                                                    | `0.1`                                          |
-| `EVENT_LOG_RETENTION_DAYS`  | `30`                                                     | `0` (keep, decided)                            |
-| `CHAT_TRACE_RETENTION_DAYS` | `30`                                                     | `90`                                           |
-| `SLACK_ALERTS_WEBHOOK_URL`  | unset (Slack alerts are prod only, decided 2026-11-04)   | `#klivo-alerts` webhook (**SECRET**)           |
-| `HEARTBEAT_URL_*`           | unset                                                    | Better Stack heartbeats (**SECRET**)           |
-| `ENABLE_DEV_ROUTES`         | **unset. Never `true`.**                                 | **unset. Never `true`.**                       |
+| Variable                    | Staging                                                           | Prod                                           |
+| --------------------------- | ----------------------------------------------------------------- | ---------------------------------------------- |
+| `NODE_ENV`                  | `production`                                                      | `production`                                   |
+| `APP_ENV`                   | `staging`                                                         | `production`                                   |
+| `DATABASE_URL`              | transaction pooler, 6543, `?pgbouncer=true` (**SECRET**)          | same, prod project                             |
+| `DIRECT_URL`                | session pooler, 5432 (**SECRET**)                                 | same, prod project                             |
+| `STORAGE_PROVIDER`          | `SUPABASE`                                                        | `R2`                                           |
+| `STORAGE_ENDPOINT`          | `https://<ref>.supabase.co/storage/v1/s3`                         | R2 S3 endpoint (5c)                            |
+| `STORAGE_REGION`            | `ap-south-1`                                                      | `auto`                                         |
+| `STORAGE_FORCE_PATH_STYLE`  | `true`                                                            | (unset)                                        |
+| `STORAGE_BUCKET`            | `agent_assets`                                                    | `klivo-assets-prod`                            |
+| `STORAGE_ACCESS_KEY_ID`     | Supabase S3 key (**SECRET**)                                      | R2 token (**SECRET**)                          |
+| `STORAGE_SECRET_ACCESS_KEY` | Supabase S3 key (**SECRET**)                                      | R2 token (**SECRET**)                          |
+| `STORAGE_PUBLIC_BASE_URL`   | `https://<ref>.supabase.co/storage/v1/object/public/agent_assets` | `https://assets.getklivo.com`                  |
+| `CLERK_ISSUER`              | `https://clerk.app-staging.getklivo.com`                          | `https://clerk.getklivo.com`                   |
+| `CLERK_SECRET_KEY`          | `sk_live_...` (**SECRET**)                                        | `sk_live_...` (**SECRET**)                     |
+| `DASHBOARD_URL`             | `https://app-staging.getklivo.com`                                | `https://app.getklivo.com`                     |
+| `CORS_ORIGIN`               | `https://app-staging.getklivo.com`                                | `https://app.getklivo.com`                     |
+| `AGENT_SECRET_KEY`          | new (**SECRET**)                                                  | new (**SECRET**), copy kept outside Cloud Run  |
+| `INTERNAL_API_SECRET`       | new (**SECRET**)                                                  | new (**SECRET**)                               |
+| `RESEND_API_KEY`            | staging key (**SECRET**)                                          | prod key (**SECRET**)                          |
+| `EMAIL_FROM`                | `Klivo Staging <noreply@staging.mail.getklivo.com>`               | `Klivo <noreply@mail.getklivo.com>`            |
+| `OPENAI_API_KEY`            | staging key (**SECRET**)                                          | prod key (**SECRET**)                          |
+| `GOOGLE_API_KEY`            | only if used, free tier (**SECRET**)                              | only if used, **paid tier** (**SECRET**)       |
+| `SARVAM_API_KEY`            | only if used (**SECRET**)                                         | only if used (**SECRET**)                      |
+| `DEFAULT_AI_MODEL`          | `openai:gpt-4.1-mini`                                             | your choice                                    |
+| `DATA_EXTRACT_POLL_ENABLED` | `false` (cron drives it)                                          | `false`                                        |
+| `SOCKET_IO_REDIS`           | `false`                                                           | `false` while there is one instance            |
+| `REDIS_URL`                 | staging Upstash, Singapore, `rediss://` (**SECRET**)              | prod Upstash, Mumbai, `rediss://` (**SECRET**) |
+| `SENTRY_DSN`                | staging `klivo-api` DSN                                           | `codeweaves` `klivo-api` DSN                   |
+| `SENTRY_ENVIRONMENT`        | `staging`                                                         | `production`                                   |
+| `SENTRY_TRACES_SAMPLE_RATE` | `0.1`                                                             | `0.1`                                          |
+| `EVENT_LOG_RETENTION_DAYS`  | `30`                                                              | `0` (keep, decided)                            |
+| `CHAT_TRACE_RETENTION_DAYS` | `30`                                                              | `90`                                           |
+| `SLACK_ALERTS_WEBHOOK_URL`  | unset (Slack alerts are prod only, decided 2026-11-04)            | `#klivo-alerts` webhook (**SECRET**)           |
+| `HEARTBEAT_URL_*`           | unset                                                             | Better Stack heartbeats (**SECRET**)           |
+| `ENABLE_DEV_ROUTES`         | **unset. Never `true`.**                                          | **unset. Never `true`.**                       |
 
 `CORS_ORIGIN` is easy to miss: it is not in `apps/api/.env.example`, and without it the browser blocks every dashboard call.
 
@@ -508,7 +538,7 @@ Not on the API host: `SUPER_ADMIN_EMAIL`, `SUPER_ADMIN_CLERK_ID`, `DEVELOP_*`. T
 | `NEXT_PUBLIC_CLERK_SIGN_IN_URL`     | `/sign-in`                            | `/sign-in`                    | plain         |
 | `NEXT_PUBLIC_CLERK_SIGN_UP_URL`     | `/sign-up`                            | `/sign-up`                    | plain         |
 | `NEXT_PUBLIC_API_URL`               | `https://api-staging.getklivo.com`    | `https://api.getklivo.com`    | plain         |
-| `NEXT_PUBLIC_SUPABASE_URL`          | staging Project URL                   | prod Project URL              | plain         |
+| `NEXT_PUBLIC_STORAGE_PUBLIC_URL`    | `https://<ref>.supabase.co`           | `https://assets.getklivo.com` | plain         |
 | `NEXT_PUBLIC_WIDGET_URL`            | `https://widget-staging.getklivo.com` | `https://widget.getklivo.com` | plain         |
 | `NEXT_PUBLIC_SENTRY_DSN`            | staging `klivo-web` DSN               | `codeweaves` `klivo-web` DSN  | plain         |
 | `NEXT_PUBLIC_SENTRY_ENVIRONMENT`    | `staging`                             | `production`                  | plain         |
@@ -667,9 +697,9 @@ Not needed for staging. Listed here so prod setup has one checklist. Code items 
 
 - [ ] Supabase **Pro**, daily backups on; run one **restore test**.
 - [ ] Clerk sign-in handles **MFA** (code). Needed for staging too, so it ships before the staging test.
-- [ ] Storage bucket **private** with signed links (code: `supabase-storage.service.ts` uses public links).
+- [ ] Branding images stay public by design (the widget shows them on client sites). Any private file (knowledge documents) goes to a separate private bucket with presigned links (ADR-0023).
 - [ ] Widget **allowed domains default-deny** (code: `widget-cors.middleware.ts` allows every site when the list is empty).
-- [ ] Nightly copy of uploaded files (Supabase backups do not include Storage).
+- [ ] Nightly copy of uploaded files (R2 keeps no backup). `rclone` copies between any two S3 providers.
 - [ ] Better Stack monitors and heartbeats for prod URLs (free plan: 10 heartbeats in total; develop uses 5).
 - [ ] Sentry alert rules (3.3), `SENTRY_ENVIRONMENT=production`.
 - [ ] Slack `#klivo-alerts` webhook + `alerts-run` cron.
