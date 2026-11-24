@@ -438,6 +438,37 @@ describe("PublicChatController", () => {
       );
     });
 
+    it("saves the reply only after the visitor's message, so the transcript keeps its order", async () => {
+      // An instant reply (a guardrail block) finishes before the visitor's
+      // message clears PII redaction. Saved in parallel, the reply got the
+      // earlier timestamp and showed above the question in the Inbox.
+      setupStreamingMocks();
+      let finishUserSave!: () => void;
+      mockChatService.saveUserMessage.mockReturnValue(
+        new Promise((resolve) => {
+          finishUserSave = () => resolve({ id: "user-msg-id" });
+        }),
+      );
+
+      await controller.stream(dto, createMockRequest(), createMockResponse());
+      await new Promise((r) => setImmediate(r));
+      expect(mockChatService.saveAssistantMessage).not.toHaveBeenCalled();
+
+      finishUserSave();
+      await new Promise((r) => setImmediate(r));
+      expect(mockChatService.saveAssistantMessage).toHaveBeenCalledTimes(1);
+    });
+
+    it("still saves the reply when saving the visitor's message fails", async () => {
+      setupStreamingMocks();
+      mockChatService.saveUserMessage.mockRejectedValue(new Error("db down"));
+
+      await controller.stream(dto, createMockRequest(), createMockResponse());
+      await new Promise((r) => setImmediate(r));
+
+      expect(mockChatService.saveAssistantMessage).toHaveBeenCalledTimes(1);
+    });
+
     it("should send done event even when the stream yields no text (P2)", async () => {
       setupStreamingMocks({ chunks: [finishChunk] });
       const req = createMockRequest();
