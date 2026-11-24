@@ -351,7 +351,10 @@ export class PublicChatController {
       // matching the dev test endpoint's pattern. Saves the awaited Supabase
       // round-trip (~300-500ms) before the orchestrator starts.
       const userMessageId = randomUUID();
-      void this.chatService
+      // Settles (never rejects) once the visitor's message is written. The
+      // reply is saved after it: an instant reply (a guardrail block) would
+      // otherwise be written first and show above the question.
+      const userMessageSaved = this.chatService
         .saveUserMessage(
           session,
           dto.chatInput,
@@ -606,13 +609,15 @@ export class PublicChatController {
         // Persist in the background. Errors log but don't leak to the user
         // (the response is already closed at this point). If the write fails,
         // the trace + pino logs still have the response so analytics isn't
-        // blind.
-        void this.chatService
-          .saveAssistantMessage(
-            session,
-            fullResponse,
-            metadata,
-            assistantMessageId,
+        // blind. Written after the visitor's message, so it sorts after it.
+        void userMessageSaved
+          .then(() =>
+            this.chatService.saveAssistantMessage(
+              session,
+              fullResponse,
+              metadata,
+              assistantMessageId,
+            ),
           )
           .catch((err) => {
             this.log.warn(

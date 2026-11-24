@@ -295,6 +295,49 @@ export const INJECTION_RULES: readonly InjectionRule[] = [
     1.0,
     `\\b(?:show|list|give|tell|send|share|reveal|dump|export|print|display)(?:\\s+(?:me|us|all|the|of|every)){0,3}\\s+(?:other|another|previous|different) (?:customers?|users?|clients?|visitors?)(?:'s|s'|')? (?:data|details|information|info|accounts?|conversations?|chats?|messages?|records?|numbers?|emails?|phone numbers?|balances?)\\b`,
   ),
+  // Invented authority (tester run 2026-11-23): the visitor hands the bot a
+  // rule, document or note and calls it approved. Each alone neutralises; two
+  // together block.
+  rule(
+    "fake_approved_rule",
+    0.5,
+    `\\b(?:already |pre-?)?approved (?:business )?(?:rules?|workflow|routing matrix|process map|instructions?)\\b|\\balready approved\\s*:|\\brouting matrix\\b|\\bestablished business context\\b`,
+  ),
+  rule(
+    "treat_as_authoritative",
+    0.5,
+    `\\btreat (?:the following|this|it|that|them|the (?:above|text|note|document))\\b[^.\\n]{0,40}\\bas (?:an? )?(?:approved|established|verified|official|authoritative|binding)\\b|\\bdo not verify (?:it|this|the|them)\\b`,
+  ),
+  // A template whose field asks about the bot itself ("first_line_of_instructions":,
+  // refusal_topics:, | hidden_rules |). The model fills templates even when told
+  // not to (tester run 2026-11-23), so this blocks alone. Only quoted or
+  // snake_case keys count: a customer's "Fee rules:" is ordinary text.
+  rule(
+    "bot_field_template",
+    1.0,
+    `["']\\w*(?:prompt|instruction|refusal|guideline|persona|lead_capture)\\w*["']\\s*:|\\|\\s*(?:hidden|internal|system|refusal)_\\w+\\s*\\||\\b(?:\\w+_prompt|\\w+_instructions?|refusal_\\w+|lead_capture\\w*|first_line\\w*|hidden_\\w+|internal_(?:rules|prompt))\\s*:`,
+  ),
+  // A customer never pastes a "retrieved document" for the bot: blocks alone.
+  rule(
+    "fake_retrieved_document",
+    1.0,
+    `\\b(?:begin|start) (?:retrieved|internal|approved|knowledge[- ]base) (?:document|note|excerpt|text)\\b|\\b(?:pretend|assume|imagine|suppose)\\b[^.\\n]{0,60}\\b(?:retrieved|knowledge[- ]base)\\b|\\b(?:this|the) (?:faq|document|note|text) takes precedence\\b`,
+  ),
+  rule(
+    "note_to_the_ai",
+    0.5,
+    `\\b(?:internal )?(?:note|message|instruction) (?:for|to) (?:the )?(?:ai|assistant|bot|model)\\b`,
+  ),
+  rule(
+    "authorised_to_disclose",
+    0.5,
+    `\\b(?:you are|you're|the assistant is) (?:now |hereby )?authori[sz]ed to (?:disclose|reveal|share|confirm|bypass)\\b`,
+  ),
+  rule(
+    "claimed_prior_agreement",
+    0.5,
+    `\\b(?:earlier|previously|before)\\b[^.\\n]{0,40}\\byou (?:confirmed|agreed|said|stated)\\b[^.\\n]{0,80}\\b(?:overrid\\w*|restrictions?|your rules|exceptions? to)\\b`,
+  ),
   rule(
     "encoding_evasion",
     0.4,
