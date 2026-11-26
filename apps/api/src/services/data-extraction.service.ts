@@ -273,8 +273,14 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
         key: field.key,
         label: field.label,
         jsonType: toJsonType(field.type),
-        description: field.description,
+        description:
+          field.type === "NAME"
+            ? [field.description, NAME_FIELD_HINT].filter(Boolean).join(" ")
+            : field.description,
       }),
+    );
+    const typeByKey = new Map(
+      session.agent.dataFields.map((f) => [f.key, f.type] as const),
     );
 
     // Nothing from the user → nothing of theirs to capture; skip the LLM call.
@@ -308,9 +314,30 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     );
     const values: Record<string, unknown> = {};
     for (const [key, value] of Object.entries(rawValues)) {
-      values[key] =
+      const plain =
         typeof value === "string" ? piiCtx.detokenize(value) : value;
+      if (typeByKey.get(key) === "NAME") {
+        const name = typeof plain === "string" ? personName(plain) : null;
+        if (name === null) {
+          // Visitors type HTML, encoded strings or symbols as a "name" (VAPT,
+          // 2026-11-25). The value itself is never logged.
+          this.logger.warn(
+            `Dropped field "${key}" for session ${chatSessionId}: not a person's name`,
+          );
+          this.internalLog.logCompleted("DATA_FIELD_VALUE_REJECTED", {
+            agentId: session.agentId,
+            sessionId: chatSessionId,
+            organizationId: session.agent.organizationId,
+            metadata: { field: key, type: "NAME", reason: "not_a_person_name" },
+          });
+          continue;
+        }
+        values[key] = name;
+        continue;
+      }
+      values[key] = plain;
     }
+    if (Object.keys(values).length === 0) return "empty";
 
     // Merge over anything captured earlier (latest value wins, e.g. a corrected
     // email), so re-extraction on a resumed conversation never drops fields.
@@ -319,6 +346,16 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     const existing = this.crypto.decryptFieldValues(
       session.collectedData?.data as Record<string, unknown> | null,
     );
+    // A name stored before the NAME check existed may be junk: drop it here so
+    // a re-extraction does not write it back.
+    for (const [key, value] of Object.entries(existing)) {
+      if (
+        typeByKey.get(key) === "NAME" &&
+        (typeof value !== "string" || personName(value) === null)
+      ) {
+        delete existing[key];
+      }
+    }
     const merged = this.crypto.encryptFieldValues({ ...existing, ...values });
 
     // The page where the lead was given (ADR-0020), matched on the RAW
@@ -327,8 +364,11 @@ export class DataExtractionService implements OnModuleInit, OnModuleDestroy {
     // stays put as the chat grows, and it corrects an earlier fallback guess.
     // A fallback guess only fills an empty slot, so a resumed chat never moves
     // a stored page to wherever the visitor went later.
+    const keptRawValues = Object.fromEntries(
+      Object.entries(rawValues).filter(([key]) => key in values),
+    );
     const found = session.agent.capturePageUrl
-      ? findLeadPageUrl(session.messages, rawValues)
+      ? findLeadPageUrl(session.messages, keptRawValues)
       : null;
     const pageUrl =
       found && (found.matched || !session.collectedData?.pageUrl)
@@ -471,6 +511,29 @@ function valueMatcher(value: unknown): Array<(content: string) => boolean> {
 function toJsonType(type: string): ExtractableField["jsonType"] {
   if (type === "NUMBER") return "number";
   if (type === "BOOLEAN") return "boolean";
-  // STRING, EMAIL, PHONE, DATE all serialise as strings.
+  // STRING, NAME, EMAIL, PHONE, DATE all serialise as strings.
   return "string";
+}
+
+/** Extra extractor guidance for NAME fields, after the operator's own hint. */
+const NAME_FIELD_HINT =
+  "The person's own name only, in letters. Return null if what they gave is not a real name (code, HTML, symbols, numbers).";
+
+/**
+ * Letters in any script (Devanagari keeps its combining marks), joined by
+ * spaces, dots, apostrophes or hyphens: "Rahul Mehta", "राहुल", "A. P. J. Kalam",
+ * "D'Souza", "Anne-Marie". Also the curly apostrophe phones type (’, ʼ), the
+ * Unicode hyphen, and the invisible joiners Malayalam and some Indic and
+ * Persian names need (ZWNJ, ZWJ), but never as the first or last character.
+ */
+const PERSON_NAME = /^[\p{L}\p{M}](?:[\p{L}\p{M} .'’ʼ‐-]|‌|‍)*[\p{L}\p{M}.]$/u;
+
+/**
+ * The value as a person's name with spaces tidied, or null when it is not one
+ * (HTML, encoded strings, digits, symbols, or too short or long to be a name).
+ */
+export function personName(value: string): string | null {
+  const name = value.replace(/\s+/g, " ").trim();
+  if (name.length < 2 || name.length > 80) return null;
+  return PERSON_NAME.test(name) ? name : null;
 }

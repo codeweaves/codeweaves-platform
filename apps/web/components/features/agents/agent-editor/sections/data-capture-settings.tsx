@@ -23,6 +23,7 @@ import { FormSection } from "../form-section";
 /** Friendly labels for each stored field type. */
 const TYPE_LABELS: Record<DataFieldType, string> = {
   STRING: "Text",
+  NAME: "Name",
   NUMBER: "Number",
   BOOLEAN: "Yes / No",
   DATE: "Date",

@@ -31,6 +31,7 @@ export const MAX_DATA_FIELD_DESCRIPTION = 500;
 
 export const DATA_FIELD_TYPES = [
   "STRING",
+  "NAME",
   "NUMBER",
   "BOOLEAN",
   "DATE",
