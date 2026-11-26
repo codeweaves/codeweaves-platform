@@ -34,6 +34,10 @@ ADR-0018. Code: `apps/api/src/modules/guardrails/`, called from `DirectChatServi
 
 **Known gap.** The widget sends chat history from the browser, so a visitor can forge earlier bot turns. Turns that score a block are withheld; others are trusted. Forged-history attacks failed in the harness, but history is not verified against the database.
 
+## Lead names (ADR-0025)
+
+**Rule.** A lead field of type `NAME` stores only a person's name: letters in any script, joined by spaces, `.`, `'` (or the curly `’`), or `-`, 2 to 80 characters (`personName` in `data-extraction.service.ts`). Anything else, such as HTML, encoded strings, digits or symbols, is not stored, and the rest of the lead is. Each drop writes a `DATA_FIELD_VALUE_REJECTED` event with the field key and session, never the value. A junk name stored before the check is removed when the chat is re-extracted. Found by Anand Rathi's VAPT (2026-11-25), which typed `<iframe>` and `%253Ch1%253E…` as a name. Output was already safe (the dashboard renders text, the CSV export neutralises formulas); this keeps the lead itself clean.
+
 ## Visitor page URL (ADR-0020)
 
 **Rule.** A page URL in a request is untrusted input. It is stored only through `sanitizePageUrl` (`packages/validation/src/page-url.ts`), only when the agent's `capturePageUrl` switch is on, and only for website widget chats (`ChatService.pageUrlToStore`). Storage code takes the `CleanPageUrl` type, so a raw value cannot be stored.

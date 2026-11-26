@@ -31,6 +31,7 @@ An ADR is not a proposal and not documentation of how the code works. It answers
 | [0022](0022-organization-conversation-limit.md)                 | Organization conversation limit, alert only       | Accepted                                   | 2026-11-14 |
 | [0023](0023-s3-api-object-storage.md)                           | File storage over the S3 API, Cloudflare R2 first | Accepted (local bucket superseded by 0024) | 2026-11-20 |
 | [0024](0024-local-storage-bucket-separate-from-develop.md)      | Local file storage uses its own bucket            | Accepted                                   | 2026-11-24 |
+| [0025](0025-name-type-for-lead-fields.md)                       | A Name type for lead fields                       | Accepted                                   | 2026-11-27 |
 
 ## When to write one
 

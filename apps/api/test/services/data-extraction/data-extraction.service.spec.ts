@@ -3,6 +3,7 @@ import { ConfigService } from "@nestjs/config";
 import {
   DataExtractionService,
   findLeadPageUrl,
+  personName,
 } from "../../../src/services/data-extraction.service";
 import { PrismaService } from "../../../src/services/prisma.service";
 import { AiClassifierService } from "../../../src/common/ai/ai-classifier.service";
@@ -167,6 +168,147 @@ describe("DataExtractionService", () => {
           }),
         }),
       );
+    });
+
+    describe("NAME fields (VAPT 2026-11-25: HTML typed as a name)", () => {
+      const withName = () =>
+        baseSession({
+          agent: {
+            organizationId: "org-1",
+            dataFields: [
+              { key: "name", label: "Name", type: "NAME", description: null },
+              {
+                key: "email",
+                label: "Email",
+                type: "EMAIL",
+                description: null,
+              },
+            ],
+          },
+        });
+
+      it("drops a name that is not a person's name and keeps the rest of the lead", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue(withName());
+        mockAi.extractFields.mockResolvedValue({
+          name: '<iframe src="https://www.google.com"></iframe>',
+          email: "a@b.com",
+        });
+        mockPrisma.collectedData.upsert.mockResolvedValue({});
+
+        expect(await service.extractForSession(sessionId)).toBe("captured");
+        expect(mockPrisma.collectedData.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            create: expect.objectContaining({ data: { email: "a@b.com" } }),
+          }),
+        );
+      });
+
+      it("stores nothing when the only value was a junk name", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue(withName());
+        mockAi.extractFields.mockResolvedValue({
+          name: "%253Ch1%253EHTML%253C%252Fh1%253E",
+        });
+
+        expect(await service.extractForSession(sessionId)).toBe("empty");
+        expect(mockPrisma.collectedData.upsert).not.toHaveBeenCalled();
+      });
+
+      it("stores a real name with its spaces tidied", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue(withName());
+        mockAi.extractFields.mockResolvedValue({ name: "  Rahul   Mehta " });
+        mockPrisma.collectedData.upsert.mockResolvedValue({});
+
+        await service.extractForSession(sessionId);
+        expect(mockPrisma.collectedData.upsert).toHaveBeenCalledWith(
+          expect.objectContaining({
+            create: expect.objectContaining({ data: { name: "Rahul Mehta" } }),
+          }),
+        );
+      });
+
+      it("records the drop in event_logs with the field key, never the value", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue(withName());
+        mockAi.extractFields.mockResolvedValue({
+          name: "<img src=x onerror=alert(1)>",
+          email: "a@b.com",
+        });
+        mockPrisma.collectedData.upsert.mockResolvedValue({});
+        const internalLog = (
+          service as unknown as { internalLog: InternalEventLogger }
+        ).internalLog;
+
+        await service.extractForSession(sessionId);
+        expect(internalLog.logCompleted).toHaveBeenCalledWith(
+          "DATA_FIELD_VALUE_REJECTED",
+          expect.objectContaining({
+            agentId: "agent-1",
+            sessionId,
+            metadata: {
+              field: "name",
+              type: "NAME",
+              reason: "not_a_person_name",
+            },
+          }),
+        );
+        expect(
+          JSON.stringify(jest.mocked(internalLog.logCompleted).mock.calls),
+        ).not.toContain("onerror");
+      });
+
+      it("removes a junk name stored before this check when the chat is re-extracted", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue({
+          ...withName(),
+          collectedData: {
+            data: { name: "<iframe></iframe>", email: "old@b.com" },
+            pageUrl: null,
+          },
+        });
+        mockAi.extractFields.mockResolvedValue({ email: "a@b.com" });
+        mockPrisma.collectedData.upsert.mockResolvedValue({});
+
+        await service.extractForSession(sessionId);
+        const arg = mockPrisma.collectedData.upsert.mock.calls[0][0];
+        expect(arg.update.data).toEqual({ email: "a@b.com" });
+      });
+
+      it("takes the lead's page from a kept value, not from the dropped junk name", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue(
+          baseSession({
+            agent: { ...withName().agent, capturePageUrl: true },
+            messages: [
+              {
+                role: "USER",
+                content: "my name is <iframe></iframe>",
+                pageUrl: "https://s.com/pricing",
+              },
+              {
+                role: "USER",
+                content: "email a@b.com",
+                pageUrl: "https://s.com/contact",
+              },
+            ],
+          }),
+        );
+        mockAi.extractFields.mockResolvedValue({
+          name: "<iframe></iframe>",
+          email: "a@b.com",
+        });
+        mockPrisma.collectedData.upsert.mockResolvedValue({});
+
+        await service.extractForSession(sessionId);
+        const arg = mockPrisma.collectedData.upsert.mock.calls[0][0];
+        expect(arg.create.pageUrl).toBe("https://s.com/contact");
+      });
+
+      it("tells the extractor a NAME field is the person's own name", async () => {
+        mockPrisma.chatSession.findUnique.mockResolvedValue(withName());
+        mockAi.extractFields.mockResolvedValue({});
+
+        await service.extractForSession(sessionId);
+        const fields = mockAi.extractFields.mock.calls[0][1];
+        expect(fields[0].description).toMatch(/person's own name/);
+        expect(fields[1].description).toBeNull();
+      });
     });
 
     it("merges new values over previously captured data", async () => {
@@ -705,5 +847,36 @@ describe("findLeadPageUrl (ADR-0020)", () => {
     expect(
       findLeadPageUrl([user("a@b.com", null)], { email: "a@b.com" }),
     ).toBeNull();
+  });
+});
+
+describe("personName", () => {
+  it.each([
+    ["Rahul Mehta", "Rahul Mehta"],
+    ["राहुल शर्मा", "राहुल शर्मा"],
+    ["A. P. J. Kalam", "A. P. J. Kalam"],
+    ["Anne-Marie D'Souza", "Anne-Marie D'Souza"],
+    ["  Priya   Shah ", "Priya Shah"],
+    // iOS and macOS type a curly apostrophe by default.
+    ["Anne D’Souza", "Anne D’Souza"],
+    // Malayalam (and some Indic and Persian names) use an invisible joiner.
+    ["നിര്‍മ്മല", "നിര്‍മ്മല"],
+  ])("keeps a real name: %s", (input, expected) => {
+    expect(personName(input)).toBe(expected);
+  });
+
+  it.each([
+    '<iframe src="https://www.google.com" title="test"></iframe>',
+    "<img src=x onerror=alert(1)>",
+    "%253Ch1%253EHTML%253C%252Fh1%253E",
+    "123<h1>HTML</h1>123",
+    "Rahul123",
+    "9930973651",
+    "javascript:alert(1)",
+    "@rahul",
+    "R",
+    "x".repeat(81),
+  ])("rejects: %s", (input) => {
+    expect(personName(input)).toBeNull();
   });
 });

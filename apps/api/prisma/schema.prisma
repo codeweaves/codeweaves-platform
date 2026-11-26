@@ -34,6 +34,8 @@ enum AgentStatus {
 
 enum DataFieldType {
   STRING
+  /// A person's own name. Extracted values must look like a name (ADR-0025).
+  NAME
   NUMBER
   BOOLEAN
   DATE
